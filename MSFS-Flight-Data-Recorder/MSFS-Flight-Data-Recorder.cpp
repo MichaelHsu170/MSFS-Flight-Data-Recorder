@@ -18,18 +18,182 @@ static enum GROUP_ID {
 	GROUP_1,
 };
 static enum EVENT_ID {
-	EVENT_PAUSE,
 	EVENT_SIM,
+	EVENT_PAUSE,
 	EVENT_CRASHED,
-	EVENT_BRAKES,
-	EVENT_MASTER_BATTERY_ON,
-	EVENT_MASTER_BATTERY_OFF,
-	EVENT_BEACON_LIGHTS_ON,
-	EVENT_BEACON_LIGHTS_OFF,
-	EVENT_APU_BLEED_AIR_SOURCE_SET,
+	EVENT_AP_AIRSPEED_HOLD,
+	EVENT_AP_AIRSPEED_OFF,
+	EVENT_AP_AIRSPEED_ON,
+	EVENT_AP_ALT_HOLD,
+	EVENT_AP_ALT_HOLD_OFF,
+	EVENT_AP_ALT_HOLD_ON,
+	EVENT_AP_APR_HOLD,
+	EVENT_AP_APR_HOLD_OFF,
+	EVENT_AP_APR_HOLD_ON,
+	EVENT_AP_HDG_HOLD,
+	EVENT_AP_HDG_HOLD_OFF,
+	EVENT_AP_HDG_HOLD_ON,
+	EVENT_AP_MACH_HOLD,
+	EVENT_AP_MACH_OFF,
+	EVENT_AP_MACH_ON,
+	EVENT_AP_MASTER,
+	EVENT_AP_PANEL_ALTITUDE_HOLD,
+	EVENT_AP_PANEL_ALTITUDE_OFF,
+	EVENT_AP_PANEL_ALTITUDE_ON,
+	EVENT_AP_PANEL_HEADING_HOLD,
+	EVENT_AP_PANEL_HEADING_OFF,
+	EVENT_AP_PANEL_HEADING_ON,
+	EVENT_AP_PANEL_MACH_HOLD,
+	EVENT_AP_PANEL_MACH_OFF,
+	EVENT_AP_PANEL_MACH_ON,
+	EVENT_AP_PANEL_SPEED_HOLD,
+	EVENT_AP_PANEL_SPEED_OFF,
+	EVENT_AP_PANEL_SPEED_ON,
+	EVENT_AP_PANEL_VS_OFF,
+	EVENT_AP_PANEL_VS_ON,
+	EVENT_AP_PANEL_VS_HOLD,
+	EVENT_AP_VS_HOLD,
+	EVENT_AP_VS_OFF,
+	EVENT_AP_VS_ON,
+	EVENT_AP_PANEL_SPEED_HOLD_TOGGLE,
+	EVENT_AP_PANEL_MACH_HOLD_TOGGLE,
+	EVENT_AUTOPILOT_DISENGAGE_TOGGLE,
+	EVENT_AUTOPILOT_OFF,
+	EVENT_AUTOPILOT_ON,
+	EVENT_AUTOPILOT_PANEL_AIRSPEED_SET,
+	EVENT_FLIGHT_LEVEL_CHANGE,
+	EVENT_FLIGHT_LEVEL_CHANGE_OFF,
+	EVENT_FLIGHT_LEVEL_CHANGE_ON,
+	EVENT_AUTO_THROTTLE_ARM,
+	EVENT_AUTO_THROTTLE_TO_GA,
+	EVENT_AUTOBRAKE_DISARM,
+	EVENT_AUTOBRAKE_HI_SET,
+	EVENT_AUTOBRAKE_LO_SET,
+	EVENT_AUTOBRAKE_MED_SET,
+	EVENT_GPWS_SWITCH_TOGGLE,
+	EVENT_TOGGLE_FLIGHT_DIRECTOR,
+	EVENT_APU_BLEED_AIR_SOURCE_TOGGLE,
 	EVENT_APU_GENERATOR_SWITCH_TOGGLE,
 	EVENT_APU_OFF_SWITCH,
 	EVENT_APU_STARTER,
+	EVENT_ANTI_ICE_ON,
+	EVENT_ANTI_ICE_OFF,
+	EVENT_ANTI_ICE_TOGGLE,
+	EVENT_ANTI_ICE_TOGGLE_ENG1,
+	EVENT_ANTI_ICE_TOGGLE_ENG2,
+	EVENT_THROTTLE_REVERSE_THRUST_TOGGLE,
+	EVENT_FLAPS_DECR,
+	EVENT_FLAPS_DOWN,
+	EVENT_FLAPS_INCR,
+	EVENT_FLAPS_UP,
+	EVENT_SPOILERS_ARM_OFF,
+	EVENT_SPOILERS_ARM_ON,
+	EVENT_SPOILERS_ARM_TOGGLE,
+	EVENT_SPOILERS_OFF,
+	EVENT_SPOILERS_ON,
+	EVENT_SPOILERS_TOGGLE,
+	EVENT_CROSS_FEED_TOGGLE,
+	EVENT_BRAKES,
+	EVENT_GEAR_DOWN,
+	EVENT_GEAR_EMERGENCY_HANDLE_TOGGLE,
+	EVENT_GEAR_TOGGLE,
+	EVENT_GEAR_UP,
+	EVENT_PARKING_BRAKES,
+	EVENT_CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE,
+	EVENT_CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE,
+	EVENT_WINDSHIELD_DEICE_OFF,
+	EVENT_WINDSHIELD_DEICE_ON,
+	EVENT_WINDSHIELD_DEICE_TOGGLE,
+	EVENT_TOGGLE_AVIONICS_MASTER,
+};
+static const char* EVENT_ID_TXT[] = {
+	"SIM",
+	"PAUSE",
+	"CRASHED",
+	"AP_AIRSPEED_HOLD",
+	"AP_AIRSPEED_OFF",
+	"AP_AIRSPEED_ON",
+	"AP_ALT_HOLD",
+	"AP_ALT_HOLD_OFF",
+	"AP_ALT_HOLD_ON",
+	"AP_APR_HOLD",
+	"AP_APR_HOLD_OFF",
+	"AP_APR_HOLD_ON",
+	"AP_HDG_HOLD",
+	"AP_HDG_HOLD_OFF",
+	"AP_HDG_HOLD_ON",
+	"AP_MACH_HOLD",
+	"AP_MACH_OFF",
+	"AP_MACH_ON",
+	"AP_MASTER",
+	"AP_PANEL_ALTITUDE_HOLD",
+	"AP_PANEL_ALTITUDE_OFF",
+	"AP_PANEL_ALTITUDE_ON",
+	"AP_PANEL_HEADING_HOLD",
+	"AP_PANEL_HEADING_OFF",
+	"AP_PANEL_HEADING_ON",
+	"AP_PANEL_MACH_HOLD",
+	"AP_PANEL_MACH_OFF",
+	"AP_PANEL_MACH_ON",
+	"AP_PANEL_SPEED_HOLD",
+	"AP_PANEL_SPEED_OFF",
+	"AP_PANEL_SPEED_ON",
+	"AP_PANEL_VS_OFF",
+	"AP_PANEL_VS_ON",
+	"AP_PANEL_VS_HOLD",
+	"AP_VS_HOLD",
+	"AP_VS_OFF",
+	"AP_VS_ON",
+	"AP_PANEL_SPEED_HOLD_TOGGLE",
+	"AP_PANEL_MACH_HOLD_TOGGLE",
+	"AUTOPILOT_DISENGAGE_TOGGLE",
+	"AUTOPILOT_OFF",
+	"AUTOPILOT_ON",
+	"AUTOPILOT_PANEL_AIRSPEED_SET",
+	"FLIGHT_LEVEL_CHANGE",
+	"FLIGHT_LEVEL_CHANGE_OFF",
+	"FLIGHT_LEVEL_CHANGE_ON",
+	"AUTO_THROTTLE_ARM",
+	"AUTO_THROTTLE_TO_GA",
+	"AUTOBRAKE_DISARM",
+	"AUTOBRAKE_HI_SET",
+	"AUTOBRAKE_LO_SET",
+	"AUTOBRAKE_MED_SET",
+	"GPWS_SWITCH_TOGGLE",
+	"TOGGLE_FLIGHT_DIRECTOR",
+	"APU_BLEED_AIR_SOURCE_TOGGLE",
+	"APU_GENERATOR_SWITCH_TOGGLE",
+	"APU_OFF_SWITCH",
+	"APU_STARTER",
+	"ANTI_ICE_ON",
+	"ANTI_ICE_OFF",
+	"ANTI_ICE_TOGGLE",
+	"ANTI_ICE_TOGGLE_ENG1",
+	"ANTI_ICE_TOGGLE_ENG2",
+	"THROTTLE_REVERSE_THRUST_TOGGLE",
+	"FLAPS_DECR",
+	"FLAPS_DOWN",
+	"FLAPS_INCR",
+	"FLAPS_UP",
+	"SPOILERS_ARM_OFF",
+	"SPOILERS_ARM_ON",
+	"SPOILERS_ARM_TOGGLE",
+	"SPOILERS_OFF",
+	"SPOILERS_ON",
+	"SPOILERS_TOGGLE",
+	"CROSS_FEED_TOGGLE",
+	"BRAKES",
+	"GEAR_DOWN",
+	"GEAR_EMERGENCY_HANDLE_TOGGLE",
+	"GEAR_TOGGLE",
+	"GEAR_UP",
+	"PARKING_BRAKES",
+	"CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE",
+	"CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE",
+	"WINDSHIELD_DEICE_OFF",
+	"WINDSHIELD_DEICE_ON",
+	"WINDSHIELD_DEICE_TOGGLE",
+	"TOGGLE_AVIONICS_MASTER"
 };
 
 // Data
@@ -735,14 +899,29 @@ static const char* DATABASE_TABLE_FIELDS[] = {
 	"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
 	"trip INTEGER NOT NULL,"
 	"event VARCHAR(32) NOT NULL,"
-	"departure_zulu_time VARCHAR(32) NOT NULL,"
-	"departure_local_time VARCHAR(32) NOT NULL,"
-	"destination_zulu_time VARCHAR(32) NOT NULL,"
-	"destination_local_time VARCHAR(32) NOT NULL",
+	"time_zulu VARCHAR(32) NOT NULL,"
+	"time_local VARCHAR(32) NOT NULL"
 };
 
 // Generic
 // Data Types
+	//pS->zulu_year, pS->zulu_month_of_year, pS->zulu_day_of_month, pS->zulu_time, 0, pS->zulu_day_of_week
+struct DATETIME {
+	int year = 0;
+	int month_of_year = 0;
+	int day_of_month = 0;
+	double time_day = 0;
+	int day_of_week = 0;
+	double timezone_offset = 0;
+};
+
+struct EVENT_DB {
+	char event[32];
+	struct DATETIME time_zulu;
+	struct DATETIME time_local;
+	struct EVENT_DB* next;
+};
+
 static enum COORDINATE_CAT {
 	LATITUDE,
 	LONGITUDE,
@@ -777,6 +956,8 @@ struct FLIGHT_DATA {
 	double pitch = 0;
 	double bank = 0;
 	struct COORDINATE coordinate;
+	struct DATETIME time_zulu;
+	struct DATETIME time_local;
 	struct FLIGHT_DATA* next = NULL;
 };
 
@@ -786,11 +967,16 @@ struct STATUS {
 	bool paused = FALSE;
 	bool recording = FALSE;
 	bool quit = FALSE;
-	struct DATA_A320* q_db_start = NULL;
-	struct DATA_A320* q_db_end = NULL;
-	struct DATA_A320* q_end = NULL;
-	struct DATA_A320* q_last = NULL;
-	int q_db_length = 0;
+	struct DATA_A320* q_data_db_start = NULL;
+	struct DATA_A320* q_data_db_end = NULL;
+	struct DATA_A320* q_data_end = NULL;
+	struct DATA_A320* q_data_last = NULL;
+	int q_data_db_length = 0;
+	struct EVENT_DB* q_event_db_start = NULL;
+	struct EVENT_DB* q_event_db_end = NULL;
+	struct EVENT_DB* q_event_end = NULL;
+	struct EVENT_DB* q_event_last = NULL;
+	int q_event_db_length = 0;
 	HANDLE hSimConnect = NULL;
 	sqlite3* sql = NULL;
 	int id_trip = 0;
@@ -958,14 +1144,14 @@ void db_bind(
 void db_query_table(
 	sqlite3* sql,
 	const char* stmt_txt,
-	struct DATA_A320* pS,
+	void* data,
 	struct STATUS* status,
 	void* aux_in,
 	void* aux_out,
 	void (*func_set_stmt)(
 		sqlite3_stmt* stmt,
 		const char* stmt_txt,
-		struct DATA_A320* pS,
+		void* data,
 		struct STATUS* status,
 		void* aux
 		),
@@ -982,7 +1168,7 @@ void db_query_table(
 	if (sql_ret)
 		db_error(stmt_txt, sql_ret, NULL);
 	if (func_set_stmt != NULL)
-		func_set_stmt(stmt, stmt_txt, pS, status, aux_in);
+		func_set_stmt(stmt, stmt_txt, data, status, aux_in);
 	while (sqlite3_step(stmt) == SQLITE_ROW)
 		func_retrieve_data(stmt, stmt_txt, status, aux_out);
 	sqlite3_reset(stmt);
@@ -995,13 +1181,13 @@ void db_query_table(
 
 void db_insert_update_table(sqlite3* sql,
 	const char* stmt_txt,
-	struct DATA_A320* pS,
+	void* data,
 	struct STATUS* status,
 	void* aux,
 	void (*func)(
 		sqlite3_stmt* stmt,
 		const char* stmt_txt,
-		struct DATA_A320* pS,
+		void* data,
 		struct STATUS* status,
 		void* aux)
 ) {
@@ -1014,7 +1200,7 @@ void db_insert_update_table(sqlite3* sql,
 	sql_ret = sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, NULL);
 	if (sql_ret)
 		db_error(stmt_txt, sql_ret, NULL);
-	func(stmt, stmt_txt, pS, status, aux);
+	func(stmt, stmt_txt, data, status, aux);
 	sql_ret = sqlite3_step(stmt);
 	sql_ret = sqlite3_reset(stmt);
 	if (sql_ret)
@@ -1028,11 +1214,11 @@ void db_insert_update_table(sqlite3* sql,
 }
 
 // Insert data to database
-void db_consume(
+void db_data_consume(
 	STATUS* status
 ) {
-	while (status->q_db_start != NULL) {
-		struct DATA_A320* pS = status->q_db_start;
+	while (status->q_data_db_start != NULL) {
+		struct DATA_A320* pS = status->q_data_db_start;
 		db_insert_update_table(status->sql,
 			"INSERT INTO trip_data ("
 			"trip,"
@@ -1185,7 +1371,8 @@ void db_consume(
 			pS,
 			status,
 			NULL,
-			[](sqlite3_stmt* stmt, const char* stmt_txt, struct DATA_A320* pS, struct STATUS* status, void* aux) {
+			[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+				struct DATA_A320* pS = (struct DATA_A320*)data;
 				int bool_group_1 = 0;
 				int bool_group_2 = 0;
 				int bool_group_3 = 0;
@@ -1538,22 +1725,80 @@ void db_consume(
 				db_bind(stmt, stmt_txt, 146, time_local);
 			});
 		bool fBreak = FALSE;
-		if (status->q_db_start == status->q_db_end)
+		if (status->q_data_db_start == status->q_data_db_end)
 			fBreak = TRUE;
-		status->q_db_start = status->q_db_start->next;
-		if (status->q_db_start == NULL) {
-			if (status->q_last != NULL)
-				free(status->q_last);
-			status->q_last = pS;
+		status->q_data_db_start = status->q_data_db_start->next;
+		if (status->q_data_db_start == NULL) {
+			if (status->q_data_last != NULL)
+				free(status->q_data_last);
+			status->q_data_last = pS;
 		}
 		else
 			free(pS);
 		if (fBreak)
 			break;
 	}
-	if (status->q_db_start == NULL) {
-		status->q_end = NULL;
-		status->q_db_end = NULL;
+	if (status->q_data_db_start == NULL) {
+		status->q_data_end = NULL;
+		status->q_data_db_end = NULL;
+	}
+}
+void db_event_consume(
+	STATUS* status
+) {
+	while (status->q_event_db_start != NULL) {
+		struct EVENT_DB* pS = status->q_event_db_start;
+		db_insert_update_table(
+			status->sql,
+			"INSERT INTO trip_events ("
+			"trip,"
+			"event,"
+			"time_zulu,"
+			"time_local"
+			") VALUES (?,?,?,?)",
+			pS,
+			status,
+			NULL,
+			[](
+				sqlite3_stmt* stmt,
+				const char* stmt_txt,
+				void* data,
+				struct STATUS* status,
+				void* aux
+				) {
+					struct EVENT_DB* pS = (struct EVENT_DB*)data;
+					std::string str_time_zulu = format_date_time(pS->time_zulu.year, pS->time_zulu.month_of_year, pS->time_zulu.day_of_month, pS->time_zulu.time_day, 0, pS->time_zulu.day_of_week);
+					std::string str_time_local = format_date_time(pS->time_local.year, pS->time_local.month_of_year, pS->time_local.day_of_month, pS->time_local.time_day, pS->time_local.timezone_offset, pS->time_local.day_of_week);
+					char time_zulu[32];
+					memset(time_zulu, 0, sizeof(time_zulu));
+					memcpy(time_zulu, str_time_zulu.c_str(), str_time_zulu.length());
+					char time_local[32];
+					memset(time_local, 0, sizeof(time_local));
+					memcpy(time_local, str_time_local.c_str(), str_time_local.length());
+
+					db_bind(stmt, stmt_txt, 1, status->id_trip);
+					db_bind(stmt, stmt_txt, 2, pS->event);
+					db_bind(stmt, stmt_txt, 3, time_zulu);
+					db_bind(stmt, stmt_txt, 4, time_local);
+			}
+		);
+		bool fBreak = FALSE;
+		if (status->q_event_db_start == status->q_event_db_end)
+			fBreak = TRUE;
+		status->q_event_db_start = status->q_event_db_start->next;
+		if (status->q_event_db_start == NULL) {
+			if (status->q_event_last != NULL)
+				free(status->q_event_last);
+			status->q_event_last = pS;
+		}
+		else
+			free(pS);
+		if (fBreak)
+			break;
+	}
+	if (status->q_event_db_start == NULL) {
+		status->q_event_end = NULL;
+		status->q_event_db_end = NULL;
 	}
 }
 
@@ -1564,16 +1809,17 @@ void stop_recording(
 	db_insert_update_table(
 		status->sql,
 		"UPDATE trips SET destination_latitude=?,destination_longitude=?,destination_zulu_time=?,destination_local_time=? WHERE id=?;",
-		status->q_end == NULL ? status->q_last : status->q_end,
+		status->q_data_end == NULL ? status->q_data_last : status->q_data_end,
 		status,
 		NULL,
 		[](
 			sqlite3_stmt* stmt,
 			const char* stmt_txt,
-			struct DATA_A320* pS,
+			void* data,
 			struct STATUS* status,
 			void* aux
 			) {
+				struct DATA_A320* pS = (struct DATA_A320*)data;
 				std::string str_time_zulu = format_date_time(pS->zulu_year, pS->zulu_month_of_year, pS->zulu_day_of_month, pS->zulu_time, 0, pS->zulu_day_of_week);
 				std::string str_time_local = format_date_time(pS->local_year, pS->local_month_of_year, pS->local_day_of_month, pS->local_time, pS->time_zone_offset, pS->local_day_of_week);
 				char time_zulu[32];
@@ -1589,12 +1835,19 @@ void stop_recording(
 				db_bind(stmt, stmt_txt, 5, status->id_trip);
 		}
 	);
-	std::thread thd_db_consume(db_consume, status);
-	thd_db_consume.join();
-	if (status->q_last != NULL) {
-		free(status->q_last);
-		status->q_last = NULL;
+	std::thread thd_d(db_data_consume, status);
+	thd_d.join();
+	if (status->q_data_last != NULL) {
+		free(status->q_data_last);
+		status->q_data_last = NULL;
 	}
+	std::thread thd_e(db_event_consume, status);
+	thd_e.join();
+	if (status->q_event_last != NULL) {
+		free(status->q_event_last);
+		status->q_event_last = NULL;
+	}
+	status->id_trip = 0;
 	printf("Recording Stopped.\n");
 
 	if (status->touchdown_data != NULL) {
@@ -1630,9 +1883,6 @@ void CALLBACK MyDispatchProc(
 	{
 		SIMCONNECT_RECV_EVENT* evt = (SIMCONNECT_RECV_EVENT*)pData;
 		switch (evt->uEventID) {
-		case EVENT_PAUSE:
-			status->paused = (bool)evt->dwData;
-			break;
 		case EVENT_SIM:
 			status->sim_running = (bool)evt->dwData;
 			if (!status->sim_running && status->in_sim) {
@@ -1641,29 +1891,118 @@ void CALLBACK MyDispatchProc(
 					stop_recording(status);
 			}
 			break;
+		case EVENT_PAUSE:
+			status->paused = (bool)evt->dwData;
+			break;
 		case EVENT_CRASHED:
-			printf("Crashed\n");
-			break;
-		case EVENT_MASTER_BATTERY_ON:
-			printf("EVENT_MASTER_BATTERY_ON\n");
-			break;
-		case EVENT_MASTER_BATTERY_OFF:
-			printf("EVENT_MASTER_BATTERY_OFF\n");
-			break;
-		case EVENT_BRAKES:
 			//printf("EVENT_BRAKES: %ld\n", evt->dwData);
 			break;
-		case EVENT_APU_BLEED_AIR_SOURCE_SET:
-			printf("EVENT_APU_BLEED_AIR_SOURCE_SET: %ld\n", evt->dwData);
-			break;
+		case EVENT_BRAKES:
+		case EVENT_AP_AIRSPEED_HOLD:
+		case EVENT_AP_AIRSPEED_OFF:
+		case EVENT_AP_AIRSPEED_ON:
+		case EVENT_AP_ALT_HOLD:
+		case EVENT_AP_ALT_HOLD_OFF:
+		case EVENT_AP_ALT_HOLD_ON:
+		case EVENT_AP_APR_HOLD:
+		case EVENT_AP_APR_HOLD_OFF:
+		case EVENT_AP_APR_HOLD_ON:
+		case EVENT_AP_HDG_HOLD:
+		case EVENT_AP_HDG_HOLD_OFF:
+		case EVENT_AP_HDG_HOLD_ON:
+		case EVENT_AP_MACH_HOLD:
+		case EVENT_AP_MACH_OFF:
+		case EVENT_AP_MACH_ON:
+		case EVENT_AP_MASTER:
+		case EVENT_AP_PANEL_ALTITUDE_HOLD:
+		case EVENT_AP_PANEL_ALTITUDE_OFF:
+		case EVENT_AP_PANEL_ALTITUDE_ON:
+		case EVENT_AP_PANEL_HEADING_HOLD:
+		case EVENT_AP_PANEL_HEADING_OFF:
+		case EVENT_AP_PANEL_HEADING_ON:
+		case EVENT_AP_PANEL_MACH_HOLD:
+		case EVENT_AP_PANEL_MACH_OFF:
+		case EVENT_AP_PANEL_MACH_ON:
+		case EVENT_AP_PANEL_SPEED_HOLD:
+		case EVENT_AP_PANEL_SPEED_OFF:
+		case EVENT_AP_PANEL_SPEED_ON:
+		case EVENT_AP_PANEL_VS_OFF:
+		case EVENT_AP_PANEL_VS_ON:
+		case EVENT_AP_PANEL_VS_HOLD:
+		case EVENT_AP_VS_HOLD:
+		case EVENT_AP_VS_OFF:
+		case EVENT_AP_VS_ON:
+		case EVENT_AP_PANEL_SPEED_HOLD_TOGGLE:
+		case EVENT_AP_PANEL_MACH_HOLD_TOGGLE:
+		case EVENT_AUTOPILOT_DISENGAGE_TOGGLE:
+		case EVENT_AUTOPILOT_OFF:
+		case EVENT_AUTOPILOT_ON:
+		case EVENT_AUTOPILOT_PANEL_AIRSPEED_SET:
+		case EVENT_FLIGHT_LEVEL_CHANGE:
+		case EVENT_FLIGHT_LEVEL_CHANGE_OFF:
+		case EVENT_FLIGHT_LEVEL_CHANGE_ON:
+		case EVENT_AUTO_THROTTLE_ARM:
+		case EVENT_AUTO_THROTTLE_TO_GA:
+		case EVENT_AUTOBRAKE_DISARM:
+		case EVENT_AUTOBRAKE_HI_SET:
+		case EVENT_AUTOBRAKE_LO_SET:
+		case EVENT_AUTOBRAKE_MED_SET:
+		case EVENT_GPWS_SWITCH_TOGGLE:
+		case EVENT_TOGGLE_FLIGHT_DIRECTOR:
+		case EVENT_APU_BLEED_AIR_SOURCE_TOGGLE:
 		case EVENT_APU_GENERATOR_SWITCH_TOGGLE:
-			printf("EVENT_APU_GENERATOR_SWITCH_TOGGLE\n");
-			break;
 		case EVENT_APU_OFF_SWITCH:
-			printf("EVENT_APU_OFF_SWITCH\n");
-			break;
 		case EVENT_APU_STARTER:
-			printf("EVENT_APU_STARTER\n");
+		case EVENT_ANTI_ICE_ON:
+		case EVENT_ANTI_ICE_OFF:
+		case EVENT_ANTI_ICE_TOGGLE:
+		case EVENT_ANTI_ICE_TOGGLE_ENG1:
+		case EVENT_ANTI_ICE_TOGGLE_ENG2:
+		case EVENT_THROTTLE_REVERSE_THRUST_TOGGLE:
+		case EVENT_FLAPS_DECR:
+		case EVENT_FLAPS_DOWN:
+		case EVENT_FLAPS_INCR:
+		case EVENT_FLAPS_UP:
+		case EVENT_SPOILERS_ARM_OFF:
+		case EVENT_SPOILERS_ARM_ON:
+		case EVENT_SPOILERS_ARM_TOGGLE:
+		case EVENT_SPOILERS_OFF:
+		case EVENT_SPOILERS_ON:
+		case EVENT_SPOILERS_TOGGLE:
+		case EVENT_CROSS_FEED_TOGGLE:
+		case EVENT_GEAR_DOWN:
+		case EVENT_GEAR_EMERGENCY_HANDLE_TOGGLE:
+		case EVENT_GEAR_TOGGLE:
+		case EVENT_GEAR_UP:
+		case EVENT_PARKING_BRAKES:
+		case EVENT_CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE:
+		case EVENT_CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE:
+		case EVENT_WINDSHIELD_DEICE_OFF:
+		case EVENT_WINDSHIELD_DEICE_ON:
+		case EVENT_WINDSHIELD_DEICE_TOGGLE:
+		case EVENT_TOGGLE_AVIONICS_MASTER:
+			if (status->id_trip > 0) {
+				struct EVENT_DB* pS = (struct EVENT_DB*)malloc(sizeof(struct EVENT_DB));
+				memset(pS, 0, sizeof(struct EVENT_DB));
+				memcpy(pS->event, EVENT_ID_TXT[evt->uEventID], strlen(EVENT_ID_TXT[evt->uEventID]));
+				pS->time_zulu = status->data.time_zulu;
+				pS->time_local = status->data.time_local;
+				if (status->q_event_end == NULL)
+					status->q_event_end = pS;
+				else {
+					status->q_event_end->next = pS;
+					status->q_event_end = pS;
+				}
+				status->q_event_db_length++;
+				if (status->q_event_db_start == NULL)
+					status->q_event_db_start = pS;
+				if (status->q_event_db_length == Q_DB_LENGTH) {
+					status->q_event_db_end = pS;
+					status->q_event_db_length = 0;
+					std::thread thd(db_event_consume, status);
+					thd.detach();
+				}
+			}
 			break;
 		default:
 			printf("Unkown Event: %ld\n", evt->uEventID);
@@ -1711,10 +2050,11 @@ void CALLBACK MyDispatchProc(
 							[](
 								sqlite3_stmt* stmt,
 								const char* stmt_txt,
-								struct DATA_A320* pS,
+								void* data,
 								struct STATUS* status,
 								void* aux
 								) {
+									struct DATA_A320* pS = (struct DATA_A320*)data;
 									std::string str_time_zulu = format_date_time(pS->zulu_year, pS->zulu_month_of_year, pS->zulu_day_of_month, pS->zulu_time, 0, pS->zulu_day_of_week);
 									std::string str_time_local = format_date_time(pS->local_year, pS->local_month_of_year, pS->local_day_of_month, pS->local_time, pS->time_zone_offset, pS->local_day_of_week);
 									char time_zulu[32];
@@ -1792,37 +2132,49 @@ void CALLBACK MyDispatchProc(
 					struct FLIGHT_DATA* cur = status->touchdown_data_end;
 					std::string lat = coordinate_decimal_to_dms(cur->coordinate.latitude, LATITUDE);
 					std::string lon = coordinate_decimal_to_dms(cur->coordinate.longitude, LONGITUDE);
-					printf("speed   v-speed g-force pitch   bank    heading   latitude   longitude\n");
-					printf("  %03d\t  %03d\t  %.1f\t%+3.1f\t%+3.1f\t  %03d\t%s\t%s\n", cur->speed, cur->vertical_speed, cur->g_force, cur->pitch, cur->bank, cur->heading, lat.c_str(), lon.c_str());
+					printf("speed   v-speed g-force pitch   bank    heading   latitude        longitude\n");
+					printf("  %03d\t  %03d\t  %.1f\t%+3.1f\t%+3.1f\t  %03d\t %s\t%s\n", cur->speed, cur->vertical_speed, cur->g_force, cur->pitch, cur->bank, cur->heading, lat.c_str(), lon.c_str());
 				}
-				
-				status->airborne = !(bool)pS->sim_on_ground;
-				status->data.altitude = pS->plane_altitude;
-				status->data.heading = pS->plane_heading_degrees_magnetic;
-				status->data.speed = pS->airspeed_indicated;
-				status->data.vertical_speed = pS->vertical_speed;
-				status->data.bank = pS->plane_bank_degrees;
-				status->data.pitch = pS->plane_pitch_degrees;
-				status->data.g_force = pS->g_force;
-				status->data.coordinate.latitude = pS->plane_latitude;
-				status->data.coordinate.longitude = pS->plane_longitude;
 
-				if (status->q_end == NULL)
-					status->q_end = pS;
+				status->airborne = !(bool)pS->sim_on_ground;
+
+				if (status->q_data_end == NULL)
+					status->q_data_end = pS;
 				else {
-					status->q_end->next = pS;
-					status->q_end = pS;
+					status->q_data_end->next = pS;
+					status->q_data_end = pS;
 				}
-				status->q_db_length++;
-				if (status->q_db_start == NULL)
-					status->q_db_start = pS;
-				if (status->q_db_length == Q_DB_LENGTH) {
-					status->q_db_end = pS;
-					status->q_db_length = 0;
-					std::thread thd_db_consume(db_consume, status);
-					thd_db_consume.detach();
+				status->q_data_db_length++;
+				if (status->q_data_db_start == NULL)
+					status->q_data_db_start = pS;
+				if (status->q_data_db_length == Q_DB_LENGTH) {
+					status->q_data_db_end = pS;
+					status->q_data_db_length = 0;
+					std::thread thd(db_data_consume, status);
+					thd.detach();
 				}
 			}
+			status->data.altitude = tmp->plane_altitude;
+			status->data.heading = tmp->plane_heading_degrees_magnetic;
+			status->data.speed = tmp->airspeed_indicated;
+			status->data.vertical_speed = tmp->vertical_speed;
+			status->data.bank = tmp->plane_bank_degrees;
+			status->data.pitch = tmp->plane_pitch_degrees;
+			status->data.g_force = tmp->g_force;
+			status->data.coordinate.latitude = tmp->plane_latitude;
+			status->data.coordinate.longitude = tmp->plane_longitude;
+			status->data.time_zulu.year = tmp->zulu_year;
+			status->data.time_zulu.month_of_year = tmp->zulu_month_of_year;
+			status->data.time_zulu.day_of_month = tmp->zulu_day_of_month;
+			status->data.time_zulu.day_of_week = tmp->zulu_day_of_week;
+			status->data.time_zulu.time_day = tmp->zulu_time;
+			status->data.time_zulu.timezone_offset = 0;
+			status->data.time_local.year = tmp->local_year;
+			status->data.time_local.month_of_year = tmp->local_month_of_year;
+			status->data.time_local.day_of_month = tmp->local_day_of_month;
+			status->data.time_local.day_of_week = tmp->local_day_of_week;
+			status->data.time_local.time_day = tmp->local_time;
+			status->data.time_local.timezone_offset = tmp->time_zone_offset;
 		}
 		break;
 		default:
@@ -1920,13 +2272,13 @@ void CALLBACK MyDispatchProc(
 				}
 				if (strcmp(status->departure.runway, "") == 0) {
 					memcpy(status->departure.runway, strRunway, sizeof(strRunway));
-					printf("Took off from %s runway %s\n", status->departure.icao, status->departure.runway);
+					printf("Takeoff from %s runway %s\n", status->departure.icao, status->departure.runway);
 					db_insert_update_table(status->sql,
 						"UPDATE trips SET departure_icao=?,departure_rwy=? WHERE id=?;",
 						NULL,
 						status,
 						NULL,
-						[](sqlite3_stmt* stmt, const char* stmt_txt, struct DATA_A320* pS, struct STATUS* status, void* aux) {
+						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
 							db_bind(stmt, stmt_txt, 1, status->departure.icao);
 							db_bind(stmt, stmt_txt, 2, status->departure.runway);
 							db_bind(stmt, stmt_txt, 3, status->id_trip);
@@ -1939,7 +2291,7 @@ void CALLBACK MyDispatchProc(
 						NULL,
 						status,
 						NULL,
-						[](sqlite3_stmt* stmt, const char* stmt_txt, struct DATA_A320* pS, struct STATUS* status, void* aux) {
+						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
 							db_bind(stmt, stmt_txt, 1, status->destination.icao);
 							db_bind(stmt, stmt_txt, 2, status->destination.runway);
 							db_bind(stmt, stmt_txt, 3, status->id_trip);
@@ -2014,24 +2366,174 @@ void CALLBACK MyDispatchProc(
 }
 
 void add_client_events(HANDLE hSimConnect) {
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_MASTER_BATTERY_ON, "SPOILERS_TOGGLE");
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_MASTER_BATTERY_ON);
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_MASTER_BATTERY_OFF, "SPOILERS_ARM_TOGGLE");
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_MASTER_BATTERY_OFF);
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_APU_BLEED_AIR_SOURCE_SET, "APU_BLEED_AIR_SOURCE_SET");
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_BLEED_AIR_SOURCE_SET);
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_AIRSPEED_HOLD, "AP_AIRSPEED_HOLD");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_AIRSPEED_OFF, "AP_AIRSPEED_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_AIRSPEED_ON, "AP_AIRSPEED_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_ALT_HOLD, "AP_ALT_HOLD");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_ALT_HOLD_OFF, "AP_ALT_HOLD_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_ALT_HOLD_ON, "AP_ALT_HOLD_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_APR_HOLD, "AP_APR_HOLD");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_APR_HOLD_OFF, "AP_APR_HOLD_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_APR_HOLD_ON, "AP_APR_HOLD_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_HDG_HOLD, "AP_HDG_HOLD");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_HDG_HOLD_OFF, "AP_HDG_HOLD_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_HDG_HOLD_ON, "AP_HDG_HOLD_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_MACH_HOLD, "AP_MACH_HOLD");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_MACH_OFF, "AP_MACH_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_MACH_ON, "AP_MACH_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_MASTER, "AP_MASTER");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_ALTITUDE_HOLD, "AP_PANEL_ALTITUDE_HOLD");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_ALTITUDE_OFF, "AP_PANEL_ALTITUDE_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_ALTITUDE_ON, "AP_PANEL_ALTITUDE_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_HEADING_HOLD, "AP_PANEL_HEADING_HOLD");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_HEADING_OFF, "AP_PANEL_HEADING_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_HEADING_ON, "AP_PANEL_HEADING_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_MACH_HOLD, "AP_PANEL_MACH_HOLD");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_MACH_OFF, "AP_PANEL_MACH_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_MACH_ON, "AP_PANEL_MACH_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_SPEED_HOLD, "AP_PANEL_SPEED_HOLD");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_SPEED_OFF, "AP_PANEL_SPEED_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_SPEED_ON, "AP_PANEL_SPEED_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_VS_OFF, "AP_PANEL_VS_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_VS_ON, "AP_PANEL_VS_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_VS_HOLD, "AP_PANEL_VS_HOLD");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_VS_HOLD, "AP_VS_HOLD");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_VS_OFF, "AP_VS_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_VS_ON, "AP_VS_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_SPEED_HOLD_TOGGLE, "AP_PANEL_SPEED_HOLD_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_MACH_HOLD_TOGGLE, "AP_PANEL_MACH_HOLD_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOPILOT_DISENGAGE_TOGGLE, "AUTOPILOT_DISENGAGE_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOPILOT_OFF, "AUTOPILOT_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOPILOT_ON, "AUTOPILOT_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOPILOT_PANEL_AIRSPEED_SET, "AUTOPILOT_PANEL_AIRSPEED_SET");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE, "FLIGHT_LEVEL_CHANGE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE_OFF, "FLIGHT_LEVEL_CHANGE_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE_ON, "FLIGHT_LEVEL_CHANGE_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTO_THROTTLE_ARM, "AUTO_THROTTLE_ARM");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTO_THROTTLE_TO_GA, "AUTO_THROTTLE_TO_GA");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOBRAKE_DISARM, "AUTOBRAKE_DISARM");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOBRAKE_HI_SET, "AUTOBRAKE_HI_SET");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOBRAKE_LO_SET, "AUTOBRAKE_LO_SET");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOBRAKE_MED_SET, "AUTOBRAKE_MED_SET");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_GPWS_SWITCH_TOGGLE, "GPWS_SWITCH_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_TOGGLE_FLIGHT_DIRECTOR, "TOGGLE_FLIGHT_DIRECTOR");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_APU_BLEED_AIR_SOURCE_TOGGLE, "APU_BLEED_AIR_SOURCE_TOGGLE");
 	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_APU_GENERATOR_SWITCH_TOGGLE, "APU_GENERATOR_SWITCH_TOGGLE");
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_GENERATOR_SWITCH_TOGGLE);
 	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_APU_OFF_SWITCH, "APU_OFF_SWITCH");
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_OFF_SWITCH);
 	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_APU_STARTER, "APU_STARTER");
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_STARTER);
-	//SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_MASTER_BATTERY_ON, "BEACON_LIGHTS_ON");
-	//SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_BEACON_LIGHTS_ON);
-	//SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_MASTER_BATTERY_OFF, "BEACON_LIGHTS_OFF");
-	//SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_BEACON_LIGHTS_OFF);
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_ANTI_ICE_ON, "ANTI_ICE_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_ANTI_ICE_OFF, "ANTI_ICE_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_ANTI_ICE_TOGGLE, "ANTI_ICE_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_ANTI_ICE_TOGGLE_ENG1, "ANTI_ICE_TOGGLE_ENG1");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_ANTI_ICE_TOGGLE_ENG2, "ANTI_ICE_TOGGLE_ENG2");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_THROTTLE_REVERSE_THRUST_TOGGLE, "THROTTLE_REVERSE_THRUST_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLAPS_DECR, "FLAPS_DECR");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLAPS_DOWN, "FLAPS_DOWN");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLAPS_INCR, "FLAPS_INCR");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLAPS_UP, "FLAPS_UP");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_ARM_OFF, "SPOILERS_ARM_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_ARM_ON, "SPOILERS_ARM_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_ARM_TOGGLE, "SPOILERS_ARM_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_OFF, "SPOILERS_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_ON, "SPOILERS_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_TOGGLE, "SPOILERS_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_CROSS_FEED_TOGGLE, "CROSS_FEED_TOGGLE");
 	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_BRAKES, "BRAKES");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_GEAR_DOWN, "GEAR_DOWN");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_GEAR_EMERGENCY_HANDLE_TOGGLE, "GEAR_EMERGENCY_HANDLE_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_GEAR_TOGGLE, "GEAR_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_GEAR_UP, "GEAR_UP");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_PARKING_BRAKES, "PARKING_BRAKES");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE, "CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE, "CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_WINDSHIELD_DEICE_OFF, "WINDSHIELD_DEICE_OFF");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_WINDSHIELD_DEICE_ON, "WINDSHIELD_DEICE_ON");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_WINDSHIELD_DEICE_TOGGLE, "WINDSHIELD_DEICE_TOGGLE");
+	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_TOGGLE_AVIONICS_MASTER, "TOGGLE_AVIONICS_MASTER");
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_AIRSPEED_HOLD);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_AIRSPEED_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_AIRSPEED_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_ALT_HOLD);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_ALT_HOLD_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_ALT_HOLD_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_APR_HOLD);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_APR_HOLD_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_APR_HOLD_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_HDG_HOLD);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_HDG_HOLD_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_HDG_HOLD_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_MACH_HOLD);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_MACH_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_MACH_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_MASTER);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_ALTITUDE_HOLD);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_ALTITUDE_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_ALTITUDE_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_HEADING_HOLD);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_HEADING_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_HEADING_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_MACH_HOLD);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_MACH_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_MACH_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_SPEED_HOLD);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_SPEED_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_SPEED_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_VS_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_VS_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_VS_HOLD);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_VS_HOLD);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_VS_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_VS_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_SPEED_HOLD_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_MACH_HOLD_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOPILOT_DISENGAGE_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOPILOT_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOPILOT_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOPILOT_PANEL_AIRSPEED_SET);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLIGHT_LEVEL_CHANGE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLIGHT_LEVEL_CHANGE_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLIGHT_LEVEL_CHANGE_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTO_THROTTLE_ARM);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTO_THROTTLE_TO_GA);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOBRAKE_DISARM);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOBRAKE_HI_SET);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOBRAKE_LO_SET);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOBRAKE_MED_SET);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_GPWS_SWITCH_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_TOGGLE_FLIGHT_DIRECTOR);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_BLEED_AIR_SOURCE_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_GENERATOR_SWITCH_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_OFF_SWITCH);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_STARTER);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_ANTI_ICE_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_ANTI_ICE_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_ANTI_ICE_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_ANTI_ICE_TOGGLE_ENG1);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_ANTI_ICE_TOGGLE_ENG2);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_THROTTLE_REVERSE_THRUST_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLAPS_DECR);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLAPS_DOWN);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLAPS_INCR);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLAPS_UP);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_ARM_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_ARM_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_ARM_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_CROSS_FEED_TOGGLE);
 	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_BRAKES);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_GEAR_DOWN);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_GEAR_EMERGENCY_HANDLE_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_GEAR_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_GEAR_UP);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_PARKING_BRAKES);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_WINDSHIELD_DEICE_OFF);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_WINDSHIELD_DEICE_ON);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_WINDSHIELD_DEICE_TOGGLE);
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_TOGGLE_AVIONICS_MASTER);
 	//SimConnect_SetNotificationGroupPriority(hSimConnect, GROUP_1, SIMCONNECT_GROUP_PRIORITY_HIGHEST);
 }
 
@@ -2079,8 +2581,9 @@ void connect_db(struct STATUS* status) {
 int main() {
 	struct STATUS status;
 	SimConnect_Open(&status.hSimConnect, "Flight Data Recorder", NULL, 0, 0, SIMCONNECT_OPEN_CONFIGINDEX_LOCAL);
-	SimConnect_SubscribeToSystemEvent(status.hSimConnect, EVENT_PAUSE, "Pause");
 	SimConnect_SubscribeToSystemEvent(status.hSimConnect, EVENT_SIM, "Sim");
+	SimConnect_SubscribeToSystemEvent(status.hSimConnect, EVENT_PAUSE, "Pause");
+	SimConnect_SubscribeToSystemEvent(status.hSimConnect, EVENT_CRASHED, "Crashed");
 	add_client_events(status.hSimConnect);
 	add_definition_a320(status.hSimConnect);
 
