@@ -951,19 +951,29 @@ struct COORDINATE {
 	double longitude = 0;
 };
 
-struct AIRPORT {
-	char icao[5] = "";
-	char runway[4] = "";
-};
-
 struct RUNWAY {
 	struct COORDINATE coordinate;
 	float length = 0;
 	float width = 0;
+	float heading = 0;
 	int primary_number = 0;
 	int primary_designator = 0;
 	int secondary_number = 0;
 	int secondary_designator = 0;
+};
+
+struct FACILITY_AIRPORT {
+	char name[64] = "";
+	float magvar = 0;
+	int n_runways = 0;
+};
+
+struct AIRPORT {
+	char icao[5] = "";
+	struct FACILITY_AIRPORT extra_info;
+	int runway_act_index = -1;
+	bool runway_act_primary = TRUE;
+	struct RUNWAY* runways = NULL;
 };
 
 struct FLIGHT_DATA {
@@ -1017,7 +1027,9 @@ std::string trim(
 	return s;
 }
 
-std::string format_date_time(
+void format_date_time(
+	char* out,
+	int len_out,
 	int year,
 	int month_of_year,
 	int day_of_month,
@@ -1025,8 +1037,10 @@ std::string format_date_time(
 	double timezone_offset,
 	int day_of_week
 ) {
-	char ret[32];
-	memset(ret, 0, sizeof(ret));
+	if (len_out < 32) {
+		printf("ERROR [format_date_time]: size of out buffer (%d) is less than 32.\n", len_out);
+		exit(1);
+	}
 	int hour = (int)time_day / 3600;
 	int minute = ((int)time_day - 3600 * hour) / 60;
 	double second = time_day - 3600 * hour - 60 * minute;
@@ -1038,17 +1052,20 @@ std::string format_date_time(
 		sign = '-';
 		timezone_hour *= -1;
 	}
-	sprintf_s(ret, "%04d-%02d-%02dT%02d:%02d:%06.3f%c%02d:%02d_%d", year, month_of_year, day_of_month, hour, minute, second, sign, timezone_hour, timezone_minute, day_of_week);
-	return std::string(ret);
+	sprintf_s(out, len_out, "%04d-%02d-%02dT%02d:%02d:%06.3f%c%02d:%02d_%d", year, month_of_year, day_of_month, hour, minute, second, sign, timezone_hour, timezone_minute, day_of_week);
 }
 
-std::string format_date_time(
+void format_date_time(
+	char* out,
+	int len_out,
 	struct DATETIME datetime
 ) {
-	return format_date_time(datetime.year, datetime.month_of_year, datetime.day_of_month, datetime.time_day, datetime.timezone_offset, datetime.day_of_week);
+	return format_date_time(out, len_out, datetime.year, datetime.month_of_year, datetime.day_of_month, datetime.time_day, datetime.timezone_offset, datetime.day_of_week);
 }
 
-std::string coordinate_decimal_to_dms(
+void coordinate_decimal_to_dms(
+	char* out,
+	int len_out,
 	double coordinate,
 	enum COORDINATE_CAT cat
 ) {
@@ -1077,10 +1094,11 @@ std::string coordinate_decimal_to_dms(
 	coordinate -= minute;
 	coordinate *= 60;
 	int second = coordinate;
-	char tmp2[15];
-	memset(tmp2, 0, sizeof(tmp2));
-	sprintf_s(tmp2, "%03d %02d %02d%c", degree, minute, second, tmp1);
-	return std::string(tmp2);
+	if (len_out < 12) {
+		printf("ERROR [coordinate_decimal_to_dms]: size of out buffer (%d) is less than 12.\n", len_out);
+		exit(1);
+	}
+	sprintf_s(out, len_out, "%03d %02d %02d%c", degree, minute, second, tmp1);
 }
 
 double distanceInKmBetweenEarthCoordinates(
@@ -1100,10 +1118,65 @@ double bearingBetweenEarchCoordinates(
 	struct COORDINATE loc1,
 	struct COORDINATE loc2
 ) {
-	double y = sin(loc2.longitude - loc1.longitude) * cos(loc2.latitude);
-	double x = cos(loc1.latitude) * sin(loc2.latitude) - sin(loc1.latitude) * cos(loc2.latitude) * cos(loc2.longitude - loc1.longitude);
+	double phy1 = loc1.latitude * V_PI / 180.0;
+	double phy2 = loc2.latitude * V_PI / 180.0;
+	double lambda1 = loc1.longitude * V_PI / 180.0;
+	double lambda2 = loc2.longitude * V_PI / 180.0;
+	double y = sin(lambda2 - lambda1) * cos(phy2);
+	double x = cos(phy1) * sin(phy2) - sin(phy1) * cos(phy2) * cos(lambda2 - lambda1);
 	double theta = atan2(y, x);
-	return ((int)(theta * 180 / V_PI) + 360) % 360;
+	double ret = theta * 180 / V_PI;
+	if (ret < 0)
+		ret += 360;
+	return ret;
+}
+
+struct COORDINATE destinationWithDistanceAndBearing(
+	struct COORDINATE start,
+	double distance,
+	double bearing
+) {
+	struct COORDINATE ret;
+	double phy = start.latitude * V_PI / 180.0;
+	double lambda = start.longitude * V_PI / 180.0;
+	double theta = bearing * V_PI / 180.0;
+	ret.latitude = asin(sin(phy) * cos(distance / EARTHRADIUSKM) + cos(phy) * sin(distance / EARTHRADIUSKM) * cos(theta));
+	ret.longitude = lambda + atan2(sin(theta) * sin(distance / EARTHRADIUSKM) * cos(phy), cos(distance / EARTHRADIUSKM) - sin(phy) * sin(phy));
+	ret.latitude *= 180.0 / V_PI;
+	ret.longitude *= 180.0 / V_PI;
+	return ret;
+}
+
+void runway_code_generator(char* out, int len_out, struct AIRPORT airport) {
+	if (len_out < 4) {
+		printf("ERROR [runway_code_generator]: size of out buffer (%d) is less than 4.\n", len_out);
+		exit(1);
+	}
+	int runway_number = airport.runway_act_primary ? airport.runways[airport.runway_act_index].primary_number : airport.runways[airport.runway_act_index].secondary_number;
+	int runway_designator = airport.runway_act_primary ? airport.runways[airport.runway_act_index].primary_designator : airport.runways[airport.runway_act_index].secondary_designator;
+	sprintf_s(out, len_out, "%02d", runway_number);
+	switch (runway_designator) {
+	case 1:
+		out[2] = 'L';
+		break;
+	case 2:
+		out[2] = 'R';
+		break;
+	case 3:
+		out[2] = 'C';
+		break;
+	case 4:
+		out[2] = 'W';
+		break;
+	case 5:
+		out[2] = 'A';
+		break;
+	case 6:
+		out[2] = 'B';
+		break;
+	default:
+		break;
+	}
 }
 
 void db_error(
@@ -1595,14 +1668,12 @@ void db_consume(
 					bool_group_3 |= (0x1 << 30);
 				if (pS->kohlsman_setting_std)
 					bool_group_3 |= (0x1 << 31);
-				std::string str_time_zulu = format_date_time(pS->zulu_year, pS->zulu_month_of_year, pS->zulu_day_of_month, pS->zulu_time, 0, pS->zulu_day_of_week);
-				std::string str_time_local = format_date_time(pS->local_year, pS->local_month_of_year, pS->local_day_of_month, pS->local_time, pS->time_zone_offset, pS->local_day_of_week);
 				char time_zulu[32];
-				memset(time_zulu, 0, sizeof(time_zulu));
-				memcpy(time_zulu, str_time_zulu.c_str(), str_time_zulu.length());
 				char time_local[32];
+				memset(time_zulu, 0, sizeof(time_zulu));
 				memset(time_local, 0, sizeof(time_local));
-				memcpy(time_local, str_time_local.c_str(), str_time_local.length());
+				format_date_time(time_zulu, sizeof(time_zulu), pS->zulu_year, pS->zulu_month_of_year, pS->zulu_day_of_month, pS->zulu_time, 0, pS->zulu_day_of_week);
+				format_date_time(time_local, sizeof(time_local), pS->local_year, pS->local_month_of_year, pS->local_day_of_month, pS->local_time, pS->time_zone_offset, pS->local_day_of_week);
 
 				db_bind(stmt, stmt_txt, 1, status->id_trip);
 				db_bind(stmt, stmt_txt, 2, bool_group_1);
@@ -1792,14 +1863,12 @@ void db_consume(
 				void* aux
 				) {
 					struct EVENT_DB* pS = (struct EVENT_DB*)data;
-					std::string str_time_zulu = format_date_time(pS->time_zulu.year, pS->time_zulu.month_of_year, pS->time_zulu.day_of_month, pS->time_zulu.time_day, 0, pS->time_zulu.day_of_week);
-					std::string str_time_local = format_date_time(pS->time_local.year, pS->time_local.month_of_year, pS->time_local.day_of_month, pS->time_local.time_day, pS->time_local.timezone_offset, pS->time_local.day_of_week);
 					char time_zulu[32];
-					memset(time_zulu, 0, sizeof(time_zulu));
-					memcpy(time_zulu, str_time_zulu.c_str(), str_time_zulu.length());
 					char time_local[32];
+					memset(time_zulu, 0, sizeof(time_zulu));
 					memset(time_local, 0, sizeof(time_local));
-					memcpy(time_local, str_time_local.c_str(), str_time_local.length());
+					format_date_time(time_zulu, sizeof(time_zulu), pS->time_zulu.year, pS->time_zulu.month_of_year, pS->time_zulu.day_of_month, pS->time_zulu.time_day, 0, pS->time_zulu.day_of_week);
+					format_date_time(time_local, sizeof(time_local), pS->time_local.year, pS->time_local.month_of_year, pS->time_local.day_of_month, pS->time_local.time_day, pS->time_local.timezone_offset, pS->time_local.day_of_week);
 
 					db_bind(stmt, stmt_txt, 1, status->id_trip);
 					db_bind(stmt, stmt_txt, 2, pS->event);
@@ -1834,14 +1903,12 @@ void stop_recording(
 			void* aux
 			) {
 				struct DATA_A320* pS = (struct DATA_A320*)data;
-				std::string str_time_zulu = format_date_time(pS->zulu_year, pS->zulu_month_of_year, pS->zulu_day_of_month, pS->zulu_time, 0, pS->zulu_day_of_week);
-				std::string str_time_local = format_date_time(pS->local_year, pS->local_month_of_year, pS->local_day_of_month, pS->local_time, pS->time_zone_offset, pS->local_day_of_week);
 				char time_zulu[32];
-				memset(time_zulu, 0, sizeof(time_zulu));
-				memcpy(time_zulu, str_time_zulu.c_str(), str_time_zulu.length());
 				char time_local[32];
+				memset(time_zulu, 0, sizeof(time_zulu));
 				memset(time_local, 0, sizeof(time_local));
-				memcpy(time_local, str_time_local.c_str(), str_time_local.length());
+				format_date_time(time_zulu, sizeof(time_zulu), pS->zulu_year, pS->zulu_month_of_year, pS->zulu_day_of_month, pS->zulu_time, 0, pS->zulu_day_of_week);
+				format_date_time(time_local, sizeof(time_local), pS->local_year, pS->local_month_of_year, pS->local_day_of_month, pS->local_time, pS->time_zone_offset, pS->local_day_of_week);
 				db_bind(stmt, stmt_txt, 1, pS->plane_latitude);
 				db_bind(stmt, stmt_txt, 2, pS->plane_longitude);
 				db_bind(stmt, stmt_txt, 3, time_zulu);
@@ -1882,14 +1949,12 @@ void stop_recording(
 					void* aux
 					) {
 						struct FLIGHT_DATA* pS = (struct FLIGHT_DATA*)data;
-						std::string str_time_zulu = format_date_time(pS->time_zulu);
-						std::string str_time_local = format_date_time(pS->time_local);
 						char time_zulu[32];
-						memset(time_zulu, 0, sizeof(time_zulu));
-						memcpy(time_zulu, str_time_zulu.c_str(), str_time_zulu.length());
 						char time_local[32];
+						memset(time_zulu, 0, sizeof(time_zulu));
 						memset(time_local, 0, sizeof(time_local));
-						memcpy(time_local, str_time_local.c_str(), str_time_local.length());
+						format_date_time(time_zulu, sizeof(time_zulu), pS->time_zulu);
+						format_date_time(time_local, sizeof(time_local), pS->time_local);
 
 						db_bind(stmt, stmt_txt, 1, status->id_trip);
 						db_bind(stmt, stmt_txt, 2, pS->speed);
@@ -1918,6 +1983,24 @@ void stop_recording(
 		status->q_data_last = NULL;
 	}
 	status->id_trip = 0;
+	memset(status->departure.icao, 0, sizeof(status->departure.icao));
+	if (status->departure.runways != NULL)
+		free(status->departure.runways);
+	status->departure.runways = NULL;
+	status->departure.extra_info.n_runways = 0;
+	status->departure.runway_act_index = -1;
+	status->departure.runway_act_primary = TRUE;
+	memset(status->departure.extra_info.name, 0, sizeof(status->departure.extra_info.name));
+	status->departure.extra_info.magvar = 0;
+	memset(status->destination.icao, 0, sizeof(status->destination.icao));
+	if (status->destination.runways != NULL)
+		free(status->destination.runways);
+	status->destination.runways = NULL;
+	status->destination.extra_info.n_runways = 0;
+	status->destination.runway_act_index = -1;
+	status->destination.runway_act_primary = 0;
+	memset(status->destination.extra_info.name, 0, sizeof(status->destination.extra_info.name));
+	status->destination.extra_info.magvar = 0;
 	printf("Recording Stopped\n");
 }
 
@@ -2098,9 +2181,7 @@ void CALLBACK MyDispatchProc(
 						printf("Recording Started\n");
 
 						memset(status->departure.icao, 0, sizeof(status->departure.icao));
-						memset(status->departure.runway, 0, sizeof(status->departure.runway));
 						memset(status->destination.icao, 0, sizeof(status->destination.icao));
-						memset(status->destination.runway, 0, sizeof(status->destination.runway));
 						status->airborne = !(bool)tmp->sim_on_ground;
 
 						db_insert_update_table(
@@ -2128,14 +2209,12 @@ void CALLBACK MyDispatchProc(
 								void* aux
 								) {
 									struct DATA_A320* pS = (struct DATA_A320*)data;
-									std::string str_time_zulu = format_date_time(pS->zulu_year, pS->zulu_month_of_year, pS->zulu_day_of_month, pS->zulu_time, 0, pS->zulu_day_of_week);
-									std::string str_time_local = format_date_time(pS->local_year, pS->local_month_of_year, pS->local_day_of_month, pS->local_time, pS->time_zone_offset, pS->local_day_of_week);
 									char time_zulu[32];
-									memset(time_zulu, 0, sizeof(time_zulu));
-									memcpy(time_zulu, str_time_zulu.c_str(), str_time_zulu.length());
 									char time_local[32];
+									memset(time_zulu, 0, sizeof(time_zulu));
 									memset(time_local, 0, sizeof(time_local));
-									memcpy(time_local, str_time_local.c_str(), str_time_local.length());
+									format_date_time(time_zulu, sizeof(time_zulu), pS->zulu_year, pS->zulu_month_of_year, pS->zulu_day_of_month, pS->zulu_time, 0, pS->zulu_day_of_week);
+									format_date_time(time_local, sizeof(time_local), pS->local_year, pS->local_month_of_year, pS->local_day_of_month, pS->local_time, pS->time_zone_offset, pS->local_day_of_week);
 
 									db_bind(stmt, stmt_txt, 1, pS->title);
 									db_bind(stmt, stmt_txt, 2, pS->atc_airline);
@@ -2189,14 +2268,14 @@ void CALLBACK MyDispatchProc(
 						status->touchdown_data_end->next = tmp;
 						status->touchdown_data_end = tmp;
 					}
-					status->touchdown_data_end->heading = tmp->plane_touchdown_heading_degrees_magnetic;
-					status->touchdown_data_end->pitch = tmp->plane_touchdown_pitch_degrees;
-					status->touchdown_data_end->bank = tmp->plane_touchdown_bank_degrees;
+					status->touchdown_data_end->heading = tmp->plane_heading_degrees_magnetic;
+					status->touchdown_data_end->pitch = tmp->plane_pitch_degrees;
+					status->touchdown_data_end->bank = tmp->plane_bank_degrees;
 					status->touchdown_data_end->speed = tmp->airspeed_indicated;
 					status->touchdown_data_end->vertical_speed = tmp->vertical_speed;
 					status->touchdown_data_end->g_force = tmp->g_force;
-					status->touchdown_data_end->coordinate.latitude = tmp->plane_touchdown_latitude;
-					status->touchdown_data_end->coordinate.longitude = tmp->plane_touchdown_longitude;
+					status->touchdown_data_end->coordinate.latitude = tmp->plane_latitude;
+					status->touchdown_data_end->coordinate.longitude = tmp->plane_longitude;
 					status->touchdown_data_end->time_zulu.year = tmp->zulu_year;
 					status->touchdown_data_end->time_zulu.month_of_year = tmp->zulu_month_of_year;
 					status->touchdown_data_end->time_zulu.day_of_month = tmp->zulu_day_of_month;
@@ -2211,6 +2290,18 @@ void CALLBACK MyDispatchProc(
 					status->touchdown_data_end->time_local.timezone_offset = tmp->time_zone_offset;
 
 					struct FLIGHT_DATA* cur = status->touchdown_data_end;
+					char str_lat[12];
+					char str_lon[12];
+					char time_zulu[32];
+					char time_local[32];
+					memset(str_lat, 0, sizeof(str_lat));
+					memset(str_lon, 0, sizeof(str_lon));
+					memset(time_zulu, 0, sizeof(time_zulu));
+					memset(time_local, 0, sizeof(time_local));
+					coordinate_decimal_to_dms(str_lat, sizeof(str_lat), cur->coordinate.latitude, LATITUDE);
+					coordinate_decimal_to_dms(str_lon, sizeof(str_lon), cur->coordinate.longitude, LONGITUDE);
+					format_date_time(time_zulu, sizeof(time_zulu), cur->time_zulu);
+					format_date_time(time_local, sizeof(time_local), cur->time_local);
 					printf("speed   v-speed g-force pitch   bank    heading         coordinate                     time zulu                         time local\n");
 					printf("  %03d\t  %03d\t  %.1f\t%+3.1f\t%+3.1f\t  %03d     %s, %s    %s    %s\n",
 						cur->speed,
@@ -2219,10 +2310,10 @@ void CALLBACK MyDispatchProc(
 						cur->pitch,
 						cur->bank,
 						cur->heading,
-						coordinate_decimal_to_dms(cur->coordinate.latitude, LATITUDE).c_str(),
-						coordinate_decimal_to_dms(cur->coordinate.longitude, LONGITUDE).c_str(),
-						format_date_time(cur->time_zulu).c_str(),
-						format_date_time(cur->time_local).c_str()
+						str_lat,
+						str_lon,
+						time_zulu,
+						time_local
 					);
 
 					SimConnect_RequestFacilitiesList_EX1(status->hSimConnect, SIMCONNECT_FACILITY_LIST_TYPE_AIRPORT, REQUEST_AIRPORTS);
@@ -2290,11 +2381,15 @@ void CALLBACK MyDispatchProc(
 			else
 				memcpy(status->destination.icao, ident, sizeof(ident));
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN AIRPORT");
+			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "NAME64");
+			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "MAGVAR");
+			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "N_RUNWAYS");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN RUNWAY");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LATITUDE");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LONGITUDE");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LENGTH");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "WIDTH");
+			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "HEADING");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "PRIMARY_NUMBER");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "PRIMARY_DESIGNATOR");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "SECONDARY_NUMBER");
@@ -2309,88 +2404,29 @@ void CALLBACK MyDispatchProc(
 	{
 		SIMCONNECT_RECV_FACILITY_DATA* pWxData = (SIMCONNECT_RECV_FACILITY_DATA*)pData;
 		switch (pWxData->Type) {
+		case SIMCONNECT_FACILITY_DATA_AIRPORT:
+		{
+			struct FACILITY_AIRPORT* airport = (struct FACILITY_AIRPORT*)&pWxData->Data;
+			struct AIRPORT* tmp = NULL;
+			if (status->departure.runway_act_index == -1)
+				tmp = &status->departure;
+			else
+				tmp = &status->destination;
+			tmp->extra_info.magvar = airport->magvar;
+			tmp->extra_info.n_runways = airport->n_runways;
+			tmp->runways = (struct RUNWAY*)malloc(sizeof(struct RUNWAY) * airport->n_runways);
+			memset(tmp->runways, 0, sizeof(struct RUNWAY)* airport->n_runways);
+			memcpy(tmp->extra_info.name, airport->name, sizeof(airport->name));
+		}
+		break;
 		case SIMCONNECT_FACILITY_DATA_RUNWAY:
 		{
-			struct RUNWAY* rwy = (struct RUNWAY*)&pWxData->Data;
-			double distance = distanceInKmBetweenEarthCoordinates(status->data.coordinate, rwy->coordinate);
-			double bearing = bearingBetweenEarchCoordinates(status->data.coordinate, rwy->coordinate);
-			int runway_number_active = -1;
-			int runway_designator_active = -1;
-			if (rwy->primary_number > 0 && rwy->primary_number < 37) {
-				if (abs((int)(bearing / 10) - rwy->primary_number) <= 2 && abs((int)(status->data.heading / 10) - rwy->primary_number) <= 3) {
-					runway_number_active = rwy->primary_number;
-					runway_designator_active = rwy->primary_designator;
-				}
-			}
-			if (rwy->secondary_number > 0 && rwy->secondary_number < 37) {
-				if (abs((int)(bearing / 10) - rwy->secondary_number) <= 2 && abs((int)(status->data.heading / 10) - rwy->secondary_number) <= 3) {
-					runway_number_active = rwy->secondary_number;
-					runway_designator_active = rwy->secondary_designator;
-				}
-			}
-			if (runway_number_active != -1) {
-				char strRunway[4];
-				memset(strRunway, 0, sizeof(strRunway));
-				sprintf_s(strRunway, "%02d", runway_number_active);
-				switch (runway_designator_active) {
-				case 1:
-					strRunway[2] = 'L';
-					break;
-				case 2:
-					strRunway[2] = 'R';
-					break;
-				case 3:
-					strRunway[2] = 'C';
-					break;
-				case 4:
-					strRunway[2] = 'W';
-					break;
-				case 5:
-					strRunway[2] = 'A';
-					break;
-				case 6:
-					strRunway[2] = 'B';
-					break;
-				default:
-					break;
-				}
-				if (strcmp(status->departure.runway, "") == 0) {
-					memcpy(status->departure.runway, strRunway, sizeof(strRunway));
-					printf("Takeoff from %s runway %s\n", status->departure.icao, status->departure.runway);
-					db_insert_update_table(status->sql,
-						"UPDATE trips SET departure_icao=?,departure_rwy=? WHERE id=?;",
-						NULL,
-						status,
-						NULL,
-						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-							db_bind(stmt, stmt_txt, 1, status->departure.icao);
-							db_bind(stmt, stmt_txt, 2, status->departure.runway);
-							db_bind(stmt, stmt_txt, 3, status->id_trip);
-						}
-					);
-				} else {
-					memcpy(status->destination.runway, strRunway, sizeof(strRunway));
-					printf("Touchdown at %s runway %s\n", status->departure.icao, status->departure.runway);
-					db_insert_update_table(status->sql,
-						"UPDATE trips SET destination_icao=?,destination_rwy=? WHERE id=?;",
-						NULL,
-						status,
-						NULL,
-						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-							db_bind(stmt, stmt_txt, 1, status->destination.icao);
-							db_bind(stmt, stmt_txt, 2, status->destination.runway);
-							db_bind(stmt, stmt_txt, 3, status->id_trip);
-						}
-					);
-					struct FLIGHT_DATA* tmp = status->touchdown_data;
-					while (tmp != NULL && strcmp(tmp->icao, "") != 0)
-						tmp = tmp->next;
-					if (tmp != NULL) {
-						memcpy(tmp->icao, status->destination.icao, sizeof(status->destination.icao));
-						memcpy(tmp->runway, status->destination.runway, sizeof(status->destination.runway));
-					}
-				}
-			}
+			struct RUNWAY* rep = NULL;
+			if (status->departure.runway_act_index == -1)
+				rep = status->departure.runways;
+			else
+				rep = status->destination.runways;
+			memcpy(&rep[pWxData->ItemIndex], (struct RUNWAY*)&pWxData->Data, sizeof(struct RUNWAY));
 		}
 		break;
 		default:
@@ -2399,7 +2435,81 @@ void CALLBACK MyDispatchProc(
 	}
 	break;
 	case SIMCONNECT_RECV_ID_FACILITY_DATA_END:
-		break;
+	{
+		struct AIRPORT* rep = NULL;
+		if (status->departure.runway_act_index == -1)
+			rep = &status->departure;
+		else
+			rep = &status->destination;
+		for (int i = 0; i < rep->extra_info.n_runways; i++) {
+			struct RUNWAY rwy = rep->runways[i];
+			double rwy_heading = rwy.heading;
+			if (rwy.primary_number > 0 && rwy.primary_number < 37) {
+				struct COORDINATE dest = destinationWithDistanceAndBearing(rwy.coordinate, rwy.length / 2000, rwy_heading);
+				double bearing = bearingBetweenEarchCoordinates(status->data.coordinate, dest) + rep->extra_info.magvar;
+				if (bearing > 360)
+					bearing -= 360;
+				if (abs((int)(bearing / 10) - rwy.primary_number) <= 2 && abs((int)(status->data.heading / 10) - rwy.primary_number) <= 3) {
+					rep->runway_act_index = i;
+					rep->runway_act_primary = TRUE;
+				}
+			}
+			if (rwy.secondary_number > 0 && rwy.secondary_number < 37) {
+				rwy_heading = rwy_heading - 180;
+				if (rwy_heading < 0)
+					rwy_heading += 360;
+				struct COORDINATE dest = destinationWithDistanceAndBearing(rwy.coordinate, rwy.length / 2000, rwy_heading);
+				double bearing = bearingBetweenEarchCoordinates(status->data.coordinate, dest) + rep->extra_info.magvar;
+				if (bearing > 360)
+					bearing -= 360;
+				if (abs((int)(bearing / 10) - rwy.secondary_number) <= 2 && abs((int)(status->data.heading / 10) - rwy.secondary_number) <= 3) {
+					rep->runway_act_index = i;
+					rep->runway_act_primary = FALSE;
+				}
+			}
+		}
+		if (rep->runway_act_index != -1) {
+			char strRunway[4];
+			memset(strRunway, 0, sizeof(strRunway));
+			runway_code_generator(strRunway, sizeof(strRunway), *rep);
+			if (rep == &status->departure) {
+				printf("Takeoff from %s (%s) runway %s\n", rep->extra_info.name, rep->icao, strRunway);
+				db_insert_update_table(status->sql,
+					"UPDATE trips SET departure_icao=?,departure_rwy=? WHERE id=?;",
+					NULL,
+					status,
+					strRunway,
+					[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+						db_bind(stmt, stmt_txt, 1, status->departure.icao);
+						db_bind(stmt, stmt_txt, 2, (char*)aux);
+						db_bind(stmt, stmt_txt, 3, status->id_trip);
+					}
+				);
+			}
+			else {
+				printf("Touchdown at %s (%s) runway %s\n", rep->extra_info.name, rep->icao, strRunway);
+				db_insert_update_table(status->sql,
+					"UPDATE trips SET destination_icao=?,destination_rwy=? WHERE id=?;",
+					NULL,
+					status,
+					strRunway,
+					[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+						db_bind(stmt, stmt_txt, 1, status->destination.icao);
+						db_bind(stmt, stmt_txt, 2, (char*)aux);
+						db_bind(stmt, stmt_txt, 3, status->id_trip);
+					}
+				);
+				struct FLIGHT_DATA* tmp = status->touchdown_data;
+				while (tmp != NULL && strcmp(tmp->icao, "") != 0)
+					tmp = tmp->next;
+				if (tmp != NULL) {
+					memcpy(tmp->icao, status->destination.icao, sizeof(status->destination.icao));
+					memcpy(tmp->runway, strRunway, sizeof(strRunway));
+				}
+			}
+		}
+	}
+	break;
 	case SIMCONNECT_RECV_ID_EXCEPTION:
 	{
 		const char* exceptions[] = {
