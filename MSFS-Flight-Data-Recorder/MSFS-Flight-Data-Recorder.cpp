@@ -2449,7 +2449,13 @@ void CALLBACK MyDispatchProc(
 				double bearing = bearingBetweenEarchCoordinates(status->data.coordinate, dest) + rep->extra_info.magvar;
 				if (bearing > 360)
 					bearing -= 360;
-				if (abs((int)(bearing / 10) - rwy.primary_number) <= 2 && abs((int)(status->data.heading / 10) - rwy.primary_number) <= 3) {
+				int diff_bearing = abs((int)(bearing / 10) - rwy.primary_number);
+				if (diff_bearing > 18)
+					diff_bearing = 36 - diff_bearing;
+				int diff_heading = abs((int)(status->data.heading / 10) - rwy.primary_number);
+				if (diff_heading > 18)
+					diff_heading = 36 - diff_heading;
+				if (diff_bearing <= 2 && diff_heading <= 3) {
 					rep->runway_act_index = i;
 					rep->runway_act_primary = TRUE;
 				}
@@ -2462,7 +2468,13 @@ void CALLBACK MyDispatchProc(
 				double bearing = bearingBetweenEarchCoordinates(status->data.coordinate, dest) + rep->extra_info.magvar;
 				if (bearing > 360)
 					bearing -= 360;
-				if (abs((int)(bearing / 10) - rwy.secondary_number) <= 2 && abs((int)(status->data.heading / 10) - rwy.secondary_number) <= 3) {
+				int diff_bearing = abs((int)(bearing / 10) - rwy.secondary_number);
+				if (diff_bearing > 18)
+					diff_bearing = 36 - diff_bearing;
+				int diff_heading = abs((int)(status->data.heading / 10) - rwy.secondary_number);
+				if (diff_heading > 18)
+					diff_heading = 36 - diff_heading;
+				if (diff_bearing <= 2 && diff_heading <= 3) {
 					rep->runway_act_index = i;
 					rep->runway_act_primary = FALSE;
 				}
