@@ -1222,7 +1222,7 @@ void db_bind(
 	char* value
 ) {
 	int sql_ret = 0;
-	sql_ret = sqlite3_bind_text(stmt, index, value, strlen(value), NULL);
+	sql_ret = sqlite3_bind_text(stmt, index, value, strlen(value), SQLITE_TRANSIENT);
 	if (sql_ret)
 		db_error(stmt_txt, sql_ret, NULL);
 }
@@ -1234,7 +1234,7 @@ void db_bind(
 	const char* value
 ) {
 	int sql_ret = 0;
-	sql_ret = sqlite3_bind_text(stmt, index, value, strlen(value), NULL);
+	sql_ret = sqlite3_bind_text(stmt, index, value, strlen(value), SQLITE_TRANSIENT);
 	if (sql_ret)
 		db_error(stmt_txt, sql_ret, NULL);
 }
@@ -2795,4 +2795,6 @@ int main() {
 		SimConnect_CallDispatch(status.hSimConnect, MyDispatchProc, &status);
 	SimConnect_Close(status.hSimConnect);
 	sqlite3_close_v2(status.sql);
+
+	return 0;
 }
