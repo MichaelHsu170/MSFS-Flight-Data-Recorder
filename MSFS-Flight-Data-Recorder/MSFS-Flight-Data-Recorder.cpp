@@ -9,11 +9,12 @@
 #include "sqlite3.h"
 
 // Queue length before committing to database
-#define Q_DB_LENGTH 100
+#define Q_DB_LENGTH 200
 // Interval for data sampling to store in database, in second.
 #define DB_SAMPLING_INTERVAL 0.3
 #define DATABASE_NAME "flight_data"
 #define V_PI 3.14159265358979323846
+#define M_2_FT 3.2808399
 #define EARTHRADIUSKM 6371.0
 
 // SimConnect
@@ -918,6 +919,10 @@ static const char* DATABASE_TABLE_FIELDS[] = {
 	"plane_longitude REAL NOT NULL,"
 	"icao VARCHAR(4),"
 	"runway VARCHAR(3),"
+	"distance_length REAL,"
+	"distance_width REAL,"
+	"distance_length_percent REAL,"
+	"distance_width_percent REAL,"
 	"time_zulu VARCHAR(32) NOT NULL,"
 	"time_local VARCHAR(32) NOT NULL"
 };
@@ -956,10 +961,9 @@ struct RUNWAY {
 	float length = 0;
 	float width = 0;
 	float heading = 0;
-	int primary_number = 0;
-	int primary_designator = 0;
-	int secondary_number = 0;
-	int secondary_designator = 0;
+	int numbers[2];
+	int designators[2];
+	struct COORDINATE start_points[2];
 };
 
 struct FACILITY_AIRPORT {
@@ -987,6 +991,8 @@ struct FLIGHT_DATA {
 	struct COORDINATE coordinate;
 	char icao[5];
 	char runway[4];
+	double distances[2];
+	double distances_percent[2];
 	struct DATETIME time_zulu;
 	struct DATETIME time_local;
 	struct FLIGHT_DATA* next = NULL;
@@ -1101,6 +1107,7 @@ void coordinate_decimal_to_dms(
 	sprintf_s(out, len_out, "%03d %02d %02d%c", degree, minute, second, tmp1);
 }
 
+// Coordinates-related calculations are referred to https://www.movable-type.co.uk/scripts/latlong.html
 double distanceInKmBetweenEarthCoordinates(
 	struct COORDINATE loc1,
 	struct COORDINATE loc2
@@ -1147,13 +1154,60 @@ struct COORDINATE destinationWithDistanceAndBearing(
 	return ret;
 }
 
-void runway_code_generator(char* out, int len_out, struct AIRPORT airport) {
+struct COORDINATE intersectionCoordinate(
+	struct COORDINATE loc1,
+	double bearing1,
+	struct COORDINATE loc2,
+	double bearing2
+) {
+	struct COORDINATE ret;
+	double phy1 = loc1.latitude * V_PI / 180.0;
+	double phy2 = loc2.latitude * V_PI / 180.0;
+	double lambda1 = loc1.longitude * V_PI / 180.0;
+	double lambda2 = loc2.longitude * V_PI / 180.0;
+	double theta1 = bearing1 * V_PI / 180.0;
+	double theta2 = bearing2 * V_PI / 180.0;
+
+	double delta12 = 2 * asin(sqrt((pow(sin((phy2 - phy1) / 2), 2) + cos(phy1) * cos(phy2) * pow(sin((lambda2 - lambda1) / 2), 2))));
+	double thetaa = acos((sin(phy2) - sin(phy1) * cos(delta12)) / (sin(delta12) * cos(phy1)));
+	double thetab = acos((sin(phy1) - sin(phy2) * cos(delta12)) / (sin(delta12) * cos(phy2)));
+	double theta12 = 0;
+	double theta21 = 0;
+	if (sin(lambda2 - lambda1) > 0) {
+		theta12 = thetaa;
+		theta21 = 2 * V_PI - thetab;
+	} else {
+		theta12 = 2 * V_PI - thetaa;
+		theta21 = thetab;
+	}
+	double alpha1 = theta1 - theta12;
+	double alpha2 = theta21 - theta2;
+	if ((sin(alpha1) == 0 && sin(alpha2) == 0) || sin(alpha1) * sin(alpha2) < 0) {
+		ret.latitude = 360;
+		ret.longitude = 360;
+	} else {
+		double alpha3 = acos(-1 * cos(alpha1) * cos(alpha2) + sin(alpha1) * sin(alpha2) * cos(delta12));
+		double delta1 = atan2(sin(delta12) * sin(alpha1) * sin(alpha2), cos(alpha2) + cos(alpha1) * cos(alpha3));
+		double phy3 = asin(sin(phy1) * cos(delta1) + cos(phy1) * sin(delta1) * cos(theta1));
+		double delta_lambda1 = atan2(sin(theta1) * sin(delta1) * cos(phy1), cos(delta1) - sin(phy1) * sin(phy3));
+		double lambda3 = lambda1 + delta_lambda1;
+		ret.latitude = phy3 * 180.0 / V_PI;
+		ret.longitude = lambda3 * 180.0 / V_PI;
+	}
+	return ret;
+}
+
+void runway_code_generator(
+	char* out,
+	int len_out,
+	struct AIRPORT airport
+) {
 	if (len_out < 4) {
 		printf("ERROR [runway_code_generator]: size of out buffer (%d) is less than 4.\n", len_out);
 		exit(1);
 	}
-	int runway_number = airport.runway_act_primary ? airport.runways[airport.runway_act_index].primary_number : airport.runways[airport.runway_act_index].secondary_number;
-	int runway_designator = airport.runway_act_primary ? airport.runways[airport.runway_act_index].primary_designator : airport.runways[airport.runway_act_index].secondary_designator;
+	int runway_number = airport.runway_act_primary ? airport.runways[airport.runway_act_index].numbers[0] : airport.runways[airport.runway_act_index].numbers[1];
+	int runway_designator = airport.runway_act_primary ? airport.runways[airport.runway_act_index].designators[0] : airport.runways[airport.runway_act_index].designators[1];
 	sprintf_s(out, len_out, "%02d", runway_number);
 	switch (runway_designator) {
 	case 1:
@@ -1935,9 +1989,13 @@ void stop_recording(
 				"plane_longitude,"
 				"icao,"
 				"runway,"
+				"distance_length,"
+				"distance_width,"
+				"distance_length_percent,"
+				"distance_width_percent,"
 				"time_zulu,"
 				"time_local"
-				") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);",
+				") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
 				cur,
 				status,
 				NULL,
@@ -1967,8 +2025,12 @@ void stop_recording(
 						db_bind(stmt, stmt_txt, 9, pS->coordinate.longitude);
 						db_bind(stmt, stmt_txt, 10, pS->icao);
 						db_bind(stmt, stmt_txt, 11, pS->runway);
-						db_bind(stmt, stmt_txt, 12, time_zulu);
-						db_bind(stmt, stmt_txt, 13, time_local);
+						db_bind(stmt, stmt_txt, 12, pS->distances[0]);
+						db_bind(stmt, stmt_txt, 13, pS->distances[1]);
+						db_bind(stmt, stmt_txt, 14, pS->distances_percent[0]);
+						db_bind(stmt, stmt_txt, 15, pS->distances_percent[1]);
+						db_bind(stmt, stmt_txt, 16, time_zulu);
+						db_bind(stmt, stmt_txt, 17, time_local);
 				}
 			);
 			status->touchdown_data = status->touchdown_data->next;
@@ -2001,7 +2063,7 @@ void stop_recording(
 	status->destination.runway_act_primary = 0;
 	memset(status->destination.extra_info.name, 0, sizeof(status->destination.extra_info.name));
 	status->destination.extra_info.magvar = 0;
-	printf("Recording Stopped\n");
+	printf("-------------------- Recording Stopped --------------------\n");
 }
 
 void CALLBACK MyDispatchProc(
@@ -2014,7 +2076,7 @@ void CALLBACK MyDispatchProc(
 	case SIMCONNECT_RECV_ID_OPEN:
 	{
 		SIMCONNECT_RECV_OPEN* openData = (SIMCONNECT_RECV_OPEN*)pData;
-		printf("Connected to Microsoft Flight Simulator\n");
+		printf("Connected to Microsoft Flight Simulator\n\n");
 	}
 	break;
 	case SIMCONNECT_RECV_ID_QUIT:
@@ -2178,7 +2240,7 @@ void CALLBACK MyDispatchProc(
 				if ((bool)tmp->eng_combustion_1 || (bool)tmp->eng_combustion_2) {
 					if (!status->recording) {
 						status->recording = TRUE;
-						printf("Recording Started\n");
+						printf("==================== Recording Started ====================\n");
 
 						memset(status->departure.icao, 0, sizeof(status->departure.icao));
 						memset(status->destination.icao, 0, sizeof(status->destination.icao));
@@ -2288,34 +2350,6 @@ void CALLBACK MyDispatchProc(
 					status->touchdown_data_end->time_local.day_of_week = tmp->local_day_of_week;
 					status->touchdown_data_end->time_local.time_day = tmp->local_time;
 					status->touchdown_data_end->time_local.timezone_offset = tmp->time_zone_offset;
-
-					struct FLIGHT_DATA* cur = status->touchdown_data_end;
-					char str_lat[12];
-					char str_lon[12];
-					char time_zulu[32];
-					char time_local[32];
-					memset(str_lat, 0, sizeof(str_lat));
-					memset(str_lon, 0, sizeof(str_lon));
-					memset(time_zulu, 0, sizeof(time_zulu));
-					memset(time_local, 0, sizeof(time_local));
-					coordinate_decimal_to_dms(str_lat, sizeof(str_lat), cur->coordinate.latitude, LATITUDE);
-					coordinate_decimal_to_dms(str_lon, sizeof(str_lon), cur->coordinate.longitude, LONGITUDE);
-					format_date_time(time_zulu, sizeof(time_zulu), cur->time_zulu);
-					format_date_time(time_local, sizeof(time_local), cur->time_local);
-					printf("speed   v-speed g-force pitch   bank    heading         coordinate                     time zulu                         time local\n");
-					printf("  %03d\t  %03d\t  %.1f\t%+3.1f\t%+3.1f\t  %03d     %s, %s    %s    %s\n",
-						cur->speed,
-						cur->vertical_speed,
-						cur->g_force,
-						cur->pitch,
-						cur->bank,
-						cur->heading,
-						str_lat,
-						str_lon,
-						time_zulu,
-						time_local
-					);
-
 					SimConnect_RequestFacilitiesList_EX1(status->hSimConnect, SIMCONNECT_FACILITY_LIST_TYPE_AIRPORT, REQUEST_AIRPORTS);
 				}
 				status->airborne = !(bool)tmp->sim_on_ground;
@@ -2391,8 +2425,8 @@ void CALLBACK MyDispatchProc(
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "WIDTH");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "HEADING");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "PRIMARY_NUMBER");
-			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "PRIMARY_DESIGNATOR");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "SECONDARY_NUMBER");
+			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "PRIMARY_DESIGNATOR");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "SECONDARY_DESIGNATOR");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE RUNWAY");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE AIRPORT");
@@ -2426,7 +2460,7 @@ void CALLBACK MyDispatchProc(
 				rep = status->departure.runways;
 			else
 				rep = status->destination.runways;
-			memcpy(&rep[pWxData->ItemIndex], (struct RUNWAY*)&pWxData->Data, sizeof(struct RUNWAY));
+			memcpy(&rep[pWxData->ItemIndex], (struct RUNWAY*)&pWxData->Data, sizeof(struct RUNWAY) - sizeof(struct COORDINATE) * 2);
 		}
 		break;
 		default:
@@ -2442,41 +2476,28 @@ void CALLBACK MyDispatchProc(
 		else
 			rep = &status->destination;
 		for (int i = 0; i < rep->extra_info.n_runways; i++) {
-			struct RUNWAY rwy = rep->runways[i];
-			double rwy_heading = rwy.heading;
-			if (rwy.primary_number > 0 && rwy.primary_number < 37) {
-				struct COORDINATE dest = destinationWithDistanceAndBearing(rwy.coordinate, rwy.length / 2000, rwy_heading);
-				double bearing = bearingBetweenEarchCoordinates(status->data.coordinate, dest) + rep->extra_info.magvar;
-				if (bearing > 360)
-					bearing -= 360;
-				int diff_bearing = abs((int)(bearing / 10) - rwy.primary_number);
-				if (diff_bearing > 18)
-					diff_bearing = 36 - diff_bearing;
-				int diff_heading = abs((int)(status->data.heading / 10) - rwy.primary_number);
-				if (diff_heading > 18)
-					diff_heading = 36 - diff_heading;
-				if (diff_bearing <= 2 && diff_heading <= 3) {
-					rep->runway_act_index = i;
-					rep->runway_act_primary = TRUE;
-				}
-			}
-			if (rwy.secondary_number > 0 && rwy.secondary_number < 37) {
-				rwy_heading = rwy_heading - 180;
-				if (rwy_heading < 0)
-					rwy_heading += 360;
-				struct COORDINATE dest = destinationWithDistanceAndBearing(rwy.coordinate, rwy.length / 2000, rwy_heading);
-				double bearing = bearingBetweenEarchCoordinates(status->data.coordinate, dest) + rep->extra_info.magvar;
-				if (bearing > 360)
-					bearing -= 360;
-				int diff_bearing = abs((int)(bearing / 10) - rwy.secondary_number);
-				if (diff_bearing > 18)
-					diff_bearing = 36 - diff_bearing;
-				int diff_heading = abs((int)(status->data.heading / 10) - rwy.secondary_number);
-				if (diff_heading > 18)
-					diff_heading = 36 - diff_heading;
-				if (diff_bearing <= 2 && diff_heading <= 3) {
-					rep->runway_act_index = i;
-					rep->runway_act_primary = FALSE;
+			struct RUNWAY* rwy = &rep->runways[i];
+			double rwy_heading = rwy->heading;
+			rwy->start_points[1] = destinationWithDistanceAndBearing(rwy->coordinate, rwy->length / 2000, rwy_heading);
+			rwy_heading -= 180;
+			if (rwy_heading < 0)
+				rwy_heading += 360;
+			rwy->start_points[0] = destinationWithDistanceAndBearing(rwy->coordinate, rwy->length / 2000, rwy_heading);
+			for (int j = 0; j < 2; j++) {
+				if (rwy->numbers[j] > 0 && rwy->numbers[j] < 37) {
+					double bearing = bearingBetweenEarchCoordinates(status->data.coordinate, rwy->start_points[1 - j]) + rep->extra_info.magvar;
+					if (bearing > 360)
+						bearing -= 360;
+					int diff_bearing = abs((int)(bearing / 10) - rwy->numbers[j]);
+					if (diff_bearing > 18)
+						diff_bearing = 36 - diff_bearing;
+					int diff_heading = abs((int)(status->data.heading / 10) - rwy->numbers[j]);
+					if (diff_heading > 18)
+						diff_heading = 36 - diff_heading;
+					if (diff_bearing <= 2 && diff_heading <= 3) {
+						rep->runway_act_index = i;
+						rep->runway_act_primary = j == 0 ? TRUE : FALSE;
+					}
 				}
 			}
 		}
@@ -2485,7 +2506,10 @@ void CALLBACK MyDispatchProc(
 			memset(strRunway, 0, sizeof(strRunway));
 			runway_code_generator(strRunway, sizeof(strRunway), *rep);
 			if (rep == &status->departure) {
-				printf("Takeoff from %s (%s) runway %s\n", rep->extra_info.name, rep->icao, strRunway);
+				char time_local[32];
+				memset(time_local, 0, sizeof(time_local));
+				format_date_time(time_local, sizeof(time_local), status->data.time_local.year, status->data.time_local.month_of_year, status->data.time_local.day_of_month, status->data.time_local.time_day, status->data.time_local.timezone_offset, status->data.time_local.day_of_week);
+				printf("Takeoff from %s (%s) runway %s at %s\n", rep->extra_info.name, rep->icao, strRunway, time_local);
 				db_insert_update_table(status->sql,
 					"UPDATE trips SET departure_icao=?,departure_rwy=? WHERE id=?;",
 					NULL,
@@ -2511,12 +2535,73 @@ void CALLBACK MyDispatchProc(
 						db_bind(stmt, stmt_txt, 3, status->id_trip);
 					}
 				);
+
+				struct RUNWAY rwy = rep->runways[rep->runway_act_index];
+				double heading = rwy.heading;
+				int index = 1;
+				if (rep->runway_act_primary) {
+					index = 0;
+					heading -= 180;
+					if (heading < 0)
+						heading += 360;
+				}
+				int dir = -1;
+				struct COORDINATE loc = { 0, 0 };
+				double start_point_heading = heading + 90;
+				if (start_point_heading > 360)
+					start_point_heading -= 360;
+				loc = intersectionCoordinate(status->data.coordinate, heading, rwy.start_points[index], start_point_heading);
+				if (loc.latitude == 360) {
+					dir = 1;
+					start_point_heading = heading - 90;
+					if (start_point_heading < 0)
+						start_point_heading += 360;
+					loc = intersectionCoordinate(status->data.coordinate, heading, rwy.start_points[index], start_point_heading);
+				}
+
 				struct FLIGHT_DATA* tmp = status->touchdown_data;
 				while (tmp != NULL && strcmp(tmp->icao, "") != 0)
 					tmp = tmp->next;
 				if (tmp != NULL) {
 					memcpy(tmp->icao, status->destination.icao, sizeof(status->destination.icao));
 					memcpy(tmp->runway, strRunway, sizeof(strRunway));
+					tmp->distances[0] = distanceInKmBetweenEarthCoordinates(loc, status->data.coordinate) * 1000 * M_2_FT;
+					tmp->distances[1] = distanceInKmBetweenEarthCoordinates(loc, rwy.start_points[index]) * dir * 1000 * M_2_FT;
+					tmp->distances_percent[0] = tmp->distances[0] / rwy.length / M_2_FT;
+					tmp->distances_percent[1] = tmp->distances[1] / rwy.width * 2 / M_2_FT;
+
+					char str_lat[12];
+					char str_lon[12];
+					char time_zulu[32];
+					char time_local[32];
+					memset(str_lat, 0, sizeof(str_lat));
+					memset(str_lon, 0, sizeof(str_lon));
+					memset(time_zulu, 0, sizeof(time_zulu));
+					memset(time_local, 0, sizeof(time_local));
+					coordinate_decimal_to_dms(str_lat, sizeof(str_lat), tmp->coordinate.latitude, LATITUDE);
+					coordinate_decimal_to_dms(str_lon, sizeof(str_lon), tmp->coordinate.longitude, LONGITUDE);
+					format_date_time(time_zulu, sizeof(time_zulu), tmp->time_zulu);
+					format_date_time(time_local, sizeof(time_local), tmp->time_local);
+					printf("***************************************************************************************************************************************\n");
+					printf("speed | v-speed | g-force | pitch | bank | heading |       coordinate       |   dis_len  |   dis_wid  |           time local\n");
+					printf("knots |  ft/min |         |   deg |  deg |   deg   |                        |   ft  |  %% |   ft |   %% |\n");
+					printf("---------------------------------------------------------------------------------------------------------------------------------------\n");
+					printf("  %3d |   %4d  |   %+2.1f  |  %+3.1f | %+3.1f |   %03d   | %s, %s | %5.0f | %2.0f | %4.0f | %3.0f | %s\n",
+						tmp->speed,
+						tmp->vertical_speed,
+						tmp->g_force,
+						tmp->pitch,
+						tmp->bank,
+						tmp->heading,
+						str_lat,
+						str_lon,
+						tmp->distances[0],
+						tmp->distances_percent[0] * 100,
+						tmp->distances[1],
+						tmp->distances_percent[1] * 100,
+						time_local
+					);
+					printf("***************************************************************************************************************************************\n");
 				}
 			}
 		}
