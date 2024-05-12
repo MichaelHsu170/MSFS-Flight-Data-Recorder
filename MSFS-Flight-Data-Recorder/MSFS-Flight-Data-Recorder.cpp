@@ -1019,6 +1019,7 @@ struct STATUS {
 	struct FLIGHT_DATA* touchdown_data = NULL;
 	struct FLIGHT_DATA* touchdown_data_end = NULL;
 	struct FLIGHT_DATA data;
+	struct COORDINATE loc_dh;
 	struct AIRPORT departure;
 	struct AIRPORT destination;
 };
@@ -2235,6 +2236,10 @@ void CALLBACK MyDispatchProc(
 			status->data.time_local.day_of_week = tmp->local_day_of_week;
 			status->data.time_local.time_day = tmp->local_time;
 			status->data.time_local.timezone_offset = tmp->time_zone_offset;
+			if (tmp->radio_height > 50 && tmp->radio_height < 100) {
+				status->loc_dh.latitude = tmp->plane_latitude;
+				status->loc_dh.longitude = tmp->plane_longitude;
+			}
 			if (status->sim_running && !status->paused && tmp->surface_type != 255) {
 				status->in_sim = TRUE;
 				if ((bool)tmp->eng_combustion_1 || (bool)tmp->eng_combustion_2) {
@@ -2319,16 +2324,15 @@ void CALLBACK MyDispatchProc(
 					SimConnect_RequestFacilitiesList_EX1(status->hSimConnect, SIMCONNECT_FACILITY_LIST_TYPE_AIRPORT, REQUEST_AIRPORTS);
 				// Landing
 				if ((bool)tmp->sim_on_ground && status->airborne) {
+					struct FLIGHT_DATA* tmp_touchdown = (struct FLIGHT_DATA*)malloc(sizeof(struct FLIGHT_DATA));
+					memset(tmp_touchdown, 0, sizeof(struct FLIGHT_DATA));
 					if (status->touchdown_data == NULL) {
-						status->touchdown_data = (struct FLIGHT_DATA*)malloc(sizeof(struct FLIGHT_DATA));
-						memset(status->touchdown_data, 0, sizeof(struct FLIGHT_DATA));
-						status->touchdown_data_end = status->touchdown_data;
+						status->touchdown_data = tmp_touchdown;
+						status->touchdown_data_end = tmp_touchdown;
 					}
 					else {
-						struct FLIGHT_DATA* tmp = (struct FLIGHT_DATA*)malloc(sizeof(struct FLIGHT_DATA));
-						memset(tmp, 0, sizeof(struct FLIGHT_DATA));
-						status->touchdown_data_end->next = tmp;
-						status->touchdown_data_end = tmp;
+						status->touchdown_data_end->next = tmp_touchdown;
+						status->touchdown_data_end = tmp_touchdown;
 					}
 					status->touchdown_data_end->heading = tmp->plane_heading_degrees_magnetic;
 					status->touchdown_data_end->pitch = tmp->plane_pitch_degrees;
@@ -2471,10 +2475,20 @@ void CALLBACK MyDispatchProc(
 	case SIMCONNECT_RECV_ID_FACILITY_DATA_END:
 	{
 		struct AIRPORT* rep = NULL;
-		if (status->departure.runway_act_index == -1)
+		double bearing_tra = 0;
+		if (status->departure.runway_act_index == -1) {
 			rep = &status->departure;
-		else
+			bearing_tra = (double)status->data.heading - rep->extra_info.magvar;
+			if (bearing_tra < 0)
+				bearing_tra += 360;
+		} else {
 			rep = &status->destination;
+			bearing_tra = (double)status->data.heading - rep->extra_info.magvar;
+			if (bearing_tra < 0)
+				bearing_tra += 360;
+			if (status->loc_dh.latitude != 360)
+				bearing_tra = bearingBetweenEarchCoordinates(status->loc_dh, status->data.coordinate);
+		}
 		for (int i = 0; i < rep->extra_info.n_runways; i++) {
 			struct RUNWAY* rwy = &rep->runways[i];
 			double rwy_heading = rwy->heading;
@@ -2485,16 +2499,20 @@ void CALLBACK MyDispatchProc(
 			rwy->start_points[0] = destinationWithDistanceAndBearing(rwy->coordinate, rwy->length / 2000, rwy_heading);
 			for (int j = 0; j < 2; j++) {
 				if (rwy->numbers[j] > 0 && rwy->numbers[j] < 37) {
-					double bearing = bearingBetweenEarchCoordinates(status->data.coordinate, rwy->start_points[1 - j]) + rep->extra_info.magvar;
-					if (bearing > 360)
-						bearing -= 360;
-					int diff_bearing = abs((int)(bearing / 10) - rwy->numbers[j]);
-					if (diff_bearing > 18)
-						diff_bearing = 36 - diff_bearing;
-					int diff_heading = abs((int)(status->data.heading / 10) - rwy->numbers[j]);
-					if (diff_heading > 18)
-						diff_heading = 36 - diff_heading;
-					if (diff_bearing <= 2 && diff_heading <= 3) {
+					double rwy_heading = rwy->heading;
+					if (j == 1) {
+						rwy_heading -= 180;
+						if (rwy_heading < 0)
+							rwy_heading += 360;
+					}
+					double bearing_pos = bearingBetweenEarchCoordinates(status->data.coordinate, rwy->start_points[1 - j]);
+					double diff_bearing_pos = abs(bearing_pos - rwy_heading);
+					if (diff_bearing_pos > 180)
+						diff_bearing_pos = 360 - diff_bearing_pos;
+					double diff_bearing_tra = abs(bearing_tra - rwy_heading);
+					if (diff_bearing_tra > 180)
+						diff_bearing_tra = 360 - diff_bearing_tra;
+					if (diff_bearing_pos <= 10 && diff_bearing_tra <= 10) {
 						rep->runway_act_index = i;
 						rep->runway_act_primary = j == 0 ? TRUE : FALSE;
 					}
@@ -2603,6 +2621,10 @@ void CALLBACK MyDispatchProc(
 					);
 					printf("***************************************************************************************************************************************\n");
 				}
+				rep->runway_act_index = -1;
+				rep->runway_act_primary = TRUE;
+				status->loc_dh.latitude = 360;
+				status->loc_dh.longitude = 360;
 			}
 		}
 	}
@@ -2880,6 +2902,8 @@ void connect_db(struct STATUS* status) {
 
 int main() {
 	struct STATUS status;
+	status.loc_dh.latitude = 360;
+	status.loc_dh.longitude = 360;
 	SimConnect_Open(&status.hSimConnect, "Flight Data Recorder", NULL, 0, 0, SIMCONNECT_OPEN_CONFIGINDEX_LOCAL);
 	SimConnect_SubscribeToSystemEvent(status.hSimConnect, EVENT_SIM, "Sim");
 	SimConnect_SubscribeToSystemEvent(status.hSimConnect, EVENT_PAUSE, "Pause");
