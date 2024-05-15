@@ -1,9 +1,11 @@
 ﻿// MSFS-Flight-Recorder.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
+#include <algorithm>
 #include <iostream>
 #include <mutex>
 #include <thread>
+#include <vector>
 #include <Windows.h>
 #include "SimConnect.h"
 #include "sqlite3.h"
@@ -966,6 +968,13 @@ struct RUNWAY {
 	struct COORDINATE start_points[2];
 };
 
+struct RUNWAY_DETECT {
+	double diff_bearing_pos = 0;
+	double diff_bearing_tra = 0;
+	int runway_act_index = -1;
+	bool runway_act_primary = TRUE;
+};
+
 struct FACILITY_AIRPORT {
 	char name[64] = "";
 	float magvar = 0;
@@ -1209,29 +1218,30 @@ void runway_code_generator(
 	}
 	int runway_number = airport.runway_act_primary ? airport.runways[airport.runway_act_index].numbers[0] : airport.runways[airport.runway_act_index].numbers[1];
 	int runway_designator = airport.runway_act_primary ? airport.runways[airport.runway_act_index].designators[0] : airport.runways[airport.runway_act_index].designators[1];
-	sprintf_s(out, len_out, "%02d", runway_number);
+	char designator = 0;
 	switch (runway_designator) {
 	case 1:
-		out[2] = 'L';
+		designator = 'L';
 		break;
 	case 2:
-		out[2] = 'R';
+		designator = 'R';
 		break;
 	case 3:
-		out[2] = 'C';
+		designator = 'C';
 		break;
 	case 4:
-		out[2] = 'W';
+		designator = 'W';
 		break;
 	case 5:
-		out[2] = 'A';
+		designator = 'A';
 		break;
 	case 6:
-		out[2] = 'B';
+		designator = 'B';
 		break;
 	default:
 		break;
 	}
+	sprintf_s(out, len_out, "%02d%c", runway_number, designator);
 }
 
 void db_error(
@@ -2489,6 +2499,7 @@ void CALLBACK MyDispatchProc(
 			if (status->loc_dh.latitude != 360)
 				bearing_tra = bearingBetweenEarchCoordinates(status->loc_dh, status->data.coordinate);
 		}
+		std::vector<struct RUNWAY_DETECT> candidates;
 		for (int i = 0; i < rep->extra_info.n_runways; i++) {
 			struct RUNWAY* rwy = &rep->runways[i];
 			double rwy_heading = rwy->heading;
@@ -2512,12 +2523,29 @@ void CALLBACK MyDispatchProc(
 					double diff_bearing_tra = abs(bearing_tra - rwy_heading);
 					if (diff_bearing_tra > 180)
 						diff_bearing_tra = 360 - diff_bearing_tra;
-					if (diff_bearing_pos <= 10 && diff_bearing_tra <= 10) {
-						rep->runway_act_index = i;
-						rep->runway_act_primary = j == 0 ? TRUE : FALSE;
+					if (diff_bearing_pos <= 10 && diff_bearing_tra <= 90) {
+						struct RUNWAY_DETECT candidate;
+						candidate.diff_bearing_pos = diff_bearing_pos;
+						candidate.diff_bearing_tra = diff_bearing_tra;
+						candidate.runway_act_index = i;
+						candidate.runway_act_primary = j == 0 ? TRUE : FALSE;
+						candidates.push_back(candidate);
 					}
 				}
 			}
+		}
+		if (candidates.size() > 0) {
+			std::vector<struct RUNWAY_DETECT>::iterator it = std::min_element(
+				candidates.begin(),
+				candidates.end(),
+				[](struct RUNWAY_DETECT& rwy1, struct RUNWAY_DETECT& rwy2) {
+					return rwy1.diff_bearing_pos < rwy2.diff_bearing_pos;
+				}
+			);
+			int t_index = std::distance(candidates.begin(), it);
+			struct RUNWAY_DETECT t_rwy = candidates[t_index];
+			rep->runway_act_index = t_rwy.runway_act_index;
+			rep->runway_act_primary = t_rwy.runway_act_primary;
 		}
 		if (rep->runway_act_index != -1) {
 			char strRunway[4];
