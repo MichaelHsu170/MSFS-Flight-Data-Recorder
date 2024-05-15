@@ -2523,7 +2523,7 @@ void CALLBACK MyDispatchProc(
 					double diff_bearing_tra = abs(bearing_tra - rwy_heading);
 					if (diff_bearing_tra > 180)
 						diff_bearing_tra = 360 - diff_bearing_tra;
-					if (diff_bearing_pos <= 10 && diff_bearing_tra <= 90) {
+					if (diff_bearing_pos <= 10 && diff_bearing_tra <= 45) {
 						struct RUNWAY_DETECT candidate;
 						candidate.diff_bearing_pos = diff_bearing_pos;
 						candidate.diff_bearing_tra = diff_bearing_tra;
@@ -2542,10 +2542,23 @@ void CALLBACK MyDispatchProc(
 					return rwy1.diff_bearing_pos < rwy2.diff_bearing_pos;
 				}
 			);
-			int t_index = std::distance(candidates.begin(), it);
-			struct RUNWAY_DETECT t_rwy = candidates[t_index];
-			rep->runway_act_index = t_rwy.runway_act_index;
-			rep->runway_act_primary = t_rwy.runway_act_primary;
+			double min_diff_bearing_pos = it->diff_bearing_pos;
+			it = candidates.begin();
+			while (it != candidates.end()) {
+				if (it->diff_bearing_pos / min_diff_bearing_pos >= 2)
+					it = candidates.erase(it);
+				else
+					it++;
+			}
+			it = std::min_element(
+				candidates.begin(),
+				candidates.end(),
+				[](struct RUNWAY_DETECT& rwy1, struct RUNWAY_DETECT& rwy2) {
+					return rwy1.diff_bearing_tra < rwy2.diff_bearing_tra;
+				}
+			);
+			rep->runway_act_index = it->runway_act_index;
+			rep->runway_act_primary = it->runway_act_primary;
 		}
 		if (rep->runway_act_index != -1) {
 			char strRunway[4];
@@ -2628,11 +2641,11 @@ void CALLBACK MyDispatchProc(
 					coordinate_decimal_to_dms(str_lon, sizeof(str_lon), tmp->coordinate.longitude, LONGITUDE);
 					format_date_time(time_zulu, sizeof(time_zulu), tmp->time_zulu);
 					format_date_time(time_local, sizeof(time_local), tmp->time_local);
-					printf("***************************************************************************************************************************************\n");
-					printf("speed | v-speed | g-force | pitch | bank | heading |       coordinate       |   dis_len  |   dis_wid  |           time local\n");
-					printf("knots |  ft/min |         |   deg |  deg |   deg   |                        |   ft  |  %% |   ft |   %% |\n");
-					printf("---------------------------------------------------------------------------------------------------------------------------------------\n");
-					printf("  %3d |   %4d  |   %+2.1f  |  %+3.1f | %+3.1f |   %03d   | %s, %s | %5.0f | %2.0f | %4.0f | %3.0f | %s\n",
+					printf("*****************************************************************************************************************************************\n");
+					printf("speed | v-speed | g-force | pitch | bank | heading |       coordinate       |   dis_len   |   dis_wid   |           time local\n");
+					printf("knots |  ft/min |         |   deg |  deg |   deg   |                        |   ft  |   %% |   ft |    %% |\n");
+					printf("-----------------------------------------------------------------------------------------------------------------------------------------\n");
+					printf("  %3d |   %4d  |   %+2.1f  |  %+3.1f | %+3.1f |   %03d   | %s, %s | %5.0f | %3.0f | %4.0f | %4.0f | %s\n",
 						tmp->speed,
 						tmp->vertical_speed,
 						tmp->g_force,
@@ -2647,7 +2660,7 @@ void CALLBACK MyDispatchProc(
 						tmp->distances_percent[1] * 100,
 						time_local
 					);
-					printf("***************************************************************************************************************************************\n");
+					printf("*****************************************************************************************************************************************\n");
 				}
 				rep->runway_act_index = -1;
 				rep->runway_act_primary = TRUE;
