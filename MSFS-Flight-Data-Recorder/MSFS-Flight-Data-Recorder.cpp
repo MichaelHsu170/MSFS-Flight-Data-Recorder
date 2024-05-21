@@ -126,7 +126,7 @@ public:
 	}
 
 	// Coordinates-related calculations are referred to https://www.movable-type.co.uk/scripts/latlong.html
-	double distanceInKmBetweenEarthCoordinates(
+	double distanceInKm2Coordinate(
 		COORDINATE loc
 	) {
 		double phy1 = latitude * V_PI / 180.0;
@@ -138,7 +138,7 @@ public:
 		return EARTHRADIUSKM * c;
 	}
 
-	double bearingBetweenEarchCoordinates(
+	double bearing2Coordinate(
 		COORDINATE loc
 	) {
 		double phy1 = latitude * V_PI / 180.0;
@@ -1179,9 +1179,13 @@ public:
 		default:
 			break;
 		}
+		std::vector<std::string> numbers_dir = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
 		char ret[4];
 		memset(ret, 0, sizeof(ret));
-		sprintf_s(ret, sizeof(ret), "%02d%c", runway_number, designator);
+		if(runway_number > 0 && runway_number <= 36)
+			sprintf_s(ret, sizeof(ret), "%02d%c", runway_number, designator);
+		else if (runway_number >= 37 && runway_number <= 44)
+			sprintf_s(ret, sizeof(ret), "%s%c", numbers_dir[runway_number - 37].c_str(), designator);
 		return std::string(ret);
 	}
 };
@@ -2098,10 +2102,10 @@ void stop_recording(
 }
 
 void displayTouchdownData(struct TOUCHDOWN_DATA* tmp) {
-	printf("*******************************************************************************************************************************************\n");
-	printf("speed | v-speed | g-force |  pitch |  bank | heading |       coordinate       |   dis_len   |   dis_wid   |           time local\n");
-	printf("knots |  ft/min |         |    deg |   deg |   deg   |                        |   ft  |   %% |   ft |    %% |\n");
-	printf("-------------------------------------------------------------------------------------------------------------------------------------------\n");
+	printf("********************************************************************************************************************************************\n");
+	printf("speed | v-speed | g-force |  pitch |  bank | heading |       coordinate       |    dis_len   |   dis_wid   |           time local\n");
+	printf("knots |  ft/min |         |    deg |   deg |   deg   |                        |   ft  |    %% |   ft |    %% |\n");
+	printf("--------------------------------------------------------------------------------------------------------------------------------------------\n");
 	printf("  %3d |   %4d  |   %+2.1f  |  %+5.1f | %+5.1f |   %03d   | %s, %s | %5.0f | %3.0f | %4.0f | %4.0f | %s\n",
 		tmp->flight_data.speed,
 		tmp->flight_data.vertical_speed,
@@ -2117,7 +2121,7 @@ void displayTouchdownData(struct TOUCHDOWN_DATA* tmp) {
 		tmp->airport.runway_act.distances_percent[1] * 100,
 		tmp->flight_data.time_local.format_date_time().c_str()
 	);
-	printf("*******************************************************************************************************************************************\n");
+	printf("********************************************************************************************************************************************\n");
 }
 
 void CALLBACK MyDispatchProc(
@@ -2286,73 +2290,75 @@ void CALLBACK MyDispatchProc(
 			}
 			if (status->sim_running && !status->paused && tmp.surface_type != 255) {
 				status->in_sim = TRUE;
-				if ((bool)tmp.eng_combustion_1 || (bool)tmp.eng_combustion_2) {
-					if (!status->recording) {
-						status->recording = TRUE;
-						printf("==================== Recording Started ====================\n");
+				if ((bool)tmp.sim_on_ground) {
+					if ((bool)tmp.eng_combustion_1 || (bool)tmp.eng_combustion_2) {
+						if (!status->recording) {
+							status->recording = TRUE;
+							printf("==================== Recording Started ====================\n");
 
-						memset(status->departure.icao, 0, sizeof(status->departure.icao));
-						memset(status->destination.icao, 0, sizeof(status->destination.icao));
-						status->airborne = !(bool)tmp.sim_on_ground;
+							memset(status->departure.icao, 0, sizeof(status->departure.icao));
+							memset(status->destination.icao, 0, sizeof(status->destination.icao));
+							status->airborne = !(bool)tmp.sim_on_ground;
 
-						db_insert_update_table(
-							status->sql,
-							"INSERT INTO trips ("
-							"title,"
-							"atc_airline,"
-							"atc_flight_number,"
-							"atc_id,"
-							"atc_model,"
-							"atc_type,"
-							"departure_latitude,"
-							"departure_longitude,"
-							"departure_zulu_time,"
-							"departure_local_time"
-							") VALUES (?,?,?,?,?,?,?,?,?,?);",
-							&tmp,
-							status,
-							NULL,
-							[](
-								sqlite3_stmt* stmt,
-								const char* stmt_txt,
-								void* data,
-								struct STATUS* status,
-								void* aux
-								) {
-									struct DATA_A320* pS = (struct DATA_A320*)data;
-									db_bind(stmt, stmt_txt, 1, pS->title);
-									db_bind(stmt, stmt_txt, 2, pS->atc_airline);
-									db_bind(stmt, stmt_txt, 3, pS->atc_flight_number);
-									db_bind(stmt, stmt_txt, 4, pS->atc_id);
-									db_bind(stmt, stmt_txt, 5, pS->atc_model);
-									db_bind(stmt, stmt_txt, 6, pS->atc_type);
-									db_bind(stmt, stmt_txt, 7, pS->plane_coordinate.latitude);
-									db_bind(stmt, stmt_txt, 8, pS->plane_coordinate.longitude);
-									db_bind(stmt, stmt_txt, 9, pS->time_zulu.format_date_time().c_str());
-									db_bind(stmt, stmt_txt, 10, pS->time_local.format_date_time().c_str());
-							}
-						);
-						db_query_table(
-							status->sql,
-							"SELECT id FROM trips ORDER BY id DESC LIMIT 1;",
-							&tmp,
-							status,
-							NULL,
-							NULL,
-							NULL,
-							[](
-								sqlite3_stmt* stmt,
-								const char* stmt_txt,
-								struct STATUS* status,
-								void* aux
-								) {
-									status->id_trip = sqlite3_column_int(stmt, 0);
-							}
-						);
+							db_insert_update_table(
+								status->sql,
+								"INSERT INTO trips ("
+								"title,"
+								"atc_airline,"
+								"atc_flight_number,"
+								"atc_id,"
+								"atc_model,"
+								"atc_type,"
+								"departure_latitude,"
+								"departure_longitude,"
+								"departure_zulu_time,"
+								"departure_local_time"
+								") VALUES (?,?,?,?,?,?,?,?,?,?);",
+								&tmp,
+								status,
+								NULL,
+								[](
+									sqlite3_stmt* stmt,
+									const char* stmt_txt,
+									void* data,
+									struct STATUS* status,
+									void* aux
+									) {
+										struct DATA_A320* pS = (struct DATA_A320*)data;
+										db_bind(stmt, stmt_txt, 1, pS->title);
+										db_bind(stmt, stmt_txt, 2, pS->atc_airline);
+										db_bind(stmt, stmt_txt, 3, pS->atc_flight_number);
+										db_bind(stmt, stmt_txt, 4, pS->atc_id);
+										db_bind(stmt, stmt_txt, 5, pS->atc_model);
+										db_bind(stmt, stmt_txt, 6, pS->atc_type);
+										db_bind(stmt, stmt_txt, 7, pS->plane_coordinate.latitude);
+										db_bind(stmt, stmt_txt, 8, pS->plane_coordinate.longitude);
+										db_bind(stmt, stmt_txt, 9, pS->time_zulu.format_date_time().c_str());
+										db_bind(stmt, stmt_txt, 10, pS->time_local.format_date_time().c_str());
+								}
+							);
+							db_query_table(
+								status->sql,
+								"SELECT id FROM trips ORDER BY id DESC LIMIT 1;",
+								&tmp,
+								status,
+								NULL,
+								NULL,
+								NULL,
+								[](
+									sqlite3_stmt* stmt,
+									const char* stmt_txt,
+									struct STATUS* status,
+									void* aux
+									) {
+										status->id_trip = sqlite3_column_int(stmt, 0);
+								}
+							);
+						}
+					} else {
+						if (status->recording)
+							stop_recording(status);
 					}
-				} else {
-					if (status->recording)
-						stop_recording(status);
 				}
 			}
 			if(status->recording && !status->paused) {
@@ -2435,7 +2441,7 @@ void CALLBACK MyDispatchProc(
 			COORDINATE airport_loc;
 			airport_loc.latitude = airport.Latitude;
 			airport_loc.longitude = airport.Longitude;
-			double distance = abs(status->data.coordinate.distanceInKmBetweenEarthCoordinates(airport_loc));
+			double distance = abs(status->data.coordinate.distanceInKm2Coordinate(airport_loc));
 			if (distance <= min_distance) {
 				min_distance = distance;
 				min_index = i;
@@ -2475,6 +2481,15 @@ void CALLBACK MyDispatchProc(
 				printf("Touchdown at %s, %s\n",
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str());
+				db_insert_update_table(status->sql,
+					"UPDATE trips SET destination_icao=NULL,destination_rwy=NULL WHERE id=?;",
+					NULL,
+					status,
+					NULL,
+					[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+						db_bind(stmt, stmt_txt, 1, status->id_trip);
+					}
+				);
 				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
 				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
 					tmp = tmp->next;
@@ -2528,91 +2543,77 @@ void CALLBACK MyDispatchProc(
 		if (bearing_tra < 0)
 			bearing_tra += 360;
 		if (status->loc_dh.latitude != 360)
-			bearing_tra = status->loc_dh.bearingBetweenEarchCoordinates(status->data.coordinate);
+			bearing_tra = status->loc_dh.bearing2Coordinate(status->data.coordinate);
 		std::vector<struct RUNWAY_OPERATION> candidates;
 		for (int i = 0; i < rep->n_runways; i++) {
 			RUNWAY* rwy = &rep->runways[i];
-			double rwy_heading = rwy->heading;
-			rwy->start_points[1] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, rwy_heading);
-			rwy_heading -= 180;
-			if (rwy_heading < 0)
-				rwy_heading += 360;
-			rwy->start_points[0] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, rwy_heading);
-			for (int j = 0; j < 2; j++) {
-				if (rwy->numbers[j] > 0 && rwy->numbers[j] < 37) {
-					double rwy_heading = rwy->heading;
-					if (j == 1) {
-						rwy_heading -= 180;
-						if (rwy_heading < 0)
-							rwy_heading += 360;
-					}
+			double heading = rwy->heading;
+			rwy->start_points[1] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, heading);
+			heading -= 180;
+			if (heading < 0)
+				heading += 360;
+			rwy->start_points[0] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, heading);
 
-					double bearing_pos = status->data.coordinate.bearingBetweenEarchCoordinates(rwy->start_points[1 - j]);
-					double diff_bearing_pos = abs(bearing_pos - rwy_heading);
-					if (diff_bearing_pos > 180)
-						diff_bearing_pos = 360 - diff_bearing_pos;
+			double angle = atan(rwy->width / 2 / rwy->length) / V_PI * 180;
+			double bearing = rwy->start_points[0].bearing2Coordinate(status->data.coordinate);
+			double distance = rwy->start_points[0].distanceInKm2Coordinate(status->data.coordinate) * 1000;
+			double diff_bearing = abs(bearing - rwy->heading);
+			if (diff_bearing > 180)
+				diff_bearing = 360 - diff_bearing;
+			double distance2 = 0;
+			if (diff_bearing >= 0 && diff_bearing <= angle) {
+				distance2 = rwy->length / cos(diff_bearing / 180 * V_PI);
+			} else if (diff_bearing > angle && diff_bearing <= 90) {
+				distance2 = rwy->width / 2 / sin(diff_bearing / 180 * V_PI);
+			}
+			if (distance <= distance2) {
+				RUNWAY_OPERATION candidate;
+				candidate.index = i;
+				diff_bearing = abs(bearing_tra - rwy->heading);
+				if (diff_bearing > 180)
+					diff_bearing = 360 - diff_bearing;
+				candidate.is_primary = diff_bearing < 90;
 
-					double diff_bearing_tra = abs(bearing_tra - rwy_heading);
-					if (diff_bearing_tra > 180)
-						diff_bearing_tra = 360 - diff_bearing_tra;
-
-					double heading = rwy_heading - 180;
+				heading = rwy->heading;
+				int index = 0;
+				if (!candidate.is_primary) {
+					heading -= 180;
 					if (heading < 0)
 						heading += 360;
-					int dir = -1;
-					double start_point_heading = rwy_heading - 90;
-					if (start_point_heading > 360)
-						start_point_heading -= 360;
-					COORDINATE loc = status->data.coordinate.intersectionCoordinate(heading, rwy->start_points[j], start_point_heading);
-					if (loc.latitude == 360) {
-						dir = 1;
-						start_point_heading = rwy_heading + 90;
-						if (start_point_heading < 0)
-							start_point_heading += 360;
-						loc = status->data.coordinate.intersectionCoordinate(heading, rwy->start_points[j], start_point_heading);
-					}
-					double distances[2];
-					double distances_percent[2];
-					distances[0] = loc.distanceInKmBetweenEarthCoordinates(status->data.coordinate) * 1000 * M_2_FT;
-					distances[1] = loc.distanceInKmBetweenEarthCoordinates(rwy->start_points[j]) * dir * 1000 * M_2_FT;
-					distances_percent[0] = distances[0] / rwy->length / M_2_FT;
-					distances_percent[1] = distances[1] / rwy->width * 2 / M_2_FT;
-
-					if (diff_bearing_pos <= 10 &&
-						diff_bearing_tra <= 45 && 
-						distances_percent[0] > 0 && distances_percent[0] < 1 &&
-						abs(distances_percent[1]) < 2) {
-						RUNWAY_OPERATION candidate;
-						candidate.diff_bearing_pos = diff_bearing_pos;
-						candidate.diff_bearing_tra = diff_bearing_tra;
-						candidate.distances[0] = distances[0];
-						candidate.distances[1] = distances[1];
-						candidate.distances_percent[0] = distances_percent[0];
-						candidate.distances_percent[1] = distances_percent[1];
-						candidate.index = i;
-						candidate.is_primary = j == 0 ? TRUE : FALSE;
-						candidates.push_back(candidate);
-					}
+					index = 1;
 				}
+
+				double bearing_pos = status->data.coordinate.bearing2Coordinate(rwy->start_points[1 - index]);
+				candidate.diff_bearing_pos = abs(bearing_pos - heading);
+				if (candidate.diff_bearing_pos > 180)
+					candidate.diff_bearing_pos = 360 - candidate.diff_bearing_pos;
+
+				candidate.diff_bearing_tra = abs(bearing_tra - heading);
+				if (candidate.diff_bearing_tra > 180)
+					candidate.diff_bearing_tra = 360 - candidate.diff_bearing_tra;
+
+				int dir = -1;
+				double tmp_heading = heading + 90;
+				if (tmp_heading > 360)
+					tmp_heading -= 360;
+				COORDINATE loc = rwy->start_points[index].intersectionCoordinate(heading, status->data.coordinate, tmp_heading);
+				if (loc.latitude == 360) {
+					dir = 1;
+					tmp_heading = heading - 90;
+					if (tmp_heading < 0)
+						tmp_heading += 360;
+					loc = rwy->start_points[index].intersectionCoordinate(heading, status->data.coordinate, tmp_heading);
+				}
+				candidate.distances[0] = loc.distanceInKm2Coordinate(rwy->start_points[index]) * 1000 * M_2_FT;
+				candidate.distances[1] = loc.distanceInKm2Coordinate(status->data.coordinate) * dir * 1000 * M_2_FT;
+				candidate.distances_percent[0] = candidate.distances[0] / rwy->length / M_2_FT;
+				candidate.distances_percent[1] = candidate.distances[1] / rwy->width * 2 / M_2_FT;
+
+				candidates.push_back(candidate);
 			}
 		}
 		if (candidates.size() > 0) {
 			std::vector<struct RUNWAY_OPERATION>::iterator it = std::min_element(
-				candidates.begin(),
-				candidates.end(),
-				[](struct RUNWAY_OPERATION& rwy1, struct RUNWAY_OPERATION& rwy2) {
-					return rwy1.diff_bearing_pos < rwy2.diff_bearing_pos;
-				}
-			);
-			double min_diff_bearing_pos = it->diff_bearing_pos;
-			it = candidates.begin();
-			while (it != candidates.end()) {
-				if (it->diff_bearing_pos / min_diff_bearing_pos >= 2)
-					it = candidates.erase(it);
-				else
-					it++;
-			}
-			it = std::min_element(
 				candidates.begin(),
 				candidates.end(),
 				[](struct RUNWAY_OPERATION& rwy1, struct RUNWAY_OPERATION& rwy2) {
@@ -2686,7 +2687,7 @@ void CALLBACK MyDispatchProc(
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str());
 				db_insert_update_table(status->sql,
-					"UPDATE trips SET destination_icao=? WHERE id=?;",
+					"UPDATE trips SET destination_icao=?,destination_rwy=NULL WHERE id=?;",
 					NULL,
 					status,
 					NULL,
