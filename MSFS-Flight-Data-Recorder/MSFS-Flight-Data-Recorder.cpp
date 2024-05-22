@@ -149,7 +149,7 @@ public:
 		double x = cos(phy1) * sin(phy2) - sin(phy1) * cos(phy2) * cos(lambda2 - lambda1);
 		double theta = atan2(y, x);
 		double ret = theta * 180 / V_PI;
-		if (ret < 0)
+		if (ret <= 0)
 			ret += 360;
 		return ret;
 	}
@@ -190,17 +190,14 @@ public:
 		if (sin(lambda2 - lambda1) > 0) {
 			theta12 = thetaa;
 			theta21 = 2 * V_PI - thetab;
-		}
-		else {
+		} else {
 			theta12 = 2 * V_PI - thetaa;
 			theta21 = thetab;
 		}
 		double alpha1 = theta1 - theta12;
 		double alpha2 = theta21 - theta2;
-		if ((sin(alpha1) == 0 && sin(alpha2) == 0) || sin(alpha1) * sin(alpha2) < 0) {
-			ret.latitude = 360;
-			ret.longitude = 360;
-		}
+		if ((sin(alpha1) == 0 && sin(alpha2) == 0) || sin(alpha1) * sin(alpha2) < 0)
+			ret.clear();
 		else {
 			double alpha3 = acos(-1 * cos(alpha1) * cos(alpha2) + sin(alpha1) * sin(alpha2) * cos(delta12));
 			double delta1 = atan2(sin(delta12) * sin(alpha1) * sin(alpha2), cos(alpha2) + cos(alpha1) * cos(alpha3));
@@ -1143,7 +1140,7 @@ public:
 	void clear() {
 		length = 0;
 		width = 0;
-		heading = 360;
+		heading = 0;
 		for (int i = 0; i < sizeof(numbers) / sizeof(int); i++)
 			numbers[i] = -1;
 		for (int i = 0; i < sizeof(designators) / sizeof(int); i++)
@@ -1955,8 +1952,7 @@ void db_consume(
 			if (status->q_data_last != NULL)
 				free(status->q_data_last);
 			status->q_data_last = pS;
-		}
-		else
+		} else
 			free(pS);
 		if (fBreak)
 			break;
@@ -2106,7 +2102,7 @@ void displayTouchdownData(struct TOUCHDOWN_DATA* tmp) {
 	printf("speed | v-speed | g-force |  pitch |  bank | heading |       coordinate       |    dis_len   |   dis_wid   |           time local\n");
 	printf("knots |  ft/min |         |    deg |   deg |   deg   |                        |   ft  |    %% |   ft |    %% |\n");
 	printf("--------------------------------------------------------------------------------------------------------------------------------------------\n");
-	printf("  %3d |   %4d  |   %+2.1f  |  %+5.1f | %+5.1f |   %03d   | %s, %s | %5.0f | %3.0f | %4.0f | %4.0f | %s\n",
+	printf("  %3d |   %4d  |   %+2.1f  |  %+5.1f | %+5.1f |   %03d   | %s, %s | %5.0f | %4.0f | %4.0f | %4.0f | %s\n",
 		tmp->flight_data.speed,
 		tmp->flight_data.vertical_speed,
 		tmp->flight_data.g_force,
@@ -2373,8 +2369,7 @@ void CALLBACK MyDispatchProc(
 					if (status->touchdown_data == NULL) {
 						status->touchdown_data = tmp_touchdown;
 						status->touchdown_data_end = tmp_touchdown;
-					}
-					else {
+					} else {
 						status->touchdown_data_end->next = tmp_touchdown;
 						status->touchdown_data_end = tmp_touchdown;
 					}
@@ -2540,7 +2535,7 @@ void CALLBACK MyDispatchProc(
 		else
 			rep = &status->destination;
 		double bearing_tra = (double)status->data.heading - rep->magvar;
-		if (bearing_tra < 0)
+		if (bearing_tra <= 0)
 			bearing_tra += 360;
 		if (status->loc_dh.latitude != 360)
 			bearing_tra = status->loc_dh.bearing2Coordinate(status->data.coordinate);
@@ -2550,7 +2545,7 @@ void CALLBACK MyDispatchProc(
 			double heading = rwy->heading;
 			rwy->start_points[1] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, heading);
 			heading -= 180;
-			if (heading < 0)
+			if (heading <= 0)
 				heading += 360;
 			rwy->start_points[0] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, heading);
 
@@ -2578,7 +2573,7 @@ void CALLBACK MyDispatchProc(
 				int index = 0;
 				if (!candidate.is_primary) {
 					heading -= 180;
-					if (heading < 0)
+					if (heading <= 0)
 						heading += 360;
 					index = 1;
 				}
@@ -2600,7 +2595,7 @@ void CALLBACK MyDispatchProc(
 				if (loc.latitude == 360) {
 					dir = 1;
 					tmp_heading = heading - 90;
-					if (tmp_heading < 0)
+					if (tmp_heading <= 0)
 						tmp_heading += 360;
 					loc = rwy->start_points[index].intersectionCoordinate(heading, status->data.coordinate, tmp_heading);
 				}
@@ -2706,8 +2701,7 @@ void CALLBACK MyDispatchProc(
 				}
 			}
 		}
-		status->loc_dh.latitude = 360;
-		status->loc_dh.longitude = 360;
+		status->loc_dh.clear();
 	}
 	break;
 	case SIMCONNECT_RECV_ID_EXCEPTION:
@@ -2983,8 +2977,6 @@ void connect_db(struct STATUS* status) {
 
 int main() {
 	struct STATUS status;
-	status.loc_dh.latitude = 360;
-	status.loc_dh.longitude = 360;
 	SimConnect_Open(&status.hSimConnect, "Flight Data Recorder", NULL, 0, 0, SIMCONNECT_OPEN_CONFIGINDEX_LOCAL);
 	SimConnect_SubscribeToSystemEvent(status.hSimConnect, EVENT_SIM, "Sim");
 	SimConnect_SubscribeToSystemEvent(status.hSimConnect, EVENT_PAUSE, "Pause");
