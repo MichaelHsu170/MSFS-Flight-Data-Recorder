@@ -49,18 +49,18 @@ public:
 		int hour = (int)time_day / 3600;
 		int minute = ((int)time_day - 3600 * hour) / 60;
 		double second = time_day - 3600 * hour - 60 * minute;
-		double timezone = timezone_offset;
+
+		char sign = '+';
+		if (timezone_offset < 0)
+			sign = '-';
+		double timezone = abs(timezone_offset);
 		timezone /= 3600;
 		int timezone_hour = (int)timezone;
 		int timezone_minute = (int)((timezone - timezone_hour) * 60);
-		char sign = '+';
-		if (timezone < 0) {
-			sign = '-';
-			timezone_hour *= -1;
-		}
+
 		char ret[32];
 		memset(ret, 0, sizeof(ret));
-		sprintf_s(ret, sizeof(ret), "%04.0f-%02.0f-%02.0fT%02d:%02d:%06.3f%c%02d:%02d_%1.0f", year, month_of_year, day_of_month, hour, minute, second, sign, timezone_hour, timezone_minute, day_of_week);
+		snprintf(ret, sizeof(ret), "%04.0f-%02.0f-%02.0fT%02d:%02d:%06.3f%c%02d:%02d_%1.0f", year, month_of_year, day_of_month, hour, minute, second, sign, timezone_hour, timezone_minute, day_of_week);
 		return std::string(ret);
 	}
 };
@@ -121,7 +121,7 @@ public:
 		int second = coordinate;
 		char ret[12];
 		memset(ret, 0, sizeof(ret));
-		sprintf_s(ret, sizeof(ret), "%03d %02d %02d%c", degree, minute, second, tmp1);
+		snprintf(ret, sizeof(ret), "%03d %02d %02d%c", degree, minute, second, tmp1);
 		return std::string(ret);
 	}
 
@@ -1180,9 +1180,9 @@ public:
 		char ret[4];
 		memset(ret, 0, sizeof(ret));
 		if(runway_number > 0 && runway_number <= 36)
-			sprintf_s(ret, sizeof(ret), "%02d%c", runway_number, designator);
+			snprintf(ret, sizeof(ret), "%02d%c", runway_number, designator);
 		else if (runway_number >= 37 && runway_number <= 44)
-			sprintf_s(ret, sizeof(ret), "%s%c", numbers_dir[runway_number - 37].c_str(), designator);
+			snprintf(ret, sizeof(ret), "%s%c", numbers_dir[runway_number - 37].c_str(), designator);
 		return std::string(ret);
 	}
 };
