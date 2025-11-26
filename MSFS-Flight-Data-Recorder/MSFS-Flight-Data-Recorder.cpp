@@ -67,7 +67,7 @@ public:
 
 class COORDINATE {
 public:
-	static enum COORDINATE_CAT {
+	enum COORDINATE_CAT {
 		LATITUDE,
 		LONGITUDE,
 	};
@@ -213,10 +213,10 @@ public:
 
 // SimConnect
 // Events
-static enum GROUP_ID {
+enum GROUP_ID {
 	GROUP_1,
 };
-static enum EVENT_ID {
+enum EVENT_ID {
 	EVENT_SIM,
 	EVENT_PAUSE,
 	EVENT_CRASHED,
@@ -396,11 +396,11 @@ static const char* EVENT_ID_TXT[] = {
 };
 
 // Data
-static enum DATA_DEFINE_ID {
+enum DATA_DEFINE_ID {
 	DEFINITION_A320,
 	DEFINITION_RUNWAYS,
 };
-static enum DATA_REQUEST_ID {
+enum DATA_REQUEST_ID {
 	REQUEST_A320,
 	REQUEST_AIRPORTS,
 	REQUEST_RUNWAYS,

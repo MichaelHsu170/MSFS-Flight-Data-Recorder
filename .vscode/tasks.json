@@ -1,0 +1,87 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: Configure",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.vscode\\scripts\\with_vs_env.bat",
+      "args": [
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+        "-S",
+        ".",
+        "-B",
+        "build/${input:buildConfig}",
+        "-G",
+        "Visual Studio 18 2026",
+        "-A",
+        "x64",
+        "-DSIMCONNECT_DIR=C:\\MSFS SDK\\SimConnect SDK"
+      ],
+      "options": {
+        "env": {
+          "VSINSTALLDIR": "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools"
+        }
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "CMake: Build",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.vscode\\scripts\\with_vs_env.bat",
+      "args": [
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
+        "--build",
+        "build/${input:buildConfig}",
+        "--config",
+        "${input:buildConfig}"
+      ],
+      "options": {
+        "env": {
+          "VSINSTALLDIR": "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools"
+        }
+      },
+      "dependsOn": "CMake: Configure",
+      "problemMatcher": [
+        "$msCompile"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always"
+      }
+    },
+    {
+      "label": "CMake: Clean",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\.vscode\\scripts\\clean.ps1"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "buildConfig",
+      "type": "pickString",
+      "description": "Select build configuration",
+      "options": [
+        "Debug",
+        "Release"
+      ],
+      "default": "Debug"
+    }
+  ]
+}
