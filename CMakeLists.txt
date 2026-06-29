@@ -31,12 +31,19 @@ endif()
 if(DEFINED SIMCONNECT_DIR)
     message(STATUS "Using SimConnect from: ${SIMCONNECT_DIR}")
     target_include_directories(${PROJECT_NAME} PRIVATE "${SIMCONNECT_DIR}/Include" "${SIMCONNECT_DIR}")
-    if(EXISTS "${SIMCONNECT_DIR}/Lib/SimConnect.lib")
-        target_link_directories(${PROJECT_NAME} PRIVATE "${SIMCONNECT_DIR}/Lib")
-        target_link_libraries(${PROJECT_NAME} PRIVATE SimConnect.lib)
+    if(EXISTS "${SIMCONNECT_DIR}/lib/static/SimConnect.lib" AND EXISTS "${SIMCONNECT_DIR}/Lib/SimConnect.lib")
+        # Use static lib for Release, dynamic lib for Debug (static lib is Release-only CRT)
+        target_link_libraries(${PROJECT_NAME} PRIVATE
+            $<$<CONFIG:Release>:${SIMCONNECT_DIR}/lib/static/SimConnect.lib>
+            $<$<CONFIG:Debug>:${SIMCONNECT_DIR}/Lib/SimConnect.lib>
+        )
+        message(STATUS "SimConnect: static for Release, dynamic for Debug")
+    elseif(EXISTS "${SIMCONNECT_DIR}/lib/static/SimConnect.lib")
+        target_link_libraries(${PROJECT_NAME} PRIVATE "${SIMCONNECT_DIR}/lib/static/SimConnect.lib")
+    elseif(EXISTS "${SIMCONNECT_DIR}/Lib/SimConnect.lib")
+        target_link_libraries(${PROJECT_NAME} PRIVATE "${SIMCONNECT_DIR}/Lib/SimConnect.lib")
     elseif(EXISTS "${SIMCONNECT_DIR}/SimConnect.lib")
-        target_link_directories(${PROJECT_NAME} PRIVATE "${SIMCONNECT_DIR}")
-        target_link_libraries(${PROJECT_NAME} PRIVATE SimConnect.lib)
+        target_link_libraries(${PROJECT_NAME} PRIVATE "${SIMCONNECT_DIR}/SimConnect.lib")
     else()
         message(WARNING "SimConnect.lib not found inside ${SIMCONNECT_DIR}. You may need to set SIMCONNECT_DIR to your MSFS SDK path.")
     endif()
@@ -63,21 +70,21 @@ if(EXISTS "${SQLITE3_DIR}/sqlite3.dll")
     )
 endif()
 
-# Copy SimConnect.dll to the output directory after build
+# Copy SimConnect.dll to the output directory for Debug builds (dynamic linking)
 if(DEFINED SIMCONNECT_DIR)
     if(EXISTS "${SIMCONNECT_DIR}/lib/SimConnect.dll")
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            COMMAND ${CMAKE_COMMAND} -E $<IF:$<CONFIG:Debug>,copy_if_different,true>
                 "${SIMCONNECT_DIR}/lib/SimConnect.dll"
                 "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
-            COMMENT "Copying SimConnect.dll to output directory"
+            COMMENT "Copying SimConnect.dll to output directory (Debug only)"
         )
     elseif(EXISTS "${SIMCONNECT_DIR}/SimConnect.dll")
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            COMMAND ${CMAKE_COMMAND} -E $<IF:$<CONFIG:Debug>,copy_if_different,true>
                 "${SIMCONNECT_DIR}/SimConnect.dll"
                 "$<TARGET_FILE_DIR:${PROJECT_NAME}>"
-            COMMENT "Copying SimConnect.dll to output directory"
+            COMMENT "Copying SimConnect.dll to output directory (Debug only)"
         )
     endif()
 endif()

@@ -5,8 +5,8 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/third_party/sqlite3",
-                "C:/MSFS SDK/SimConnect SDK/Include",
-                "C:/MSFS SDK/SimConnect SDK"
+                "C:/MSFS 2024 SDK/SimConnect SDK/Include",
+                "C:/MSFS 2024 SDK/SimConnect SDK"
             ],
             "defines": [
                 "_DEBUG",

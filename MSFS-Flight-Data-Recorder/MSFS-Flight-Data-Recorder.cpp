@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <iostream>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 #include <Windows.h>
@@ -397,17 +398,17 @@ static const char* EVENT_ID_TXT[] = {
 
 // Data
 enum DATA_DEFINE_ID {
-	DEFINITION_A320,
+	DEFINITION_FLIGHT,
 	DEFINITION_RUNWAYS,
 };
 enum DATA_REQUEST_ID {
-	REQUEST_A320,
+	REQUEST_FLIGHT,
 	REQUEST_AIRPORTS,
 	REQUEST_RUNWAYS,
 };
 
 // A320
-struct DATA_A320 {
+struct FLIGHT_DATA_RECORD {
 	double autopilot_airspeed_hold;
 	double autopilot_airspeed_hold_var;
 	double autopilot_alt_radio_mode;
@@ -649,263 +650,263 @@ struct DATA_A320 {
 	char atc_type[64];
 	DATETIME time_local;
 	DATETIME time_zulu;
-	struct DATA_A320* next;
+	struct FLIGHT_DATA_RECORD* next;
 };
-void add_definition_a320(HANDLE hSimConnect) {
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT AIRSPEED HOLD", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT AIRSPEED HOLD VAR", "Knots");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT ALT RADIO MODE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT ALTITUDE LOCK", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT ALTITUDE LOCK VAR", "Feet");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT APPROACH ACTIVE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT APPROACH CAPTURED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT APPROACH HOLD", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT APPROACH IS LOCALIZER", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT AVIONICS MANAGED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT DISENGAGED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT FLIGHT DIRECTOR ACTIVE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT FLIGHT LEVEL CHANGE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT GLIDESLOPE ACTIVE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT GLIDESLOPE ARM", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT GLIDESLOPE HOLD", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT HEADING LOCK", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT HEADING LOCK DIR", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT MACH HOLD", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT MACH HOLD VAR", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT MANAGED SPEED IN MACH", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT MANAGED THROTTLE ACTIVE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT MASTER", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT TAKEOFF POWER ACTIVE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT THROTTLE ARM", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT THROTTLE MAX THRUST", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT VERTICAL HOLD", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOPILOT VERTICAL HOLD VAR", "Feet/minute");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOBRAKES ACTIVE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTO BRAKE SWITCH CB", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "BRAKE INDICATOR", "Position");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "BRAKE PARKING INDICATOR", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "REJECTED TAKEOFF BRAKES ACTIVE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR DAMAGE BY SPEED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR HANDLE POSITION", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR IS ON GROUND:0", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR IS ON GROUND:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR IS ON GROUND:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR POSITION:0", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR POSITION:1", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR POSITION:2", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR SPEED EXCEEDED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR WARNING:0", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR WARNING:1", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GEAR WARNING:2", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "WHEEL RPM:0", "RPM");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "WHEEL RPM:1", "RPM");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "WHEEL RPM:2", "RPM");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AILERON LEFT DEFLECTION", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AILERON LEFT DEFLECTION PCT", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AILERON RIGHT DEFLECTION", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AILERON RIGHT DEFLECTION PCT", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AILERON TRIM", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AILERON TRIM DISABLED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AILERON TRIM PCT", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ELEVATOR DEFLECTION", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ELEVATOR DEFLECTION PCT", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ELEVATOR TRIM DISABLED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ELEVATOR TRIM PCT", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ELEVATOR TRIM POSITION", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ELEVON DEFLECTION", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FLAP DAMAGE BY SPEED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FLAP SPEED EXCEEDED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FLAPS HANDLE INDEX", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FLAPS NUM HANDLE POSITIONS", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "RUDDER DEFLECTION", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "RUDDER DEFLECTION PCT", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "RUDDER TRIM", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "RUDDER TRIM DISABLED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "RUDDER TRIM PCT", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "SPOILERS ARMED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "SPOILERS HANDLE POSITION", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "SPOILERS LEFT POSITION", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "SPOILERS RIGHT POSITION", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "APU BLEED PRESSURE RECEIVED BY ENGINE", "psi");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "APU GENERATOR ACTIVE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "APU GENERATOR SWITCH", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "APU ON FIRE DETECTED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "APU PCT RPM", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "APU PCT STARTER", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "APU SWITCH", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "BLEED AIR APU", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ELECTRICAL BATTERY ESTIMATED CAPACITY PCT", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ELECTRICAL BATTERY VOLTAGE", "Volts");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ELECTRICAL MASTER BATTERY", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "EXTERNAL POWER AVAILABLE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "EXTERNAL POWER CONNECTION ON", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "EXTERNAL POWER ON", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "BLEED AIR ENGINE:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "BLEED AIR ENGINE:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "BLEED AIR SOURCE CONTROL:1", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "BLEED AIR SOURCE CONTROL:2", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENGINE CONTROL SELECT", "Flags");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENGINE TYPE", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG ANTI ICE:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG ANTI ICE:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG COMBUSTION:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG COMBUSTION:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG EXHAUST GAS TEMPERATURE:1", "Celsius");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG EXHAUST GAS TEMPERATURE:2", "Celsius");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG FAILED:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG FAILED:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG HYDRAULIC PRESSURE:1", "psf");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG HYDRAULIC PRESSURE:2", "psf");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG OIL PRESSURE:1", "psf");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG OIL PRESSURE:2", "psf");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG OIL TEMPERATURE:1", "Celsius");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG OIL TEMPERATURE:2", "Celsius");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG ON FIRE:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ENG ON FIRE:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG DAMAGE PERCENT:1", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG DAMAGE PERCENT:2", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG ELAPSED TIME:1", "Hours");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG ELAPSED TIME:2", "Hours");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG FIRE DETECTED:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG FIRE DETECTED:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG FUEL USED SINCE START:1", "Pounds");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG FUEL USED SINCE START:2", "Pounds");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG FUEL VALVE:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG FUEL VALVE:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG GENERATOR ACTIVE:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG GENERATOR ACTIVE:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG GENERATOR SWITCH:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG GENERATOR SWITCH:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG MASTER ALTERNATOR", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG REVERSE THRUST ENGAGED", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG STARTER:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG STARTER:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG STARTER ACTIVE:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG STARTER ACTIVE:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG THROTTLE LEVER POSITION:1", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG THROTTLE LEVER POSITION:2", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG THROTTLE MANAGED MODE:1", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GENERAL ENG THROTTLE MANAGED MODE:2", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "MASTER IGNITION SWITCH", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "NUMBER OF ENGINES", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG BLEED AIR:1", "psi");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG BLEED AIR:2", "psi");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG FUEL AVAILABLE:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG FUEL AVAILABLE:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG FUEL FLOW PPH:1", "Pounds per hour");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG FUEL FLOW PPH:2", "Pounds per hour");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG IGNITION SWITCH EX1:1", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG IGNITION SWITCH EX1:2", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG IS IGNITING:1", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG IS IGNITING:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG N1:1", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG N1:2", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG N2:1", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG N2:2", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG VIBRATION:1", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TURB ENG VIBRATION:2", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "G FORCE", "GForce");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "EMPTY WEIGHT", "Pounds");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TOTAL WEIGHT", "Pounds");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FUEL CROSS FEED:2", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FUEL CROSS FEED:3", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FUEL SELECTED QUANTITY:2", "Gallons");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FUEL SELECTED QUANTITY:3", "Gallons");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FUEL SELECTED QUANTITY PERCENT:2", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FUEL SELECTED QUANTITY PERCENT:3", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FUEL TOTAL QUANTITY", "Gallons");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FUEL TOTAL QUANTITY WEIGHT", "Pounds");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FUEL TRANSFER PUMP ON:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FUEL TRANSFER PUMP ON:3", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "FUEL WEIGHT PER GALLON", "Pounds");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ON ANY RUNWAY", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE IN PARKING STATE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "SURFACE CONDITION", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "SURFACE TYPE", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GROUND VELOCITY", "Knots");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE ALTITUDE", "Feet");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE ALT ABOVE GROUND", "Feet");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE BANK DEGREES", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE HEADING DEGREES GYRO", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE HEADING DEGREES MAGNETIC", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE HEADING DEGREES TRUE", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE LATITUDE", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE LONGITUDE", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE PITCH DEGREES", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE TOUCHDOWN BANK DEGREES", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE TOUCHDOWN HEADING DEGREES MAGNETIC", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE TOUCHDOWN HEADING DEGREES TRUE", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE TOUCHDOWN LATITUDE", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE TOUCHDOWN LONGITUDE", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE TOUCHDOWN NORMAL VELOCITY", "Feet per minute");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PLANE TOUCHDOWN PITCH DEGREES", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "VERTICAL SPEED", "Feet per minute");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AIRSPEED INDICATED", "Knots");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AIRSPEED MACH", "Mach");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AIRSPEED TRUE", "Knots");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GPS GROUND SPEED", "Meters per second");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GPS GROUND TRUE HEADING", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GPS GROUND TRUE TRACK", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GPS POSITION ALT", "Meters");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GPS POSITION LAT", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GPS POSITION LON", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "RADIO HEIGHT", "Feet");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AUTOTHROTTLE ACTIVE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AVIONICS MASTER SWITCH", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "CABIN NO SMOKING ALERT SWITCH", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "CABIN SEATBELTS ALERT SWITCH", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GPWS SYSTEM ACTIVE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GPWS WARNING", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "GYRO DRIFT ERROR", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "HEADING INDICATOR", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "INDICATED ALTITUDE", "Feet");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "INDICATED ALTITUDE CALIBRATED", "Feet");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "MAGNETIC COMPASS", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "OVERSPEED WARNING", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PITOT ICE PCT", "Percent Over 100");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PITOT HEAT", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PITOT HEAT SWITCH", "Enum");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PRESSURE ALTITUDE", "Meters");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "PRESSURIZATION CABIN ALTITUDE", "Feet");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "STALL WARNING", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "STRUCTURAL DEICE SWITCH", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "LIGHT STATES", "Mask");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "HYDRAULIC PRESSURE:1", "psf");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "HYDRAULIC PRESSURE:2", "psf");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "HYDRAULIC SWITCH", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "WARNING FUEL", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "WARNING LOW HEIGHT", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "WARNING OIL PRESSURE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "WARNING VACUUM", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "WARNING VOLTAGE", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "SIM ON GROUND", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AMBIENT PRESSURE", "inHg");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AMBIENT TEMPERATURE", "Celsius");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AMBIENT VISIBILITY", "Meters");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AMBIENT WIND DIRECTION", "Degrees");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "AMBIENT WIND VELOCITY", "Knots");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "BAROMETER PRESSURE", "Millibars");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "KOHLSMAN SETTING HG", "inHg");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "KOHLSMAN SETTING MB", "Millibars");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "KOHLSMAN SETTING STD", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TITLE", NULL, SIMCONNECT_DATATYPE_STRING256);
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ATC AIRLINE", NULL, SIMCONNECT_DATATYPE_STRING64);
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ATC FLIGHT NUMBER", NULL, SIMCONNECT_DATATYPE_STRING8);
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ATC ID", NULL, SIMCONNECT_DATATYPE_STRING32);
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ATC MODEL", NULL, SIMCONNECT_DATATYPE_STRING32);
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ATC TYPE", NULL, SIMCONNECT_DATATYPE_STRING64);
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "LOCAL YEAR", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "LOCAL MONTH OF YEAR", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "LOCAL DAY OF MONTH", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "LOCAL DAY OF WEEK", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "LOCAL TIME", "Seconds");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "TIME ZONE OFFSET", "Seconds");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ZULU YEAR", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ZULU MONTH OF YEAR", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ZULU DAY OF MONTH", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ZULU DAY OF WEEK", "Number");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_A320, "ZULU TIME", "Seconds");
-	SimConnect_RequestDataOnSimObject(hSimConnect, REQUEST_A320, DEFINITION_A320, SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_PERIOD_SIM_FRAME);
+void add_flight_definition(HANDLE hSimConnect) {
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT AIRSPEED HOLD", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT AIRSPEED HOLD VAR", "Knots");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT ALT RADIO MODE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT ALTITUDE LOCK", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT ALTITUDE LOCK VAR", "Feet");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT APPROACH ACTIVE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT APPROACH CAPTURED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT APPROACH HOLD", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT APPROACH IS LOCALIZER", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT AVIONICS MANAGED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT DISENGAGED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT FLIGHT DIRECTOR ACTIVE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT FLIGHT LEVEL CHANGE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT GLIDESLOPE ACTIVE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT GLIDESLOPE ARM", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT GLIDESLOPE HOLD", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT HEADING LOCK", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT HEADING LOCK DIR", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT MACH HOLD", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT MACH HOLD VAR", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT MANAGED SPEED IN MACH", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT MANAGED THROTTLE ACTIVE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT MASTER", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT TAKEOFF POWER ACTIVE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT THROTTLE ARM", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT THROTTLE MAX THRUST", "Percent");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT VERTICAL HOLD", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT VERTICAL HOLD VAR", "Feet/minute");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOBRAKES ACTIVE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTO BRAKE SWITCH CB", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "BRAKE INDICATOR", "Position");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "BRAKE PARKING INDICATOR", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "REJECTED TAKEOFF BRAKES ACTIVE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR DAMAGE BY SPEED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR HANDLE POSITION", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR IS ON GROUND:0", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR IS ON GROUND:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR IS ON GROUND:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR POSITION:0", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR POSITION:1", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR POSITION:2", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR SPEED EXCEEDED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR WARNING:0", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR WARNING:1", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GEAR WARNING:2", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "WHEEL RPM:0", "RPM");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "WHEEL RPM:1", "RPM");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "WHEEL RPM:2", "RPM");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AILERON LEFT DEFLECTION", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AILERON LEFT DEFLECTION PCT", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AILERON RIGHT DEFLECTION", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AILERON RIGHT DEFLECTION PCT", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AILERON TRIM", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AILERON TRIM DISABLED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AILERON TRIM PCT", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ELEVATOR DEFLECTION", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ELEVATOR DEFLECTION PCT", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ELEVATOR TRIM DISABLED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ELEVATOR TRIM PCT", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ELEVATOR TRIM POSITION", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ELEVON DEFLECTION", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FLAP DAMAGE BY SPEED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FLAP SPEED EXCEEDED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FLAPS HANDLE INDEX", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FLAPS NUM HANDLE POSITIONS", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "RUDDER DEFLECTION", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "RUDDER DEFLECTION PCT", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "RUDDER TRIM", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "RUDDER TRIM DISABLED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "RUDDER TRIM PCT", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "SPOILERS ARMED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "SPOILERS HANDLE POSITION", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "SPOILERS LEFT POSITION", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "SPOILERS RIGHT POSITION", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "APU BLEED PRESSURE RECEIVED BY ENGINE", "psi");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "APU GENERATOR ACTIVE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "APU GENERATOR SWITCH", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "APU ON FIRE DETECTED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "APU PCT RPM", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "APU PCT STARTER", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "APU SWITCH", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "BLEED AIR APU", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ELECTRICAL BATTERY ESTIMATED CAPACITY PCT", "Percent");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ELECTRICAL BATTERY VOLTAGE", "Volts");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ELECTRICAL MASTER BATTERY", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "EXTERNAL POWER AVAILABLE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "EXTERNAL POWER CONNECTION ON", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "EXTERNAL POWER ON", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "BLEED AIR ENGINE:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "BLEED AIR ENGINE:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "BLEED AIR SOURCE CONTROL:1", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "BLEED AIR SOURCE CONTROL:2", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENGINE CONTROL SELECT", "Flags");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENGINE TYPE", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG ANTI ICE:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG ANTI ICE:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG COMBUSTION:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG COMBUSTION:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG EXHAUST GAS TEMPERATURE:1", "Celsius");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG EXHAUST GAS TEMPERATURE:2", "Celsius");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG FAILED:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG FAILED:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG HYDRAULIC PRESSURE:1", "psf");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG HYDRAULIC PRESSURE:2", "psf");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG OIL PRESSURE:1", "psf");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG OIL PRESSURE:2", "psf");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG OIL TEMPERATURE:1", "Celsius");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG OIL TEMPERATURE:2", "Celsius");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG ON FIRE:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ENG ON FIRE:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG DAMAGE PERCENT:1", "Percent");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG DAMAGE PERCENT:2", "Percent");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG ELAPSED TIME:1", "Hours");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG ELAPSED TIME:2", "Hours");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG FIRE DETECTED:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG FIRE DETECTED:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG FUEL USED SINCE START:1", "Pounds");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG FUEL USED SINCE START:2", "Pounds");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG FUEL VALVE:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG FUEL VALVE:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG GENERATOR ACTIVE:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG GENERATOR ACTIVE:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG GENERATOR SWITCH:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG GENERATOR SWITCH:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG MASTER ALTERNATOR", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG REVERSE THRUST ENGAGED", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG STARTER:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG STARTER:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG STARTER ACTIVE:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG STARTER ACTIVE:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG THROTTLE LEVER POSITION:1", "Percent");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG THROTTLE LEVER POSITION:2", "Percent");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG THROTTLE MANAGED MODE:1", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GENERAL ENG THROTTLE MANAGED MODE:2", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "MASTER IGNITION SWITCH", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "NUMBER OF ENGINES", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG BLEED AIR:1", "psi");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG BLEED AIR:2", "psi");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG FUEL AVAILABLE:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG FUEL AVAILABLE:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG FUEL FLOW PPH:1", "Pounds per hour");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG FUEL FLOW PPH:2", "Pounds per hour");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG IGNITION SWITCH EX1:1", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG IGNITION SWITCH EX1:2", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG IS IGNITING:1", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG IS IGNITING:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG N1:1", "Percent");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG N1:2", "Percent");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG N2:1", "Percent");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG N2:2", "Percent");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG VIBRATION:1", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG VIBRATION:2", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "G FORCE", "GForce");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "EMPTY WEIGHT", "Pounds");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TOTAL WEIGHT", "Pounds");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FUEL CROSS FEED:2", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FUEL CROSS FEED:3", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FUEL SELECTED QUANTITY:2", "Gallons");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FUEL SELECTED QUANTITY:3", "Gallons");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FUEL SELECTED QUANTITY PERCENT:2", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FUEL SELECTED QUANTITY PERCENT:3", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FUEL TOTAL QUANTITY", "Gallons");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FUEL TOTAL QUANTITY WEIGHT", "Pounds");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FUEL TRANSFER PUMP ON:2", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FUEL TRANSFER PUMP ON:3", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "FUEL WEIGHT PER GALLON", "Pounds");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ON ANY RUNWAY", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE IN PARKING STATE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "SURFACE CONDITION", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "SURFACE TYPE", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GROUND VELOCITY", "Knots");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE ALTITUDE", "Feet");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE ALT ABOVE GROUND", "Feet");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE BANK DEGREES", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE HEADING DEGREES GYRO", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE HEADING DEGREES MAGNETIC", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE HEADING DEGREES TRUE", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE LATITUDE", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE LONGITUDE", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE PITCH DEGREES", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE TOUCHDOWN BANK DEGREES", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE TOUCHDOWN HEADING DEGREES MAGNETIC", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE TOUCHDOWN HEADING DEGREES TRUE", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE TOUCHDOWN LATITUDE", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE TOUCHDOWN LONGITUDE", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE TOUCHDOWN NORMAL VELOCITY", "Feet per minute");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PLANE TOUCHDOWN PITCH DEGREES", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "VERTICAL SPEED", "Feet per minute");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AIRSPEED INDICATED", "Knots");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AIRSPEED MACH", "Mach");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AIRSPEED TRUE", "Knots");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GPS GROUND SPEED", "Meters per second");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GPS GROUND TRUE HEADING", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GPS GROUND TRUE TRACK", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GPS POSITION ALT", "Meters");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GPS POSITION LAT", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GPS POSITION LON", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "RADIO HEIGHT", "Feet");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOTHROTTLE ACTIVE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AVIONICS MASTER SWITCH", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "CABIN NO SMOKING ALERT SWITCH", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "CABIN SEATBELTS ALERT SWITCH", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GPWS SYSTEM ACTIVE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GPWS WARNING", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "GYRO DRIFT ERROR", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "HEADING INDICATOR", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "INDICATED ALTITUDE", "Feet");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "INDICATED ALTITUDE CALIBRATED", "Feet");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "MAGNETIC COMPASS", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "OVERSPEED WARNING", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PITOT ICE PCT", "Percent Over 100");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PITOT HEAT", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PITOT HEAT SWITCH", "Enum");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PRESSURE ALTITUDE", "Meters");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "PRESSURIZATION CABIN ALTITUDE", "Feet");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "STALL WARNING", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "STRUCTURAL DEICE SWITCH", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "LIGHT STATES", "Mask");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "HYDRAULIC PRESSURE:1", "psf");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "HYDRAULIC PRESSURE:2", "psf");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "HYDRAULIC SWITCH", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "WARNING FUEL", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "WARNING LOW HEIGHT", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "WARNING OIL PRESSURE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "WARNING VACUUM", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "WARNING VOLTAGE", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "SIM ON GROUND", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AMBIENT PRESSURE", "inHg");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AMBIENT TEMPERATURE", "Celsius");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AMBIENT VISIBILITY", "Meters");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AMBIENT WIND DIRECTION", "Degrees");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AMBIENT WIND VELOCITY", "Knots");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "BAROMETER PRESSURE", "Millibars");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "KOHLSMAN SETTING HG", "inHg");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "KOHLSMAN SETTING MB", "Millibars");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "KOHLSMAN SETTING STD", "Bool");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TITLE", NULL, SIMCONNECT_DATATYPE_STRING256);
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ATC AIRLINE", NULL, SIMCONNECT_DATATYPE_STRING64);
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ATC FLIGHT NUMBER", NULL, SIMCONNECT_DATATYPE_STRING8);
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ATC ID", NULL, SIMCONNECT_DATATYPE_STRING32);
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ATC MODEL", NULL, SIMCONNECT_DATATYPE_STRING32);
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ATC TYPE", NULL, SIMCONNECT_DATATYPE_STRING64);
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "LOCAL YEAR", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "LOCAL MONTH OF YEAR", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "LOCAL DAY OF MONTH", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "LOCAL DAY OF WEEK", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "LOCAL TIME", "Seconds");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TIME ZONE OFFSET", "Seconds");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ZULU YEAR", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ZULU MONTH OF YEAR", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ZULU DAY OF MONTH", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ZULU DAY OF WEEK", "Number");
+	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "ZULU TIME", "Seconds");
+	SimConnect_RequestDataOnSimObject(hSimConnect, REQUEST_FLIGHT, DEFINITION_FLIGHT, SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_PERIOD_SIM_FRAME);
 }
 
 // Database
@@ -1277,10 +1278,10 @@ struct STATUS {
 	bool paused = FALSE;
 	bool recording = FALSE;
 	bool quit = FALSE;
-	struct DATA_A320* q_data_db_start = NULL;
-	struct DATA_A320* q_data_db_end = NULL;
-	struct DATA_A320* q_data_end = NULL;
-	struct DATA_A320* q_data_last = NULL;
+	struct FLIGHT_DATA_RECORD* q_data_db_start = NULL;
+	struct FLIGHT_DATA_RECORD* q_data_db_end = NULL;
+	struct FLIGHT_DATA_RECORD* q_data_end = NULL;
+	struct FLIGHT_DATA_RECORD* q_data_last = NULL;
 	int q_data_db_length = 0;
 	struct EVENT_DB* q_event_start = NULL;
 	struct EVENT_DB* q_event_end = NULL;
@@ -1307,16 +1308,28 @@ std::string trim(
 	return s;
 }
 
+struct db_exception {
+	std::string message;
+	db_exception(const std::string& msg) : message(msg) {}
+};
+
 void db_error(
 	const char* stmt_txt,
 	int sql_ret,
 	char** errmsg
 ) {
-	if (sql_ret != 0)
-		printf("db operation \"%s\" failed with error %d\n", stmt_txt, sql_ret);
-	if (errmsg != NULL)
-		printf("db operation \"%s\" failed with error %s\n", stmt_txt, *errmsg);
-	exit(3);
+	std::string msg;
+	if (sql_ret != 0) {
+		msg = std::string("db operation \"") + stmt_txt + "\" failed with error " + std::to_string(sql_ret);
+		printf("%s\n", msg.c_str());
+	}
+	if (errmsg != NULL && *errmsg != NULL) {
+		msg = std::string("db operation \"") + stmt_txt + "\" failed with error " + *errmsg;
+		printf("%s\n", msg.c_str());
+		sqlite3_free(*errmsg);
+		*errmsg = NULL;
+	}
+	throw db_exception(msg);
 }
 
 void db_bind(
@@ -1421,23 +1434,32 @@ void db_insert_update_table(sqlite3* sql,
 	sqlite3_stmt* stmt = NULL;
 	int sql_ret = 0;
 	char* errmsg = NULL;
-	sql_ret = sqlite3_exec(sql, "BEGIN TRANSACTION", NULL, NULL, &errmsg);
-	if (errmsg != NULL)
-		db_error(stmt_txt, 0, &errmsg);
-	sql_ret = sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, NULL);
-	if (sql_ret)
-		db_error(stmt_txt, sql_ret, NULL);
-	func(stmt, stmt_txt, data, status, aux);
-	sql_ret = sqlite3_step(stmt);
-	sql_ret = sqlite3_reset(stmt);
-	if (sql_ret)
-		db_error(stmt_txt, sql_ret, NULL);
-	sql_ret = sqlite3_exec(sql, "COMMIT TRANSACTION", NULL, NULL, &errmsg);
-	if (errmsg != NULL)
-		db_error(stmt_txt, 0, &errmsg);
-	sql_ret = sqlite3_finalize(stmt);
-	if (sql_ret)
-		db_error(stmt_txt, sql_ret, NULL);
+	try {
+		sql_ret = sqlite3_exec(sql, "BEGIN TRANSACTION", NULL, NULL, &errmsg);
+		if (errmsg != NULL)
+			db_error(stmt_txt, 0, &errmsg);
+		sql_ret = sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, NULL);
+		if (sql_ret)
+			db_error(stmt_txt, sql_ret, NULL);
+		func(stmt, stmt_txt, data, status, aux);
+		sql_ret = sqlite3_step(stmt);
+		sql_ret = sqlite3_reset(stmt);
+		if (sql_ret)
+			db_error(stmt_txt, sql_ret, NULL);
+		sql_ret = sqlite3_exec(sql, "COMMIT TRANSACTION", NULL, NULL, &errmsg);
+		if (errmsg != NULL)
+			db_error(stmt_txt, 0, &errmsg);
+		sql_ret = sqlite3_finalize(stmt);
+		if (sql_ret)
+			db_error(stmt_txt, sql_ret, NULL);
+	}
+	catch (const db_exception&) {
+		if (stmt != NULL)
+			sqlite3_finalize(stmt);
+		sqlite3_exec(sql, "ROLLBACK TRANSACTION", NULL, NULL, NULL);
+		status->mutex_db_commit.unlock();
+		throw;
+	}
 	status->mutex_db_commit.unlock();
 }
 
@@ -1446,7 +1468,7 @@ void db_consume(
 	STATUS* status
 ) {
 	while (status->q_data_db_start != NULL) {
-		struct DATA_A320* pS = status->q_data_db_start;
+		struct FLIGHT_DATA_RECORD* pS = status->q_data_db_start;
 		db_insert_update_table(status->sql,
 			"INSERT INTO trip_data ("
 			"trip,"
@@ -1600,7 +1622,7 @@ void db_consume(
 			status,
 			NULL,
 			[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-				struct DATA_A320* pS = (struct DATA_A320*)data;
+				struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
 				int bool_group_1 = 0;
 				int bool_group_2 = 0;
 				int bool_group_3 = 0;
@@ -2016,7 +2038,7 @@ void stop_recording(
 			struct STATUS* status,
 			void* aux
 			) {
-				struct DATA_A320* pS = (struct DATA_A320*)data;
+				struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
 				db_bind(stmt, stmt_txt, 1, pS->plane_coordinate.latitude);
 				db_bind(stmt, stmt_txt, 2, pS->plane_coordinate.longitude);
 				db_bind(stmt, stmt_txt, 3, pS->time_zulu.format_date_time().c_str());
@@ -2126,6 +2148,7 @@ void CALLBACK MyDispatchProc(
 	void* pContext
 ) {
 	struct STATUS* status = (struct STATUS*)pContext;
+	try {
 	switch (pData->dwID) {
 	case SIMCONNECT_RECV_ID_OPEN:
 	{
@@ -2137,6 +2160,7 @@ void CALLBACK MyDispatchProc(
 		printf("SIMCONNECT_RECV_ID_QUIT\n");
 		status->quit = TRUE;
 		break;
+	case SIMCONNECT_RECV_ID_EVENT_EX1:
 	case SIMCONNECT_RECV_ID_EVENT:
 	{
 		SIMCONNECT_RECV_EVENT* evt = (SIMCONNECT_RECV_EVENT*)pData;
@@ -2265,11 +2289,11 @@ void CALLBACK MyDispatchProc(
 	{
 		SIMCONNECT_RECV_SIMOBJECT_DATA* pObjData = (SIMCONNECT_RECV_SIMOBJECT_DATA*)pData;
 		switch (pObjData->dwRequestID) {
-		case REQUEST_A320:
+		case REQUEST_FLIGHT:
 		{
-			struct DATA_A320 tmp;
-			memset(&tmp, 0, sizeof(struct DATA_A320));
-			memcpy(&tmp, &pObjData->dwData, sizeof(struct DATA_A320) - sizeof(double) - sizeof(struct DATA_A320*));
+			struct FLIGHT_DATA_RECORD tmp;
+			memset(&tmp, 0, sizeof(struct FLIGHT_DATA_RECORD));
+			memcpy(&tmp, &pObjData->dwData, sizeof(struct FLIGHT_DATA_RECORD) - sizeof(double) - sizeof(struct FLIGHT_DATA_RECORD*));
 			status->data.altitude = tmp.plane_altitude;
 			status->data.heading = tmp.plane_heading_degrees_magnetic;
 			status->data.speed = tmp.airspeed_indicated;
@@ -2320,7 +2344,7 @@ void CALLBACK MyDispatchProc(
 									struct STATUS* status,
 									void* aux
 									) {
-										struct DATA_A320* pS = (struct DATA_A320*)data;
+										struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
 										db_bind(stmt, stmt_txt, 1, pS->title);
 										db_bind(stmt, stmt_txt, 2, pS->atc_airline);
 										db_bind(stmt, stmt_txt, 3, pS->atc_flight_number);
@@ -2397,9 +2421,9 @@ void CALLBACK MyDispatchProc(
 					delta_s += 86400;
 				if (delta_s >= DB_SAMPLING_INTERVAL)
 				{
-					struct DATA_A320* pS = (struct DATA_A320*)malloc(sizeof(struct DATA_A320));
-					memset(pS, 0, sizeof(struct DATA_A320));
-					memcpy(pS, &tmp, sizeof(struct DATA_A320));
+					struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)malloc(sizeof(struct FLIGHT_DATA_RECORD));
+					memset(pS, 0, sizeof(struct FLIGHT_DATA_RECORD));
+					memcpy(pS, &tmp, sizeof(struct FLIGHT_DATA_RECORD));
 					if (status->q_data_end == NULL)
 						status->q_data_end = pS;
 					else {
@@ -2444,6 +2468,7 @@ void CALLBACK MyDispatchProc(
 		}
 		if (min_distance < 5) {
 			char* ident = pWxData->rgData[min_index].Ident;
+			char* region = pWxData->rgData[min_index].Region;
 			if (status->departure.runway_act.index == -1)
 				memcpy(status->departure.icao, ident, sizeof(ident));
 			else
@@ -2464,7 +2489,7 @@ void CALLBACK MyDispatchProc(
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LONGITUDE");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE RUNWAY");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE AIRPORT");
-			SimConnect_RequestFacilityData(status->hSimConnect, DEFINITION_RUNWAYS, REQUEST_RUNWAYS, ident);
+			SimConnect_RequestFacilityData_EX1(status->hSimConnect, DEFINITION_RUNWAYS, REQUEST_RUNWAYS, ident, region);
 		} else {
 			if (status->departure.runway_act.index == -1) {
 				printf("Takeoff from %s, %s at %s\n",
@@ -2760,6 +2785,9 @@ void CALLBACK MyDispatchProc(
 		printf("SIMCONNECT_RECV: %d\n", pData->dwID);
 		break;
 	}
+	} catch (const db_exception& e) {
+		printf("Database error in dispatch: %s\n", e.message.c_str());
+	}
 }
 
 void add_client_events(HANDLE hSimConnect) {
@@ -2982,7 +3010,7 @@ int main() {
 	SimConnect_SubscribeToSystemEvent(status.hSimConnect, EVENT_PAUSE, "Pause");
 	SimConnect_SubscribeToSystemEvent(status.hSimConnect, EVENT_CRASHED, "Crashed");
 	add_client_events(status.hSimConnect);
-	add_definition_a320(status.hSimConnect);
+	add_flight_definition(status.hSimConnect);
 
 	connect_db(&status);
 	while (!status.quit)
