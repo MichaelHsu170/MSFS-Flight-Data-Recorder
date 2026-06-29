@@ -929,12 +929,14 @@ static const char* DATABASE_TABLE_FIELDS[] = {
 	"departure_longitude REAL NOT NULL,"
 	"departure_icao VARCHAR(4),"
 	"departure_rwy VARCHAR(3),"
+	"departure_region VARCHAR(2),"
 	"departure_zulu_time VARCHAR(32) NOT NULL,"
 	"departure_local_time VARCHAR(32) NOT NULL,"
 	"destination_latitude REAL,"
 	"destination_longitude REAL,"
 	"destination_icao VARCHAR(4),"
 	"destination_rwy VARCHAR(3),"
+	"destination_region VARCHAR(2),"
 	"destination_zulu_time VARCHAR(32),"
 	"destination_local_time VARCHAR(32)",
 
@@ -1205,6 +1207,7 @@ public:
 	RUNWAY* runways;
 	struct RUNWAY_OPERATION runway_act;
 	char icao[5];
+	char region[3];
 
 	AIRPORT() {
 		runways = NULL;
@@ -1217,6 +1220,7 @@ public:
 
 	void clear() {
 		memset(icao, 0, sizeof(icao));
+		memset(region, 0, sizeof(region));
 		memset(name, 0, sizeof(name));
 		magvar = 0;
 		n_runways = 0;
@@ -1236,6 +1240,7 @@ public:
 	void copy(AIRPORT* src) {
 		memcpy(name, src->name, sizeof(src->name));
 		memcpy(icao, src->icao, sizeof(src->icao));
+		memcpy(region, src->region, sizeof(src->region));
 		magvar = src->magvar;
 		n_runways = src->n_runways;
 		if (src->runways != NULL) {
@@ -2502,7 +2507,7 @@ void CALLBACK MyDispatchProc(
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str());
 				db_insert_update_table(status->sql,
-					"UPDATE trips SET destination_icao=NULL,destination_rwy=NULL WHERE id=?;",
+					"UPDATE trips SET destination_icao=NULL,destination_rwy=NULL,destination_region=NULL WHERE id=?;",
 					NULL,
 					status,
 					NULL,
@@ -2647,28 +2652,30 @@ void CALLBACK MyDispatchProc(
 			if (rep == &status->departure) {
 				printf("Takeoff from %s (%s) runway %s at %s\n", rep->name, rep->icao, strRunway.c_str(), status->data.time_local.format_date_time().c_str());
 				db_insert_update_table(status->sql,
-					"UPDATE trips SET departure_icao=?,departure_rwy=? WHERE id=?;",
+					"UPDATE trips SET departure_icao=?,departure_rwy=?,departure_region=? WHERE id=?;",
 					NULL,
 					status,
 					(char*)strRunway.c_str(),
 					[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
 						db_bind(stmt, stmt_txt, 1, status->departure.icao);
 						db_bind(stmt, stmt_txt, 2, (char*)aux);
-						db_bind(stmt, stmt_txt, 3, status->id_trip);
+						db_bind(stmt, stmt_txt, 3, status->departure.region);
+						db_bind(stmt, stmt_txt, 4, status->id_trip);
 					}
 				);
 			}
 			else {
 				printf("Touchdown at %s (%s) runway %s\n", rep->name, rep->icao, strRunway.c_str());
 				db_insert_update_table(status->sql,
-					"UPDATE trips SET destination_icao=?,destination_rwy=? WHERE id=?;",
+					"UPDATE trips SET destination_icao=?,destination_rwy=?,destination_region=? WHERE id=?;",
 					NULL,
 					status,
 					(char*)strRunway.c_str(),
 					[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
 						db_bind(stmt, stmt_txt, 1, status->destination.icao);
 						db_bind(stmt, stmt_txt, 2, (char*)aux);
-						db_bind(stmt, stmt_txt, 3, status->id_trip);
+						db_bind(stmt, stmt_txt, 3, status->destination.region);
+						db_bind(stmt, stmt_txt, 4, status->id_trip);
 					}
 				);
 				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
@@ -2690,13 +2697,14 @@ void CALLBACK MyDispatchProc(
 					status->data.time_local.format_date_time().c_str());
 				status->departure.runway_act.index = -2;
 				db_insert_update_table(status->sql,
-					"UPDATE trips SET departure_icao=? WHERE id=?;",
+					"UPDATE trips SET departure_icao=?,departure_region=? WHERE id=?;",
 					NULL,
 					status,
 					NULL,
 					[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
 						db_bind(stmt, stmt_txt, 1, status->departure.icao);
-						db_bind(stmt, stmt_txt, 2, status->id_trip);
+						db_bind(stmt, stmt_txt, 2, status->departure.region);
+						db_bind(stmt, stmt_txt, 3, status->id_trip);
 					}
 				);
 			}
@@ -2707,13 +2715,14 @@ void CALLBACK MyDispatchProc(
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str());
 				db_insert_update_table(status->sql,
-					"UPDATE trips SET destination_icao=?,destination_rwy=NULL WHERE id=?;",
+					"UPDATE trips SET destination_icao=?,destination_region=?,destination_rwy=NULL WHERE id=?;",
 					NULL,
 					status,
 					NULL,
 					[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
 						db_bind(stmt, stmt_txt, 1, status->destination.icao);
-						db_bind(stmt, stmt_txt, 2, status->id_trip);
+						db_bind(stmt, stmt_txt, 2, status->destination.region);
+						db_bind(stmt, stmt_txt, 3, status->id_trip);
 					}
 				);
 				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
