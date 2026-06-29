@@ -2963,17 +2963,31 @@ void add_client_events(HANDLE hSimConnect) {
 }
 
 void connect_db(struct STATUS* status) {
-	char* fn_db = (char*)malloc(strlen(DATABASE_NAME) + 4);
-	memset(fn_db, 0, strlen(DATABASE_NAME) + 4);
-	memcpy(fn_db, DATABASE_NAME, strlen(DATABASE_NAME));
-	memcpy(fn_db + strlen(DATABASE_NAME), ".db", 4);
+	char fn_db[MAX_PATH];
+
+#ifdef _DEBUG
+	// Debug: database in current working directory
+	snprintf(fn_db, MAX_PATH, "%s.db", DATABASE_NAME);
+#else
+	// Release: database in executable directory
+	char exe_path[MAX_PATH];
+	GetModuleFileNameA(NULL, exe_path, MAX_PATH);
+	
+	// Find the last backslash to extract directory
+	char* last_slash = strrchr(exe_path, '\\');
+	if (last_slash) {
+		*last_slash = '\0';  // Null-terminate at the last backslash
+	}
+	
+	snprintf(fn_db, MAX_PATH, "%s\\%s.db", exe_path, DATABASE_NAME);
+#endif
+	
 	if (sqlite3_open_v2(fn_db, &status->sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_SHAREDCACHE, NULL) == SQLITE_OK)
-		printf("Opened database %s\n", DATABASE_NAME);
+		printf("Opened database %s\n", fn_db);
 	else {
 		printf("Can't open database: %s\n", sqlite3_errmsg(status->sql));
 		exit(1);
 	}
-	free(fn_db);
 
 	const char* stmt_txt_start = "CREATE TABLE IF NOT EXISTS ";
 	const char* stmt_txt_sep_1 = " (";

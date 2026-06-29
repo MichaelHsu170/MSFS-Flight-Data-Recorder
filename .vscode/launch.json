@@ -5,7 +5,7 @@
       "name": "Launch",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "${workspaceFolder}\\build\\${input:launchConfig}\\bin\\MSFS_Flight_Data_Recorder.exe",
+      "program": "${workspaceFolder}\\build\\${input:launchConfig}\\bin\\MSFS-Flight-Data-Recorder.exe",
       "args": [],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
