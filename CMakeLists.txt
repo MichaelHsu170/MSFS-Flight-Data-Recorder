@@ -8,6 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(SRC_DIR "${PROJECT_SOURCE_DIR}/MSFS-Flight-Data-Recorder")
 set(SOURCES
     ${SRC_DIR}/MSFS-Flight-Data-Recorder.cpp
+    ${SRC_DIR}/db.cpp
+    ${SRC_DIR}/recorder.cpp
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
