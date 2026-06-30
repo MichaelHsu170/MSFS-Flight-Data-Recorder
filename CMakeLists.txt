@@ -4,6 +4,17 @@ project(MSFS-Flight-Data-Recorder LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
+
+# Qt (MSVC kit). Compiler/linker is still cl.exe/link.exe from VS Build Tools —
+# Qt's MSVC kit doesn't replace that toolchain, it just supplies Qt's libraries
+# built against it. Point CMAKE_PREFIX_PATH at the Qt MSVC install, e.g.:
+#   -DCMAKE_PREFIX_PATH=C:/Qt/6.8.0/msvc2022_64
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Charts)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Charts)
+
 # Source
 set(SRC_DIR "${PROJECT_SOURCE_DIR}/MSFS-Flight-Data-Recorder")
 set(SOURCES
@@ -13,6 +24,8 @@ set(SOURCES
 )
 
 add_executable(${PROJECT_NAME} ${SOURCES})
+
+target_link_libraries(${PROJECT_NAME} PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Charts)
 
 # SQLite3 bundled in the repo
 set(SQLITE3_DIR "${PROJECT_SOURCE_DIR}/third_party/sqlite3")

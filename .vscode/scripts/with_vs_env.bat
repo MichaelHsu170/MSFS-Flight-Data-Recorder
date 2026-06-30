@@ -38,30 +38,20 @@ if defined VSINSTALL (
   )
 )
 
-REM First argument is the cmake executable or 'cmake'. If not provided, try to discover cmake.exe in common locations.
-set "CMAKE_CMD=%~1"
-shift
-
-if "%CMAKE_CMD%"=="" (
-  set "CMAKE_CMD=cmake"
-  REM Try common CMake installation locations if cmake is not on PATH
-  where cmake >nul 2>&1
-  if errorlevel 1 (
-    if exist "%PF%\CMake\bin\cmake.exe" set "CMAKE_CMD=%PF%\CMake\bin\cmake.exe"
-    if exist "%PF86%\CMake\bin\cmake.exe" set "CMAKE_CMD=%PF86%\CMake\bin\cmake.exe"
-  )
+REM %1 must be the cmake executable (tasks.json always supplies the full path).
+REM Run %* directly instead of extracting %1 and re-combining with the rest:
+REM `shift` does NOT remove the first argument from %*, so "%CMAKE_CMD%" %*
+REM would re-include it (duplicating the program) — and consuming %1/%2 via
+REM substitution also splits any unquoted value on '=', ',' and ';', which
+REM breaks flags like -DCMAKE_PREFIX_PATH=C:\Qt\... whenever the caller (e.g.
+REM VS Code's PowerShell-backed shell tasks) passes them without quotes.
+REM %* sidesteps both problems by forwarding the original command line as-is.
+if "%~1"=="" (
+  echo Error: with_vs_env.bat requires the cmake executable as its first argument.
+  exit /b 1
 )
 
-REM Collect remaining arguments into ARGS variable (preserves quotes)
-set "ARGS="
-:collect_args
-if "%~1"=="" goto args_collected
-set "ARGS=%ARGS% %1"
-shift
-goto collect_args
-:args_collected
-
-echo Running: "%CMAKE_CMD%"%ARGS%
-"%CMAKE_CMD%"%ARGS%
+echo Running: %*
+%*
 
 endlocal

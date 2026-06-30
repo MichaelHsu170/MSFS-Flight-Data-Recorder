@@ -15,7 +15,8 @@
         "Visual Studio 18 2026",
         "-A",
         "x64",
-        "-DSIMCONNECT_DIR=C:\\MSFS 2024 SDK\\SimConnect SDK"
+        "-DSIMCONNECT_DIR=C:\\MSFS 2024 SDK\\SimConnect SDK",
+        "-DCMAKE_PREFIX_PATH=C:\\Qt\\6.8.0\\msvc2022_64"
       ],
       "options": {
         "env": {
