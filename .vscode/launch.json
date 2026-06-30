@@ -5,18 +5,19 @@
       "name": "Launch",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "${workspaceFolder}\\build\\${input:launchConfig}\\bin\\MSFS-Flight-Data-Recorder.exe",
+      "program": "${workspaceFolder}\\build\\${input:buildConfig}\\bin\\MSFS-Flight-Data-Recorder.exe",
       "args": [],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],
       "externalConsole": false,
-      "console": "integratedTerminal"
+      "console": "integratedTerminal",
+      "preLaunchTask": "CMake: Build"
     }
   ],
   "inputs": [
     {
-      "id": "launchConfig",
+      "id": "buildConfig",
       "type": "pickString",
       "description": "Select configuration to launch",
       "options": [

@@ -11,21 +11,57 @@ set(CMAKE_AUTORCC ON)
 # Qt (MSVC kit). Compiler/linker is still cl.exe/link.exe from VS Build Tools —
 # Qt's MSVC kit doesn't replace that toolchain, it just supplies Qt's libraries
 # built against it. Point CMAKE_PREFIX_PATH at the Qt MSVC install, e.g.:
-#   -DCMAKE_PREFIX_PATH=C:/Qt/6.8.0/msvc2022_64
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Charts)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Charts)
+#   -DCMAKE_PREFIX_PATH=C:/Qt/6.11.1/msvc2022_64
+# Quick/QuickWidgets: Qt Graphs' 2D chart surface (GraphsView) has no public
+# C++/QWidget header in this Qt version, only QML -- see charts_panel.h --
+# so charts_panel.qml is hosted via QQuickWidget.
+# WebEngineWidgets/WebChannel: the trajectory map embeds Leaflet/OSM (and,
+# from step 6, Google Maps) via QWebEngineView, bridged to C++ over
+# QWebChannel -- see map_widget.h.
+# CoreTools: pulls in the Qt6::windeployqt imported target used below to copy
+# Qt's runtime (DLLs, QML modules, WebEngine's process/resources/translations)
+# next to the exe -- needed for VS Code's F5 launch, which doesn't inherit
+# Qt's bin directory on PATH the way a manual terminal build might.
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Graphs GraphsWidgets Concurrent Quick QuickWidgets QuickControls2 WebEngineWidgets WebChannel CoreTools)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Graphs GraphsWidgets Concurrent Quick QuickWidgets QuickControls2 WebEngineWidgets WebChannel CoreTools)
 
 # Source
 set(SRC_DIR "${PROJECT_SOURCE_DIR}/MSFS-Flight-Data-Recorder")
 set(SOURCES
-    ${SRC_DIR}/MSFS-Flight-Data-Recorder.cpp
+    ${SRC_DIR}/main.cpp
     ${SRC_DIR}/db.cpp
     ${SRC_DIR}/recorder.cpp
+    ${SRC_DIR}/recorder_bridge.cpp
+    ${SRC_DIR}/live_status_panel.cpp
+    ${SRC_DIR}/db_history.cpp
+    ${SRC_DIR}/trip_history_panel.cpp
+    ${SRC_DIR}/charts_panel.cpp
+    ${SRC_DIR}/data_table_panel.cpp
+    ${SRC_DIR}/map_bridge.cpp
+    ${SRC_DIR}/map_widget.cpp
+    ${SRC_DIR}/trajectory_view.cpp
+    ${SRC_DIR}/main_window.cpp
+    ${SRC_DIR}/app_settings.cpp
+    ${SRC_DIR}/logger.cpp
+    ${SRC_DIR}/resources/charts.qrc
+    ${SRC_DIR}/resources/map.qrc
+    ${SRC_DIR}/resources/app.qrc
+    ${SRC_DIR}/resources/app.rc
 )
 
-add_executable(${PROJECT_NAME} ${SOURCES})
+# rc.exe searches the directory of the .rc file itself, but passing the
+# include dir explicitly ensures it always finds app_icon.ico regardless of
+# how CMake invokes the resource compiler.
+if(MSVC)
+    set_source_files_properties(
+        ${SRC_DIR}/resources/app.rc
+        PROPERTIES COMPILE_FLAGS "/I \"${SRC_DIR}/resources\""
+    )
+endif()
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Charts)
+add_executable(${PROJECT_NAME} WIN32 ${SOURCES})
+
+target_link_libraries(${PROJECT_NAME} PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Graphs Qt${QT_VERSION_MAJOR}::GraphsWidgets Qt${QT_VERSION_MAJOR}::Concurrent Qt${QT_VERSION_MAJOR}::Quick Qt${QT_VERSION_MAJOR}::QuickWidgets Qt${QT_VERSION_MAJOR}::QuickControls2 Qt${QT_VERSION_MAJOR}::WebEngineWidgets Qt${QT_VERSION_MAJOR}::WebChannel)
 
 # SQLite3 bundled in the repo
 set(SQLITE3_DIR "${PROJECT_SOURCE_DIR}/third_party/sqlite3")
@@ -103,3 +139,17 @@ if(DEFINED SIMCONNECT_DIR)
         )
     endif()
 endif()
+
+# Deploy Qt's own runtime next to the exe via windeployqt: DLLs, platform/
+# image-format plugins, the QML modules ChartsPanel's QQuickWidget needs
+# (QtGraphs, QtQuick.Layouts), and QtWebEngine's larger footprint
+# (QtWebEngineProcess.exe, resources/*.pak, locale .pak files, icudtl.dat,
+# v8_context_snapshot.bin). Without this the exe only runs when Qt's bin
+# directory happens to be on PATH (e.g. a manual terminal build) -- it fails
+# to start at all under VS Code's F5 launch otherwise.
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND Qt${QT_VERSION_MAJOR}::windeployqt
+        --qmldir "${SRC_DIR}/resources"
+        $<TARGET_FILE:${PROJECT_NAME}>
+    COMMENT "Running windeployqt to copy Qt runtime DLLs/plugins"
+)

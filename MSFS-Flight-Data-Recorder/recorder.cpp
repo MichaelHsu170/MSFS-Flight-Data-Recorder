@@ -1,5 +1,6 @@
 #include "recorder.h"
 #include "db.h"
+#include "gui_notify.h"
 #include <thread>
 
 static const char* EVENT_ID_TXT[] = {
@@ -624,10 +625,12 @@ void stop_recording(struct STATUS* status) {
 		free(status->q_data_last);
 		status->q_data_last = NULL;
 	}
+	int ended_trip_id = status->id_trip;
 	status->id_trip = -1;
 	status->departure.clear();
 	status->destination.clear();
-	printf("-------------------- Recording Stopped --------------------\n");
+	gui_log_printf(status, "Recording stopped\n");
+	gui_notify_recording_changed(status, false, ended_trip_id);
 }
 
 void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContext) {
@@ -635,10 +638,12 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 	try {
 	switch (pData->dwID) {
 	case SIMCONNECT_RECV_ID_OPEN:
-		printf("Connected to Microsoft Flight Simulator\n\n");
+		gui_log_printf(status, "Connected to Microsoft Flight Simulator\n\n");
+		gui_notify_connection_changed(status, true);
 		break;
 	case SIMCONNECT_RECV_ID_QUIT:
-		printf("SIMCONNECT_RECV_ID_QUIT\n");
+		gui_log_printf(status, "Disconnected from Microsoft Flight Simulator\n");
+		gui_notify_connection_changed(status, false);
 		status->quit = TRUE;
 		break;
 	case SIMCONNECT_RECV_ID_EVENT_EX1:
@@ -658,7 +663,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			status->paused = (bool)evt->dwData;
 			break;
 		case EVENT_CRASHED:
-			printf("Plane crashed!\n");
+			gui_log_printf(status, "Plane crashed!\n");
 			break;
 		case EVENT_BRAKES:
 		case EVENT_AP_AIRSPEED_HOLD:
@@ -761,7 +766,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			}
 			break;
 		default:
-			printf("Unkown Event: %ld\n", evt->uEventID);
+			gui_log_printf(status, "Unkown Event: %ld\n", evt->uEventID);
 			break;
 		}
 	}
@@ -795,7 +800,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					if ((bool)tmp.eng_combustion_1 || (bool)tmp.eng_combustion_2) {
 						if (!status->recording) {
 							status->recording = TRUE;
-							printf("==================== Recording Started ====================\n");
+							gui_log_printf(status, "Recording started\n");
 
 							memset(status->departure.icao, 0, sizeof(status->departure.icao));
 							memset(status->destination.icao, 0, sizeof(status->destination.icao));
@@ -844,6 +849,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 									status->id_trip = sqlite3_column_int(stmt, 0);
 								}
 							);
+							gui_notify_recording_changed(status, true, status->id_trip);
 						}
 					} else {
 						if (status->recording)
@@ -893,6 +899,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)malloc(sizeof(struct FLIGHT_DATA_RECORD));
 					memset(pS, 0, sizeof(struct FLIGHT_DATA_RECORD));
 					memcpy(pS, &tmp, sizeof(struct FLIGHT_DATA_RECORD));
+					gui_notify_sample(status, pS);
 					if (status->q_data_end == NULL)
 						status->q_data_end = pS;
 					else {
@@ -913,7 +920,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		}
 		break;
 		default:
-			printf("SIMCONNECT_RECV_SIMOBJECT_DATA: %d\n", pObjData->dwRequestID);
+			gui_log_printf(status, "SIMCONNECT_RECV_SIMOBJECT_DATA: %d\n", pObjData->dwRequestID);
 			break;
 		}
 	}
@@ -960,13 +967,13 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			SimConnect_RequestFacilityData_EX1(status->hSimConnect, DEFINITION_RUNWAYS, REQUEST_RUNWAYS, ident, region);
 		} else {
 			if (status->departure.runway_act.index == -1) {
-				printf("Takeoff from %s, %s at %s\n",
+				gui_log_printf(status, "Takeoff from %s, %s at %s\n",
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
 					status->data.time_local.format_date_time().c_str());
 				status->departure.runway_act.index = -2;
 			} else {
-				printf("Touchdown at %s, %s\n",
+				gui_log_printf(status, "Touchdown at %s, %s\n",
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str());
 				db_insert_update_table(status->sql,
@@ -1100,7 +1107,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		if (rep->runway_act.index != -1) {
 			std::string strRunway = rep->runway_code_generator();
 			if (rep == &status->departure) {
-				printf("Takeoff from %s (%s) runway %s at %s\n", rep->name, rep->icao, strRunway.c_str(), status->data.time_local.format_date_time().c_str());
+				gui_log_printf(status, "Takeoff from %s (%s) runway %s at %s\n", rep->name, rep->icao, strRunway.c_str(), status->data.time_local.format_date_time().c_str());
 				db_insert_update_table(status->sql,
 					"UPDATE trips SET departure_icao=?,departure_rwy=?,departure_region=? WHERE id=?;",
 					NULL,
@@ -1114,7 +1121,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					}
 				);
 			} else {
-				printf("Touchdown at %s (%s) runway %s\n", rep->name, rep->icao, strRunway.c_str());
+				gui_log_printf(status, "Touchdown at %s (%s) runway %s\n", rep->name, rep->icao, strRunway.c_str());
 				db_insert_update_table(status->sql,
 					"UPDATE trips SET destination_icao=?,destination_rwy=?,destination_region=? WHERE id=?;",
 					NULL,
@@ -1138,7 +1145,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			}
 		} else {
 			if (rep == &status->departure) {
-				printf("Takeoff from %s (%s) [%s, %s] at %s\n",
+				gui_log_printf(status, "Takeoff from %s (%s) [%s, %s] at %s\n",
 					rep->name,
 					rep->icao,
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
@@ -1157,7 +1164,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					}
 				);
 			} else {
-				printf("Touchdown at %s (%s) [%s, %s]\n",
+				gui_log_printf(status, "Touchdown at %s (%s) [%s, %s]\n",
 					rep->name,
 					rep->icao,
 					status->data.coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
@@ -1190,10 +1197,10 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		// SIMCONNECT_RECV_EXCEPTION* except = (SIMCONNECT_RECV_EXCEPTION*)pData;
 		break;
 	default:
-		printf("SIMCONNECT_RECV: %d\n", pData->dwID);
+		gui_log_printf(status, "SIMCONNECT_RECV: %d\n", pData->dwID);
 		break;
 	}
 	} catch (const db_exception& e) {
-		printf("Database error in dispatch: %s\n", e.message.c_str());
+		gui_log_printf(status, "Database error in dispatch: %s\n", e.message.c_str());
 	}
 }

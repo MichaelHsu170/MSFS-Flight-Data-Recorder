@@ -562,19 +562,42 @@ void db_consume(STATUS* status) {
 		status->q_event_end = NULL;
 }
 
-void connect_db(struct STATUS* status) {
-	char fn_db[MAX_PATH];
-
+static void resolve_db_path(char* fn_db, size_t len) {
 #ifdef _DEBUG
-	snprintf(fn_db, MAX_PATH, "%s.db", DATABASE_NAME);
+	snprintf(fn_db, len, "%s.db", DATABASE_NAME);
 #else
 	char exe_path[MAX_PATH];
 	GetModuleFileNameA(NULL, exe_path, MAX_PATH);
 	char* last_slash = strrchr(exe_path, '\\');
 	if (last_slash)
 		*last_slash = '\0';
-	snprintf(fn_db, MAX_PATH, "%s\\%s.db", exe_path, DATABASE_NAME);
+	snprintf(fn_db, len, "%s\\%s.db", exe_path, DATABASE_NAME);
 #endif
+}
+
+// A second, independent connection for read-only history queries (Trip History
+// feature). connect_db()'s connection is opened with SQLITE_OPEN_NOMUTEX, so it
+// is only safe to use from the single thread that owns it (the dispatch loop /
+// db_consume worker) — it must never be shared with a background query thread.
+// This connection is opened without NOMUTEX, so SQLite's own per-connection
+// mutex makes it safe to call from whichever single thread is using it at a time.
+sqlite3* connect_db_readonly() {
+	char fn_db[MAX_PATH];
+	resolve_db_path(fn_db, MAX_PATH);
+
+	sqlite3* sql = NULL;
+	if (sqlite3_open_v2(fn_db, &sql, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) {
+		if (sql != NULL)
+			sqlite3_close(sql);
+		return NULL;
+	}
+	sqlite3_busy_timeout(sql, 2000);
+	return sql;
+}
+
+void connect_db(struct STATUS* status) {
+	char fn_db[MAX_PATH];
+	resolve_db_path(fn_db, MAX_PATH);
 
 	if (sqlite3_open_v2(fn_db, &status->sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_SHAREDCACHE, NULL) == SQLITE_OK)
 		printf("Opened database %s\n", fn_db);
@@ -608,5 +631,27 @@ void connect_db(struct STATUS* status) {
 		}
 		sqlite3_finalize(stmt);
 		free(stmt_txt);
+	}
+
+	// trip_data/trip_events/trip_touchdowns are all queried with "WHERE trip = ?"
+	// (db_history.cpp) -- without an index that's a full table scan across every
+	// sample ever recorded, for every trip load. trips itself has no such index
+	// need: its only query is an unfiltered "ORDER BY id DESC" over the whole
+	// table, and id is already the PRIMARY KEY. IF NOT EXISTS makes this safe to
+	// run on every connect, same as the CREATE TABLE loop above; the one-time
+	// build cost for an existing large database is paid back on every load after.
+	static const char* index_stmts[] = {
+		"CREATE INDEX IF NOT EXISTS idx_trip_data_trip ON trip_data(trip);",
+		"CREATE INDEX IF NOT EXISTS idx_trip_events_trip ON trip_events(trip);",
+		"CREATE INDEX IF NOT EXISTS idx_trip_touchdowns_trip ON trip_touchdowns(trip);",
+	};
+	for (int i = 0; i < (int)(sizeof(index_stmts) / sizeof(char*)); i++) {
+		if (sqlite3_prepare_v2(status->sql, index_stmts[i], -1, &stmt, NULL) == SQLITE_OK)
+			sqlite3_step(stmt);
+		else {
+			printf("Incorrect db operation \"%s\"\n", index_stmts[i]);
+			exit(2);
+		}
+		sqlite3_finalize(stmt);
 	}
 }

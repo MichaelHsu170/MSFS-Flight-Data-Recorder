@@ -1,0 +1,63 @@
+#pragma once
+
+#include <QWidget>
+
+#include <utility>
+#include <vector>
+
+#include "trip_dataset.h"
+
+class QWebEngineView;
+class QWebChannel;
+class MapBridge;
+class QToolButton;
+class QTimer;
+
+// Trajectory map: QWebEngineView loading bundled resources/map.html, which
+// draws the trip's polyline + a draggable cursor marker via Leaflet/OSM.
+// Bridged to the page's JS via QWebChannel/MapBridge. A small floating icon
+// button in the top-right corner toggles cockpit-event markers.
+class MapWidget : public QWidget {
+	Q_OBJECT
+public:
+	explicit MapWidget(QWidget* parent = nullptr);
+
+	void setDataset(const TripDataset& dataset);
+	// Live mode: append one point without re-sending the whole trajectory.
+	void appendLivePoint(const TripSamplePoint& point);
+	// Re-inits the Leaflet map and re-pushes the current trajectory.
+	// Called internally from onLoadFinished.
+	void refreshProvider();
+	// Shows/hides the cockpit-event markers pushed by setDataset() -- the
+	// touchdown marker is always shown regardless of this setting. Wired
+	// internally to the floating events-toggle icon button.
+	void setEventsVisible(bool visible);
+
+signals:
+	// Forwarded from MapBridge when the user drags the map marker.
+	void cursorIndexChanged(int index);
+	// Forwarded from MapBridge once the map's zoom/pan viewport settles.
+	// startIndex/endIndex are sample indices into the current dataset's
+	// points, or (-1, -1) when the full trajectory is back in view.
+	void visibleRangeChanged(int startIndex, int endIndex);
+
+private slots:
+	void onLoadFinished(bool ok);
+	void flushLivePoints();
+
+private:
+	void pushTrajectory();
+	void pushTouchdownsAndEvents();
+	void runJs(const QString& script);
+	void resizeEvent(QResizeEvent* event) override;
+
+	QWebEngineView* view_;
+	QWebChannel* channel_;
+	MapBridge* bridge_;
+	QToolButton* eventsToggle_;
+	QTimer* liveUpdateTimer_ = nullptr;
+	TripDataset dataset_;
+	// Buffered lat/lng pairs waiting for the next liveUpdateTimer_ flush.
+	std::vector<std::pair<double, double>> pendingLiveCoords_;
+	bool pageReady_ = false;
+};

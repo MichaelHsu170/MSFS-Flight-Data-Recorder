@@ -349,4 +349,5 @@ struct STATUS {
 	COORDINATE loc_dh;
 	AIRPORT departure;
 	AIRPORT destination;
+	void* gui_context = nullptr;
 };

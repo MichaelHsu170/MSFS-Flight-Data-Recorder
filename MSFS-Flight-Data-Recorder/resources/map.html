@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Trajectory Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        onerror="console.error('leaflet.js FAILED to load from unpkg.com CDN')"></script>
+<script src="qrc:///qtwebchannel/qwebchannel.js"
+        onerror="console.error('qwebchannel.js FAILED to load')"></script>
+<style>
+  html, body, #map { height: 100%; margin: 0; padding: 0; }
+  .touchdown-icon, .event-icon { font-size: 18px; line-height: 1; text-align: center; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+// OSM/Leaflet map. currentProvider exposes: setTrajectory(points),
+// appendPoint(p), appendPoints(pts), setCursorIndex(index),
+// setTouchdowns(points), setEvents(points), setEventsVisible(visible).
+var currentProvider = null;
+var mapBridge = null;
+
+function nearestIndexIn(latLngs, lat, lng) {
+    var best = 0;
+    var bestDist = Infinity;
+    for (var i = 0; i < latLngs.length; i++) {
+        var dLat = latLngs[i][0] - lat;
+        var dLng = latLngs[i][1] - lng;
+        var dist = dLat * dLat + dLng * dLng;
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = i;
+        }
+    }
+    return best;
+}
+
+function touchdownPopupHtml(t) {
+    var lines = ['<b>Touchdown</b>'];
+    if (t.icao)
+        lines.push('Airport: ' + t.icao);
+    if (t.runway)
+        lines.push('Rwy ' + t.runway);
+    lines.push('Airspeed: ' + t.airspeed + ' kt');
+    lines.push('Vertical Speed: ' + t.verticalSpeed + ' ft/min');
+    lines.push('G-Force: ' + Number(t.gForce).toFixed(2));
+    lines.push('Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°, Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
+    lines.push('Heading: ' + t.headingDegrees + '°');
+    lines.push('Time: ' + t.zuluTime);
+    return lines.join('<br>');
+}
+
+function eventPopupHtml(e) {
+    return '<b>Event</b><br>' + e.event + '<br>Time: ' + e.zuluTime;
+}
+
+// Translates the map's current viewport into a [minIndex, maxIndex] range
+// over trajectoryLatLngs so the charts can zoom their time axis to match.
+// Reports (-1, -1) when the whole trajectory is in view (or there's nothing
+// to show), which C++ treats as "reset to full range".
+function reportVisibleRange(trajectoryLatLngs, containsFn) {
+    if (!mapBridge || trajectoryLatLngs.length === 0)
+        return;
+    var minIdx = -1, maxIdx = -1;
+    for (var i = 0; i < trajectoryLatLngs.length; i++) {
+        if (containsFn(trajectoryLatLngs[i][0], trajectoryLatLngs[i][1])) {
+            if (minIdx === -1)
+                minIdx = i;
+            maxIdx = i;
+        }
+    }
+    if (minIdx <= 0 && maxIdx >= trajectoryLatLngs.length - 1)
+        mapBridge.rangeChanged(-1, -1);
+    else
+        mapBridge.rangeChanged(minIdx, maxIdx);
+}
+
+function initProvider() {
+    document.getElementById('map').innerHTML = '';
+    currentProvider = null;
+    initLeafletProvider();
+}
+
+function initLeafletProvider() {
+    var map = L.map('map');
+    // Leaflet never fetches a single tile until the map has a view (center +
+    // zoom) -- setTrajectory()'s fitBounds() only runs once a trajectory with
+    // points exists, so without this the map stays blank (zero tile
+    // requests, not a network/auth failure) whenever nothing is selected yet.
+    map.setView([0, 0], 2);
+    var tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19
+    }).addTo(map);
+    tileLayer.on('tileerror', function (e) {
+        console.error('tile error: ' + (e.tile && e.tile.src));
+    });
+
+    var trajectoryLatLngs = [];
+
+    // zoomend/moveend fire once the viewport has settled (not on every
+    // intermediate drag/zoom frame), so this stays cheap even on long trips.
+    map.on('zoomend moveend', function () {
+        var bounds = map.getBounds();
+        reportVisibleRange(trajectoryLatLngs, function (lat, lng) { return bounds.contains([lat, lng]); });
+    });
+
+    var polyline = L.polyline([], { color: 'blue' }).addTo(map);
+    var marker = null;
+    var touchdownMarkers = [];
+    var eventMarkers = [];
+    var eventsVisible = true;
+
+    // Click-to-scrub: clicking anywhere on the trajectory line snaps the
+    // cursor marker to the nearest sample and notifies C++, the same way
+    // dragging the marker does.
+    polyline.on('click', function (e) {
+        if (trajectoryLatLngs.length === 0)
+            return;
+        var nearest = nearestIndexIn(trajectoryLatLngs, e.latlng.lat, e.latlng.lng);
+        if (marker !== null)
+            marker.setLatLng(trajectoryLatLngs[nearest]);
+        if (mapBridge)
+            mapBridge.markerMoved(nearest);
+    });
+
+    currentProvider = {
+        setTrajectory: function (points) {
+            trajectoryLatLngs = points.map(function (p) { return [p.lat, p.lng]; });
+            polyline.setLatLngs(trajectoryLatLngs);
+            if (trajectoryLatLngs.length === 0)
+                return;
+
+            map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+
+            if (marker === null) {
+                marker = L.marker(trajectoryLatLngs[0], { draggable: true }).addTo(map);
+                marker.on('dragend', function () {
+                    var pos = marker.getLatLng();
+                    var nearest = nearestIndexIn(trajectoryLatLngs, pos.lat, pos.lng);
+                    marker.setLatLng(trajectoryLatLngs[nearest]);
+                    if (mapBridge)
+                        mapBridge.markerMoved(nearest);
+                });
+            } else {
+                marker.setLatLng(trajectoryLatLngs[0]);
+            }
+        },
+        appendPoint: function (p) {
+            trajectoryLatLngs.push([p.lat, p.lng]);
+            polyline.addLatLng([p.lat, p.lng]);
+            if (marker !== null)
+                marker.setLatLng([p.lat, p.lng]);
+        },
+        appendPoints: function (pts) {
+            pts.forEach(function (p) {
+                trajectoryLatLngs.push([p.lat, p.lng]);
+                polyline.addLatLng([p.lat, p.lng]);
+            });
+            if (marker !== null && pts.length > 0) {
+                var last = pts[pts.length - 1];
+                marker.setLatLng([last.lat, last.lng]);
+            }
+        },
+        setCursorIndex: function (index) {
+            if (marker !== null && index >= 0 && index < trajectoryLatLngs.length)
+                marker.setLatLng(trajectoryLatLngs[index]);
+        },
+        setTouchdowns: function (points) {
+            touchdownMarkers.forEach(function (m) { map.removeLayer(m); });
+            touchdownMarkers = [];
+            points.forEach(function (t) {
+                var icon = L.divIcon({ className: 'touchdown-icon', html: '\u{1F6EC}', iconSize: [24, 24], iconAnchor: [12, 12] });
+                var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
+                m.bindPopup(touchdownPopupHtml(t));
+                touchdownMarkers.push(m);
+            });
+        },
+        setEvents: function (points) {
+            eventMarkers.forEach(function (m) { map.removeLayer(m); });
+            eventMarkers = [];
+            points.forEach(function (e) {
+                var icon = L.divIcon({ className: 'event-icon', html: '\u{1F6A9}', iconSize: [18, 18], iconAnchor: [9, 9] });
+                var m = L.marker([e.lat, e.lng], { icon: icon });
+                m.bindPopup(eventPopupHtml(e));
+                if (eventsVisible)
+                    m.addTo(map);
+                eventMarkers.push(m);
+            });
+        },
+        setEventsVisible: function (visible) {
+            eventsVisible = visible;
+            eventMarkers.forEach(function (m) {
+                if (visible) {
+                    if (!map.hasLayer(m))
+                        m.addTo(map);
+                } else if (map.hasLayer(m)) {
+                    map.removeLayer(m);
+                }
+            });
+        }
+    };
+
+}
+
+function setTrajectory(points) {
+    if (currentProvider)
+        currentProvider.setTrajectory(points);
+}
+
+function appendPoint(p) {
+    if (currentProvider)
+        currentProvider.appendPoint(p);
+}
+
+function appendPoints(pts) {
+    if (currentProvider)
+        currentProvider.appendPoints(pts);
+}
+
+function setCursorIndex(index) {
+    if (currentProvider)
+        currentProvider.setCursorIndex(index);
+}
+
+function setTouchdowns(points) {
+    if (currentProvider)
+        currentProvider.setTouchdowns(points);
+}
+
+function setEvents(points) {
+    if (currentProvider)
+        currentProvider.setEvents(points);
+}
+
+function setEventsVisible(visible) {
+    if (currentProvider)
+        currentProvider.setEventsVisible(visible);
+}
+
+new QWebChannel(qt.webChannelTransport, function (channel) {
+    mapBridge = channel.objects.mapBridge;
+});
+</script>
+</body>
+</html>

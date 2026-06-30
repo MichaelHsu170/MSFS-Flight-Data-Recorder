@@ -239,3 +239,4 @@ void db_insert_update_table(
 void db_consume(STATUS* status);
 
 void connect_db(struct STATUS* status);
+sqlite3* connect_db_readonly();
