@@ -3,6 +3,24 @@
 #include "gui_notify.h"
 #include <thread>
 
+// Events to skip entirely — not logged and not written to the DB.
+// Add event IDs here for events that fire continuously or at high frequency
+// and produce no useful flight-data signal (e.g. A350 WASM internals).
+static const int SKIP_EVENTS[] = {
+	EVENT_APU_STARTER,
+	EVENT_BRAKES,
+	EVENT_AP_VS_ON,
+	EVENT_GEAR_TOGGLE,
+};
+static const int SKIP_EVENTS_COUNT = (int)(sizeof(SKIP_EVENTS) / sizeof(SKIP_EVENTS[0]));
+
+static bool is_skipped_event(int eventId) {
+	for (int i = 0; i < SKIP_EVENTS_COUNT; i++)
+		if (SKIP_EVENTS[i] == eventId)
+			return true;
+	return false;
+}
+
 static const char* EVENT_ID_TXT[] = {
 	"SIM",
 	"PAUSE",
@@ -619,18 +637,19 @@ void stop_recording(struct STATUS* status) {
 		status->touchdown_data = status->touchdown_data->next;
 		free(cur);
 	}
-	std::thread thd(db_consume, status);
-	thd.join();
-	if (status->q_data_last != NULL) {
-		free(status->q_data_last);
-		status->q_data_last = NULL;
-	}
 	int ended_trip_id = status->id_trip;
-	status->id_trip = -1;
-	status->departure.clear();
-	status->destination.clear();
-	gui_log_printf(status, "Recording stopped\n");
-	gui_notify_recording_changed(status, false, ended_trip_id);
+	std::thread([status, ended_trip_id]() {
+		db_consume(status);
+		if (status->q_data_last != NULL) {
+			free(status->q_data_last);
+			status->q_data_last = NULL;
+		}
+		status->id_trip = -1;
+		status->departure.clear();
+		status->destination.clear();
+		gui_log_printf(status, "Recording stopped\n");
+		gui_notify_recording_changed(status, false, ended_trip_id);
+	}).detach();
 }
 
 void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContext) {
@@ -749,7 +768,8 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		case EVENT_WINDSHIELD_DEICE_ON:
 		case EVENT_WINDSHIELD_DEICE_TOGGLE:
 		case EVENT_TOGGLE_AVIONICS_MASTER:
-			if (status->id_trip > 0) {
+			if (status->id_trip > 0 && !is_skipped_event((int)evt->uEventID)) {
+				gui_log_printf(status, "Event: %s\n", EVENT_ID_TXT[evt->uEventID]);
 				struct EVENT_DB* pS = (struct EVENT_DB*)malloc(sizeof(struct EVENT_DB));
 				memset(pS, 0, sizeof(struct EVENT_DB));
 				memcpy(pS->event, EVENT_ID_TXT[evt->uEventID], strlen(EVENT_ID_TXT[evt->uEventID]));
@@ -944,10 +964,11 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		if (min_distance < 5) {
 			char* ident = pWxData->rgData[min_index].Ident;
 			char* region = pWxData->rgData[min_index].Region;
-			if (status->departure.runway_act.index == -1)
-				memcpy(status->departure.icao, ident, sizeof(ident));
-			else
-				memcpy(status->destination.icao, ident, sizeof(ident));
+			AIRPORT* apt = (status->departure.runway_act.index == -1) ? &status->departure : &status->destination;
+			strncpy(apt->icao, ident, sizeof(apt->icao) - 1);
+			apt->icao[sizeof(apt->icao) - 1] = '\0';
+			strncpy(apt->region, region, sizeof(apt->region) - 1);
+			apt->region[sizeof(apt->region) - 1] = '\0';
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN AIRPORT");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "NAME64");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "MAGVAR");
