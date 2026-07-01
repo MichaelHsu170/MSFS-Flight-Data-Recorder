@@ -14,9 +14,6 @@
 
 namespace {
 
-// FLIGHT_DATA_RECORD::time_zulu/time_local need a mutable DATETIME to call
-// format_date_time() on (it's not marked const, though it doesn't actually
-// mutate anything) -- copy by value rather than const_cast the parameter.
 TripSamplePoint toSamplePoint(FLIGHT_DATA_RECORD sample) {
 	TripSamplePoint p;
 	p.latitude = sample.plane_coordinate.latitude;

@@ -1,18 +1,11 @@
 #pragma once
 
-#include <QDateTime>
 #include <QString>
 #include <QWidget>
-#include <vector>
 
 class QLabel;
 class QListWidget;
 class RecorderBridge;
-
-struct LiveStatusEntry {
-	QDateTime time;
-	QString text;
-};
 
 // Mirrors what the console build used to printf(): connection state, recording
 // start/stop, takeoff/touchdown/crash messages, and a live flight-data snapshot.
@@ -45,5 +38,4 @@ private:
 	QLabel* recordingIcon_;
 	QLabel* snapshotLabel_;
 	QListWidget* historyList_;
-	std::vector<LiveStatusEntry> history_;
 };

@@ -3,10 +3,7 @@
 #include "trip_data_fields.h"
 
 #include <QCheckBox>
-#include <QCursor>
 #include <QDialog>
-#include <QElapsedTimer>
-#include <QDebug>
 #include <QDialogButtonBox>
 #include <QGridLayout>
 #include <QHeaderView>

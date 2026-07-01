@@ -113,7 +113,6 @@ void LiveStatusPanel::onLogMessage(const QString& text) {
 	if (trimmed.isEmpty())
 		return;
 	QDateTime now = QDateTime::currentDateTime();
-	history_.push_back({ now, trimmed });
 	historyList_->addItem(QString("[%1] %2").arg(now.toString("hh:mm:ss"), trimmed));
 	historyList_->scrollToBottom();
 }

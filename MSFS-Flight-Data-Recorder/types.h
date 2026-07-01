@@ -37,7 +37,7 @@ public:
 		timezone_offset = 0;
 	}
 
-	std::string format_date_time() {
+	std::string format_date_time() const {
 		int hour = (int)time_day / 3600;
 		int minute = ((int)time_day - 3600 * hour) / 60;
 		double second = time_day - 3600 * hour - 60 * minute;

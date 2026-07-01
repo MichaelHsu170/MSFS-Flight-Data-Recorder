@@ -6,7 +6,6 @@
 #include <QUrl>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
-#include <QDebug>
 
 #include <QtGraphs/qlineseries.h>
 #include <QtGraphs/qdatetimeaxis.h>
