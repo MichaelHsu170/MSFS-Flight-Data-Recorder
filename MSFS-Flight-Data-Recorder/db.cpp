@@ -581,6 +581,19 @@ static void resolve_db_path(char* fn_db, size_t len) {
 // db_consume worker) — it must never be shared with a background query thread.
 // This connection is opened without NOMUTEX, so SQLite's own per-connection
 // mutex makes it safe to call from whichever single thread is using it at a time.
+sqlite3* connect_db_readwrite() {
+	char fn_db[MAX_PATH];
+	resolve_db_path(fn_db, MAX_PATH);
+	sqlite3* sql = NULL;
+	if (sqlite3_open_v2(fn_db, &sql, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
+		if (sql != NULL)
+			sqlite3_close(sql);
+		return NULL;
+	}
+	sqlite3_busy_timeout(sql, 5000);
+	return sql;
+}
+
 sqlite3* connect_db_readonly() {
 	char fn_db[MAX_PATH];
 	resolve_db_path(fn_db, MAX_PATH);

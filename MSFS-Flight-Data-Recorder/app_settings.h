@@ -15,6 +15,12 @@ public:
 	QStringList dataTableHiddenFields() const;
 	void setDataTableHiddenFields(const QStringList& fields);
 
+	// Splitter states (QSplitter::saveState / restoreState byte arrays).
+	QByteArray topSplitterState() const;
+	void setTopSplitterState(const QByteArray& state);
+	QByteArray trajectoryDataTableSplitterState() const;
+	void setTrajectoryDataTableSplitterState(const QByteArray& state);
+
 private:
 	AppSettings() = default;
 };

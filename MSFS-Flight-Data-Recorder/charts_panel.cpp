@@ -4,9 +4,9 @@
 #include <QQuickItem>
 #include <QVBoxLayout>
 #include <QUrl>
-#include <QTimeZone>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
+#include <QDebug>
 
 #include <QtGraphs/qlineseries.h>
 #include <QtGraphs/qdatetimeaxis.h>
@@ -20,6 +20,21 @@ QLineSeries* findSeries(QQuickItem* root, const char* objectName) {
 QDateTimeAxis* findXAxis(QQuickItem* root, const char* objectName) {
 	return root->findChild<QDateTimeAxis*>(QString::fromLatin1(objectName));
 }
+
+// Lightweight copy of one TripSamplePoint carrying only the fields the chart
+// worker needs. Skips allFields (50+ QString pairs per point) which is the
+// bulk of the copy cost -- 10k points × 50 pairs × 2 QStrings = ~1M atomic
+// ref-count ops at 100 ms for a flight with 10k samples.
+struct LightPoint {
+	QString zuluTime;
+	double n1_1, n1_2, n2_1, n2_2;
+	int verticalSpeed, airspeed, groundSpeed, altitude;
+	double gearHandlePosition;
+	int gearPosition[3];
+	bool gearOnGround[3];
+	int brakeIndicator;
+	double flapsHandleIndex, spoilersHandlePosition, fuelTotalQuantityWeight;
+};
 
 // Everything setDataset() needs to push into the QML series/axis, built on a
 // worker thread. None of these types touch QML/GUI objects, so this is safe
@@ -52,19 +67,25 @@ ChartsPanel::ChartsPanel(QWidget* parent) : QWidget(parent) {
 }
 
 double ChartsPanel::epochMillisFor(const QString& zuluTime) {
-	// DATETIME::format_date_time() produces
-	// "yyyy-MM-ddTHH:mm:ss.zzz+HH:MM_<day-of-week>" -- only the first 23
-	// characters are needed here.
-	QDateTime t = QDateTime::fromString(zuluTime.left(23), QStringLiteral("yyyy-MM-ddTHH:mm:ss.zzz"));
-	if (!t.isValid())
-		return 0.0;
-	t.setTimeZone(QTimeZone::UTC);
-	// QDateTimeAxis renders epoch-ms values in the local timezone regardless of
-	// the QTimeZone::utc() axis setting (Qt 6.11 bug). Work around by building
-	// a Qt::LocalTime QDateTime from the UTC date/time components -- Qt then
-	// "displays" it as local time, but since the values ARE the UTC values, the
-	// axis labels show the correct Zulu time.
-	return (double)QDateTime(t.date(), t.time()).toMSecsSinceEpoch();
+	// Format: "yyyy-MM-ddTHH:mm:ss.zzz..." (fixed positions, always ASCII digits).
+	// QDateTime::fromString with a format string does locale-aware parsing and
+	// costs ~0.7 ms per call -- ~3.7 s for 5k points. Parse directly from char
+	// positions instead: no allocation, no format scanning, no locale lookup.
+	if (zuluTime.size() < 23) return 0.0;
+	const QChar* c = zuluTime.constData();
+	auto d1 = [&](int i) { return c[i].digitValue(); };
+	int year  = d1(0)*1000 + d1(1)*100 + d1(2)*10 + d1(3);
+	int month = d1(5)*10  + d1(6);
+	int day   = d1(8)*10  + d1(9);
+	int hour  = d1(11)*10 + d1(12);
+	int min   = d1(14)*10 + d1(15);
+	int sec   = d1(17)*10 + d1(18);
+	int ms    = d1(20)*100 + d1(21)*10 + d1(22);
+	// QDateTimeAxis renders epoch-ms values in local timezone regardless of axis
+	// timezone (Qt 6.11 bug). Build a LocalTime QDateTime from the raw Zulu
+	// components so the axis labels display the correct Zulu values.
+	return (double)QDateTime(QDate(year, month, day), QTime(hour, min, sec, ms))
+	                   .toMSecsSinceEpoch();
 }
 
 void ChartsPanel::buildSeriesCache() {
@@ -98,16 +119,37 @@ void ChartsPanel::buildSeriesCache() {
 
 void ChartsPanel::setDataset(const TripDataset& dataset) {
 	QQuickItem* root = view_->rootObject();
-	if (root == nullptr)
+	if (root == nullptr) {
+		emit seriesLoaded();
 		return;
+	}
 
-	// Parsing every sample's timestamp and building 19 series' worth of
-	// QPointF lists is pure CPU work with no QML/GUI objects touched -- for a
-	// long flight (thousands of samples) doing it synchronously on the GUI
-	// thread was the main cause of the UI freezing while a trip loaded. Build
-	// it on a worker thread and only push the finished lists into the actual
-	// QML series (which do require the GUI thread) once ready.
-	std::vector<TripSamplePoint> points = dataset.points;
+	std::vector<LightPoint> points;
+	points.reserve(dataset.points.size());
+	for (const TripSamplePoint& p : dataset.points) {
+		LightPoint lp;
+		lp.zuluTime          = p.zuluTime;
+		lp.n1_1              = p.n1_1;
+		lp.n1_2              = p.n1_2;
+		lp.n2_1              = p.n2_1;
+		lp.n2_2              = p.n2_2;
+		lp.verticalSpeed     = p.verticalSpeed;
+		lp.airspeed          = p.airspeed;
+		lp.groundSpeed       = p.groundSpeed;
+		lp.altitude          = p.altitude;
+		lp.gearHandlePosition    = p.gearHandlePosition;
+		lp.gearPosition[0]       = p.gearPosition[0];
+		lp.gearPosition[1]       = p.gearPosition[1];
+		lp.gearPosition[2]       = p.gearPosition[2];
+		lp.gearOnGround[0]       = p.gearOnGround[0];
+		lp.gearOnGround[1]       = p.gearOnGround[1];
+		lp.gearOnGround[2]       = p.gearOnGround[2];
+		lp.brakeIndicator        = p.brakeIndicator;
+		lp.flapsHandleIndex      = p.flapsHandleIndex;
+		lp.spoilersHandlePosition    = p.spoilersHandlePosition;
+		lp.fuelTotalQuantityWeight   = p.fuelTotalQuantityWeight;
+		points.push_back(std::move(lp));
+	}
 
 	auto* watcher = new QFutureWatcher<ChartSeriesData>(this);
 	connect(watcher, &QFutureWatcher<ChartSeriesData>::finished, this, [this, watcher]() {
@@ -121,6 +163,8 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		pointTimesMs_ = data.pointTimesMs;
 		pointCount_ = (int)data.pointTimesMs.size();
 
+		// Drive the axis via the "driver" DateTimeAxis (found by objectName).
+		// Each chart's per-chart axis binds to it in QML, keeping all in sync.
 		if (QDateTimeAxis* xAxis = findXAxis(root, "sharedXAxis")) {
 			xAxis->setMin(data.axisLo);
 			xAxis->setMax(data.axisHi);
@@ -155,16 +199,14 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		apply("spoilersSeries", data.spoilers);
 		apply("fuelWeightSeries", data.fuelWeight);
 
-		// Populate the pointer cache now that we know the QML is loaded.
-		// Subsequent appendLivePoint calls reuse these pointers instead of
-		// doing findChild traversals on every sample.
 		buildSeriesCache();
+		emit seriesLoaded();
 	});
 
 	watcher->setFuture(QtConcurrent::run([this, points = std::move(points)]() {
 		ChartSeriesData data;
 		data.pointTimesMs.reserve(points.size());
-		for (const TripSamplePoint& p : points)
+		for (const LightPoint& p : points)
 			data.pointTimesMs.push_back(epochMillisFor(p.zuluTime));
 
 		data.axisLo = data.pointTimesMs.empty()
@@ -182,25 +224,25 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 				target.append(QPointF(data.pointTimesMs[i], (qreal)valueOf(points[i])));
 		};
 
-		fill(data.n1_1, [](const TripSamplePoint& p) { return p.n1_1; });
-		fill(data.n1_2, [](const TripSamplePoint& p) { return p.n1_2; });
-		fill(data.n2_1, [](const TripSamplePoint& p) { return p.n2_1; });
-		fill(data.n2_2, [](const TripSamplePoint& p) { return p.n2_2; });
-		fill(data.verticalSpeed, [](const TripSamplePoint& p) { return p.verticalSpeed; });
-		fill(data.airspeed, [](const TripSamplePoint& p) { return p.airspeed; });
-		fill(data.groundSpeed, [](const TripSamplePoint& p) { return p.groundSpeed; });
-		fill(data.altitude, [](const TripSamplePoint& p) { return p.altitude; });
-		fill(data.gearHandle, [](const TripSamplePoint& p) { return p.gearHandlePosition; });
-		fill(data.gearPos0, [](const TripSamplePoint& p) { return p.gearPosition[0]; });
-		fill(data.gearPos1, [](const TripSamplePoint& p) { return p.gearPosition[1]; });
-		fill(data.gearPos2, [](const TripSamplePoint& p) { return p.gearPosition[2]; });
-		fill(data.gearOnGround0, [](const TripSamplePoint& p) { return p.gearOnGround[0] ? 1 : 0; });
-		fill(data.gearOnGround1, [](const TripSamplePoint& p) { return p.gearOnGround[1] ? 1 : 0; });
-		fill(data.gearOnGround2, [](const TripSamplePoint& p) { return p.gearOnGround[2] ? 1 : 0; });
-		fill(data.brake, [](const TripSamplePoint& p) { return p.brakeIndicator; });
-		fill(data.flaps, [](const TripSamplePoint& p) { return p.flapsHandleIndex; });
-		fill(data.spoilers, [](const TripSamplePoint& p) { return p.spoilersHandlePosition; });
-		fill(data.fuelWeight, [](const TripSamplePoint& p) { return p.fuelTotalQuantityWeight; });
+		fill(data.n1_1,         [](const LightPoint& p) { return p.n1_1; });
+		fill(data.n1_2,         [](const LightPoint& p) { return p.n1_2; });
+		fill(data.n2_1,         [](const LightPoint& p) { return p.n2_1; });
+		fill(data.n2_2,         [](const LightPoint& p) { return p.n2_2; });
+		fill(data.verticalSpeed,[](const LightPoint& p) { return p.verticalSpeed; });
+		fill(data.airspeed,     [](const LightPoint& p) { return p.airspeed; });
+		fill(data.groundSpeed,  [](const LightPoint& p) { return p.groundSpeed; });
+		fill(data.altitude,     [](const LightPoint& p) { return p.altitude; });
+		fill(data.gearHandle,   [](const LightPoint& p) { return p.gearHandlePosition; });
+		fill(data.gearPos0,     [](const LightPoint& p) { return p.gearPosition[0]; });
+		fill(data.gearPos1,     [](const LightPoint& p) { return p.gearPosition[1]; });
+		fill(data.gearPos2,     [](const LightPoint& p) { return p.gearPosition[2]; });
+		fill(data.gearOnGround0,[](const LightPoint& p) { return p.gearOnGround[0] ? 1 : 0; });
+		fill(data.gearOnGround1,[](const LightPoint& p) { return p.gearOnGround[1] ? 1 : 0; });
+		fill(data.gearOnGround2,[](const LightPoint& p) { return p.gearOnGround[2] ? 1 : 0; });
+		fill(data.brake,        [](const LightPoint& p) { return p.brakeIndicator; });
+		fill(data.flaps,        [](const LightPoint& p) { return p.flapsHandleIndex; });
+		fill(data.spoilers,     [](const LightPoint& p) { return p.spoilersHandlePosition; });
+		fill(data.fuelWeight,   [](const LightPoint& p) { return p.fuelTotalQuantityWeight; });
 
 		return data;
 	}));
@@ -225,9 +267,11 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 	pointTimesMs_.push_back(t);
 
 	QDateTime hi = QDateTime::fromMSecsSinceEpoch((qint64)t);
-	if (pointTimesMs_.size() == 1)
-		cache_.xAxis->setMin(hi.addSecs(-1));
-	cache_.xAxis->setMax(hi);
+	if (cache_.xAxis) {
+		if (pointTimesMs_.size() == 1)
+			cache_.xAxis->setMin(hi.addSecs(-1));
+		cache_.xAxis->setMax(hi);
+	}
 
 	cache_.n1_1->append(t, point.n1_1);
 	cache_.n1_2->append(t, point.n1_2);
@@ -251,30 +295,38 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 }
 
 void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
+	// Leaflet fires both zoomend and moveend on every zoom interaction -- skip
+	// the second call when both events produce the same range.
+	if (startIndex == lastRangeStart_ && endIndex == lastRangeEnd_)
+		return;
+	lastRangeStart_ = startIndex;
+	lastRangeEnd_   = endIndex;
+
+	buildSeriesCache();
+	if (!cache_.valid || !cache_.xAxis)
+		return;
+
 	QQuickItem* root = view_->rootObject();
 	if (root == nullptr)
 		return;
-	QDateTimeAxis* xAxis = findXAxis(root, "sharedXAxis");
-	if (xAxis == nullptr)
-		return;
+
 	if (startIndex < 0 || endIndex < 0 || pointTimesMs_.empty()) {
 		QDateTime lo = pointTimesMs_.empty()
 			? QDateTime::currentDateTime()
 			: QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.front());
 		QDateTime hi = pointTimesMs_.empty() ? lo.addSecs(1) : QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.back());
-		xAxis->setMin(lo);
-		xAxis->setMax(hi);
+		cache_.xAxis->setMin(lo);
+		cache_.xAxis->setMax(hi);
 		root->setProperty("isFullRangeVisible", true);
-		return;
+	} else {
+		startIndex = qBound(0, startIndex, (int)pointTimesMs_.size() - 1);
+		endIndex = qBound(0, endIndex, (int)pointTimesMs_.size() - 1);
+		double loMs = pointTimesMs_[qMin(startIndex, endIndex)];
+		double hiMs = pointTimesMs_[qMax(startIndex, endIndex)];
+		if (hiMs <= loMs)
+			hiMs = loMs + 1000.0;
+		cache_.xAxis->setMin(QDateTime::fromMSecsSinceEpoch((qint64)loMs));
+		cache_.xAxis->setMax(QDateTime::fromMSecsSinceEpoch((qint64)hiMs));
+		root->setProperty("isFullRangeVisible", false);
 	}
-
-	startIndex = qBound(0, startIndex, (int)pointTimesMs_.size() - 1);
-	endIndex = qBound(0, endIndex, (int)pointTimesMs_.size() - 1);
-	double loMs = pointTimesMs_[qMin(startIndex, endIndex)];
-	double hiMs = pointTimesMs_[qMax(startIndex, endIndex)];
-	if (hiMs <= loMs)
-		hiMs = loMs + 1000.0;
-	xAxis->setMin(QDateTime::fromMSecsSinceEpoch((qint64)loMs));
-	xAxis->setMax(QDateTime::fromMSecsSinceEpoch((qint64)hiMs));
-	root->setProperty("isFullRangeVisible", false);
 }

@@ -40,6 +40,9 @@ signals:
 	// startIndex/endIndex are sample indices into the current dataset's
 	// points, or (-1, -1) when the full trajectory is back in view.
 	void visibleRangeChanged(int startIndex, int endIndex);
+	// Emitted once the trajectory polyline has been pushed to the Leaflet page.
+	// TrajectoryView uses this to know the map is visually complete.
+	void trajectoryLoaded();
 
 private slots:
 	void onLoadFinished(bool ok);
@@ -56,7 +59,13 @@ private:
 	MapBridge* bridge_;
 	QToolButton* eventsToggle_;
 	QTimer* liveUpdateTimer_ = nullptr;
-	TripDataset dataset_;
+	// Lat/lng pairs only -- MapWidget never needs TripSamplePoint::allFields
+	// (the per-sample field table used by DataTablePanel), so we don't store
+	// the full TripDataset. Avoiding that copy eliminates millions of QString
+	// ref-count operations on the main thread for long flights.
+	std::vector<std::pair<double, double>> trajCoords_;
+	std::vector<TouchdownPoint> touchdowns_;
+	std::vector<TripEvent> events_;
 	// Buffered lat/lng pairs waiting for the next liveUpdateTimer_ flush.
 	std::vector<std::pair<double, double>> pendingLiveCoords_;
 	bool pageReady_ = false;

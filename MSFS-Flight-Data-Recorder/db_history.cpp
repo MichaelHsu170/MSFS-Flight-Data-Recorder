@@ -221,6 +221,27 @@ std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 	return touchdowns;
 }
 
+bool deleteTripData(sqlite3* sql, int tripId) {
+	// Child tables first (trip_data is largest), then the trip row itself.
+	const char* stmts[] = {
+		"DELETE FROM trip_data WHERE trip = ?",
+		"DELETE FROM trip_events WHERE trip = ?",
+		"DELETE FROM trip_touchdowns WHERE trip = ?",
+		"DELETE FROM trips WHERE id = ?",
+	};
+	for (const char* stmt_txt : stmts) {
+		sqlite3_stmt* stmt = nullptr;
+		if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
+			if (stmt) sqlite3_finalize(stmt);
+			return false;
+		}
+		sqlite3_bind_int(stmt, 1, tripId);
+		sqlite3_step(stmt);
+		sqlite3_finalize(stmt);
+	}
+	return true;
+}
+
 std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId) {
 	std::vector<TripEvent> events;
 

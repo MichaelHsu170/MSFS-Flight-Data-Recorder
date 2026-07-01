@@ -27,6 +27,7 @@ public:
 
 	void setDataset(const TripDataset& dataset);
 	void setCursorIndex(int index);
+
 	// Live mode: append one point without rebuilding every series from
 	// scratch. Uses cached series pointers so there are no findChild
 	// traversals per sample. pointCount_ tracks the next sample index
@@ -37,6 +38,11 @@ public:
 	// by MapWidget::visibleRangeChanged so the charts track the map's current
 	// viewport.
 	void setVisibleRange(int startIndex, int endIndex);
+
+signals:
+	// Emitted once the worker thread has finished building all series and pushed
+	// them to QML. TrajectoryView uses this to know when charts are visible.
+	void seriesLoaded();
 
 private:
 	// Milliseconds since the Unix epoch, parsed from a DATETIME::
@@ -55,6 +61,11 @@ private:
 	// both to fill series and to translate a map-driven sample-index range
 	// (setVisibleRange) into an X axis time range.
 	std::vector<double> pointTimesMs_;
+
+	// Deduplication: skip setVisibleRange when zoomend+moveend both fire with
+	// identical bounds (Leaflet fires both on every zoom interaction).
+	int lastRangeStart_ = INT_MIN;
+	int lastRangeEnd_   = INT_MIN;
 
 	// Cached QML object pointers -- resolved lazily on the first
 	// appendLivePoint call so the per-sample hot path avoids 20 findChild
@@ -79,6 +90,7 @@ private:
 		QLineSeries* flaps = nullptr;
 		QLineSeries* spoilers = nullptr;
 		QLineSeries* fuelWeight = nullptr;
+		// Driver axis -- C++ calls setMin/setMax here; per-chart axes bind to it.
 		QDateTimeAxis* xAxis = nullptr;
 		bool valid = false;
 	} cache_;

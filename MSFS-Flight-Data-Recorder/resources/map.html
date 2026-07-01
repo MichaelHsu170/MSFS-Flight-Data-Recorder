@@ -39,8 +39,7 @@ function nearestIndexIn(latLngs, lat, lng) {
 
 function touchdownPopupHtml(t) {
     var lines = ['<b>Touchdown</b>'];
-    if (t.icao)
-        lines.push('Airport: ' + t.icao);
+    if (t.icao) lines.push('Airport: ' + t.icao);
     if (t.runway)
         lines.push('Rwy ' + t.runway);
     lines.push('Airspeed: ' + t.airspeed + ' kt');
@@ -60,7 +59,7 @@ function eventPopupHtml(e) {
 // over trajectoryLatLngs so the charts can zoom their time axis to match.
 // Reports (-1, -1) when the whole trajectory is in view (or there's nothing
 // to show), which C++ treats as "reset to full range".
-function reportVisibleRange(trajectoryLatLngs, containsFn) {
+function reportVisibleRange(trajectoryLatLngs, origIndices, containsFn) {
     if (!mapBridge || trajectoryLatLngs.length === 0)
         return;
     var minIdx = -1, maxIdx = -1;
@@ -74,7 +73,7 @@ function reportVisibleRange(trajectoryLatLngs, containsFn) {
     if (minIdx <= 0 && maxIdx >= trajectoryLatLngs.length - 1)
         mapBridge.rangeChanged(-1, -1);
     else
-        mapBridge.rangeChanged(minIdx, maxIdx);
+        mapBridge.rangeChanged(origIndices[minIdx], origIndices[maxIdx]);
 }
 
 function initProvider() {
@@ -98,13 +97,18 @@ function initLeafletProvider() {
         console.error('tile error: ' + (e.tile && e.tile.src));
     });
 
+    // trajectoryLatLngs: decimated [[lat,lng],...] sent to Leaflet for rendering.
+    // origIndices: parallel array of original sample indices (idx from C++) so
+    // JS can report correct indices back even after decimation.
+    // For live-appended points origIndices[i] === i (no decimation).
     var trajectoryLatLngs = [];
+    var origIndices = [];
 
     // zoomend/moveend fire once the viewport has settled (not on every
     // intermediate drag/zoom frame), so this stays cheap even on long trips.
     map.on('zoomend moveend', function () {
         var bounds = map.getBounds();
-        reportVisibleRange(trajectoryLatLngs, function (lat, lng) { return bounds.contains([lat, lng]); });
+        reportVisibleRange(trajectoryLatLngs, origIndices, function (lat, lng) { return bounds.contains([lat, lng]); });
     });
 
     var polyline = L.polyline([], { color: 'blue' }).addTo(map);
@@ -113,22 +117,27 @@ function initLeafletProvider() {
     var eventMarkers = [];
     var eventsVisible = true;
 
+    function snapAndReport(decimatedIdx) {
+        if (marker !== null)
+            marker.setLatLng(trajectoryLatLngs[decimatedIdx]);
+        if (mapBridge)
+            mapBridge.markerMoved(origIndices[decimatedIdx]);
+    }
+
     // Click-to-scrub: clicking anywhere on the trajectory line snaps the
     // cursor marker to the nearest sample and notifies C++, the same way
     // dragging the marker does.
     polyline.on('click', function (e) {
         if (trajectoryLatLngs.length === 0)
             return;
-        var nearest = nearestIndexIn(trajectoryLatLngs, e.latlng.lat, e.latlng.lng);
-        if (marker !== null)
-            marker.setLatLng(trajectoryLatLngs[nearest]);
-        if (mapBridge)
-            mapBridge.markerMoved(nearest);
+        snapAndReport(nearestIndexIn(trajectoryLatLngs, e.latlng.lat, e.latlng.lng));
     });
 
     currentProvider = {
         setTrajectory: function (points) {
+            // points is [{lat, lng, idx}, ...] where idx is the original sample index.
             trajectoryLatLngs = points.map(function (p) { return [p.lat, p.lng]; });
+            origIndices = points.map(function (p) { return p.idx; });
             polyline.setLatLngs(trajectoryLatLngs);
             if (trajectoryLatLngs.length === 0)
                 return;
@@ -139,16 +148,14 @@ function initLeafletProvider() {
                 marker = L.marker(trajectoryLatLngs[0], { draggable: true }).addTo(map);
                 marker.on('dragend', function () {
                     var pos = marker.getLatLng();
-                    var nearest = nearestIndexIn(trajectoryLatLngs, pos.lat, pos.lng);
-                    marker.setLatLng(trajectoryLatLngs[nearest]);
-                    if (mapBridge)
-                        mapBridge.markerMoved(nearest);
+                    snapAndReport(nearestIndexIn(trajectoryLatLngs, pos.lat, pos.lng));
                 });
             } else {
                 marker.setLatLng(trajectoryLatLngs[0]);
             }
         },
         appendPoint: function (p) {
+            origIndices.push(origIndices.length);
             trajectoryLatLngs.push([p.lat, p.lng]);
             polyline.addLatLng([p.lat, p.lng]);
             if (marker !== null)
@@ -156,6 +163,7 @@ function initLeafletProvider() {
         },
         appendPoints: function (pts) {
             pts.forEach(function (p) {
+                origIndices.push(origIndices.length);
                 trajectoryLatLngs.push([p.lat, p.lng]);
                 polyline.addLatLng([p.lat, p.lng]);
             });
@@ -165,8 +173,19 @@ function initLeafletProvider() {
             }
         },
         setCursorIndex: function (index) {
-            if (marker !== null && index >= 0 && index < trajectoryLatLngs.length)
-                marker.setLatLng(trajectoryLatLngs[index]);
+            if (marker === null || trajectoryLatLngs.length === 0)
+                return;
+            // Binary search origIndices (sorted) for the closest value to index.
+            var lo = 0, hi = origIndices.length - 1, best = 0;
+            while (lo <= hi) {
+                var mid = (lo + hi) >> 1;
+                if (Math.abs(origIndices[mid] - index) < Math.abs(origIndices[best] - index))
+                    best = mid;
+                if (origIndices[mid] < index) lo = mid + 1;
+                else if (origIndices[mid] > index) hi = mid - 1;
+                else break;
+            }
+            marker.setLatLng(trajectoryLatLngs[best]);
         },
         setTouchdowns: function (points) {
             touchdownMarkers.forEach(function (m) { map.removeLayer(m); });

@@ -60,10 +60,16 @@ public:
 signals:
 	void tripDatasetReady(TripDataset dataset);
 
+public slots:
+	// Called by MainWindow when TrajectoryView signals that both chart series
+	// and map trajectory workers have finished rendering. Clears loading state.
+	void setLoadingFinished();
+
 private slots:
 	void refreshTrips();
 	void onRowActivated(const QModelIndex& index);
 	void tryFinishLoad();
+	void onTableContextMenu(const QPoint& pos);
 
 private:
 	// Lazily (re)opens historySql_ if the database file didn't exist yet the

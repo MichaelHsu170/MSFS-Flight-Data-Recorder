@@ -7,6 +7,8 @@
 #include <QVBoxLayout>
 #include <QHeaderView>
 #include <QProgressBar>
+#include <QMenu>
+#include <QMessageBox>
 #include <QtConcurrent/QtConcurrent>
 #include <QBrush>
 #include <QColor>
@@ -168,6 +170,9 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	connect(&bridge_, &RecorderBridge::recordingStateChanged, this, &TripHistoryPanel::refreshTrips);
 	connect(&bridge_, &RecorderBridge::tripEnded, this, &TripHistoryPanel::refreshTrips);
 
+	table_->setContextMenuPolicy(Qt::CustomContextMenu);
+	connect(table_, &QTableView::customContextMenuRequested, this, &TripHistoryPanel::onTableContextMenu);
+
 	refreshTrips();
 }
 
@@ -262,8 +267,63 @@ void TripHistoryPanel::tryFinishLoad() {
 		}
 	}
 
+	// Keep loading_ = true and table disabled until TrajectoryView signals that
+	// both the chart series and map trajectory workers have finished rendering.
+	// setLoadingFinished() (connected via MainWindow) clears that state.
+	emit tripDatasetReady(std::move(dataset));
+}
+
+void TripHistoryPanel::setLoadingFinished() {
+	if (!loading_)
+		return;
 	loading_ = false;
 	table_->setEnabled(true);
 	loadingBar_->setVisible(false);
-	emit tripDatasetReady(std::move(dataset));
+}
+
+void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
+	if (loading_)
+		return;
+	QModelIndex index = table_->indexAt(pos);
+	if (!index.isValid())
+		return;
+	const TripSummary* trip = model_->tripAt(index.row());
+	if (!trip || trip->status == TripStatus::Live)
+		return;
+
+	QMenu menu(this);
+	QAction* deleteAction = menu.addAction(QStringLiteral("Delete Trip"));
+	if (menu.exec(table_->viewport()->mapToGlobal(pos)) != deleteAction)
+		return;
+
+	int tripId = trip->id;
+	QString displayName = trip->title.isEmpty()
+		? QStringLiteral("Trip #%1").arg(tripId)
+		: trip->title;
+
+	QMessageBox confirm(this);
+	confirm.setWindowTitle(QStringLiteral("Delete Trip"));
+	confirm.setText(QStringLiteral("Delete \"%1\"?").arg(displayName));
+	confirm.setInformativeText(QStringLiteral("All flight data for this trip will be permanently deleted."));
+	confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+	confirm.setDefaultButton(QMessageBox::Cancel);
+	confirm.setIcon(QMessageBox::Warning);
+	if (confirm.exec() != QMessageBox::Yes)
+		return;
+
+	sqlite3* sql = connect_db_readwrite();
+	if (!sql) {
+		QMessageBox::critical(this, QStringLiteral("Error"),
+			QStringLiteral("Could not open the database for writing."));
+		return;
+	}
+	bool ok = deleteTripData(sql, tripId);
+	sqlite3_close(sql);
+
+	if (!ok) {
+		QMessageBox::critical(this, QStringLiteral("Error"),
+			QStringLiteral("Failed to delete trip data."));
+		return;
+	}
+	refreshTrips();
 }

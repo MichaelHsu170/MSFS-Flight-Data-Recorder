@@ -206,3 +206,4 @@ void gui_notify_sample(struct STATUS* status, const struct FLIGHT_DATA_RECORD* s
 	if (sample != nullptr)
 		emit bridge->liveDataPoint(toSamplePoint(*sample));
 }
+

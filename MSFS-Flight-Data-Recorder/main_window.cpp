@@ -3,6 +3,7 @@
 #include "trip_history_panel.h"
 #include "trajectory_view.h"
 #include "recorder_bridge.h"
+#include "app_settings.h"
 
 #include <QSplitter>
 #include <QVBoxLayout>
@@ -27,6 +28,12 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 	// compounded into a wide gap between the trip table and Live Status --
 	// thin the handle down since a 1px divider is plenty to show the split.
 	topSplitter->setHandleWidth(1);
+	QByteArray savedTop = AppSettings::instance().topSplitterState();
+	if (!savedTop.isEmpty())
+		topSplitter->restoreState(savedTop);
+	connect(topSplitter, &QSplitter::splitterMoved, this, [topSplitter]() {
+		AppSettings::instance().setTopSplitterState(topSplitter->saveState());
+	});
 
 	// Without explicit sizes, QSplitter divides initial space by each child's
 	// sizeHint() -- the trip table's sizeHint can dwarf trajectoryView_'s
@@ -43,4 +50,5 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 	setCentralWidget(mainSplitter);
 
 	connect(tripHistoryPanel_, &TripHistoryPanel::tripDatasetReady, trajectoryView_, &TrajectoryView::setDataset);
+	connect(trajectoryView_, &TrajectoryView::renderingFinished, tripHistoryPanel_, &TripHistoryPanel::setLoadingFinished);
 }

@@ -15,7 +15,6 @@
 #include <QUrl>
 #include <QDebug>
 #include <QFutureWatcher>
-#include <QPointF>
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <vector>
@@ -122,15 +121,24 @@ void MapWidget::resizeEvent(QResizeEvent* event) {
 void MapWidget::setDataset(const TripDataset& dataset) {
 	liveUpdateTimer_->stop();
 	pendingLiveCoords_.clear();
-	dataset_ = dataset;
+	trajCoords_.clear();
+	trajCoords_.reserve(dataset.points.size());
+	for (const TripSamplePoint& p : dataset.points)
+		trajCoords_.emplace_back(p.latitude, p.longitude);
+	touchdowns_ = dataset.touchdowns;
+	events_ = dataset.events;
 	if (pageReady_) {
 		pushTrajectory();
 		pushTouchdownsAndEvents();
+	} else {
+		// Page still loading; trajectory will be pushed in refreshProvider() when
+		// ready. Signal immediately so TrajectoryView's pending counter doesn't stall.
+		emit trajectoryLoaded();
 	}
 }
 
 void MapWidget::appendLivePoint(const TripSamplePoint& point) {
-	dataset_.points.push_back(point);
+	trajCoords_.emplace_back(point.latitude, point.longitude);
 	pendingLiveCoords_.emplace_back(point.latitude, point.longitude);
 	if (!pageReady_)
 		return;
@@ -176,47 +184,50 @@ void MapWidget::setEventsVisible(bool visible) {
 	runJs(QStringLiteral("setEventsVisible(%1);").arg(visible ? QStringLiteral("true") : QStringLiteral("false")));
 }
 
-namespace {
-
-QString trajectoryScript(const std::vector<QPointF>& coords) {
-	QJsonArray points;
-	for (const QPointF& c : coords)
-		points.append(pointToJson(c.y(), c.x()));
-	QJsonDocument doc(points);
-	return QStringLiteral("setTrajectory(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
-}
-
-}
-
 void MapWidget::pushTrajectory() {
-	// A long flight can have many thousands of sample points -- building the
-	// JSON array and formatting it into a single multi-megabyte script string
-	// is pure CPU work with no Qt GUI objects involved, so it's safe (and
-	// necessary to avoid freezing the window) to do it on a worker thread and
-	// only hop back to the GUI thread to actually call runJavaScript().
-	std::vector<QPointF> coords;
-	coords.reserve(dataset_.points.size());
-	for (const TripSamplePoint& p : dataset_.points)
-		coords.emplace_back(p.longitude, p.latitude);
-
+	// Build + decimate off the main thread: a long flight can have 60k+ sample
+	// points, but Leaflet bogs down rendering more than ~3000 polyline segments.
+	// Stride-decimate so at most MAX_POINTS are sent, preserving the first and
+	// last point exactly. Each JSON point carries its original sample index (idx)
+	// so the JS side can report correct indices back to C++ for cursor and range.
+	std::vector<std::pair<double,double>> coords = trajCoords_;
 	auto* watcher = new QFutureWatcher<QString>(this);
 	connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher]() {
 		runJs(watcher->result());
 		watcher->deleteLater();
+		emit trajectoryLoaded();
 	});
-	watcher->setFuture(QtConcurrent::run(trajectoryScript, std::move(coords)));
+	watcher->setFuture(QtConcurrent::run([coords = std::move(coords)]() {
+		const int MAX_POINTS = 3000;
+		int n = (int)coords.size();
+		int stride = std::max(1, n / MAX_POINTS);
+		QJsonArray arr;
+		for (int i = 0; i < n; i += stride) {
+			QJsonObject obj;
+			obj[QStringLiteral("lat")] = coords[i].first;
+			obj[QStringLiteral("lng")] = coords[i].second;
+			obj[QStringLiteral("idx")] = i;
+			arr.append(obj);
+		}
+		if (n > 0 && (n - 1) % stride != 0) {
+			QJsonObject obj;
+			obj[QStringLiteral("lat")] = coords[n - 1].first;
+			obj[QStringLiteral("lng")] = coords[n - 1].second;
+			obj[QStringLiteral("idx")] = n - 1;
+			arr.append(obj);
+		}
+		QJsonDocument doc(arr);
+		return QStringLiteral("setTrajectory(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
+	}));
 }
 
 void MapWidget::pushTouchdownsAndEvents() {
-	std::vector<TouchdownPoint> touchdowns(dataset_.touchdowns.begin(), dataset_.touchdowns.end());
-	std::vector<TripEvent> events(dataset_.events.begin(), dataset_.events.end());
-
 	auto* touchdownWatcher = new QFutureWatcher<QString>(this);
 	connect(touchdownWatcher, &QFutureWatcher<QString>::finished, this, [this, touchdownWatcher]() {
 		runJs(touchdownWatcher->result());
 		touchdownWatcher->deleteLater();
 	});
-	touchdownWatcher->setFuture(QtConcurrent::run([touchdowns = std::move(touchdowns)]() {
+	touchdownWatcher->setFuture(QtConcurrent::run([touchdowns = touchdowns_]() {
 		QJsonArray arr;
 		for (const TouchdownPoint& t : touchdowns)
 			arr.append(touchdownToJson(t));
@@ -229,7 +240,7 @@ void MapWidget::pushTouchdownsAndEvents() {
 		runJs(eventWatcher->result());
 		eventWatcher->deleteLater();
 	});
-	eventWatcher->setFuture(QtConcurrent::run([events = std::move(events)]() {
+	eventWatcher->setFuture(QtConcurrent::run([events = events_]() {
 		QJsonArray arr;
 		for (const TripEvent& e : events)
 			arr.append(eventToJson(e));

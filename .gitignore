@@ -63,6 +63,9 @@ flight_data.db
 # Logs
 *.log
 
+# User settings
+*.ini
+
 # Temporary files
 *.tmp
 *.temp

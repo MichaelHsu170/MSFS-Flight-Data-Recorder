@@ -13,3 +13,8 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId);
 TripDataset queryTripData(sqlite3* sql, int tripId);
 std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId);
 std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId);
+
+// Deletes all rows in trip_data, trip_events, trip_touchdowns, and trips for
+// the given trip id. Caller opens and closes the (readwrite) connection.
+// Returns true on success.
+bool deleteTripData(sqlite3* sql, int tripId);

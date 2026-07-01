@@ -24,7 +24,7 @@ public:
 	explicit DataTablePanel(QWidget* parent = nullptr);
 
 public slots:
-	void setDataset(const TripDataset& dataset);
+	void setDataset(const TripDataset* dataset);
 	void setCursorIndex(int index);
 	void appendLivePoint(const TripSamplePoint& point);
 
@@ -38,7 +38,7 @@ private:
 
 	QTableWidget* table_;
 	QStringList rowLabels_;
-	TripDataset dataset_;
+	const TripDataset* dataset_ = nullptr;
 	// -1 means "no explicit selection" -- track the latest point instead.
 	int cursorIndex_ = -1;
 };

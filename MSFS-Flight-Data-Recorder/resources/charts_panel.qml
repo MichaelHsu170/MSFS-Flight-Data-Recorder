@@ -3,24 +3,47 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtGraphs
 
-// Stacked timeline charts for the Trajectory View. One row per chart group,
-// all sharing sharedXAxis (set from C++ in elapsed seconds since the loaded
-// trip's first sample) so they scroll/zoom together -- including being
-// zoomed to match the map's current viewport via ChartsPanel::setVisibleRange.
-// Series are filled from C++ by objectName via QQuickItem::findChild -- see
-// ChartsPanel::setDataset.
+// Stacked timeline charts for the Trajectory View. All charts synchronize
+// their X axes via bindings to driverXAxis (controlled by C++), rather than
+// sharing one DateTimeAxis object across multiple GraphsView instances.
+// Sharing causes "axis already associated" Qt Graphs warnings and forces all
+// charts to re-render via a confused ownership model; bindings are cleaner.
+// Series are filled from C++ by objectName -- see ChartsPanel::setDataset.
 Item {
     id: root
 
-    // Set from C++ (ChartsPanel::setCursorIndex) in the same elapsed-seconds
-    // units as sharedXAxis when the map marker is dragged, so every row
-    // highlights the same point in time at once.
+    // Set from C++ (ChartsPanel::setCursorIndex) in epoch-milliseconds so
+    // every row highlights the same point in time at once.
     property real cursorTime: -1
 
     // Set from C++ (ChartsPanel::setDataset/setVisibleRange) -- true when
-    // sharedXAxis currently spans the whole trip, false when it's been
-    // zoomed to match a partial map viewport.
+    // the axis currently spans the whole trip, false when zoomed to a partial
+    // map viewport.
     property bool isFullRangeVisible: true
+
+    // Driver axis -- C++ finds this by objectName and calls setMin/setMax.
+    // No GraphsView uses it as axisX directly; each chart's own DateTimeAxis
+    // binds min/max here so Qt Graphs can properly "own" each chart's axis.
+    DateTimeAxis {
+        id: driverXAxis
+        objectName: "sharedXAxis"
+        // Must never be a zero-width range -- Qt Graphs divides by (max-min)
+        // on first paint before ChartsPanel::setDataset() ever runs.
+        min: new Date(2020, 0, 1, 0, 0, 0)
+        max: new Date(2020, 0, 1, 0, 0, 1)
+        labelFormat: "yyyy-MM-dd\nHH:mm:ss.zzz"
+        titleVisible: false
+    }
+
+    // Per-chart axis component -- each GraphsView gets its own instance bound
+    // to driverXAxis so all charts stay synchronized without sharing one axis
+    // object (which Qt Graphs rejects for all but the first chart).
+    component SyncedXAxis: DateTimeAxis {
+        min: driverXAxis.min
+        max: driverXAxis.max
+        labelFormat: "yyyy-MM-dd\nHH:mm:ss.zzz"
+        titleVisible: false
+    }
 
     // GraphsView's QML defaultProperty is "seriesList", not a normal item
     // child list -- a Rectangle declared directly inside a GraphsView {}
@@ -30,8 +53,8 @@ Item {
     // child, of the GraphsView it overlays.
     component CursorLine: Rectangle {
         property Item graphsView
-        visible: graphsView !== null && root.cursorTime >= 0 && sharedXAxis.max > sharedXAxis.min
-        x: graphsView ? graphsView.plotArea.x + (root.cursorTime - sharedXAxis.min) / (sharedXAxis.max - sharedXAxis.min) * graphsView.plotArea.width - width / 2 : 0
+        visible: graphsView !== null && root.cursorTime >= 0 && driverXAxis.max > driverXAxis.min
+        x: graphsView ? graphsView.plotArea.x + (root.cursorTime - driverXAxis.min) / (driverXAxis.max - driverXAxis.min) * graphsView.plotArea.width - width / 2 : 0
         y: graphsView ? graphsView.plotArea.y : 0
         width: 3
         height: graphsView ? graphsView.plotArea.height : 0
@@ -40,10 +63,7 @@ Item {
     }
 
     // Solid bar on the right edge of a chart's plot area, marking the end of
-    // the trip's data -- shown only when the chart's full time span is
-    // visible (sharedXAxis covers the whole trip, not a map-zoomed subset),
-    // so a solid edge always means "this is genuinely the end" rather than
-    // just where the current zoom happens to stop.
+    // the trip's data -- shown only when the full time span is visible.
     component EndOfTrajectoryLine: Rectangle {
         property Item graphsView
         visible: graphsView !== null && root.isFullRangeVisible
@@ -55,10 +75,6 @@ Item {
         z: 9
     }
 
-    // Qt Graphs' GraphsView has no built-in legend element in this Qt
-    // version -- each series only exposes legendData (color/label) for a
-    // custom legend to bind to, so build a simple colored-swatch row from
-    // each chart's own series list instead.
     component ChartLegend: Row {
         id: legendRoot
         property var entries: []
@@ -73,12 +89,6 @@ Item {
         }
     }
 
-    // The legend used to sit in its own row stacked above the chart, but each
-    // chart's own X-axis date/time labels render below its plot area and
-    // bleed into the gap before the next ChartBlock -- with the legend row
-    // sitting right there too, the two overlapped. Floating the legend as an
-    // overlay anchored to the chart's own top-right corner keeps it clear of
-    // every chart's axis labels regardless of how tall those labels get.
     component ChartBlock: Item {
         id: block
         property alias legendEntries: legendRow.entries
@@ -108,22 +118,6 @@ Item {
         }
     }
 
-    DateTimeAxis {
-        id: sharedXAxis
-        objectName: "sharedXAxis"
-        // Must never be a zero-width range -- Qt Graphs' axis layout divides
-        // by (max - min) on its very first paint, which happens before
-        // ChartsPanel::setDataset() ever runs, so two equal placeholder
-        // Date()s here crashes on startup with a divide-by-zero.
-        min: new Date(2020, 0, 1, 0, 0, 0)
-        max: new Date(2020, 0, 1, 0, 0, 1)
-        labelFormat: "yyyy-MM-dd\nHH:mm:ss.zzz"
-        titleVisible: false
-    }
-
-    // Shared by every chart row below so the gridlines stay thin/readable
-    // instead of the (much heavier) Qt Graphs default -- the curves were
-    // hard to read against the default grid weight.
     GraphsTheme {
         id: chartTheme
         grid.mainWidth: 1
@@ -132,8 +126,6 @@ Item {
         grid.subColor: "#ececec"
     }
 
-    // Charts must never scroll horizontally; only vertically, and only once
-    // the stacked rows no longer fit the available height.
     ScrollView {
         anchors.fill: parent
         clip: true
@@ -158,7 +150,7 @@ Item {
                 GraphsView {
                     id: chart1
                     anchors.fill: parent
-                    axisX: sharedXAxis
+                    axisX: SyncedXAxis {}
                     theme: chartTheme
                     axisY: ValueAxis { min: 0; max: 110; labelFormat: "%.0f"; titleText: "N1/N2 (%)"; titleVisible: true }
                     LineSeries { objectName: "n1_1Series"; name: "N1 #1"; color: "#1f77b4" }
@@ -180,7 +172,7 @@ Item {
                 GraphsView {
                     id: chart2
                     anchors.fill: parent
-                    axisX: sharedXAxis
+                    axisX: SyncedXAxis {}
                     theme: chartTheme
                     axisY: ValueAxis { min: -6000; max: 6000; labelFormat: "%.0f"; titleText: "V/S (ft/min)"; titleVisible: true }
                     LineSeries { objectName: "verticalSpeedSeries"; name: "Vertical Speed"; color: "#9467bd" }
@@ -200,7 +192,7 @@ Item {
                 GraphsView {
                     id: chart3
                     anchors.fill: parent
-                    axisX: sharedXAxis
+                    axisX: SyncedXAxis {}
                     theme: chartTheme
                     axisY: ValueAxis { min: 0; max: 400; labelFormat: "%.0f"; titleText: "Speed (kt)"; titleVisible: true }
                     LineSeries { objectName: "airspeedSeries"; name: "Airspeed"; color: "#1f77b4" }
@@ -220,7 +212,7 @@ Item {
                 GraphsView {
                     id: chart4
                     anchors.fill: parent
-                    axisX: sharedXAxis
+                    axisX: SyncedXAxis {}
                     theme: chartTheme
                     axisY: ValueAxis { min: 0; max: 45000; labelFormat: "%.0f"; titleText: "Altitude (ft)"; titleVisible: true }
                     LineSeries { objectName: "altitudeSeries"; name: "Altitude"; color: "#2ca02c" }
@@ -245,7 +237,7 @@ Item {
                 GraphsView {
                     id: chart5
                     anchors.fill: parent
-                    axisX: sharedXAxis
+                    axisX: SyncedXAxis {}
                     theme: chartTheme
                     axisY: ValueAxis { min: 0; max: 1.2; labelFormat: "%.1f"; titleText: "Gear"; titleVisible: true }
                     LineSeries { objectName: "gearHandleSeries"; name: "Gear Handle"; color: "#1f77b4" }
@@ -272,7 +264,7 @@ Item {
                 GraphsView {
                     id: chart6
                     anchors.fill: parent
-                    axisX: sharedXAxis
+                    axisX: SyncedXAxis {}
                     theme: chartTheme
                     axisY: ValueAxis { min: 0; max: 8; labelFormat: "%.1f"; titleText: "Brake/Flaps/Spoilers"; titleVisible: true }
                     LineSeries { objectName: "brakeSeries"; name: "Brake"; color: "#1f77b4" }
@@ -293,7 +285,7 @@ Item {
                 GraphsView {
                     id: chart7
                     anchors.fill: parent
-                    axisX: sharedXAxis
+                    axisX: SyncedXAxis {}
                     theme: chartTheme
                     axisY: ValueAxis { min: 0; max: 30000; labelFormat: "%.0f"; titleText: "Fuel Weight (lb)"; titleVisible: true }
                     LineSeries { objectName: "fuelWeightSeries"; name: "Fuel Weight"; color: "#9467bd" }

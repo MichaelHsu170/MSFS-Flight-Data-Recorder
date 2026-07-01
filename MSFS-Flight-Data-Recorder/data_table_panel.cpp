@@ -5,6 +5,8 @@
 #include <QCheckBox>
 #include <QCursor>
 #include <QDialog>
+#include <QElapsedTimer>
+#include <QDebug>
 #include <QDialogButtonBox>
 #include <QGridLayout>
 #include <QHeaderView>
@@ -90,23 +92,24 @@ DataTablePanel::DataTablePanel(QWidget* parent) : QWidget(parent) {
 	showEmpty();
 }
 
-void DataTablePanel::setDataset(const TripDataset& dataset) {
+void DataTablePanel::setDataset(const TripDataset* dataset) {
 	dataset_ = dataset;
 	cursorIndex_ = -1;
-	if (!dataset_.points.empty())
-		showPoint(dataset_.points.back());
+	if (dataset_ && !dataset_->points.empty())
+		showPoint(dataset_->points.back());
 	else
 		showEmpty();
 }
 
 void DataTablePanel::setCursorIndex(int index) {
 	cursorIndex_ = index;
-	if (index >= 0 && index < (int)dataset_.points.size())
-		showPoint(dataset_.points[index]);
+	if (dataset_ && index >= 0 && index < (int)dataset_->points.size())
+		showPoint(dataset_->points[index]);
 }
 
 void DataTablePanel::appendLivePoint(const TripSamplePoint& point) {
-	dataset_.points.push_back(point);
+	// The point has already been appended to the owning TripDataset by
+	// TrajectoryView. Just update the display if no cursor is pinned.
 	if (cursorIndex_ == -1)
 		showPoint(point);
 }
@@ -165,6 +168,12 @@ void DataTablePanel::applyHiddenFields() {
 }
 
 void DataTablePanel::showPoint(const TripSamplePoint& point) {
+	// ResizeToContents triggers a word-wrap text layout pass per setText call.
+	// 52+ rows × one layout pass each = 8 seconds. Switch to Fixed while
+	// updating so Qt defers all size calculations, then do one batch pass.
+	QHeaderView* vh = table_->verticalHeader();
+	vh->setSectionResizeMode(QHeaderView::Fixed);
+
 	table_->item(0, 1)->setText(point.zuluTime);
 	table_->item(0, 1)->setToolTip(point.zuluTime);
 	table_->item(1, 1)->setText(point.localTime);
@@ -177,6 +186,9 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 		table_->item(row, 1)->setToolTip(field.second);
 		++row;
 	}
+
+	vh->setSectionResizeMode(QHeaderView::ResizeToContents);
+	table_->resizeRowsToContents();
 }
 
 void DataTablePanel::showEmpty() {

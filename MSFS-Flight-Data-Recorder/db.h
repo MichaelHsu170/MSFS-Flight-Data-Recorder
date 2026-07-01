@@ -240,3 +240,7 @@ void db_consume(STATUS* status);
 
 void connect_db(struct STATUS* status);
 sqlite3* connect_db_readonly();
+// Read-write connection for explicit GUI write operations (e.g. deleting a
+// trip). Does NOT create the database (SQLITE_OPEN_READWRITE only — no CREATE),
+// so it fails cleanly if no database exists yet. Caller must sqlite3_close().
+sqlite3* connect_db_readwrite();
