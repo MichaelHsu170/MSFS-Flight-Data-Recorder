@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QStandardPaths>
 #include <QDir>
+#include <QQuickStyle>
 
 #include "recorder_bridge.h"
 #include "main_window.h"
@@ -18,7 +19,11 @@ static void logMessageHandler(QtMsgType type, const QMessageLogContext& ctx, con
         || msg.startsWith(QLatin1String("QFont::"))
         || msg.contains(QLatin1String("qt.qpa."))
         || msg.contains(QLatin1String("QStandardPaths:"))
-        || msg.startsWith(QLatin1String("libpng warning")))
+        || msg.startsWith(QLatin1String("libpng warning"))
+        // QQC2 probes all known style modules at startup to build its available-styles
+        // list; styles we intentionally didn't deploy produce "not installed" warnings
+        // that are false alarms -- the configured Windows style loads fine.
+        || msg.contains(QLatin1String("is not installed")))
         return;
 
     const char* level = "DBG";
@@ -56,6 +61,11 @@ int main(int argc, char* argv[]) {
     g_logFile = new QFile(logDir + QStringLiteral("/msfs_fdr_debug.log"));
     if (g_logFile->open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
         qInstallMessageHandler(logMessageHandler);
+
+	// Must be called before QApplication: QQC2 auto-detects the style from
+	// the QWidget app's QStyle, which resolves to "Fusion" in a Widgets context
+	// and triggers a warning when the Fusion QML module isn't deployed.
+	QQuickStyle::setStyle(QStringLiteral("Windows"));
 
 	// Required by QWebEngineView (trajectory map) before QApplication exists.
 	QApplication::setAttribute(Qt::AA_ShareOpenGLContexts, true);

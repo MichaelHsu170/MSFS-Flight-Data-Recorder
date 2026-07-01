@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.17)
 project(MSFS-Flight-Data-Recorder LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -147,9 +147,107 @@ endif()
 # v8_context_snapshot.bin). Without this the exe only runs when Qt's bin
 # directory happens to be on PATH (e.g. a manual terminal build) -- it fails
 # to start at all under VS Code's F5 launch otherwise.
+#
+# Flags used to trim the deployment:
+#   --no-translations              app is English-only; no locale .qm files needed
+#   --no-opengl-sw                 any MSFS-capable PC has a real GPU; skip
+#                                  opengl32sw.dll software rasterizer fallback
+#   --skip-plugin-types            qmltooling: QML debugger/profiler (dev tool)
+#                                  generic: qtuiotouchplugin (TUIO multi-touch table)
+#                                  platforminputcontexts: qtvirtualkeyboardplugin
+#   --exclude-plugins              image-format plugins the app doesn't load:
+#                                  gif, macOS icns, pdf, svg-as-image, tga, tiff, wbmp, webp
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND Qt${QT_VERSION_MAJOR}::windeployqt
         --qmldir "${SRC_DIR}/resources"
+        --no-translations
+        --no-opengl-sw
+        --skip-plugin-types qmltooling,generic,platforminputcontexts
+        --exclude-plugins qgif,qicns,qpdf,qsvg,qtga,qtiff,qwbmp,qwebp
         $<TARGET_FILE:${PROJECT_NAME}>
     COMMENT "Running windeployqt to copy Qt runtime DLLs/plugins"
+)
+
+# Remove Qt modules that windeployqt copies because they exist on disk but
+# are not used by this app.  cmake -E rm -f silently skips missing files so
+# this is safe to re-run on incremental builds.
+#
+# Top-level DLLs:
+#   Qt6Lottie / Qt6LottieVectorImageGenerator  — Lottie animation engine
+#   Qt6Pdf                                     — PDF rendering
+#   Qt6SerialPort                              — serial port (SimConnect uses SDK)
+# Note: Qt6Positioning and Qt6PrintSupport are kept — Qt6WebEngineCore.dll loads
+# them at startup as hard runtime dependencies even though the app never calls
+# their C++ APIs directly.
+#   Qt6VirtualKeyboard                         — touch-screen virtual keyboard
+#   Qt6QuickVectorImageGenerator               — SVG/Lottie vector rendering
+#   QuickControls2 extra styles                — only Windows (default) + Basic
+#                                                (fallback) are needed; the rest
+#                                                are selectable themes we don't use
+#
+# Plugin subdirectories:
+#   position/             — Qt Positioning runtime plugins
+#   vectorimageformats/   — SVG/Lottie/PDF image-format plugins
+#
+# QML module subdirectories (unused features deployed by windeployqt's QML scan):
+#   QtQuick.Controls extra styles  — same as above, mirror in qml/ tree
+#   QtQuick.Dialogs                — file/color/font dialogs (app uses C++ QDialog)
+#   QtQuick.LocalStorage           — QML SQL local storage API
+#   QtQuick.Particles              — particle-effects system
+#   QtQuick.Pdf                    — PDF viewer QML component
+#   QtQuick.Timeline               — animation timeline (design tool)
+#   QtQuick.VectorImage            — SVG/Lottie vector image QML type
+#   QtQuick.VirtualKeyboard        — on-screen virtual keyboard
+#   QtQml.StateMachine             — QML state-machine API
+#   QtQml.XmlListModel             — XPath/XQuery list model
+#   QtQuick3D add-ons              — 3D engine extras not used by QtGraphs 2D charts:
+#                                    AssetUtils, Effects, Helpers, MaterialEditor,
+#                                    ParticleEffects, Particles3D, Physics,
+#                                    SpatialAudio, Xr, lightmapviewer
+set(D "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E rm -f
+        "${D}/Qt6Lottie.dll"
+        "${D}/Qt6LottieVectorImageGenerator.dll"
+        "${D}/Qt6Pdf.dll"
+        "${D}/Qt6SerialPort.dll"
+        "${D}/Qt6VirtualKeyboard.dll"
+        "${D}/Qt6QuickVectorImageGenerator.dll"
+        "${D}/Qt6QuickControls2FluentWinUI3StyleImpl.dll"
+        "${D}/Qt6QuickControls2Fusion.dll"
+        "${D}/Qt6QuickControls2FusionStyleImpl.dll"
+        "${D}/Qt6QuickControls2Imagine.dll"
+        "${D}/Qt6QuickControls2ImagineStyleImpl.dll"
+        "${D}/Qt6QuickControls2Material.dll"
+        "${D}/Qt6QuickControls2MaterialStyleImpl.dll"
+        "${D}/Qt6QuickControls2Universal.dll"
+        "${D}/Qt6QuickControls2UniversalStyleImpl.dll"
+    COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${D}/position"
+        "${D}/vectorimageformats"
+        "${D}/qml/QtQuick/Controls/FluentWinUI3"
+        "${D}/qml/QtQuick/Controls/Fusion"
+        "${D}/qml/QtQuick/Controls/Imagine"
+        "${D}/qml/QtQuick/Controls/Material"
+        "${D}/qml/QtQuick/Controls/Universal"
+        "${D}/qml/QtQuick/Dialogs"
+        "${D}/qml/QtQuick/LocalStorage"
+        "${D}/qml/QtQuick/Particles"
+        "${D}/qml/QtQuick/Pdf"
+        "${D}/qml/QtQuick/Timeline"
+        "${D}/qml/QtQuick/VectorImage"
+        "${D}/qml/QtQuick/VirtualKeyboard"
+        "${D}/qml/QtQml/StateMachine"
+        "${D}/qml/QtQml/XmlListModel"
+        "${D}/qml/QtQuick3D/AssetUtils"
+        "${D}/qml/QtQuick3D/Effects"
+        "${D}/qml/QtQuick3D/Helpers"
+        "${D}/qml/QtQuick3D/MaterialEditor"
+        "${D}/qml/QtQuick3D/ParticleEffects"
+        "${D}/qml/QtQuick3D/Particles3D"
+        "${D}/qml/QtQuick3D/Physics"
+        "${D}/qml/QtQuick3D/SpatialAudio"
+        "${D}/qml/QtQuick3D/Xr"
+        "${D}/qml/QtQuick3D/lightmapviewer"
+    COMMENT "Removing unused Qt modules from deployment"
 )
