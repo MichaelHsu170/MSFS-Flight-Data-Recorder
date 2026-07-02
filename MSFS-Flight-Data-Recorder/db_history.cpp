@@ -296,11 +296,13 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId) {
 	std::vector<TripEvent> events;
 
-	// Brake/autobrake events (BRAKES, PARKING_BRAKES, AUTOBRAKE_*) fire
-	// constantly during taxi/landing roll and swamp the event list with noise
-	// that isn't useful on the trajectory map -- excluded by name rather than
-	// at recording time so the raw data stays in the DB if ever needed.
-	const char* stmt_txt = "SELECT event, time_zulu FROM trip_events WHERE trip = ? AND event NOT LIKE '%BRAKE%' ORDER BY rowid";
+	// BRAKES fires continuously while brakes are applied (taxi/landing roll) and
+	// would swamp the map with noise -- excluded here rather than at recording
+	// time so the raw data stays in the DB if ever needed.
+	// PARKING_BRAKES fires exactly once on set and once on release, so it is
+	// kept; the spatial grouping in map.html coalesces the two events into one
+	// marker since the aircraft is stationary between set and release.
+	const char* stmt_txt = "SELECT event, time_zulu FROM trip_events WHERE trip = ? AND event != 'BRAKES' ORDER BY rowid";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
 		return events;

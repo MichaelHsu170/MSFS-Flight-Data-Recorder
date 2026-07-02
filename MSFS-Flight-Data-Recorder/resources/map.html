@@ -64,9 +64,10 @@ function touchdownPopupHtml(t) {
 function eventPopupHtml(events) {
     var header = events.length === 1 ? '<b>Event</b>' : '<b>Events (' + events.length + ')</b>';
     var items = events.map(function (e) {
-        return '<div style="margin:3px 0">• ' + e.event + '</div>';
+        return '<div style="margin:3px 0">• ' + e.event
+            + '<br><span style="color:#888;margin-left:12px">' + e.zuluTime + '</span></div>';
     }).join('');
-    return header + '<div style="margin:10px 0">' + items + '</div>Time: ' + events[0].zuluTime;
+    return header + '<div style="margin:10px 0">' + items + '</div>';
 }
 
 // Translates the map's current viewport into a [minIndex, maxIndex] range
