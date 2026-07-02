@@ -18,21 +18,27 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 	liveStatusPanel_ = new LiveStatusPanel(bridge, this);
 	trajectoryView_ = new TrajectoryView(this);
 
+	liveStatusPanel_->setMaximumWidth(kRightPanelWidth);
+
 	auto* topSplitter = new QSplitter(Qt::Horizontal, this);
 	topSplitter->addWidget(tripHistoryPanel_);
 	topSplitter->addWidget(liveStatusPanel_);
 	topSplitter->setStretchFactor(0, 4);
 	topSplitter->setStretchFactor(1, 1);
-	topSplitter->setSizes({ 1000, 260 });
+	topSplitter->setSizes({ 1000, AppSettings::instance().rightPanelWidth() });
 	// Default handle width (and each panel's own default QVBoxLayout margins)
 	// compounded into a wide gap between the trip table and Live Status --
 	// thin the handle down since a 1px divider is plenty to show the split.
 	topSplitter->setHandleWidth(1);
-	QByteArray savedTop = AppSettings::instance().topSplitterState();
-	if (!savedTop.isEmpty())
-		topSplitter->restoreState(savedTop);
-	connect(topSplitter, &QSplitter::splitterMoved, this, [topSplitter]() {
-		AppSettings::instance().setTopSplitterState(topSplitter->saveState());
+	connect(topSplitter, &QSplitter::splitterMoved, this, [topSplitter, this](int, int) {
+		int w = topSplitter->sizes().last();
+		AppSettings::instance().setRightPanelWidth(w);
+		trajectoryView_->setRightPanelWidth(w);
+	});
+	connect(trajectoryView_, &TrajectoryView::rightPanelWidthChanged, this, [topSplitter](int w) {
+		auto sizes = topSplitter->sizes();
+		if (sizes.size() >= 2)
+			topSplitter->setSizes({ sizes[0] + sizes[1] - w, w });
 	});
 
 	// Without explicit sizes, QSplitter divides initial space by each child's

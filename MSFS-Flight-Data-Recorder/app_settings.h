@@ -15,11 +15,12 @@ public:
 	QStringList dataTableHiddenFields() const;
 	void setDataTableHiddenFields(const QStringList& fields);
 
+	// Width of the right-side panels (live status and data table). Both columns
+	// share one value so resizing either one persists for both.
+	int rightPanelWidth() const;
+	void setRightPanelWidth(int w);
+
 	// Splitter states (QSplitter::saveState / restoreState byte arrays).
-	QByteArray topSplitterState() const;
-	void setTopSplitterState(const QByteArray& state);
-	QByteArray trajectoryDataTableSplitterState() const;
-	void setTrajectoryDataTableSplitterState(const QByteArray& state);
 	QByteArray trajectoryMapChartsSplitterState() const;
 	void setTrajectoryMapChartsSplitterState(const QByteArray& state);
 

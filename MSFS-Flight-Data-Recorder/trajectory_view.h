@@ -10,6 +10,11 @@ class MapWidget;
 class DataTablePanel;
 class QSplitter;
 
+// Default width for the right-side panels (data table and live status).
+// Both columns share this value so they align; the actual widths are
+// persisted in the config file and may differ after the user resizes.
+inline constexpr int kRightPanelWidth = 260;
+
 // Composite "view a trip's trajectory" feature: privately owns MapWidget,
 // DataTablePanel, and ChartsPanel (map + data table side by side, charts
 // spanning full width below), wiring the cursor-index sync between them
@@ -29,6 +34,9 @@ signals:
 	// rendered — i.e. both async workers finished. TripHistoryPanel listens to
 	// this to re-enable the table and hide the loading bar.
 	void renderingFinished();
+	// Emitted when the user drags the data-table splitter, so MainWindow can
+	// keep the live-status panel's width in sync.
+	void rightPanelWidthChanged(int w);
 
 public slots:
 	void setDataset(const TripDataset& dataset);
@@ -38,6 +46,10 @@ public slots:
 	// "Jump to Live" can catch up in one go without losing samples.
 	void appendLivePoint(const TripSamplePoint& point);
 	void setLiveFollow(bool follow);
+
+	// Called by MainWindow when the live-status splitter is dragged, so both
+	// right-side panels stay in sync.
+	void setRightPanelWidth(int w);
 
 private slots:
 	void onSubviewLoaded();

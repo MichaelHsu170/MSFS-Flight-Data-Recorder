@@ -35,24 +35,14 @@ void AppSettings::setDataTableHiddenFields(const QStringList& fields) {
 	settings.setValue(QStringLiteral("data_table/hidden_fields"), fields);
 }
 
-QByteArray AppSettings::topSplitterState() const {
+int AppSettings::rightPanelWidth() const {
 	QSettings settings = makeSettings();
-	return settings.value(QStringLiteral("layout/top_splitter_state")).toByteArray();
+	return settings.value(QStringLiteral("layout/right_panel_width"), 260).toInt();
 }
 
-void AppSettings::setTopSplitterState(const QByteArray& state) {
+void AppSettings::setRightPanelWidth(int w) {
 	QSettings settings = makeSettings();
-	settings.setValue(QStringLiteral("layout/top_splitter_state"), state);
-}
-
-QByteArray AppSettings::trajectoryDataTableSplitterState() const {
-	QSettings settings = makeSettings();
-	return settings.value(QStringLiteral("layout/trajectory_data_table_splitter_state")).toByteArray();
-}
-
-void AppSettings::setTrajectoryDataTableSplitterState(const QByteArray& state) {
-	QSettings settings = makeSettings();
-	settings.setValue(QStringLiteral("layout/trajectory_data_table_splitter_state"), state);
+	settings.setValue(QStringLiteral("layout/right_panel_width"), w);
 }
 
 QByteArray AppSettings::trajectoryMapChartsSplitterState() const {
