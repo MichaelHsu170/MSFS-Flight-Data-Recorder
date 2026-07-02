@@ -61,8 +61,12 @@ function touchdownPopupHtml(t) {
     return lines.join('<br>');
 }
 
-function eventPopupHtml(e) {
-    return '<b>Event</b><br>' + e.event + '<br>Time: ' + e.zuluTime;
+function eventPopupHtml(events) {
+    var header = events.length === 1 ? '<b>Event</b>' : '<b>Events (' + events.length + ')</b>';
+    var items = events.map(function (e) {
+        return '<div style="margin:3px 0">• ' + e.event + '</div>';
+    }).join('');
+    return header + '<div style="margin:10px 0">' + items + '</div>Time: ' + events[0].zuluTime;
 }
 
 // Translates the map's current viewport into a [minIndex, maxIndex] range
@@ -210,10 +214,29 @@ function initLeafletProvider() {
         setEvents: function (points) {
             eventMarkers.forEach(function (m) { map.removeLayer(m); });
             eventMarkers = [];
+            // Group events within ~11 m of each other (same or adjacent sample)
+            // into one marker so overlapping flags don't stack unclickably.
+            var THRESHOLD = 0.0001;
+            var groups = [];
             points.forEach(function (e) {
-                var icon = L.divIcon({ className: 'event-icon', html: '\u{1F6A9}', iconSize: [18, 18], iconAnchor: [9, 9] });
-                var m = L.marker([e.lat, e.lng], { icon: icon });
-                m.bindPopup(eventPopupHtml(e));
+                for (var i = 0; i < groups.length; i++) {
+                    if (Math.abs(groups[i].lat - e.lat) < THRESHOLD &&
+                        Math.abs(groups[i].lng - e.lng) < THRESHOLD) {
+                        groups[i].events.push(e);
+                        return;
+                    }
+                }
+                groups.push({ lat: e.lat, lng: e.lng, events: [e] });
+            });
+            groups.forEach(function (g) {
+                var count = g.events.length;
+                var badge = count > 1
+                    ? '<span style="position:absolute;top:0;left:11px;background:#cc2200;color:#fff;border-radius:50%;width:13px;height:13px;font-size:9px;line-height:13px;text-align:center;font-weight:bold;font-family:sans-serif;display:block">' + count + '</span>'
+                    : '';
+                var iconHtml = '<div style="position:relative;width:26px;height:20px"><span style="font-size:18px;line-height:1">\u{1F6A9}</span>' + badge + '</div>';
+                var icon = L.divIcon({ className: 'event-icon', html: iconHtml, iconSize: [26, 20], iconAnchor: [9, 18] });
+                var m = L.marker([g.lat, g.lng], { icon: icon });
+                m.bindPopup(eventPopupHtml(g.events));
                 if (eventsVisible)
                     m.addTo(map);
                 eventMarkers.push(m);

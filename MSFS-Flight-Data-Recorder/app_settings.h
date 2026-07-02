@@ -20,6 +20,8 @@ public:
 	void setTopSplitterState(const QByteArray& state);
 	QByteArray trajectoryDataTableSplitterState() const;
 	void setTrajectoryDataTableSplitterState(const QByteArray& state);
+	QByteArray trajectoryMapChartsSplitterState() const;
+	void setTrajectoryMapChartsSplitterState(const QByteArray& state);
 
 private:
 	AppSettings() = default;

@@ -54,3 +54,13 @@ void AppSettings::setTrajectoryDataTableSplitterState(const QByteArray& state) {
 	QSettings settings = makeSettings();
 	settings.setValue(QStringLiteral("layout/trajectory_data_table_splitter_state"), state);
 }
+
+QByteArray AppSettings::trajectoryMapChartsSplitterState() const {
+	QSettings settings = makeSettings();
+	return settings.value(QStringLiteral("layout/trajectory_map_charts_splitter_state")).toByteArray();
+}
+
+void AppSettings::setTrajectoryMapChartsSplitterState(const QByteArray& state) {
+	QSettings settings = makeSettings();
+	settings.setValue(QStringLiteral("layout/trajectory_map_charts_splitter_state"), state);
+}

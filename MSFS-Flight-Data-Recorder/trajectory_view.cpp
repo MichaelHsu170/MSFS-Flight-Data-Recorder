@@ -32,12 +32,11 @@ TrajectoryView::TrajectoryView(QWidget* parent) : QWidget(parent) {
 		AppSettings::instance().setTrajectoryDataTableSplitterState(mapTableSplitter_->saveState());
 	});
 
-	// QSplitter sizes new children by sizeHint() unless told otherwise; the
-	// QQuickWidget hosting the charts has a tiny default sizeHint compared to
-	// the map/table row, so without explicit setSizes()+a minimum height the
-	// charts panel collapses to near-nothing and looks like it isn't
-	// rendering at all.
-	chartsPanel_->setMinimumHeight(220);
+	// Both sections need a floor so neither can steal all the space from the
+	// other when the window is small -- without these, QSplitter clips from
+	// the last child first and the charts panel can reach 0 height.
+	mapTableSplitter_->setMinimumHeight(120);
+	chartsPanel_->setMinimumHeight(180);
 
 	auto* mainSplitter = new QSplitter(Qt::Vertical, this);
 	mainSplitter->addWidget(mapTableSplitter_);
@@ -47,6 +46,12 @@ TrajectoryView::TrajectoryView(QWidget* parent) : QWidget(parent) {
 	mainSplitter->setSizes({ 400, 400 });
 	mainSplitter->setCollapsible(0, false);
 	mainSplitter->setCollapsible(1, false);
+	QByteArray savedMapCharts = AppSettings::instance().trajectoryMapChartsSplitterState();
+	if (!savedMapCharts.isEmpty())
+		mainSplitter->restoreState(savedMapCharts);
+	connect(mainSplitter, &QSplitter::splitterMoved, this, [mainSplitter]() {
+		AppSettings::instance().setTrajectoryMapChartsSplitterState(mainSplitter->saveState());
+	});
 
 	auto* layout = new QVBoxLayout(this);
 	layout->setContentsMargins(0, 0, 0, 0);
