@@ -39,7 +39,11 @@ function nearestIndexIn(latLngs, lat, lng) {
 
 function touchdownPopupHtml(t) {
     var lines = ['<b>Touchdown</b>'];
-    if (t.icao) lines.push('Airport: ' + t.icao);
+    if (t.icao) {
+        var airportLabel = t.icao;
+        if (t.airportName) airportLabel += ' – ' + t.airportName;
+        lines.push('Airport: ' + airportLabel);
+    }
     if (t.runway)
         lines.push('Rwy ' + t.runway);
     lines.push('Airspeed: ' + t.airspeed + ' kt');
@@ -47,7 +51,13 @@ function touchdownPopupHtml(t) {
     lines.push('G-Force: ' + Number(t.gForce).toFixed(2));
     lines.push('Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°, Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     lines.push('Heading: ' + t.headingDegrees + '°');
-    lines.push('Time: ' + t.zuluTime);
+    if (t.distanceLength >= 0) {
+        lines.push('From threshold: ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '%)');
+        var side = t.distanceWidth >= 0 ? 'R' : 'L';
+        lines.push('Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '%)');
+    }
+    lines.push('Zulu: ' + t.zuluTime);
+    if (t.localTime) lines.push('Local: ' + t.localTime);
     return lines.join('<br>');
 }
 

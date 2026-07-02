@@ -50,7 +50,13 @@ struct TouchdownPoint {
 	double pitchDegrees = 0;
 	double bankDegrees = 0;
 	int headingDegrees = 0;
+	QString airportName;
+	double distanceLength = -1;   // feet from threshold, -1 = unknown
+	double distanceWidth = 0;     // feet from centerline (+right/-left)
+	double distanceLengthPercent = -1;  // 0-1 fraction of runway length
+	double distanceWidthPercent = 0;    // 0-1 fraction of runway half-width
 	QString zuluTime;
+	QString localTime;
 };
 
 // One discrete cockpit event (gear/flaps/spoilers/etc. toggled) logged during
@@ -85,9 +91,11 @@ struct TripSummary {
 	QString atcAirline;
 	QString atcFlightNumber;
 	QString departureIcao;
+	QString departureName;
 	QString departureRegion;
 	QString departureRwy;
 	QString destinationIcao;
+	QString destinationName;
 	QString destinationRegion;
 	QString destinationRwy;
 	QString departureZuluTime;

@@ -43,15 +43,18 @@ QVariant TripHistoryModel::data(const QModelIndex& index, int role) const {
 		return QVariant();
 	const TripSummary& trip = trips_[index.row()];
 
+	if (role == Qt::ToolTipRole)
+		return data(index, Qt::DisplayRole);
+
 	if (role == Qt::DisplayRole) {
 		switch (index.column()) {
 		case TitleColumn: return trip.title;
 		case FlightColumn: return trip.atcAirline + " " + trip.atcFlightNumber;
 		case DepartureRegionColumn: return trip.departureRegion;
-		case DepartureColumn: return trip.departureIcao;
+		case DepartureColumn: return trip.departureName.isEmpty() ? trip.departureIcao : trip.departureIcao + " [" + trip.departureName + "]";
 		case DepartureRwyColumn: return trip.departureRwy;
 		case DestinationRegionColumn: return trip.destinationRegion;
-		case DestinationColumn: return trip.destinationIcao;
+		case DestinationColumn: return trip.destinationName.isEmpty() ? trip.destinationIcao : trip.destinationIcao + " [" + trip.destinationName + "]";
 		case DestinationRwyColumn: return trip.destinationRwy;
 		case DepartureTimeColumn: return trip.departureZuluTime;
 		case DestinationTimeColumn: return trip.destinationZuluTime.isEmpty() ? QStringLiteral("—") : trip.destinationZuluTime;
@@ -111,19 +114,19 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	auto* header = table_->horizontalHeader();
 	header->setStretchLastSection(false);
 	header->setSectionResizeMode(TripHistoryModel::DepartureRegionColumn, QHeaderView::Interactive);
-	header->setSectionResizeMode(TripHistoryModel::DepartureColumn, QHeaderView::Interactive);
+	header->setSectionResizeMode(TripHistoryModel::DepartureColumn, QHeaderView::Stretch);
 	header->setSectionResizeMode(TripHistoryModel::DepartureRwyColumn, QHeaderView::Interactive);
 	header->setSectionResizeMode(TripHistoryModel::DestinationRegionColumn, QHeaderView::Interactive);
-	header->setSectionResizeMode(TripHistoryModel::DestinationColumn, QHeaderView::Interactive);
+	header->setSectionResizeMode(TripHistoryModel::DestinationColumn, QHeaderView::Stretch);
 	header->setSectionResizeMode(TripHistoryModel::DestinationRwyColumn, QHeaderView::Interactive);
 	table_->setColumnWidth(TripHistoryModel::DepartureRegionColumn, 55);
-	table_->setColumnWidth(TripHistoryModel::DepartureColumn, 55);
 	table_->setColumnWidth(TripHistoryModel::DepartureRwyColumn, 60);
 	table_->setColumnWidth(TripHistoryModel::DestinationRegionColumn, 55);
-	table_->setColumnWidth(TripHistoryModel::DestinationColumn, 55);
 	table_->setColumnWidth(TripHistoryModel::DestinationRwyColumn, 60);
-	header->setSectionResizeMode(TripHistoryModel::DepartureTimeColumn, QHeaderView::Stretch);
-	header->setSectionResizeMode(TripHistoryModel::DestinationTimeColumn, QHeaderView::Stretch);
+	header->setSectionResizeMode(TripHistoryModel::DepartureTimeColumn, QHeaderView::Interactive);
+	header->setSectionResizeMode(TripHistoryModel::DestinationTimeColumn, QHeaderView::Interactive);
+	table_->setColumnWidth(TripHistoryModel::DepartureTimeColumn, 175);
+	table_->setColumnWidth(TripHistoryModel::DestinationTimeColumn, 175);
 	table_->verticalHeader()->setVisible(false);
 	// Default selection highlight clashes with the status BackgroundRole
 	// colors (Live/Open rows) and looks washed out -- a solid, high-contrast

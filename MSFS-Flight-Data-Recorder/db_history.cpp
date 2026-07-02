@@ -17,12 +17,14 @@ QString columnTextOrEmpty(sqlite3_stmt* stmt, int column) {
 std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 	std::vector<TripSummary> trips;
 
-	// departure_region/destination_region are a recent addition to trips --
-	// only the recording feature's write connection ever changes the schema
-	// (and only for new databases via CREATE TABLE), so a database from
-	// before they existed legitimately lacks these columns. Try the query
-	// with them first and fall back to a region-less query (leaving those
-	// fields blank) rather than touching the schema from this read-only path.
+	// departure_region/destination_region and departure_name/destination_name
+	// are progressive additions to trips. Try each query in order from newest
+	// to oldest schema, leaving missing fields blank on older databases rather
+	// than touching the schema from this read-only path.
+	const char* stmt_txt_full =
+		"SELECT id, title, atc_airline, atc_flight_number, departure_icao, departure_name, departure_region, departure_rwy, "
+		"destination_icao, destination_name, destination_region, destination_rwy, departure_zulu_time, destination_zulu_time "
+		"FROM trips ORDER BY id DESC";
 	const char* stmt_txt_with_region =
 		"SELECT id, title, atc_airline, atc_flight_number, departure_icao, departure_region, departure_rwy, "
 		"destination_icao, destination_region, destination_rwy, departure_zulu_time, destination_zulu_time "
@@ -33,10 +35,14 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 		"FROM trips ORDER BY id DESC";
 
 	sqlite3_stmt* stmt = nullptr;
-	bool hasRegion = sqlite3_prepare_v2(sql, stmt_txt_with_region, -1, &stmt, nullptr) == SQLITE_OK;
-	if (!hasRegion) {
-		if (sqlite3_prepare_v2(sql, stmt_txt_no_region, -1, &stmt, nullptr) != SQLITE_OK)
-			return trips;
+	bool hasName = sqlite3_prepare_v2(sql, stmt_txt_full, -1, &stmt, nullptr) == SQLITE_OK;
+	bool hasRegion = hasName;
+	if (!hasName) {
+		hasRegion = sqlite3_prepare_v2(sql, stmt_txt_with_region, -1, &stmt, nullptr) == SQLITE_OK;
+		if (!hasRegion) {
+			if (sqlite3_prepare_v2(sql, stmt_txt_no_region, -1, &stmt, nullptr) != SQLITE_OK)
+				return trips;
+		}
 	}
 
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -46,7 +52,17 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 		trip.atcAirline = columnTextOrEmpty(stmt, 2);
 		trip.atcFlightNumber = columnTextOrEmpty(stmt, 3);
 		trip.departureIcao = columnTextOrEmpty(stmt, 4);
-		if (hasRegion) {
+		if (hasName) {
+			trip.departureName = columnTextOrEmpty(stmt, 5);
+			trip.departureRegion = columnTextOrEmpty(stmt, 6);
+			trip.departureRwy = columnTextOrEmpty(stmt, 7);
+			trip.destinationIcao = columnTextOrEmpty(stmt, 8);
+			trip.destinationName = columnTextOrEmpty(stmt, 9);
+			trip.destinationRegion = columnTextOrEmpty(stmt, 10);
+			trip.destinationRwy = columnTextOrEmpty(stmt, 11);
+			trip.departureZuluTime = columnTextOrEmpty(stmt, 12);
+			trip.destinationZuluTime = columnTextOrEmpty(stmt, 13);
+		} else if (hasRegion) {
 			trip.departureRegion = columnTextOrEmpty(stmt, 5);
 			trip.departureRwy = columnTextOrEmpty(stmt, 6);
 			trip.destinationIcao = columnTextOrEmpty(stmt, 7);
@@ -193,13 +209,26 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 	std::vector<TouchdownPoint> touchdowns;
 
-	const char* stmt_txt =
+	// airport_name was added after distance_* columns; try with it first and
+	// fall back to the older layout for databases recorded before that change.
+	const char* stmt_txt_with_name =
+		"SELECT plane_latitude, plane_longitude, icao, airport_name, runway, airspeed_indicated, "
+		"vertical_speed, g_force, plane_pitch_degrees, plane_bank_degrees, heading_indicator, "
+		"distance_length, distance_width, distance_length_percent, distance_width_percent, "
+		"time_zulu, time_local "
+		"FROM trip_touchdowns WHERE trip = ? ORDER BY id";
+	const char* stmt_txt_no_name =
 		"SELECT plane_latitude, plane_longitude, icao, runway, airspeed_indicated, "
-		"vertical_speed, g_force, plane_pitch_degrees, plane_bank_degrees, heading_indicator, time_zulu "
+		"vertical_speed, g_force, plane_pitch_degrees, plane_bank_degrees, heading_indicator, "
+		"distance_length, distance_width, distance_length_percent, distance_width_percent, "
+		"time_zulu, time_local "
 		"FROM trip_touchdowns WHERE trip = ? ORDER BY id";
 	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
-		return touchdowns;
+	bool hasName = sqlite3_prepare_v2(sql, stmt_txt_with_name, -1, &stmt, nullptr) == SQLITE_OK;
+	if (!hasName) {
+		if (sqlite3_prepare_v2(sql, stmt_txt_no_name, -1, &stmt, nullptr) != SQLITE_OK)
+			return touchdowns;
+	}
 	sqlite3_bind_int(stmt, 1, tripId);
 
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -207,14 +236,36 @@ std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 		point.latitude = sqlite3_column_double(stmt, 0);
 		point.longitude = sqlite3_column_double(stmt, 1);
 		point.icao = columnTextOrEmpty(stmt, 2);
-		point.runway = columnTextOrEmpty(stmt, 3);
-		point.airspeed = sqlite3_column_int(stmt, 4);
-		point.verticalSpeed = sqlite3_column_int(stmt, 5);
-		point.gForce = sqlite3_column_double(stmt, 6);
-		point.pitchDegrees = sqlite3_column_double(stmt, 7);
-		point.bankDegrees = sqlite3_column_double(stmt, 8);
-		point.headingDegrees = sqlite3_column_int(stmt, 9);
-		point.zuluTime = columnTextOrEmpty(stmt, 10);
+		if (hasName) {
+			point.airportName = columnTextOrEmpty(stmt, 3);
+			point.runway = columnTextOrEmpty(stmt, 4);
+			point.airspeed = sqlite3_column_int(stmt, 5);
+			point.verticalSpeed = sqlite3_column_int(stmt, 6);
+			point.gForce = sqlite3_column_double(stmt, 7);
+			point.pitchDegrees = sqlite3_column_double(stmt, 8);
+			point.bankDegrees = sqlite3_column_double(stmt, 9);
+			point.headingDegrees = sqlite3_column_int(stmt, 10);
+			point.distanceLength = sqlite3_column_double(stmt, 11);
+			point.distanceWidth = sqlite3_column_double(stmt, 12);
+			point.distanceLengthPercent = sqlite3_column_double(stmt, 13);
+			point.distanceWidthPercent = sqlite3_column_double(stmt, 14);
+			point.zuluTime = columnTextOrEmpty(stmt, 15);
+			point.localTime = columnTextOrEmpty(stmt, 16);
+		} else {
+			point.runway = columnTextOrEmpty(stmt, 3);
+			point.airspeed = sqlite3_column_int(stmt, 4);
+			point.verticalSpeed = sqlite3_column_int(stmt, 5);
+			point.gForce = sqlite3_column_double(stmt, 6);
+			point.pitchDegrees = sqlite3_column_double(stmt, 7);
+			point.bankDegrees = sqlite3_column_double(stmt, 8);
+			point.headingDegrees = sqlite3_column_int(stmt, 9);
+			point.distanceLength = sqlite3_column_double(stmt, 10);
+			point.distanceWidth = sqlite3_column_double(stmt, 11);
+			point.distanceLengthPercent = sqlite3_column_double(stmt, 12);
+			point.distanceWidthPercent = sqlite3_column_double(stmt, 13);
+			point.zuluTime = columnTextOrEmpty(stmt, 14);
+			point.localTime = columnTextOrEmpty(stmt, 15);
+		}
 		touchdowns.push_back(point);
 	}
 	sqlite3_finalize(stmt);

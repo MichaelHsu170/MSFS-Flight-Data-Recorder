@@ -33,6 +33,7 @@ QJsonObject touchdownToJson(const TouchdownPoint& t) {
 	obj["lat"] = t.latitude;
 	obj["lng"] = t.longitude;
 	obj["icao"] = t.icao;
+	obj["airportName"] = t.airportName;
 	obj["runway"] = t.runway;
 	obj["airspeed"] = t.airspeed;
 	obj["verticalSpeed"] = t.verticalSpeed;
@@ -40,7 +41,12 @@ QJsonObject touchdownToJson(const TouchdownPoint& t) {
 	obj["pitchDegrees"] = t.pitchDegrees;
 	obj["bankDegrees"] = t.bankDegrees;
 	obj["headingDegrees"] = t.headingDegrees;
+	obj["distanceLength"] = t.distanceLength;
+	obj["distanceWidth"] = t.distanceWidth;
+	obj["distanceLengthPercent"] = t.distanceLengthPercent;
+	obj["distanceWidthPercent"] = t.distanceWidthPercent;
 	obj["zuluTime"] = t.zuluTime;
+	obj["localTime"] = t.localTime;
 	return obj;
 }
 
