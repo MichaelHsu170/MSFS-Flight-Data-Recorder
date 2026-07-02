@@ -20,9 +20,8 @@ static void logMessageHandler(QtMsgType type, const QMessageLogContext& ctx, con
         || msg.contains(QLatin1String("qt.qpa."))
         || msg.contains(QLatin1String("QStandardPaths:"))
         || msg.startsWith(QLatin1String("libpng warning"))
-        // QQC2 probes all known style modules at startup to build its available-styles
-        // list; styles we intentionally didn't deploy produce "not installed" warnings
-        // that are false alarms -- the configured Windows style loads fine.
+        // QtQuick.Controls qmldir probes all known style modules; deleted styles
+        // produce "not installed" warnings that are expected and harmless.
         || msg.contains(QLatin1String("is not installed")))
         return;
 
