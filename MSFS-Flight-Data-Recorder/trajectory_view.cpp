@@ -16,20 +16,19 @@ TrajectoryView::TrajectoryView(QWidget* parent) : QWidget(parent) {
 	// time, so it should stay a narrow, fixed-ish slice of the width -- a
 	// stretch factor of 0 (all extra resize space goes to the map) plus a
 	// hard maximum width keeps it from ballooning as the window grows.
-	dataTablePanel_->setMaximumWidth(260);
+	dataTablePanel_->setMaximumWidth(kRightPanelWidth);
 	mapTableSplitter_ = new QSplitter(Qt::Horizontal, this);
 	mapTableSplitter_->addWidget(mapWidget_);
 	mapTableSplitter_->addWidget(dataTablePanel_);
 	mapTableSplitter_->setStretchFactor(0, 1);
 	mapTableSplitter_->setStretchFactor(1, 0);
-	mapTableSplitter_->setSizes({ 900, 220 });
+	mapTableSplitter_->setSizes({ 900, AppSettings::instance().rightPanelWidth() });
 	mapTableSplitter_->setCollapsible(0, false);
 	mapTableSplitter_->setCollapsible(1, false);
-	QByteArray savedMapTable = AppSettings::instance().trajectoryDataTableSplitterState();
-	if (!savedMapTable.isEmpty())
-		mapTableSplitter_->restoreState(savedMapTable);
 	connect(mapTableSplitter_, &QSplitter::splitterMoved, this, [this]() {
-		AppSettings::instance().setTrajectoryDataTableSplitterState(mapTableSplitter_->saveState());
+		int w = mapTableSplitter_->sizes().last();
+		AppSettings::instance().setRightPanelWidth(w);
+		emit rightPanelWidthChanged(w);
 	});
 
 	// Both sections need a floor so neither can steal all the space from the
@@ -91,6 +90,12 @@ void TrajectoryView::appendLivePoint(const TripSamplePoint& point) {
 	} else {
 		pendingLivePoints_.push_back(point);
 	}
+}
+
+void TrajectoryView::setRightPanelWidth(int w) {
+	auto sizes = mapTableSplitter_->sizes();
+	if (sizes.size() < 2) return;
+	mapTableSplitter_->setSizes({ sizes[0] + sizes[1] - w, w });
 }
 
 void TrajectoryView::setLiveFollow(bool follow) {
