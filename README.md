@@ -2,6 +2,10 @@
 
 A Qt desktop application for Microsoft Flight Simulator 2024 that records telemetry, cockpit events, and landing data to a local SQLite database and visualises them on an interactive map with synchronised timeline charts.
 
+![Trajectory view](imgs/Screenshot%202026-07-04%20062158.jpg)
+
+![Touchdown data](imgs/Screenshot%202026-07-04%20062220.jpg)
+
 ## Prerequisites
 
 | Dependency | Version / Path |
