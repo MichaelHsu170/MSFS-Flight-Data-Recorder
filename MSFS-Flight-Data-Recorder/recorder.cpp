@@ -607,9 +607,11 @@ void stop_recording(struct STATUS* status) {
 			"distance_width,"
 			"distance_length_percent,"
 			"distance_width_percent,"
+			"wind_direction,"
+			"wind_velocity,"
 			"time_zulu,"
 			"time_local"
-			") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
+			") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
 			cur,
 			status,
 			NULL,
@@ -631,8 +633,10 @@ void stop_recording(struct STATUS* status) {
 				db_bind(stmt, stmt_txt, 14, pS->airport.runway_act.distances[1]);
 				db_bind(stmt, stmt_txt, 15, pS->airport.runway_act.distances_percent[0]);
 				db_bind(stmt, stmt_txt, 16, pS->airport.runway_act.distances_percent[1]);
-				db_bind(stmt, stmt_txt, 17, pS->flight_data.time_zulu.format_date_time().c_str());
-				db_bind(stmt, stmt_txt, 18, pS->flight_data.time_local.format_date_time().c_str());
+				db_bind(stmt, stmt_txt, 17, pS->flight_data.wind_direction);
+				db_bind(stmt, stmt_txt, 18, pS->flight_data.wind_velocity);
+				db_bind(stmt, stmt_txt, 19, pS->flight_data.time_zulu.format_date_time().c_str());
+				db_bind(stmt, stmt_txt, 20, pS->flight_data.time_local.format_date_time().c_str());
 			}
 		);
 		status->touchdown_data = status->touchdown_data->next;
@@ -900,6 +904,8 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					status->touchdown_data_end->flight_data.speed = (int)tmp.airspeed_indicated;
 					status->touchdown_data_end->flight_data.vertical_speed = (int)tmp.vertical_speed;
 					status->touchdown_data_end->flight_data.g_force = tmp.g_force;
+					status->touchdown_data_end->flight_data.wind_direction = (int)tmp.ambient_wind_direction;
+					status->touchdown_data_end->flight_data.wind_velocity = (int)tmp.ambient_wind_velocity;
 					status->touchdown_data_end->flight_data.coordinate.latitude = tmp.plane_coordinate.latitude;
 					status->touchdown_data_end->flight_data.coordinate.longitude = tmp.plane_coordinate.longitude;
 					status->touchdown_data_end->flight_data.time_zulu = tmp.time_zulu;

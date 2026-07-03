@@ -103,7 +103,7 @@ hidden_fields=
 | `trips` | One row per flight session: departure/destination airport ICAO, runway, times, ATC callsign |
 | `trip_data` | Telemetry sampled every 0.3 s while recording: position, altitude, airspeed, engine N1/N2, gear/flaps/spoilers, fuel, autopilot state, and ~60 other variables |
 | `trip_events` | Discrete cockpit events (gear up/down, flaps, spoilers, parking brake, anti-ice, etc.) with zulu and local timestamps |
-| `trip_touchdowns` | One row per touchdown: airport, runway, airspeed, vertical speed, g-force, pitch/bank/heading, and lateral/longitudinal distance from the runway threshold and centreline |
+| `trip_touchdowns` | One row per touchdown: airport, runway, airspeed, vertical speed, g-force, pitch/bank/heading, wind direction/speed, and lateral/longitudinal distance from the runway threshold and centreline |
 
 Recording starts automatically when an engine is running on the ground and stops when all engines shut down. A trip that ends abnormally (simulator crash or process kill before engine shutdown) is marked as **Open** in the UI.
 

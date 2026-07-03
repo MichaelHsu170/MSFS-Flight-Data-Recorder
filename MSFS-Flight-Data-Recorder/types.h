@@ -304,6 +304,8 @@ struct FLIGHT_DATA {
 	double g_force = 1;
 	double pitch = 0;
 	double bank = 0;
+	int wind_direction = 0;
+	int wind_velocity = 0;
 	COORDINATE coordinate;
 	DATETIME time_zulu;
 	DATETIME time_local;

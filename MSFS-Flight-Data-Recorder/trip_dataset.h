@@ -55,6 +55,8 @@ struct TouchdownPoint {
 	double distanceWidth = 0;     // feet from centerline (+right/-left)
 	double distanceLengthPercent = -1;  // 0-1 fraction of runway length
 	double distanceWidthPercent = 0;    // 0-1 fraction of runway half-width
+	int windDirection = 0;   // degrees true, 0 if unknown
+	int windVelocity = 0;    // knots
 	QString zuluTime;
 	QString localTime;
 };
