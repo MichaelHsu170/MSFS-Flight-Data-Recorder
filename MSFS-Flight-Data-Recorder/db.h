@@ -203,6 +203,8 @@ static const char* DATABASE_TABLE_FIELDS[] = {
 	"distance_width REAL,"
 	"distance_length_percent REAL,"
 	"distance_width_percent REAL,"
+	"wind_direction INTEGER,"
+	"wind_velocity INTEGER,"
 	"time_zulu VARCHAR(32) NOT NULL,"
 	"time_local VARCHAR(32) NOT NULL"
 };

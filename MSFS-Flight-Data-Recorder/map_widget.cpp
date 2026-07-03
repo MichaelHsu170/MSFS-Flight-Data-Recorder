@@ -45,6 +45,8 @@ QJsonObject touchdownToJson(const TouchdownPoint& t) {
 	obj["distanceWidth"] = t.distanceWidth;
 	obj["distanceLengthPercent"] = t.distanceLengthPercent;
 	obj["distanceWidthPercent"] = t.distanceWidthPercent;
+	obj["windDirection"] = t.windDirection;
+	obj["windVelocity"] = t.windVelocity;
 	obj["zuluTime"] = t.zuluTime;
 	obj["localTime"] = t.localTime;
 	return obj;
