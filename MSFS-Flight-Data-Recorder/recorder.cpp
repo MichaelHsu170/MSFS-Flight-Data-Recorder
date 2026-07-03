@@ -10,7 +10,6 @@ static const int SKIP_EVENTS[] = {
 	EVENT_APU_STARTER,
 	EVENT_BRAKES,
 	EVENT_AP_VS_ON,
-	EVENT_GEAR_TOGGLE,
 };
 static const int SKIP_EVENTS_COUNT = (int)(sizeof(SKIP_EVENTS) / sizeof(SKIP_EVENTS[0]));
 
