@@ -20,9 +20,10 @@ public:
 	int rightPanelWidth() const;
 	void setRightPanelWidth(int w);
 
-	// Splitter states (QSplitter::saveState / restoreState byte arrays).
-	QByteArray trajectoryMapChartsSplitterState() const;
-	void setTrajectoryMapChartsSplitterState(const QByteArray& state);
+	// Height in pixels of the charts panel (below the map). The map takes the
+	// remaining vertical space.
+	int chartsPanelHeight() const;
+	void setChartsPanelHeight(int h);
 
 private:
 	AppSettings() = default;

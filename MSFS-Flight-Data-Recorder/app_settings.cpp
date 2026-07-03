@@ -45,12 +45,12 @@ void AppSettings::setRightPanelWidth(int w) {
 	settings.setValue(QStringLiteral("layout/right_panel_width"), w);
 }
 
-QByteArray AppSettings::trajectoryMapChartsSplitterState() const {
+int AppSettings::chartsPanelHeight() const {
 	QSettings settings = makeSettings();
-	return settings.value(QStringLiteral("layout/trajectory_map_charts_splitter_state")).toByteArray();
+	return settings.value(QStringLiteral("layout/charts_panel_height"), 400).toInt();
 }
 
-void AppSettings::setTrajectoryMapChartsSplitterState(const QByteArray& state) {
+void AppSettings::setChartsPanelHeight(int h) {
 	QSettings settings = makeSettings();
-	settings.setValue(QStringLiteral("layout/trajectory_map_charts_splitter_state"), state);
+	settings.setValue(QStringLiteral("layout/charts_panel_height"), h);
 }

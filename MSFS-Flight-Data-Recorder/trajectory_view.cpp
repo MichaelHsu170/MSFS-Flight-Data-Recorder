@@ -42,14 +42,11 @@ TrajectoryView::TrajectoryView(QWidget* parent) : QWidget(parent) {
 	mainSplitter->addWidget(chartsPanel_);
 	mainSplitter->setStretchFactor(0, 1);
 	mainSplitter->setStretchFactor(1, 1);
-	mainSplitter->setSizes({ 400, 400 });
+	mainSplitter->setSizes({ 400, AppSettings::instance().chartsPanelHeight() });
 	mainSplitter->setCollapsible(0, false);
 	mainSplitter->setCollapsible(1, false);
-	QByteArray savedMapCharts = AppSettings::instance().trajectoryMapChartsSplitterState();
-	if (!savedMapCharts.isEmpty())
-		mainSplitter->restoreState(savedMapCharts);
 	connect(mainSplitter, &QSplitter::splitterMoved, this, [mainSplitter]() {
-		AppSettings::instance().setTrajectoryMapChartsSplitterState(mainSplitter->saveState());
+		AppSettings::instance().setChartsPanelHeight(mainSplitter->sizes().last());
 	});
 
 	auto* layout = new QVBoxLayout(this);
