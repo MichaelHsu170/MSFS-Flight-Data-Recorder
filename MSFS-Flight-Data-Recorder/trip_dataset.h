@@ -76,6 +76,7 @@ struct TripEvent {
 
 struct TripDataset {
 	int tripId = -1;
+	QString aircraftTitle;  // trips.title — human-readable name like "Airbus A320neo FlyByWire"
 	std::vector<TripSamplePoint> points;
 	std::vector<TouchdownPoint> touchdowns;
 	std::vector<TripEvent> events;

@@ -54,3 +54,13 @@ void AppSettings::setChartsPanelHeight(int h) {
 	QSettings settings = makeSettings();
 	settings.setValue(QStringLiteral("layout/charts_panel_height"), h);
 }
+
+QString AppSettings::geminiApiKey() const {
+	QSettings settings = makeSettings();
+	return settings.value(QStringLiteral("ai/gemini_api_key")).toString();
+}
+
+void AppSettings::setGeminiApiKey(const QString& key) {
+	QSettings settings = makeSettings();
+	settings.setValue(QStringLiteral("ai/gemini_api_key"), key);
+}

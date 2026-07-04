@@ -68,5 +68,6 @@ private:
 	std::vector<TripEvent> events_;
 	// Buffered lat/lng pairs waiting for the next liveUpdateTimer_ flush.
 	std::vector<std::pair<double, double>> pendingLiveCoords_;
+	QString aircraftTitle_;
 	bool pageReady_ = false;
 };

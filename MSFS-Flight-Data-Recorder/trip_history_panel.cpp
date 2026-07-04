@@ -213,6 +213,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	loadingBar_->setVisible(true);
 
 	int tripId = trip->id;
+	QString aircraftTitle = trip->title;
 	// The three queries (trip_data is by far the largest) each get their own
 	// connect_db_readonly() connection and are launched directly from the GUI
 	// thread (not nested inside a wrapping QtConcurrent::run that blocks on
@@ -222,12 +223,13 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	// if the pool's max thread count is too small to run all of them at
 	// once. Joining happens in tryFinishLoad() once all three watchers report
 	// finished.
-	pointsWatcher_->setFuture(QtConcurrent::run([tripId]() {
+	pointsWatcher_->setFuture(QtConcurrent::run([tripId, aircraftTitle]() {
 		sqlite3* sql = connect_db_readonly();
 		TripDataset dataset = sql ? queryTripData(sql, tripId) : TripDataset();
 		if (sql)
 			sqlite3_close(sql);
 		dataset.tripId = tripId;
+		dataset.aircraftTitle = aircraftTitle;
 		return dataset;
 	}));
 	touchdownsWatcher_->setFuture(QtConcurrent::run([tripId]() {
