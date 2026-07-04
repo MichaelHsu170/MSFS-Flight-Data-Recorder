@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QString>
-#include <utility>
+#include <cstdint>
 #include <vector>
 
 // One row of trip_data, decoded into engineering units/booleans. Same shape
@@ -29,12 +29,14 @@ struct TripSamplePoint {
 	QString zuluTime;
 	QString localTime;
 
-	// Every other trip_data column, label -> formatted value, in a fixed order
-	// shared by both producers (recorder_bridge.cpp's live path and
-	// db_history.cpp's historical path build this from the same X-macro list
-	// in trip_data_fields.h) so DataTablePanel can render "every field" without
-	// caring which path the point came from.
-	std::vector<std::pair<QString, QString>> allFields;
+	// Raw values for all TRIP_DATA_NUM_FIELDS entries, in macro-list order.
+	// Raw bool groups (bit-packed ints) for all TRIP_DATA_BOOL_FIELDS entries.
+	// DataTablePanel formats these to strings on demand for the one point it
+	// is currently displaying, avoiding ~7M QString constructions per load.
+	std::vector<double> rawNums;
+	uint32_t boolGroup1 = 0;
+	uint32_t boolGroup2 = 0;
+	uint32_t boolGroup3 = 0;
 };
 
 // One landing logged during the trip (trip_touchdowns), shown as a marker on

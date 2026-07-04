@@ -96,11 +96,9 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	dataset.tripId = tripId;
 
 	// SELECT * (rather than a curated column list) plus a name -> index map
-	// built from the statement's own column metadata so DataTablePanel can
-	// show every trip_data field (TripSamplePoint::allFields, populated below
-	// via the shared X-macro list in trip_data_fields.h) without this query
-	// needing to enumerate ~140 columns by hand or care about their exact
-	// ordinal position in the table.
+	// built from the statement's own column metadata so the query doesn't need
+	// to enumerate ~140 columns by hand or care about their exact ordinal
+	// positions in the table.
 	const char* stmt_txt = "SELECT * FROM trip_data WHERE trip = ? ORDER BY rowid";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
@@ -145,19 +143,12 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	const int idxZuluTime = indexOf("zulu_time");
 	const int idxLocalTime = indexOf("local_time");
 
-	struct NumFieldMeta { QString label; int index; };
-	std::vector<NumFieldMeta> numFields;
-#define TRIP_NUM_META(dbColumn, memberExpr) \
-	numFields.push_back({ tripFieldLabel(#dbColumn), indexOf(#dbColumn) });
-	TRIP_DATA_NUM_FIELDS(TRIP_NUM_META)
-#undef TRIP_NUM_META
-
-	struct BoolFieldMeta { QString label; int group; int bit; };
-	std::vector<BoolFieldMeta> boolFields;
-#define TRIP_BOOL_META(name, group, bit) \
-	boolFields.push_back({ tripFieldLabel(#name), group, bit });
-	TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_META)
-#undef TRIP_BOOL_META
+	std::vector<int> numFieldIndices;
+	numFieldIndices.reserve(128);
+#define TRIP_NUM_IDX(dbColumn, memberExpr) \
+	numFieldIndices.push_back(indexOf(#dbColumn));
+	TRIP_DATA_NUM_FIELDS(TRIP_NUM_IDX)
+#undef TRIP_NUM_IDX
 
 	auto colDouble = [&](int index) -> double { return index >= 0 ? sqlite3_column_double(stmt, index) : 0.0; };
 	auto colInt = [&](int index) -> int { return index >= 0 ? sqlite3_column_int(stmt, index) : 0; };
@@ -192,13 +183,12 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 		point.zuluTime = colText(idxZuluTime);
 		point.localTime = colText(idxLocalTime);
 
-		point.allFields.reserve(numFields.size() + boolFields.size());
-		for (const NumFieldMeta& f : numFields)
-			point.allFields.push_back({ f.label, QString::number(colDouble(f.index), 'g', 6) });
-		for (const BoolFieldMeta& f : boolFields) {
-			int group = f.group == 1 ? boolGroup1 : f.group == 2 ? boolGroup2 : boolGroup3;
-			point.allFields.push_back({ f.label, (group & (0x1 << f.bit)) != 0 ? QStringLiteral("Yes") : QStringLiteral("No") });
-		}
+		point.rawNums.reserve(numFieldIndices.size());
+		for (int idx : numFieldIndices)
+			point.rawNums.push_back(colDouble(idx));
+		point.boolGroup1 = (uint32_t)boolGroup1;
+		point.boolGroup2 = (uint32_t)boolGroup2;
+		point.boolGroup3 = (uint32_t)boolGroup3;
 
 		dataset.points.push_back(point);
 	}

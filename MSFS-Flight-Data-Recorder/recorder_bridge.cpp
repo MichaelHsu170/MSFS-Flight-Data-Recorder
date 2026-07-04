@@ -40,15 +40,21 @@ TripSamplePoint toSamplePoint(FLIGHT_DATA_RECORD sample) {
 	p.zuluTime = QString::fromStdString(sample.time_zulu.format_date_time());
 	p.localTime = QString::fromStdString(sample.time_local.format_date_time());
 
-#define TRIP_NUM_FIELD(dbColumn, memberExpr) \
-	p.allFields.push_back({ tripFieldLabel(#dbColumn), QString::number(sample.memberExpr, 'g', 6) });
-	TRIP_DATA_NUM_FIELDS(TRIP_NUM_FIELD)
-#undef TRIP_NUM_FIELD
+#define TRIP_NUM_PUSH(dbColumn, memberExpr) \
+	p.rawNums.push_back((double)(sample.memberExpr));
+	TRIP_DATA_NUM_FIELDS(TRIP_NUM_PUSH)
+#undef TRIP_NUM_PUSH
 
-#define TRIP_BOOL_FIELD(name, group, bit) \
-	p.allFields.push_back({ tripFieldLabel(#name), sample.name != 0 ? QStringLiteral("Yes") : QStringLiteral("No") });
-	TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_FIELD)
-#undef TRIP_BOOL_FIELD
+	{
+		uint32_t bgs[4] = {};
+#define TRIP_BOOL_PACK(name, group, bit) \
+		bgs[group] |= sample.name != 0 ? (1u << (bit)) : 0u;
+		TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_PACK)
+#undef TRIP_BOOL_PACK
+		p.boolGroup1 = bgs[1];
+		p.boolGroup2 = bgs[2];
+		p.boolGroup3 = bgs[3];
+	}
 
 	return p;
 }

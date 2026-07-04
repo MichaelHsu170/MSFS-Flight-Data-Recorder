@@ -8,8 +8,8 @@
 class QTableWidget;
 
 // "Value at a point in time" readout sitting beside the map: one row per
-// field of TripSamplePoint (every trip_data column -- see allFields in
-// trip_dataset.h), showing the sample at whatever index is currently
+// field of TripSamplePoint (every trip_data column -- see rawNums/boolGroups
+// in trip_dataset.h), showing the sample at whatever index is currently
 // designated -- the dragged map/chart cursor if one has been set, otherwise
 // the most recent point (live or historical). Row labels are fixed at
 // construction time (same field list/order every point produces, see

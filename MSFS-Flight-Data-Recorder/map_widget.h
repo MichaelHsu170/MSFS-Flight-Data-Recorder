@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QElapsedTimer>
 
 #include <utility>
 #include <vector>
@@ -59,10 +60,9 @@ private:
 	MapBridge* bridge_;
 	QToolButton* eventsToggle_;
 	QTimer* liveUpdateTimer_ = nullptr;
-	// Lat/lng pairs only -- MapWidget never needs TripSamplePoint::allFields
-	// (the per-sample field table used by DataTablePanel), so we don't store
-	// the full TripDataset. Avoiding that copy eliminates millions of QString
-	// ref-count operations on the main thread for long flights.
+	// Lat/lng pairs only -- MapWidget never needs the full TripSamplePoint
+	// (rawNums, boolGroups, etc.), so we copy only coordinates into trajCoords_
+	// rather than storing the whole TripDataset.
 	std::vector<std::pair<double, double>> trajCoords_;
 	std::vector<TouchdownPoint> touchdowns_;
 	std::vector<TripEvent> events_;
@@ -70,4 +70,5 @@ private:
 	std::vector<std::pair<double, double>> pendingLiveCoords_;
 	QString aircraftTitle_;
 	bool pageReady_ = false;
+	QElapsedTimer mapGenTimer_;
 };

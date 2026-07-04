@@ -4,6 +4,7 @@
 #include "data_table_panel.h"
 #include "app_settings.h"
 
+#include <QDebug>
 #include <QSplitter>
 #include <QVBoxLayout>
 
@@ -61,26 +62,32 @@ TrajectoryView::TrajectoryView(QWidget* parent) : QWidget(parent) {
 	connect(mapWidget_,   &MapWidget::trajectoryLoaded, this, &TrajectoryView::onSubviewLoaded);
 }
 
-void TrajectoryView::setDataset(const TripDataset& dataset) {
-	currentTripId_ = dataset.tripId;
+void TrajectoryView::setDataset(std::shared_ptr<TripDataset> dataset) {
+	dataset_ = std::move(dataset);
+	currentTripId_ = dataset_ ? dataset_->tripId : -1;
 	pendingLivePoints_.clear();
 	pendingRenders_ = 2;  // chartsPanel_ worker + mapWidget_ trajectory worker
-	dataset_ = dataset;
-	chartsPanel_->setDataset(dataset_);
-	mapWidget_->setDataset(dataset_);
-	dataTablePanel_->setDataset(&dataset_);
+	genTimer_.start();
+	qDebug("[Gen     ] --- rendering start: %zu pts ---", dataset_ ? dataset_->points.size() : 0u);
+	chartsPanel_->setDataset(*dataset_);
+	mapWidget_->setDataset(*dataset_);
+	dataTablePanel_->setDataset(dataset_.get());
 }
 
 void TrajectoryView::onSubviewLoaded() {
 	if (--pendingRenders_ <= 0) {
 		pendingRenders_ = 0;
+		if (genTimer_.isValid()) {
+			qDebug("[Gen     ] both subviews loaded: %lld ms total rendering time", genTimer_.nsecsElapsed() / 1000000);
+			genTimer_.invalidate();
+		}
 		emit renderingFinished();
 	}
 }
 
 void TrajectoryView::appendLivePoint(const TripSamplePoint& point) {
 	if (liveFollow_) {
-		dataset_.points.push_back(point);
+		if (dataset_) dataset_->points.push_back(point);
 		chartsPanel_->appendLivePoint(point);
 		mapWidget_->appendLivePoint(point);
 		dataTablePanel_->appendLivePoint(point);
@@ -100,7 +107,7 @@ void TrajectoryView::setLiveFollow(bool follow) {
 
 	if (follow && !pendingLivePoints_.empty()) {
 		for (const TripSamplePoint& point : pendingLivePoints_) {
-			dataset_.points.push_back(point);
+			if (dataset_) dataset_->points.push_back(point);
 			chartsPanel_->appendLivePoint(point);
 			mapWidget_->appendLivePoint(point);
 			dataTablePanel_->appendLivePoint(point);

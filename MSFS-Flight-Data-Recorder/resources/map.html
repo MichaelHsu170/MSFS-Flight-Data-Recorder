@@ -462,18 +462,40 @@ function nearestIndexIn(latLngs, lat, lng) {
 
 // Translates the map's current viewport into a [minIndex, maxIndex] range
 // over trajectoryLatLngs so the charts can zoom their time axis to match.
-// Reports (-1, -1) when the whole trajectory is in view (or there's nothing
-// to show), which C++ treats as "reset to full range".
-function reportVisibleRange(trajectoryLatLngs, origIndices, containsFn) {
+// Reports (-1, -1) when the whole trajectory is in view, which C++ treats as
+// "reset to full range".
+// When the viewport is zoomed in between decimated samples (stride ~16) so
+// that no decimated point falls inside the bounds, finds the decimated point
+// nearest to the viewport centre and expands by ±HALF neighbours so the chart
+// still updates to show a usable window around the visible area.
+function reportVisibleRange(trajectoryLatLngs, origIndices, bounds) {
     if (!mapBridge || trajectoryLatLngs.length === 0)
         return;
     var minIdx = -1, maxIdx = -1;
     for (var i = 0; i < trajectoryLatLngs.length; i++) {
-        if (containsFn(trajectoryLatLngs[i][0], trajectoryLatLngs[i][1])) {
+        if (bounds.contains([trajectoryLatLngs[i][0], trajectoryLatLngs[i][1]])) {
             if (minIdx === -1)
                 minIdx = i;
             maxIdx = i;
         }
+    }
+    if (minIdx === -1) {
+        // No decimated point inside the viewport. Find the nearest one to the
+        // viewport centre and expand by ±HALF so the chart shows the time
+        // window that corresponds to the visible map area.
+        var c = bounds.getCenter();
+        var bestDist = Infinity, bestIdx = 0;
+        for (var i = 0; i < trajectoryLatLngs.length; i++) {
+            var dLat = trajectoryLatLngs[i][0] - c.lat;
+            var dLng = trajectoryLatLngs[i][1] - c.lng;
+            var d = dLat * dLat + dLng * dLng;
+            if (d < bestDist) { bestDist = d; bestIdx = i; }
+        }
+        var HALF = 3;
+        var lo = Math.max(0, bestIdx - HALF);
+        var hi = Math.min(trajectoryLatLngs.length - 1, bestIdx + HALF);
+        mapBridge.rangeChanged(origIndices[lo], origIndices[hi]);
+        return;
     }
     if (minIdx <= 0 && maxIdx >= trajectoryLatLngs.length - 1)
         mapBridge.rangeChanged(-1, -1);
@@ -488,7 +510,11 @@ function initProvider() {
 }
 
 function initLeafletProvider() {
-    var map = L.map('map');
+    // preferCanvas: Leaflet's Canvas renderer draws polylines via the 2D
+    // Canvas API rather than SVG DOM elements. For a trajectory polyline with
+    // 3000+ segments this avoids building a large SVG <path> string and
+    // forces a repaint on each update -- Canvas is substantially faster.
+    var map = L.map('map', { preferCanvas: true });
     // Leaflet never fetches a single tile until the map has a view (center +
     // zoom) -- setTrajectory()'s fitBounds() only runs once a trajectory with
     // points exists, so without this the map stays blank (zero tile
@@ -512,8 +538,7 @@ function initLeafletProvider() {
     // zoomend/moveend fire once the viewport has settled (not on every
     // intermediate drag/zoom frame), so this stays cheap even on long trips.
     map.on('zoomend moveend', function () {
-        var bounds = map.getBounds();
-        reportVisibleRange(trajectoryLatLngs, origIndices, function (lat, lng) { return bounds.contains([lat, lng]); });
+        reportVisibleRange(trajectoryLatLngs, origIndices, map.getBounds());
     });
 
     var polyline = L.polyline([], { color: 'blue' }).addTo(map);
@@ -539,15 +564,23 @@ function initLeafletProvider() {
     });
 
     currentProvider = {
-        setTrajectory: function (points) {
-            // points is [{lat, lng, idx}, ...] where idx is the original sample index.
-            trajectoryLatLngs = points.map(function (p) { return [p.lat, p.lng]; });
-            origIndices = points.map(function (p) { return p.idx; });
+        setTrajectory: function (data) {
+            // data is {lats:[...], lngs:[...], idxs:[...]} -- parallel flat
+            // arrays are more compact JSON and faster to iterate than an array
+            // of {lat, lng, idx} objects.
+            var n = data.lats.length;
+            trajectoryLatLngs = new Array(n);
+            origIndices = data.idxs;
+            for (var i = 0; i < n; i++)
+                trajectoryLatLngs[i] = [data.lats[i], data.lngs[i]];
             polyline.setLatLngs(trajectoryLatLngs);
-            if (trajectoryLatLngs.length === 0)
+            if (n === 0)
                 return;
 
-            map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+            // animate:false skips the pan/zoom animation so fitBounds fires
+            // zoomend/moveend immediately rather than over several JS frames,
+            // avoiding stalling the QWebChannel rangeChanged() IPC round-trip.
+            map.fitBounds(polyline.getBounds(), { padding: [20, 20], animate: false });
 
             if (marker === null) {
                 marker = L.marker(trajectoryLatLngs[0], { draggable: true }).addTo(map);

@@ -2,6 +2,7 @@
 #include <QIcon>
 #include <QDebug>
 #include <QFile>
+#include <QMutex>
 #include <QTextStream>
 #include <QDateTime>
 #include <QStandardPaths>
@@ -12,6 +13,7 @@
 #include "main_window.h"
 
 static QFile* g_logFile = nullptr;
+static QMutex g_logMutex;
 
 static void logMessageHandler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg) {
     // Suppress high-volume Qt-internal noise that drowns out app messages.
@@ -34,6 +36,7 @@ static void logMessageHandler(QtMsgType type, const QMessageLogContext& ctx, con
     default: break;
     }
 
+    QMutexLocker locker(&g_logMutex);
     if (!g_logFile || !g_logFile->isOpen())
         return;
 
