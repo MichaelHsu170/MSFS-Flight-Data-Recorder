@@ -166,22 +166,25 @@ void RecorderBridge::shutdown() {
 	}
 }
 
-void gui_notify_log(struct STATUS* status, const char* text) {
-	Logger::log(QString::fromUtf8(text));
+void gui_notify_log(struct STATUS* status, GuiLogLevel level, const char* text) {
+	Logger::log(static_cast<Logger::Level>(level), "Recorder", QString::fromUtf8(text));
+	// Only forward Info-and-below to the LiveStatusPanel UI feed.
+	// Profile messages (e.g. SIMCONNECT_RECV_SIMOBJECT_DATA spam) stay log-only.
+	if (level > GUI_LOG_INFO)
+		return;
 	if (!status || !status->gui_context)
 		return;
 	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
 	emit bridge->logMessage(QString::fromUtf8(text));
 }
 
-void gui_log_printf(struct STATUS* status, const char* fmt, ...) {
+void gui_log_printf(struct STATUS* status, GuiLogLevel level, const char* fmt, ...) {
 	char buf[512];
 	va_list args;
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
-	printf("%s", buf);
-	gui_notify_log(status, buf);
+	gui_notify_log(status, level, buf);
 }
 
 void gui_notify_connection_changed(struct STATUS* status, bool connected) {

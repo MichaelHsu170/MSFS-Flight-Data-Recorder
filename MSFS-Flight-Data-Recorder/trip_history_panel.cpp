@@ -14,7 +14,7 @@
 #include <QtConcurrent/QtConcurrent>
 #include <QBrush>
 #include <QColor>
-#include <QDebug>
+#include "logger.h"
 #include <algorithm>
 
 #include "sqlite3.h"
@@ -216,7 +216,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	table_->setEnabled(false);
 	loadingBar_->setVisible(true);
 	loadTimer_.start();
-	qDebug("[Gen/DB  ] --- start: trip %d ---", trip->id);
+	Logger::logf(Logger::Profile, "DB", "--- start: trip %d ---", trip->id);
 
 	int tripId = trip->id;
 	QString aircraftTitle = trip->title;
@@ -237,7 +237,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 			sqlite3_close(sql);
 		dataset->tripId = tripId;
 		dataset->aircraftTitle = aircraftTitle;
-		qDebug("[Gen/DB  ] queryTripData: %lld ms  (%zu pts)", t.nsecsElapsed() / 1000000, dataset->points.size());
+		Logger::logf(Logger::Profile, "DB", "queryTripData: %lld ms  (%zu pts)", t.nsecsElapsed() / 1000000, dataset->points.size());
 		return dataset;
 	}));
 	touchdownsWatcher_->setFuture(QtConcurrent::run([tripId]() {
@@ -246,7 +246,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 		std::vector<TouchdownPoint> touchdowns = sql ? queryTouchdowns(sql, tripId) : std::vector<TouchdownPoint>();
 		if (sql)
 			sqlite3_close(sql);
-		qDebug("[Gen/DB  ] queryTouchdowns: %lld ms  (%zu touchdowns)", t.nsecsElapsed() / 1000000, touchdowns.size());
+		Logger::logf(Logger::Profile, "DB", "queryTouchdowns: %lld ms  (%zu touchdowns)", t.nsecsElapsed() / 1000000, touchdowns.size());
 		return touchdowns;
 	}));
 	eventsWatcher_->setFuture(QtConcurrent::run([tripId]() {
@@ -255,7 +255,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 		std::vector<TripEvent> events = sql ? queryEvents(sql, tripId) : std::vector<TripEvent>();
 		if (sql)
 			sqlite3_close(sql);
-		qDebug("[Gen/DB  ] queryEvents: %lld ms  (%zu events)", t.nsecsElapsed() / 1000000, events.size());
+		Logger::logf(Logger::Profile, "DB", "queryEvents: %lld ms  (%zu events)", t.nsecsElapsed() / 1000000, events.size());
 		return events;
 	}));
 }
@@ -267,7 +267,7 @@ void TripHistoryPanel::tryFinishLoad() {
 	auto dataset = pointsWatcher_->result();
 	dataset->touchdowns = touchdownsWatcher_->result();
 	dataset->events = eventsWatcher_->result();
-	qDebug("[Gen/DB  ] all joined: %lld ms wall time from click", loadTimer_.nsecsElapsed() / 1000000);
+	Logger::logf(Logger::Profile, "DB", "all joined: %lld ms wall time from click", loadTimer_.nsecsElapsed() / 1000000);
 
 	// trip_events only stores a timestamp, not a position -- resolve each
 	// event to the nearest sample by zuluTime (lexicographically comparable

@@ -6,8 +6,8 @@
 #include <QUrl>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
-#include <QDebug>
 #include <QElapsedTimer>
+#include "logger.h"
 
 #include <QtGraphs/qlineseries.h>
 #include <QtGraphs/qdatetimeaxis.h>
@@ -189,7 +189,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		lp.fuelTotalQuantityWeight   = p.fuelTotalQuantityWeight;
 		points.push_back(std::move(lp));
 	}
-	qDebug("[Gen/Chrt] copy: %lld ms  (%zu pts)", copyTimer.nsecsElapsed() / 1000000, points.size());
+	Logger::logf(Logger::Profile, "Charts", "copy: %lld ms  (%zu pts)", copyTimer.nsecsElapsed() / 1000000, points.size());
 
 	auto* watcher = new QFutureWatcher<ChartSeriesData>(this);
 	connect(watcher, &QFutureWatcher<ChartSeriesData>::finished, this, [this, watcher]() {
@@ -197,7 +197,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		// avoiding a second 15 MB copy into the QLineSeries objects.
 		ChartSeriesData data = watcher->result();
 		watcher->deleteLater();
-		qDebug("[Gen/Chrt] compute (bg): %lld ms", data.computeNs / 1000000);
+		Logger::logf(Logger::Profile, "Charts", "compute (bg): %lld ms", data.computeNs / 1000000);
 
 		QElapsedTimer applyTimer; applyTimer.start();
 		QQuickItem* root = view_->rootObject();
@@ -280,9 +280,9 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		loadDec(cache_.spoilers,      full_.spoilers);
 		loadDec(cache_.fuelWeight,    full_.fuelWeight);
 
-		qDebug("[Gen/Chrt] apply (GUI): %lld ms  (stride %d, ~%d pts/series)",
-		       applyTimer.nsecsElapsed() / 1000000, displayStride_,
-		       pointCount_ / std::max(1, displayStride_));
+		Logger::logf(Logger::Profile, "Charts", "apply (GUI): %lld ms  (stride %d, ~%d pts/series)",
+		             applyTimer.nsecsElapsed() / 1000000, displayStride_,
+		             pointCount_ / std::max(1, displayStride_));
 		emit seriesLoaded();
 	});
 
@@ -516,12 +516,12 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 			loadSliceDec(cache_.fuelWeight,    full_.fuelWeight);
 		}
 	}
-	qDebug("[Range   ] setVisibleRange: %lld µs  (%d pts in series, stride %d)",
-	       rangeTimer.nsecsElapsed() / 1000,
-	       (startIndex < 0 || endIndex < 0 || pointTimesMs_.empty())
-	           ? (pointCount_ / std::max(1, displayStride_))
-	           : std::min(qAbs(lastRangeEnd_ - lastRangeStart_) + 1, kDisplayPoints),
-	       (startIndex < 0 || endIndex < 0 || pointTimesMs_.empty())
-	           ? displayStride_
-	           : std::max(1, (qAbs(lastRangeEnd_ - lastRangeStart_) + 1) / kDisplayPoints));
+	Logger::logf(Logger::Profile, "Charts", "setVisibleRange: %lld µs  (%d pts in series, stride %d)",
+	             rangeTimer.nsecsElapsed() / 1000,
+	             (startIndex < 0 || endIndex < 0 || pointTimesMs_.empty())
+	                 ? (pointCount_ / std::max(1, displayStride_))
+	                 : std::min(qAbs(lastRangeEnd_ - lastRangeStart_) + 1, kDisplayPoints),
+	             (startIndex < 0 || endIndex < 0 || pointTimesMs_.empty())
+	                 ? displayStride_
+	                 : std::max(1, (qAbs(lastRangeEnd_ - lastRangeStart_) + 1) / kDisplayPoints));
 }

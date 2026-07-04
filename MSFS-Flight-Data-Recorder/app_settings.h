@@ -30,6 +30,12 @@ public:
 	QString geminiApiKey() const;
 	void setGeminiApiKey(const QString& key);
 
+	// Log verbosity level written to [logging] verbose in settings.ini.
+	// Valid values: "FATAL", "WARNING", "INFO" (default), "PROFILE".
+	// INFO includes user-visible events; PROFILE also writes timing breakdowns.
+	QString verboseLevel() const;
+	void setVerboseLevel(const QString& level);
+
 private:
 	AppSettings() = default;
 };

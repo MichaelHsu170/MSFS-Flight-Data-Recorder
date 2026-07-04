@@ -69,9 +69,8 @@ All runtime files follow the same rule: **Debug** builds use the **current worki
 | File | Purpose |
 |---|---|
 | `flight_data.db` | SQLite database — created on first run, grows as flights are recorded |
-| `settings.ini` | User preferences (panel sizes, hidden data-table fields) — created on first change |
-| `msfs_fdr_debug.log` | Qt message log — truncated on each launch; contains Qt warnings and internal app debug messages |
-| `flight_data_recorder.log` | Flight recorder event log — appended across launches; contains SimConnect connection changes, recording start/stop, takeoff/touchdown events |
+| `settings.ini` | User preferences (panel sizes, hidden data-table fields, log level) — created on first change |
+| `msfs_fdr_debug.log` | Unified log — truncated on each launch; level-filtered output from all modules (Qt, SimConnect, DB, map, charts) |
 
 ## settings.ini Reference
 
@@ -99,6 +98,16 @@ hidden_fields=
 ; here and restart the app. The app never writes this value.
 ; Without a key the Analyze Landing button is disabled.
 gemini_api_key=
+
+[logging]
+; Maximum log level written to msfs_fdr_debug.log.
+; Levels (inclusive — each includes all levels above it):
+;   FATAL    — unrecoverable errors only
+;   WARNING  — unexpected conditions that don't abort the app
+;   INFO     — operational events (connect, recording start/stop, takeoff, touchdown)
+;   PROFILE  — performance timing for all subsystems (high-volume; for profiling only)
+; Default: INFO
+verbose=INFO
 ```
 
 ## Database
@@ -158,7 +167,8 @@ MSFS-Flight-Data-Recorder/
 │   ├── gui_notify.h              Free functions called by recorder.cpp to report state changes
 │   ├── db.h / .cpp               SQLite write path: schema creation, buffered telemetry flush
 │   ├── db_history.h / .cpp       Read-only queries: trip list, telemetry, events, touchdowns
-│   ├── logger.h / .cpp           Appends timestamped text to flight_data_recorder.log
+│   ├── logger.h / .cpp           Unified logger: level-filtered (Fatal/Warning/Info/Profile), module-tagged output to msfs_fdr_debug.log
+│   ├── logger_c.h                C-compatible shim (log_c / log_cf) for Qt-free translation units (db.cpp)
 │   ├── app_settings.h / .cpp     QSettings wrapper for settings.ini
 │   ├── trip_dataset.h            Shared data structs: TripSamplePoint, TripEvent, TripDataset, etc.
 │   ├── trip_data_fields.h        X-macro list of all trip_data columns (keeps live and historical paths in sync)
