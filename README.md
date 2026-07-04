@@ -1,6 +1,6 @@
 # MSFS Flight Data Recorder
 
-A Qt desktop application for Microsoft Flight Simulator 2024 that records telemetry, cockpit events, and landing data to a local SQLite database and visualises them on an interactive map with synchronised timeline charts.
+A Qt desktop application for Microsoft Flight Simulator 2024 that records telemetry, cockpit events, and landing data to a local SQLite database and visualises them on an interactive map with synchronised timeline charts. Hovering over any chart shows a tooltip with the values of all curves in that chart at the cursor's time position.
 
 ![Trajectory view](imgs/Screenshot%202026-07-04%20062158.jpg)
 
@@ -178,7 +178,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── trajectory_view.h / .cpp  Composite view: owns map, data table, and charts; cursor-sync wiring
 │   ├── map_widget.h / .cpp       QWebEngineView hosting map.html (Leaflet/OSM trajectory map)
 │   ├── map_bridge.h / .cpp       QWebChannel QObject bridging JS ↔ C++ for the map
-│   ├── charts_panel.h / .cpp     QQuickWidget hosting charts_panel.qml (timeline charts)
+│   ├── charts_panel.h / .cpp     QQuickWidget hosting charts_panel.qml (timeline charts with hover tooltip)
 │   ├── data_table_panel.h / .cpp Per-sample field/value table with hide-field dialog
 │   └── resources/
 │       ├── charts_panel.qml      QML layout for stacked timeline charts (N1/N2, speed, altitude, gear, etc.)
