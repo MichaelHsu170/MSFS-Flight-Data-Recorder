@@ -16,10 +16,9 @@ namespace {
 
 // "Time (Zulu)"/"Time (Local)" get their own dedicated rows ahead of the
 // generic field list (formatted as plain timestamps, not numbers/booleans);
-// every other trip_data column follows, in the same order
-// recorder_bridge.cpp/db_history.cpp build TripSamplePoint::allFields in, so
-// row N+2 always corresponds to allFields[N] regardless of whether the point
-// came from a live sample or a historical DB row.
+// every other trip_data column follows in TRIP_DATA_NUM_FIELDS then
+// TRIP_DATA_BOOL_FIELDS order, matching the rawNums/boolGroup layout in
+// TripSamplePoint so showPoint's macro expansion maps row N+2 → rawNums[N].
 QStringList buildFieldRowLabels() {
 	QStringList labels = { QStringLiteral("Time (Zulu)"), QStringLiteral("Time (Local)") };
 
@@ -175,13 +174,30 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 	table_->item(0, 1)->setToolTip(point.zuluTime);
 	table_->item(1, 1)->setText(point.localTime);
 	table_->item(1, 1)->setToolTip(point.localTime);
-	int row = 2;
-	for (const auto& field : point.allFields) {
-		if (row >= table_->rowCount())
-			break;
-		table_->item(row, 1)->setText(field.second);
-		table_->item(row, 1)->setToolTip(field.second);
-		++row;
+	{
+		int ni = 0, row = 2;
+#define TRIP_NUM_DISP(dbColumn, memberExpr) \
+		if (row < table_->rowCount()) { \
+			QString v = ni < (int)point.rawNums.size() \
+				? QString::number(point.rawNums[ni], 'g', 6) : QString(); \
+			table_->item(row, 1)->setText(v); \
+			table_->item(row, 1)->setToolTip(v); \
+			++row; \
+		} \
+		++ni;
+		TRIP_DATA_NUM_FIELDS(TRIP_NUM_DISP)
+#undef TRIP_NUM_DISP
+#define TRIP_BOOL_DISP(name, group, bit) \
+		if (row < table_->rowCount()) { \
+			uint32_t bg = (group) == 1 ? point.boolGroup1 \
+						: (group) == 2 ? point.boolGroup2 : point.boolGroup3; \
+			QString v = (bg >> (bit)) & 1u ? QStringLiteral("Yes") : QStringLiteral("No"); \
+			table_->item(row, 1)->setText(v); \
+			table_->item(row, 1)->setToolTip(v); \
+			++row; \
+		}
+		TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_DISP)
+#undef TRIP_BOOL_DISP
 	}
 
 	vh->setSectionResizeMode(QHeaderView::ResizeToContents);

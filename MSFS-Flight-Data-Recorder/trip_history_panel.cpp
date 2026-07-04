@@ -3,6 +3,8 @@
 #include "db_history.h"
 #include "db.h"
 
+#include <memory>
+
 #include <QTableView>
 #include <QVBoxLayout>
 #include <QHeaderView>
@@ -12,6 +14,7 @@
 #include <QtConcurrent/QtConcurrent>
 #include <QBrush>
 #include <QColor>
+#include <QDebug>
 #include <algorithm>
 
 #include "sqlite3.h"
@@ -160,10 +163,10 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	layout->addWidget(table_);
 	layout->addWidget(loadingBar_);
 
-	pointsWatcher_ = new QFutureWatcher<TripDataset>(this);
+	pointsWatcher_ = new QFutureWatcher<std::shared_ptr<TripDataset>>(this);
 	touchdownsWatcher_ = new QFutureWatcher<std::vector<TouchdownPoint>>(this);
 	eventsWatcher_ = new QFutureWatcher<std::vector<TripEvent>>(this);
-	connect(pointsWatcher_, &QFutureWatcher<TripDataset>::finished, this, &TripHistoryPanel::tryFinishLoad);
+	connect(pointsWatcher_, &QFutureWatcher<std::shared_ptr<TripDataset>>::finished, this, &TripHistoryPanel::tryFinishLoad);
 	connect(touchdownsWatcher_, &QFutureWatcher<std::vector<TouchdownPoint>>::finished, this, &TripHistoryPanel::tryFinishLoad);
 	connect(eventsWatcher_, &QFutureWatcher<std::vector<TripEvent>>::finished, this, &TripHistoryPanel::tryFinishLoad);
 
@@ -212,6 +215,8 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	pendingTripId_ = trip->id;
 	table_->setEnabled(false);
 	loadingBar_->setVisible(true);
+	loadTimer_.start();
+	qDebug("[Gen/DB  ] --- start: trip %d ---", trip->id);
 
 	int tripId = trip->id;
 	QString aircraftTitle = trip->title;
@@ -225,26 +230,32 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	// once. Joining happens in tryFinishLoad() once all three watchers report
 	// finished.
 	pointsWatcher_->setFuture(QtConcurrent::run([tripId, aircraftTitle]() {
+		QElapsedTimer t; t.start();
 		sqlite3* sql = connect_db_readonly();
-		TripDataset dataset = sql ? queryTripData(sql, tripId) : TripDataset();
+		auto dataset = std::make_shared<TripDataset>(sql ? queryTripData(sql, tripId) : TripDataset());
 		if (sql)
 			sqlite3_close(sql);
-		dataset.tripId = tripId;
-		dataset.aircraftTitle = aircraftTitle;
+		dataset->tripId = tripId;
+		dataset->aircraftTitle = aircraftTitle;
+		qDebug("[Gen/DB  ] queryTripData: %lld ms  (%zu pts)", t.nsecsElapsed() / 1000000, dataset->points.size());
 		return dataset;
 	}));
 	touchdownsWatcher_->setFuture(QtConcurrent::run([tripId]() {
+		QElapsedTimer t; t.start();
 		sqlite3* sql = connect_db_readonly();
 		std::vector<TouchdownPoint> touchdowns = sql ? queryTouchdowns(sql, tripId) : std::vector<TouchdownPoint>();
 		if (sql)
 			sqlite3_close(sql);
+		qDebug("[Gen/DB  ] queryTouchdowns: %lld ms  (%zu touchdowns)", t.nsecsElapsed() / 1000000, touchdowns.size());
 		return touchdowns;
 	}));
 	eventsWatcher_->setFuture(QtConcurrent::run([tripId]() {
+		QElapsedTimer t; t.start();
 		sqlite3* sql = connect_db_readonly();
 		std::vector<TripEvent> events = sql ? queryEvents(sql, tripId) : std::vector<TripEvent>();
 		if (sql)
 			sqlite3_close(sql);
+		qDebug("[Gen/DB  ] queryEvents: %lld ms  (%zu events)", t.nsecsElapsed() / 1000000, events.size());
 		return events;
 	}));
 }
@@ -253,30 +264,31 @@ void TripHistoryPanel::tryFinishLoad() {
 	if (!pointsWatcher_->isFinished() || !touchdownsWatcher_->isFinished() || !eventsWatcher_->isFinished())
 		return;
 
-	TripDataset dataset = pointsWatcher_->result();
-	dataset.touchdowns = touchdownsWatcher_->result();
-	dataset.events = eventsWatcher_->result();
+	auto dataset = pointsWatcher_->result();
+	dataset->touchdowns = touchdownsWatcher_->result();
+	dataset->events = eventsWatcher_->result();
+	qDebug("[Gen/DB  ] all joined: %lld ms wall time from click", loadTimer_.nsecsElapsed() / 1000000);
 
 	// trip_events only stores a timestamp, not a position -- resolve each
 	// event to the nearest sample by zuluTime (lexicographically comparable
 	// since every row shares the same "%04d-%02d-%02dT..." format and
 	// timezone) so it can be placed on the map.
-	for (TripEvent& event : dataset.events) {
-		auto it = std::lower_bound(dataset.points.begin(), dataset.points.end(), event.zuluTime,
+	for (TripEvent& event : dataset->events) {
+		auto it = std::lower_bound(dataset->points.begin(), dataset->points.end(), event.zuluTime,
 			[](const TripSamplePoint& point, const QString& time) { return point.zuluTime < time; });
-		if (it == dataset.points.end() && !dataset.points.empty())
+		if (it == dataset->points.end() && !dataset->points.empty())
 			--it;
-		if (it != dataset.points.end()) {
+		if (it != dataset->points.end()) {
 			event.latitude = it->latitude;
 			event.longitude = it->longitude;
-			event.sampleIndex = (int)(it - dataset.points.begin());
+			event.sampleIndex = (int)(it - dataset->points.begin());
 		}
 	}
 
 	// Keep loading_ = true and table disabled until TrajectoryView signals that
 	// both the chart series and map trajectory workers have finished rendering.
 	// setLoadingFinished() (connected via MainWindow) clears that state.
-	emit tripDatasetReady(std::move(dataset));
+	emit tripDatasetReady(dataset);
 }
 
 void TripHistoryPanel::setLoadingFinished() {

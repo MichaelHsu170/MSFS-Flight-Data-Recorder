@@ -6,6 +6,8 @@
 #include <QUrl>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
+#include <QDebug>
+#include <QElapsedTimer>
 
 #include <QtGraphs/qlineseries.h>
 #include <QtGraphs/qdatetimeaxis.h>
@@ -68,9 +70,8 @@ static double yAxisMax(double value, double step, double fallback) {
 }
 
 // Lightweight copy of one TripSamplePoint carrying only the fields the chart
-// worker needs. Skips allFields (50+ QString pairs per point) which is the
-// bulk of the copy cost -- 10k points × 50 pairs × 2 QStrings = ~1M atomic
-// ref-count ops at 100 ms for a flight with 10k samples.
+// worker needs, avoiding the rawNums vector (~1 KB per point) that
+// DataTablePanel uses but charts never need.
 struct LightPoint {
 	QString zuluTime;
 	double n1_1, n1_2, n2_1, n2_2;
@@ -93,6 +94,7 @@ struct ChartSeriesData {
 	QDateTime axisHi;
 	double speedYMax = 0.0;
 	double fuelYMax  = 0.0;
+	qint64 computeNs = 0;
 	QList<QPointF> n1_1, n1_2, n2_1, n2_2;
 	QList<QPointF> verticalSpeed;
 	QList<QPointF> airspeed, groundSpeed;
@@ -150,6 +152,9 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	liveSpeedMax_   = 0.0;
 	liveFuelMax_    = 0.0;
 	localOffsetMs_  = (qint64)QDateTime::currentDateTime().offsetFromUtc() * 1000LL;
+	full_.ready      = false;
+	lastRangeStart_  = INT_MIN;
+	lastRangeEnd_    = INT_MIN;
 
 	QQuickItem* root = view_->rootObject();
 	if (root == nullptr) {
@@ -157,6 +162,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		return;
 	}
 
+	QElapsedTimer copyTimer; copyTimer.start();
 	std::vector<LightPoint> points;
 	points.reserve(dataset.points.size());
 	for (const TripSamplePoint& p : dataset.points) {
@@ -183,18 +189,23 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		lp.fuelTotalQuantityWeight   = p.fuelTotalQuantityWeight;
 		points.push_back(std::move(lp));
 	}
+	qDebug("[Gen/Chrt] copy: %lld ms  (%zu pts)", copyTimer.nsecsElapsed() / 1000000, points.size());
 
 	auto* watcher = new QFutureWatcher<ChartSeriesData>(this);
 	connect(watcher, &QFutureWatcher<ChartSeriesData>::finished, this, [this, watcher]() {
-		const ChartSeriesData data = watcher->result();
+		// Non-const so we can std::move the QList members into full_ below,
+		// avoiding a second 15 MB copy into the QLineSeries objects.
+		ChartSeriesData data = watcher->result();
 		watcher->deleteLater();
+		qDebug("[Gen/Chrt] compute (bg): %lld ms", data.computeNs / 1000000);
 
+		QElapsedTimer applyTimer; applyTimer.start();
 		QQuickItem* root = view_->rootObject();
 		if (root == nullptr)
 			return;
 
-		pointTimesMs_ = data.pointTimesMs;
-		pointCount_ = (int)data.pointTimesMs.size();
+		pointTimesMs_ = std::move(data.pointTimesMs);
+		pointCount_ = (int)pointTimesMs_.size();
 
 		// Drive the axis via the "driver" DateTimeAxis (found by objectName).
 		// Each chart's per-chart axis binds to it in QML, keeping all in sync.
@@ -210,39 +221,73 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		liveFuelMax_  = data.fuelYMax;
 		root->setProperty("isFullRangeVisible", true);
 
-		auto apply = [&](const char* seriesName, const QList<QPointF>& values) {
-			QLineSeries* series = findSeries(root, seriesName);
-			if (series == nullptr)
-				return;
-			series->clear();
-			series->append(values);
+		// Move full-resolution data into full_ so setVisibleRange can serve
+		// exact slices on zoom rather than leaving all 49k points in Qt Graphs.
+		displayStride_ = std::max(1, (pointCount_ + kDisplayPoints - 1) / kDisplayPoints);
+		full_.n1_1          = std::move(data.n1_1);
+		full_.n1_2          = std::move(data.n1_2);
+		full_.n2_1          = std::move(data.n2_1);
+		full_.n2_2          = std::move(data.n2_2);
+		full_.verticalSpeed = std::move(data.verticalSpeed);
+		full_.airspeed      = std::move(data.airspeed);
+		full_.groundSpeed   = std::move(data.groundSpeed);
+		full_.altitude      = std::move(data.altitude);
+		full_.gearHandle    = std::move(data.gearHandle);
+		full_.gearPos0      = std::move(data.gearPos0);
+		full_.gearPos1      = std::move(data.gearPos1);
+		full_.gearPos2      = std::move(data.gearPos2);
+		full_.gearOnGround0 = std::move(data.gearOnGround0);
+		full_.gearOnGround1 = std::move(data.gearOnGround1);
+		full_.gearOnGround2 = std::move(data.gearOnGround2);
+		full_.brake         = std::move(data.brake);
+		full_.flaps         = std::move(data.flaps);
+		full_.spoilers      = std::move(data.spoilers);
+		full_.fuelWeight    = std::move(data.fuelWeight);
+		full_.ready = true;
+
+		// Load a decimated view into each series. Qt Graphs renders every
+		// loaded QPointF per frame; keeping this to ~kDisplayPoints points
+		// makes the initial paint and subsequent zoom-out fast.
+		buildSeriesCache();
+		auto loadDec = [&](QLineSeries* s, const QList<QPointF>& full) {
+			if (!s) return;
+			s->clear();
+			if (displayStride_ <= 1) { s->append(full); return; }
+			QList<QPointF> dec;
+			dec.reserve(full.size() / displayStride_ + 1);
+			for (int i = 0; i < full.size(); i += displayStride_)
+				dec.append(full[i]);
+			s->append(dec);
 		};
 
-		apply("n1_1Series", data.n1_1);
-		apply("n1_2Series", data.n1_2);
-		apply("n2_1Series", data.n2_1);
-		apply("n2_2Series", data.n2_2);
-		apply("verticalSpeedSeries", data.verticalSpeed);
-		apply("airspeedSeries", data.airspeed);
-		apply("groundSpeedSeries", data.groundSpeed);
-		apply("altitudeSeries", data.altitude);
-		apply("gearHandleSeries", data.gearHandle);
-		apply("gearPosition0Series", data.gearPos0);
-		apply("gearPosition1Series", data.gearPos1);
-		apply("gearPosition2Series", data.gearPos2);
-		apply("gearOnGround0Series", data.gearOnGround0);
-		apply("gearOnGround1Series", data.gearOnGround1);
-		apply("gearOnGround2Series", data.gearOnGround2);
-		apply("brakeSeries", data.brake);
-		apply("flapsSeries", data.flaps);
-		apply("spoilersSeries", data.spoilers);
-		apply("fuelWeightSeries", data.fuelWeight);
+		loadDec(cache_.n1_1,          full_.n1_1);
+		loadDec(cache_.n1_2,          full_.n1_2);
+		loadDec(cache_.n2_1,          full_.n2_1);
+		loadDec(cache_.n2_2,          full_.n2_2);
+		loadDec(cache_.verticalSpeed, full_.verticalSpeed);
+		loadDec(cache_.airspeed,      full_.airspeed);
+		loadDec(cache_.groundSpeed,   full_.groundSpeed);
+		loadDec(cache_.altitude,      full_.altitude);
+		loadDec(cache_.gearHandle,    full_.gearHandle);
+		loadDec(cache_.gearPos0,      full_.gearPos0);
+		loadDec(cache_.gearPos1,      full_.gearPos1);
+		loadDec(cache_.gearPos2,      full_.gearPos2);
+		loadDec(cache_.gearOnGround0, full_.gearOnGround0);
+		loadDec(cache_.gearOnGround1, full_.gearOnGround1);
+		loadDec(cache_.gearOnGround2, full_.gearOnGround2);
+		loadDec(cache_.brake,         full_.brake);
+		loadDec(cache_.flaps,         full_.flaps);
+		loadDec(cache_.spoilers,      full_.spoilers);
+		loadDec(cache_.fuelWeight,    full_.fuelWeight);
 
-		buildSeriesCache();
+		qDebug("[Gen/Chrt] apply (GUI): %lld ms  (stride %d, ~%d pts/series)",
+		       applyTimer.nsecsElapsed() / 1000000, displayStride_,
+		       pointCount_ / std::max(1, displayStride_));
 		emit seriesLoaded();
 	});
 
 	watcher->setFuture(QtConcurrent::run([this, points = std::move(points), offsetMs = localOffsetMs_]() {
+		QElapsedTimer computeTimer; computeTimer.start();
 		ChartSeriesData data;
 		data.pointTimesMs.reserve(points.size());
 		for (const LightPoint& p : points)
@@ -291,6 +336,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 				data.fuelYMax = p.fuelTotalQuantityWeight;
 		}
 
+		data.computeNs = computeTimer.nsecsElapsed();
 		return data;
 	}));
 }
@@ -304,6 +350,7 @@ void ChartsPanel::setCursorIndex(int index) {
 }
 
 void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
+	full_.ready = false;  // live points are not in full_; disable zoom-slice path
 	if (!cache_.valid)
 		buildSeriesCache();
 	if (!cache_.valid)
@@ -361,6 +408,7 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 	lastRangeStart_ = startIndex;
 	lastRangeEnd_   = endIndex;
 
+	QElapsedTimer rangeTimer; rangeTimer.start();
 	buildSeriesCache();
 	if (!cache_.valid || !cache_.xAxis)
 		return;
@@ -377,15 +425,103 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 		cache_.xAxis->setMin(lo);
 		cache_.xAxis->setMax(hi);
 		root->setProperty("isFullRangeVisible", true);
+
+		// Reload the decimated view so Qt Graphs renders ~kDisplayPoints points
+		// instead of the full-resolution zoomed slice that was previously loaded.
+		if (full_.ready) {
+			auto reloadDec = [&](QLineSeries* s, const QList<QPointF>& full) {
+				if (!s || full.isEmpty()) return;
+				s->clear();
+				if (displayStride_ <= 1) { s->append(full); return; }
+				QList<QPointF> dec;
+				dec.reserve(full.size() / displayStride_ + 1);
+				for (int i = 0; i < full.size(); i += displayStride_)
+					dec.append(full[i]);
+				s->append(dec);
+			};
+			reloadDec(cache_.n1_1,          full_.n1_1);
+			reloadDec(cache_.n1_2,          full_.n1_2);
+			reloadDec(cache_.n2_1,          full_.n2_1);
+			reloadDec(cache_.n2_2,          full_.n2_2);
+			reloadDec(cache_.verticalSpeed, full_.verticalSpeed);
+			reloadDec(cache_.airspeed,      full_.airspeed);
+			reloadDec(cache_.groundSpeed,   full_.groundSpeed);
+			reloadDec(cache_.altitude,      full_.altitude);
+			reloadDec(cache_.gearHandle,    full_.gearHandle);
+			reloadDec(cache_.gearPos0,      full_.gearPos0);
+			reloadDec(cache_.gearPos1,      full_.gearPos1);
+			reloadDec(cache_.gearPos2,      full_.gearPos2);
+			reloadDec(cache_.gearOnGround0, full_.gearOnGround0);
+			reloadDec(cache_.gearOnGround1, full_.gearOnGround1);
+			reloadDec(cache_.gearOnGround2, full_.gearOnGround2);
+			reloadDec(cache_.brake,         full_.brake);
+			reloadDec(cache_.flaps,         full_.flaps);
+			reloadDec(cache_.spoilers,      full_.spoilers);
+			reloadDec(cache_.fuelWeight,    full_.fuelWeight);
+		}
 	} else {
 		startIndex = qBound(0, startIndex, (int)pointTimesMs_.size() - 1);
 		endIndex = qBound(0, endIndex, (int)pointTimesMs_.size() - 1);
-		double loMs = pointTimesMs_[qMin(startIndex, endIndex)];
-		double hiMs = pointTimesMs_[qMax(startIndex, endIndex)];
+		int lo = qMin(startIndex, endIndex);
+		int hi = qMax(startIndex, endIndex);
+		double loMs = pointTimesMs_[lo];
+		double hiMs = pointTimesMs_[hi];
 		if (hiMs <= loMs)
 			hiMs = loMs + 1000.0;
 		cache_.xAxis->setMin(QDateTime::fromMSecsSinceEpoch((qint64)loMs));
 		cache_.xAxis->setMax(QDateTime::fromMSecsSinceEpoch((qint64)hiMs));
 		root->setProperty("isFullRangeVisible", false);
+
+		// Load a decimated view of the visible slice — same kDisplayPoints cap
+		// as the full-range view. A large but partial viewport (half the flight)
+		// would otherwise dump 25k raw points into each series; stride keeps
+		// rendering cost constant regardless of zoom level. stride=1 (full res)
+		// is only used when the visible window is small enough to fit in budget.
+		if (full_.ready) {
+			int count = hi - lo + 1;
+			int sliceStride = std::max(1, (count + kDisplayPoints - 1) / kDisplayPoints);
+			auto loadSliceDec = [&](QLineSeries* s, const QList<QPointF>& full) {
+				if (!s || hi >= full.size()) return;
+				s->clear();
+				if (sliceStride <= 1) {
+					s->append(full.mid(lo, count));
+					return;
+				}
+				QList<QPointF> dec;
+				dec.reserve(count / sliceStride + 2);
+				for (int i = lo; i <= hi; i += sliceStride)
+					dec.append(full[i]);
+				if ((hi - lo) % sliceStride != 0)
+					dec.append(full[hi]);
+				s->append(dec);
+			};
+			loadSliceDec(cache_.n1_1,          full_.n1_1);
+			loadSliceDec(cache_.n1_2,          full_.n1_2);
+			loadSliceDec(cache_.n2_1,          full_.n2_1);
+			loadSliceDec(cache_.n2_2,          full_.n2_2);
+			loadSliceDec(cache_.verticalSpeed, full_.verticalSpeed);
+			loadSliceDec(cache_.airspeed,      full_.airspeed);
+			loadSliceDec(cache_.groundSpeed,   full_.groundSpeed);
+			loadSliceDec(cache_.altitude,      full_.altitude);
+			loadSliceDec(cache_.gearHandle,    full_.gearHandle);
+			loadSliceDec(cache_.gearPos0,      full_.gearPos0);
+			loadSliceDec(cache_.gearPos1,      full_.gearPos1);
+			loadSliceDec(cache_.gearPos2,      full_.gearPos2);
+			loadSliceDec(cache_.gearOnGround0, full_.gearOnGround0);
+			loadSliceDec(cache_.gearOnGround1, full_.gearOnGround1);
+			loadSliceDec(cache_.gearOnGround2, full_.gearOnGround2);
+			loadSliceDec(cache_.brake,         full_.brake);
+			loadSliceDec(cache_.flaps,         full_.flaps);
+			loadSliceDec(cache_.spoilers,      full_.spoilers);
+			loadSliceDec(cache_.fuelWeight,    full_.fuelWeight);
+		}
 	}
+	qDebug("[Range   ] setVisibleRange: %lld µs  (%d pts in series, stride %d)",
+	       rangeTimer.nsecsElapsed() / 1000,
+	       (startIndex < 0 || endIndex < 0 || pointTimesMs_.empty())
+	           ? (pointCount_ / std::max(1, displayStride_))
+	           : std::min(qAbs(lastRangeEnd_ - lastRangeStart_) + 1, kDisplayPoints),
+	       (startIndex < 0 || endIndex < 0 || pointTimesMs_.empty())
+	           ? displayStride_
+	           : std::max(1, (qAbs(lastRangeEnd_ - lastRangeStart_) + 1) / kDisplayPoints));
 }

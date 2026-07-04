@@ -2,7 +2,9 @@
 
 #include <QWidget>
 #include <QAbstractTableModel>
+#include <QElapsedTimer>
 #include <QFutureWatcher>
+#include <memory>
 
 #include "trip_dataset.h"
 
@@ -58,7 +60,7 @@ public:
 	~TripHistoryPanel() override;
 
 signals:
-	void tripDatasetReady(TripDataset dataset);
+	void tripDatasetReady(std::shared_ptr<TripDataset> dataset);
 
 public slots:
 	// Called by MainWindow when TrajectoryView signals that both chart series
@@ -87,9 +89,10 @@ private:
 	// nested-blocking pattern can starve QThreadPool's limited thread count
 	// and deadlock (1 outer task occupying a pool thread while waiting on 3
 	// more pool threads that may never become free).
-	QFutureWatcher<TripDataset>* pointsWatcher_;
+	QFutureWatcher<std::shared_ptr<TripDataset>>* pointsWatcher_;
 	QFutureWatcher<std::vector<TouchdownPoint>>* touchdownsWatcher_;
 	QFutureWatcher<std::vector<TripEvent>>* eventsWatcher_;
+	QElapsedTimer loadTimer_;
 	int pendingTripId_ = -1;
 	bool loading_ = false;
 	// Independent from RecorderBridge's STATUS::sql: that connection is opened

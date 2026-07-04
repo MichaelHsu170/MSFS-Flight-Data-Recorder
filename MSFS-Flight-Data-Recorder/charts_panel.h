@@ -102,4 +102,20 @@ private:
 	// DST lookups. Refreshed at setDataset() time and initialized in the ctor.
 	qint64 localOffsetMs_ = 0;
 
+	// Full-resolution QPointF arrays for all 19 series. Populated by the
+	// setDataset apply callback; setVisibleRange slices this to give Qt Graphs
+	// only the points it needs to render, avoiding ~938K-point iteration per
+	// frame. Invalidated (ready=false) at the start of each setDataset call so
+	// a stale slice is never used while a new background compute is in flight.
+	static constexpr int kDisplayPoints = 2500;
+	struct FullSeriesData {
+		QList<QPointF> n1_1, n1_2, n2_1, n2_2;
+		QList<QPointF> verticalSpeed, airspeed, groundSpeed, altitude;
+		QList<QPointF> gearHandle, gearPos0, gearPos1, gearPos2;
+		QList<QPointF> gearOnGround0, gearOnGround1, gearOnGround2;
+		QList<QPointF> brake, flaps, spoilers, fuelWeight;
+		bool ready = false;
+	} full_;
+	int displayStride_ = 1;
+
 };

@@ -21,12 +21,11 @@ inline QString tripFieldLabel(const char* name) {
 // (i.e. every column except the `id`/`trip` key columns and `zulu_time`/
 // `local_time`, which DataTablePanel shows in their own dedicated rows
 // instead). Expanded via X-macros so the field list is written exactly once
-// and shared by all three places that otherwise would have needed to agree
-// on it independently: TripSamplePoint::allFields is built straight from a
-// live FLIGHT_DATA_RECORD (recorder_bridge.cpp) for in-flight recording, and
-// from a historical trip_data row (db_history.cpp) when a trip is loaded
-// from the database -- both must produce the same field set, in the same
-// order, for DataTablePanel (data_table_panel.cpp) to display it correctly.
+// and shared by three consumers that must agree on the same field set and
+// order: recorder_bridge.cpp (live path fills TripSamplePoint::rawNums from
+// FLIGHT_DATA_RECORD), db_history.cpp (historical path fills rawNums from
+// sqlite3_column_double), and data_table_panel.cpp (formats rawNums/boolGroups
+// to display strings using these same macros in showPoint).
 //
 // TRIP_DATA_NUM_FIELDS(X): X(dbColumnName, recordMemberExpr) -- a plain
 // numeric trip_data column. recordMemberExpr is the FLIGHT_DATA_RECORD

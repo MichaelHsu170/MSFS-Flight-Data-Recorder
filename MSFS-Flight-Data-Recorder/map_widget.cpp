@@ -15,6 +15,7 @@
 #include <QJsonDocument>
 #include <QUrl>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
 
@@ -128,12 +129,15 @@ void MapWidget::resizeEvent(QResizeEvent* event) {
 }
 
 void MapWidget::setDataset(const TripDataset& dataset) {
+	mapGenTimer_.start();
 	liveUpdateTimer_->stop();
 	pendingLiveCoords_.clear();
 	trajCoords_.clear();
 	trajCoords_.reserve(dataset.points.size());
+	QElapsedTimer copyTimer; copyTimer.start();
 	for (const TripSamplePoint& p : dataset.points)
 		trajCoords_.emplace_back(p.latitude, p.longitude);
+	qDebug("[Gen/Map ] coord copy: %lld µs  (%zu pts)", copyTimer.nsecsElapsed() / 1000, trajCoords_.size());
 	touchdowns_ = dataset.touchdowns;
 	events_ = dataset.events;
 	aircraftTitle_ = dataset.aircraftTitle;
@@ -223,30 +227,36 @@ void MapWidget::pushTrajectory() {
 	std::vector<std::pair<double,double>> coords = trajCoords_;
 	auto* watcher = new QFutureWatcher<QString>(this);
 	connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher]() {
+		QElapsedTimer t; t.start();
 		runJs(watcher->result());
+		qDebug("[Gen/Map ] runJs trajectory: %lld µs  (async — JS render time not captured)", t.nsecsElapsed() / 1000);
 		watcher->deleteLater();
 		emit trajectoryLoaded();
 	});
 	watcher->setFuture(QtConcurrent::run([coords = std::move(coords)]() {
+		QElapsedTimer t; t.start();
 		const int MAX_POINTS = 3000;
 		int n = (int)coords.size();
-		int stride = std::max(1, n / MAX_POINTS);
-		QJsonArray arr;
+		int stride = std::max(1, (n + MAX_POINTS - 1) / MAX_POINTS);
+		// Parallel flat arrays are more compact JSON than [{lat,lng,idx},...]
+		// (no repeated field-name strings) and faster to iterate in JS.
+		QJsonArray lats, lngs, idxs;
 		for (int i = 0; i < n; i += stride) {
-			QJsonObject obj;
-			obj[QStringLiteral("lat")] = coords[i].first;
-			obj[QStringLiteral("lng")] = coords[i].second;
-			obj[QStringLiteral("idx")] = i;
-			arr.append(obj);
+			lats.append(coords[i].first);
+			lngs.append(coords[i].second);
+			idxs.append(i);
 		}
 		if (n > 0 && (n - 1) % stride != 0) {
-			QJsonObject obj;
-			obj[QStringLiteral("lat")] = coords[n - 1].first;
-			obj[QStringLiteral("lng")] = coords[n - 1].second;
-			obj[QStringLiteral("idx")] = n - 1;
-			arr.append(obj);
+			lats.append(coords[n - 1].first);
+			lngs.append(coords[n - 1].second);
+			idxs.append(n - 1);
 		}
-		QJsonDocument doc(arr);
+		QJsonObject data;
+		data[QStringLiteral("lats")] = lats;
+		data[QStringLiteral("lngs")] = lngs;
+		data[QStringLiteral("idxs")] = idxs;
+		QJsonDocument doc(data);
+		qDebug("[Gen/Map ] JSON build (bg): %lld ms  (%d → %d pts decimated)", t.nsecsElapsed() / 1000000, n, (int)lats.size());
 		return QStringLiteral("setTrajectory(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
 	}));
 }
@@ -254,27 +264,35 @@ void MapWidget::pushTrajectory() {
 void MapWidget::pushTouchdownsAndEvents() {
 	auto* touchdownWatcher = new QFutureWatcher<QString>(this);
 	connect(touchdownWatcher, &QFutureWatcher<QString>::finished, this, [this, touchdownWatcher]() {
+		QElapsedTimer t; t.start();
 		runJs(touchdownWatcher->result());
+		qDebug("[Gen/Map ] runJs touchdowns: %lld µs", t.nsecsElapsed() / 1000);
 		touchdownWatcher->deleteLater();
 	});
 	touchdownWatcher->setFuture(QtConcurrent::run([touchdowns = touchdowns_]() {
+		QElapsedTimer t; t.start();
 		QJsonArray arr;
-		for (const TouchdownPoint& t : touchdowns)
-			arr.append(touchdownToJson(t));
+		for (const TouchdownPoint& td : touchdowns)
+			arr.append(touchdownToJson(td));
 		QJsonDocument doc(arr);
+		qDebug("[Gen/Map ] touchdowns JSON (bg): %lld µs  (%d touchdowns)", t.nsecsElapsed() / 1000, (int)arr.size());
 		return QStringLiteral("setTouchdowns(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
 	}));
 
 	auto* eventWatcher = new QFutureWatcher<QString>(this);
 	connect(eventWatcher, &QFutureWatcher<QString>::finished, this, [this, eventWatcher]() {
+		QElapsedTimer t; t.start();
 		runJs(eventWatcher->result());
+		qDebug("[Gen/Map ] runJs events: %lld µs", t.nsecsElapsed() / 1000);
 		eventWatcher->deleteLater();
 	});
 	eventWatcher->setFuture(QtConcurrent::run([events = events_]() {
+		QElapsedTimer t; t.start();
 		QJsonArray arr;
 		for (const TripEvent& e : events)
 			arr.append(eventToJson(e));
 		QJsonDocument doc(arr);
+		qDebug("[Gen/Map ] events JSON (bg): %lld µs  (%d events)", t.nsecsElapsed() / 1000, (int)arr.size());
 		return QStringLiteral("setEvents(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
 	}));
 }
