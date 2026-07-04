@@ -4,7 +4,7 @@
 #include "data_table_panel.h"
 #include "app_settings.h"
 
-#include <QDebug>
+#include "logger.h"
 #include <QSplitter>
 #include <QVBoxLayout>
 
@@ -68,7 +68,7 @@ void TrajectoryView::setDataset(std::shared_ptr<TripDataset> dataset) {
 	pendingLivePoints_.clear();
 	pendingRenders_ = 2;  // chartsPanel_ worker + mapWidget_ trajectory worker
 	genTimer_.start();
-	qDebug("[Gen     ] --- rendering start: %zu pts ---", dataset_ ? dataset_->points.size() : 0u);
+	Logger::logf(Logger::Profile, "TrajView", "--- rendering start: %zu pts ---", dataset_ ? dataset_->points.size() : 0u);
 	chartsPanel_->setDataset(*dataset_);
 	mapWidget_->setDataset(*dataset_);
 	dataTablePanel_->setDataset(dataset_.get());
@@ -78,7 +78,7 @@ void TrajectoryView::onSubviewLoaded() {
 	if (--pendingRenders_ <= 0) {
 		pendingRenders_ = 0;
 		if (genTimer_.isValid()) {
-			qDebug("[Gen     ] both subviews loaded: %lld ms total rendering time", genTimer_.nsecsElapsed() / 1000000);
+			Logger::logf(Logger::Profile, "TrajView", "both subviews loaded: %lld ms total rendering time", genTimer_.nsecsElapsed() / 1000000);
 			genTimer_.invalidate();
 		}
 		emit renderingFinished();

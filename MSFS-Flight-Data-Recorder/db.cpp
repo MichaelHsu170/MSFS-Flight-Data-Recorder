@@ -1,4 +1,5 @@
 #include "db.h"
+#include "logger_c.h"
 #include "simconnect_defs.h"
 #include <thread>
 
@@ -6,11 +7,11 @@ void db_error(const char* stmt_txt, int sql_ret, char** errmsg) {
 	std::string msg;
 	if (sql_ret != 0) {
 		msg = std::string("db operation \"") + stmt_txt + "\" failed with error " + std::to_string(sql_ret);
-		printf("%s\n", msg.c_str());
+		log_c(1, "DB", msg.c_str());
 	}
 	if (errmsg != NULL && *errmsg != NULL) {
 		msg = std::string("db operation \"") + stmt_txt + "\" failed with error " + *errmsg;
-		printf("%s\n", msg.c_str());
+		log_c(1, "DB", msg.c_str());
 		sqlite3_free(*errmsg);
 		*errmsg = NULL;
 	}
@@ -690,9 +691,9 @@ static void migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 					if (sqlite3_prepare_v2(sql, alter_sql, -1, &alter_stmt, nullptr) == SQLITE_OK) {
 						sqlite3_step(alter_stmt);
 						sqlite3_finalize(alter_stmt);
-						printf("Schema migration: %s — added column %s\n", table_name, col_name);
+						log_cf(2, "DB", "Schema migration: %s — added column %s", table_name, col_name);
 					} else {
-						printf("Schema migration failed (%s): %s\n", sqlite3_errmsg(sql), alter_sql);
+						log_cf(1, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
 					}
 				}
 			}
@@ -708,9 +709,9 @@ void connect_db(struct STATUS* status) {
 	resolve_db_path(fn_db, MAX_PATH);
 
 	if (sqlite3_open_v2(fn_db, &status->sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_SHAREDCACHE, NULL) == SQLITE_OK)
-		printf("Opened database %s\n", fn_db);
+		log_cf(2, "DB", "Opened database %s", fn_db);
 	else {
-		printf("Can't open database: %s\n", sqlite3_errmsg(status->sql));
+		log_cf(0, "DB", "Cannot open database: %s", sqlite3_errmsg(status->sql));
 		exit(1);
 	}
 
@@ -734,7 +735,7 @@ void connect_db(struct STATUS* status) {
 		if (sqlite3_prepare_v2(status->sql, stmt_txt, -1, &stmt, NULL) == SQLITE_OK)
 			sqlite3_step(stmt);
 		else {
-			printf("Incorrect db operation \"%s\"\n", stmt_txt);
+			log_cf(0, "DB", "Incorrect db operation \"%s\"", stmt_txt);
 			exit(2);
 		}
 		sqlite3_finalize(stmt);
@@ -762,7 +763,7 @@ void connect_db(struct STATUS* status) {
 		if (sqlite3_prepare_v2(status->sql, index_stmts[i], -1, &stmt, NULL) == SQLITE_OK)
 			sqlite3_step(stmt);
 		else {
-			printf("Incorrect db operation \"%s\"\n", index_stmts[i]);
+			log_cf(0, "DB", "Incorrect db operation \"%s\"", index_stmts[i]);
 			exit(2);
 		}
 		sqlite3_finalize(stmt);

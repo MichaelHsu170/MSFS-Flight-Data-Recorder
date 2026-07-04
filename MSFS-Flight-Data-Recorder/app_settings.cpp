@@ -64,3 +64,13 @@ void AppSettings::setGeminiApiKey(const QString& key) {
 	QSettings settings = makeSettings();
 	settings.setValue(QStringLiteral("ai/gemini_api_key"), key);
 }
+
+QString AppSettings::verboseLevel() const {
+	QSettings settings = makeSettings();
+	return settings.value(QStringLiteral("logging/verbose"), QStringLiteral("INFO")).toString();
+}
+
+void AppSettings::setVerboseLevel(const QString& level) {
+	QSettings settings = makeSettings();
+	settings.setValue(QStringLiteral("logging/verbose"), level);
+}
