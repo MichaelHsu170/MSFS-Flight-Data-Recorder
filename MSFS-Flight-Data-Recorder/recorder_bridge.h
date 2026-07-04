@@ -33,6 +33,7 @@ signals:
 	void connectionChanged(bool connected);
 	void recordingStateChanged(int tripId);
 	void tripEnded(int tripId);
+	void tripUpdated(int tripId);
 	void sampleUpdated();
 	// Same sample just queued for trip_data (see gui_notify_sample), decoded
 	// into the shared TripSamplePoint shape so live and historical data look

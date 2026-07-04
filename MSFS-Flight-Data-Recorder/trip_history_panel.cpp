@@ -172,6 +172,7 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	connect(table_, &QTableView::clicked, this, &TripHistoryPanel::onRowActivated);
 	connect(&bridge_, &RecorderBridge::recordingStateChanged, this, &TripHistoryPanel::refreshTrips);
 	connect(&bridge_, &RecorderBridge::tripEnded, this, &TripHistoryPanel::refreshTrips);
+	connect(&bridge_, &RecorderBridge::tripUpdated, this, &TripHistoryPanel::refreshTrips);
 
 	table_->setContextMenuPolicy(Qt::CustomContextMenu);
 	connect(table_, &QTableView::customContextMenuRequested, this, &TripHistoryPanel::onTableContextMenu);

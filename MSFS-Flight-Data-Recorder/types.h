@@ -314,6 +314,7 @@ struct FLIGHT_DATA {
 struct TOUCHDOWN_DATA {
 	struct FLIGHT_DATA flight_data;
 	AIRPORT airport;
+	int db_id = -1;             // trip_touchdowns row ID, set after immediate INSERT
 	struct TOUCHDOWN_DATA* next = NULL;
 };
 
