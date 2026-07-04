@@ -4,7 +4,7 @@ A Qt desktop application for Microsoft Flight Simulator 2024 that records teleme
 
 ![Trajectory view](imgs/Screenshot%202026-07-04%20062158.jpg)
 
-![Touchdown data](imgs/Screenshot%202026-07-04%20062220.jpg)
+![Touchdown AI analysis](imgs/Screen%20Recording%202026-07-04%20094211.gif)
 
 ## Prerequisites
 
@@ -92,6 +92,13 @@ charts_panel_height=400
 ; Comma-separated list of field labels hidden in the Data Table panel via the
 ; Fields dialog. Absent or empty means all fields are visible.
 hidden_fields=
+
+[ai]
+; Gemini API key for the AI touchdown analysis feature.
+; Obtain a free key from Google AI Studio (aistudio.google.com), then paste it
+; here and restart the app. The app never writes this value.
+; Without a key the Analyze Landing button is disabled.
+gemini_api_key=
 ```
 
 ## Database
@@ -112,6 +119,31 @@ Recording starts automatically when an engine is running on the ground and stops
 The app connects to MSFS 2024 via SimConnect and retries every 2 seconds until the simulator accepts the connection. The application name sent to MSFS is `"Flight Data Recorder"`.
 
 Both Debug and Release link dynamically against `SimConnect.dll`. The DLL is copied next to the exe by the CMake post-build step and must be present at runtime for the live recording feature to work.
+
+## AI Touchdown Analysis
+
+Clicking a touchdown marker on the map opens a popup with two panels:
+
+- **Left** — raw telemetry for that landing: airport, runway, airspeed, vertical speed, G-force, pitch/bank, heading, wind, threshold distance, and centreline offset.
+- **Right** — an **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API).
+
+The analysis is returned in a fixed structure:
+
+```
+Grade: A+ … F
+Summary: 1–2 sentence overall impression
+Strengths:  • …
+Areas to improve:  • …
+```
+
+While the model is reasoning the toggle label reads **Thinking…** and is non-interactive. When the reasoning phase ends it collapses into a **Show thinking** / **Hide thinking** toggle so the final report is always the first thing visible. If the model returns an incomplete response the request is retried automatically up to three times before a plain-language error message is shown.
+
+### Setup
+
+1. Get a free API key at [aistudio.google.com](https://aistudio.google.com).
+2. Open `settings.ini` in a text editor while the app is not running.
+3. Set `gemini_api_key=YOUR_KEY` under `[ai]`.
+4. Restart the app — the button becomes active on the next touchdown popup.
 
 ## Project Structure
 
@@ -140,7 +172,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── data_table_panel.h / .cpp Per-sample field/value table with hide-field dialog
 │   └── resources/
 │       ├── charts_panel.qml      QML layout for stacked timeline charts (N1/N2, speed, altitude, gear, etc.)
-│       └── map.html              Leaflet map: trajectory polyline, touchdown markers, event markers
+│       └── map.html              Leaflet map: trajectory polyline, touchdown markers with AI analysis popup, event markers
 ├── third_party/sqlite3/          Bundled SQLite3 (sqlite3.h, sqlite3.lib, sqlite3.dll)
 ├── .vscode/
 │   ├── tasks.json                Configure, Build, Clean tasks

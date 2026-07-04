@@ -1,5 +1,6 @@
 #include "map_widget.h"
 #include "map_bridge.h"
+#include "app_settings.h"
 
 #include <QTimer>
 #include <QWebEngineView>
@@ -135,7 +136,14 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 		trajCoords_.emplace_back(p.latitude, p.longitude);
 	touchdowns_ = dataset.touchdowns;
 	events_ = dataset.events;
+	aircraftTitle_ = dataset.aircraftTitle;
 	if (pageReady_) {
+		// Inject the aircraft title before pushing touchdowns so
+		// touchdownPopupHtml() sees the correct value when it runs setTouchdowns.
+		QJsonArray arr;
+		arr.append(QJsonValue(aircraftTitle_));
+		QString encoded = QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+		runJs(QStringLiteral("window._aircraftTitle=%1[0];").arg(encoded));
 		pushTrajectory();
 		pushTouchdownsAndEvents();
 	} else {
@@ -173,6 +181,20 @@ void MapWidget::onLoadFinished(bool ok) {
 		return;
 	}
 	pageReady_ = true;
+
+	// Deliver the Gemini API key and current aircraft title as JS globals so
+	// the in-popup streaming analysis can reach them without round-tripping
+	// through QWebChannel. JSON-encode inside single-element arrays so any
+	// special characters are escaped correctly.
+	auto injectString = [this](const QString& jsVar, const QString& value) {
+		QJsonArray arr;
+		arr.append(QJsonValue(value));
+		QString encoded = QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+		runJs(QStringLiteral("%1=%2[0];").arg(jsVar, encoded));
+	};
+	injectString(QStringLiteral("window._geminiApiKey"), AppSettings::instance().geminiApiKey());
+	injectString(QStringLiteral("window._aircraftTitle"), aircraftTitle_);
+
 	refreshProvider();
 }
 

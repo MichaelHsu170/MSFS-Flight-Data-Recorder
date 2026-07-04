@@ -11,6 +11,112 @@
 <style>
   html, body, #map { height: 100%; margin: 0; padding: 0; }
   .touchdown-icon, .event-icon { font-size: 18px; line-height: 1; text-align: center; }
+
+  @keyframes td-spin { to { transform: rotate(360deg); } }
+  .td-spinner {
+    display: inline-block;
+    animation: td-spin 0.8s linear infinite;
+    font-size: 14px;
+    line-height: 1;
+    vertical-align: middle;
+    margin-left: 7px;
+    color: #7c3aed;
+  }
+
+  .td-analyze-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    box-shadow: 0 1px 4px rgba(99,102,241,0.45), 0 0 0 0 rgba(139,92,246,0);
+    transition: box-shadow 0.18s ease, transform 0.12s ease;
+    outline: none;
+    user-select: none;
+  }
+  .td-analyze-btn:hover:not(:disabled) {
+    box-shadow: 0 3px 10px rgba(99,102,241,0.55), 0 0 0 0 rgba(139,92,246,0);
+    transform: translateY(-1px);
+  }
+  .td-analyze-btn:active:not(:disabled) {
+    transform: translateY(0px);
+    box-shadow: 0 1px 3px rgba(99,102,241,0.3);
+  }
+  .td-analyze-btn:disabled {
+    background: linear-gradient(135deg, #c4c4c4 0%, #d9d9d9 100%);
+    color: #888;
+    box-shadow: none;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .td-analyze-label {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: #7c3aed;
+    margin-bottom: 7px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .td-analyze-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #ede9fe;
+  }
+
+  /* Thinking <details> inside the result box */
+  .td-think-det {
+    margin-bottom: 6px;
+    overflow: hidden;
+  }
+  .td-think-det[open] {
+    max-height: 140px;
+  }
+  .td-think-sum {
+    font-size: 10px;
+    color: #a78bfa;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 0;
+  }
+  .td-think-sum::-webkit-details-marker { display: none; }
+  .td-think-body {
+    font-size: 10px;
+    color: #9ca3af;
+    line-height: 1.5;
+    margin-top: 4px;
+    padding-left: 8px;
+    border-left: 2px solid #e5e7eb;
+    max-height: 130px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+
+  /* Key-value rows in left column */
+  .td-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 11px;
+    line-height: 1.85;
+  }
+  .td-key { color: #94a3b8; white-space: nowrap; }
+  .td-val { color: #1e293b; font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+  .td-divider { height: 1px; background: #f1f5f9; margin: 4px 0; }
 </style>
 </head>
 <body>
@@ -21,6 +127,331 @@
 // setTouchdowns(points), setEvents(points), setEventsVisible(visible).
 var currentProvider = null;
 var mapBridge = null;
+
+// Keyed by the ID string assigned in touchdownPopupHtml; each value is the
+// raw touchdown object so analyzeTouchdown() can read it on demand.
+var _touchdownStore = {};
+var _tdIdx = 0;
+
+// ── Gemini analysis helpers ──────────────────────────────────────────────────
+
+function buildTouchdownPrompt(t) {
+    var aircraft = window._aircraftTitle || '';
+    var lines = [];
+
+    lines.push('You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 landing.');
+    lines.push('Respond using exactly this structure — no preamble, no extra sections:');
+    lines.push('');
+    lines.push('Grade: [A+/A/A−/B+/B/B−/C+/C/C−/D/F]');
+    lines.push('');
+    lines.push('Summary: [1–2 sentences overall]');
+    lines.push('');
+    lines.push('Strengths:');
+    lines.push('• [one brief point per bullet]');
+    lines.push('');
+    lines.push('Areas to improve:');
+    lines.push('• [one brief point per bullet]');
+    lines.push('');
+    lines.push('---');
+    lines.push('Landing data:');
+    if (aircraft) lines.push('  Aircraft: ' + aircraft);
+    if (t.icao) {
+        var airport = t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
+        lines.push('  Airport: ' + airport);
+    }
+    if (t.runway) lines.push('  Runway: ' + t.runway);
+    lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
+    lines.push('  Vertical speed: ' + t.verticalSpeed + ' ft/min');
+    lines.push('  G-force: ' + Number(t.gForce).toFixed(2) + ' G');
+    lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
+    lines.push('  Heading: ' + t.headingDegrees + '°');
+    lines.push('  Wind: ' + t.windDirection + '° at ' + t.windVelocity + ' kt');
+    if (t.distanceLength >= 0) {
+        lines.push('  Distance from threshold: ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of runway)');
+        var side = t.distanceWidth >= 0 ? 'right' : 'left';
+        lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
+    }
+    lines.push('');
+    lines.push('Consider: vertical speed & G-force comfort, crosswind component (calculate from wind direction vs runway heading), centerline tracking, touchdown zone placement' + (aircraft ? ', aircraft-type-specific handling' : '') + '.');
+    return lines.join('\n');
+}
+
+// Extract complete top-level {...} JSON objects from buf.
+// Calls onChunk(text, isThought) for every text part found.
+// Iterates all parts in each response object (thinking models can emit
+// thought:true parts alongside regular parts in the same chunk).
+// Returns the unconsumed remainder of buf.
+function processStreamBuffer(buf, onChunk) {
+    var depth = 0, start = -1, lastEnd = 0;
+    for (var i = 0; i < buf.length; i++) {
+        var c = buf[i];
+        if (c === '{') {
+            if (depth === 0) start = i;
+            depth++;
+        } else if (c === '}' && depth > 0) {
+            depth--;
+            if (depth === 0 && start >= 0) {
+                try {
+                    var obj = JSON.parse(buf.substring(start, i + 1));
+                    var parts = obj && obj.candidates && obj.candidates[0] &&
+                                obj.candidates[0].content && obj.candidates[0].content.parts;
+                    if (parts) {
+                        for (var p = 0; p < parts.length; p++) {
+                            if (parts[p].text) onChunk(parts[p].text, !!parts[p].thought);
+                        }
+                    }
+                } catch (e) { /* incomplete or non-content object */ }
+                lastEnd = i + 1;
+                start = -1;
+            }
+        }
+    }
+    return buf.substring(lastEnd);
+}
+
+function appendHtml(el, text) {
+    // Strip leading blank lines on the very first append to any element.
+    if (!el.hasChildNodes()) text = text.replace(/^[\n\r]+/, '');
+    if (!text) return;
+    var escaped = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+    el.insertAdjacentHTML('beforeend', escaped);
+    el.scrollTop = el.scrollHeight;
+}
+
+function toggleThinkLabel(det, arrId, lblId) {
+    document.getElementById(arrId).textContent = det.open ? '▾' : '▸';
+    document.getElementById(lblId).textContent = det.open ? 'Hide thinking' : 'Show thinking';
+}
+
+async function analyzeTouchdown(id) {
+    var t = _touchdownStore[id];
+    var btn     = document.getElementById('td-btn-'    + id);
+    var spinner = document.getElementById('td-spin-'   + id);
+    var result  = document.getElementById('td-result-' + id);
+    if (!btn || !t) return;
+
+    btn.disabled = true;
+    spinner.style.display = 'inline-block';
+
+    var key = window._geminiApiKey || '';
+    var MAX_ATTEMPTS = 3;
+
+    // Per-attempt DOM refs and state — function-scoped so onChunk can close
+    // over them; initAttempt() reassigns them before each attempt.
+    var thDet, thSum, thArr, thLbl, thBody, finalDiv;
+    var sawThinking, thinkingDone;
+
+    function initAttempt() {
+        result.innerHTML =
+            '<details class="td-think-det" id="td-th-det-' + id + '" open>'
+          +   '<summary class="td-think-sum" id="td-th-sum-' + id + '"'
+          +     ' style="pointer-events:none;opacity:0.55;cursor:default">'
+          +     '<span id="td-th-arr-' + id + '">▾</span>'
+          +     '<span id="td-th-lbl-' + id + '">Thinking…</span>'
+          +   '</summary>'
+          +   '<div class="td-think-body" id="td-th-body-' + id + '"></div>'
+          + '</details>'
+          + '<div id="td-th-final-' + id + '"></div>';
+        thDet    = document.getElementById('td-th-det-'   + id);
+        thSum    = document.getElementById('td-th-sum-'   + id);
+        thArr    = document.getElementById('td-th-arr-'   + id);
+        thLbl    = document.getElementById('td-th-lbl-'   + id);
+        thBody   = document.getElementById('td-th-body-'  + id);
+        finalDiv = document.getElementById('td-th-final-' + id);
+        sawThinking  = false;
+        thinkingDone = false;
+        // Guard on thinkingDone prevents the browser's spurious initial toggle
+        // event (queued when <details open> is created via innerHTML) from
+        // overwriting "Thinking…" with "Hide thinking".
+        thDet.addEventListener('toggle', function() {
+            if (!thinkingDone) return;
+            toggleThinkLabel(thDet, 'td-th-arr-' + id, 'td-th-lbl-' + id);
+        });
+    }
+
+    function onChunk(text, isThought) {
+        if (isThought) {
+            sawThinking = true;
+            appendHtml(thBody, text);
+        } else {
+            if (sawThinking && !thinkingDone) {
+                thinkingDone = true;
+                thSum.style.pointerEvents = '';
+                thSum.style.opacity = '';
+                thSum.style.cursor = '';
+                thDet.removeAttribute('open');
+            }
+            appendHtml(finalDiv, text);
+            result.scrollTop = result.scrollHeight;
+        }
+    }
+
+    var fatalError = false;
+    for (var attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        initAttempt();
+        fatalError = false;
+
+        try {
+            var res = await fetch(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:streamGenerateContent?key=' + encodeURIComponent(key),
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ role: 'user', parts: [{ text: buildTouchdownPrompt(t) }] }]
+                    })
+                }
+            );
+            if (!res.ok) {
+                // HTTP error — bad key / quota / model issue. No point retrying.
+                var errBody = await res.text();
+                var apiMsg = '';
+                try {
+                    var errJson = JSON.parse(errBody);
+                    apiMsg = (errJson.error && errJson.error.message) ? errJson.error.message : '';
+                } catch (e2) {}
+                var guidance = '';
+                if (res.status === 400 || res.status === 401 || res.status === 403) {
+                    guidance = '<br><span style="color:#555">Check that <code>gemini_api_key</code> under <code>[ai]</code> in settings.ini is correct and has Gemini API access enabled.</span>';
+                }
+                finalDiv.innerHTML = '<i style="color:#a00">API error ' + res.status
+                    + (apiMsg ? ': ' + apiMsg.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '')
+                    + '</i>' + guidance;
+                console.error('Gemini API error:', res.status, errBody);
+                fatalError = true;
+                break;
+            }
+            var reader = res.body.getReader();
+            var decoder = new TextDecoder();
+            var buf = '';
+            while (true) {
+                var streamChunk = await reader.read();
+                if (streamChunk.done) break;
+                buf += decoder.decode(streamChunk.value, { stream: true });
+                buf = processStreamBuffer(buf, onChunk);
+            }
+            buf += decoder.decode();
+            processStreamBuffer(buf, onChunk);
+        } catch (e) {
+            // Network error — retry unless this was the last attempt.
+            if (attempt === MAX_ATTEMPTS - 1) {
+                finalDiv.innerHTML = '<span style="color:#64748b">Couldn\'t reach the AI service after '
+                    + MAX_ATTEMPTS + ' attempts. Check your internet connection and try again.</span>';
+                fatalError = true;
+            }
+            continue;
+        }
+
+        // Fallback: model emitted only thought-tagged parts with no final response.
+        if (sawThinking && !finalDiv.textContent.trim()) {
+            finalDiv.innerHTML = thBody.innerHTML;
+            thDet.style.display = 'none';
+        } else if (!sawThinking) {
+            thDet.style.display = 'none';
+        }
+
+        // Success: both thinking and final content arrived.
+        if (sawThinking && finalDiv.textContent.trim()) break;
+
+        // Incomplete response — retry silently; on last attempt show message.
+        if (attempt === MAX_ATTEMPTS - 1) {
+            finalDiv.innerHTML = '<span style="color:#64748b">The AI didn\'t return a complete analysis. '
+                + 'This can happen occasionally — click <b>Analyze Landing</b> to try again.</span>';
+            thDet.style.display = 'none';
+        }
+    }
+
+    btn.disabled = false;
+    spinner.style.display = 'none';
+    result.scrollTop = 0;
+}
+
+// ── Popup builders ───────────────────────────────────────────────────────────
+
+function touchdownPopupHtml(t) {
+    var id = 'td' + (++_tdIdx);
+    _touchdownStore[id] = t;
+
+    function row(key, val) {
+        return '<div class="td-row"><span class="td-key">' + key + '</span><span class="td-val">' + val + '</span></div>';
+    }
+    var div = '<div class="td-divider"></div>';
+
+    // Left column: grouped key-value layout
+    var leftHtml = '<div style="width:260px;flex-shrink:0">'
+        + '<div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:8px">Touchdown</div>';
+
+    if (t.icao) {
+        var airportLabel = t.icao + (t.airportName ? ' – ' + t.airportName : '');
+        leftHtml += row('Airport', airportLabel);
+    }
+    if (t.runway) leftHtml += row('Runway', t.runway);
+
+    leftHtml += div;
+    leftHtml += row('Airspeed', t.airspeed + ' kt');
+    leftHtml += row('V/S', t.verticalSpeed + ' ft/min');
+    leftHtml += row('G-Force', Number(t.gForce).toFixed(2) + ' G');
+    leftHtml += row('Pitch', Number(t.pitchDegrees).toFixed(1) + '°');
+    leftHtml += row('Bank', Number(t.bankDegrees).toFixed(1) + '°');
+    leftHtml += row('Heading', t.headingDegrees + '°');
+
+    if (t.distanceLength >= 0) {
+        leftHtml += div;
+        leftHtml += row('Threshold', Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '%)');
+        var cSide = t.distanceWidth >= 0 ? 'R' : 'L';
+        leftHtml += row('Centerline', Math.round(Math.abs(t.distanceWidth)) + ' ft ' + cSide + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '%)');
+    }
+
+    leftHtml += div;
+    leftHtml += row('Wind', t.windDirection + '° / ' + t.windVelocity + ' kt');
+    leftHtml += row('Zulu', t.zuluTime);
+    if (t.localTime) leftHtml += row('Local', t.localTime);
+
+    leftHtml += '</div>';
+    var left = leftHtml;
+
+    // Right column: analyze button + streaming result
+    var hasKey = !!(window._geminiApiKey && window._geminiApiKey.trim().length > 0);
+    var disabledAttr = hasKey ? '' : ' disabled title="Set gemini_api_key in settings.ini to enable"';
+    var clickAttr = hasKey ? ' onclick="analyzeTouchdown(\'' + id + '\')"' : '';
+    var initialResult = hasKey ? '' :
+        '<span style="color:#aaa;font-size:11px;line-height:1.6">To enable AI analysis,<br>'
+        + 'add your Gemini API key in settings.ini:<br>'
+        + '<code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;color:#555">[ai]<br>gemini_api_key=YOUR_KEY</code><br>'
+        + 'then restart the app.</span>';
+    var right = [
+        '<div style="border-left:1px solid #e5e7eb;padding-left:14px;min-width:360px">',
+        '  <div class="td-analyze-label">✦ AI Analysis</div>',
+        '  <div>',
+        '    <button class="td-analyze-btn" id="td-btn-' + id + '"' + disabledAttr + clickAttr + '>',
+        '      ✦ Analyze Landing',
+        '    </button>',
+        '    <span id="td-spin-' + id + '" class="td-spinner" style="display:none">↻</span>',
+        '  </div>',
+        '  <div id="td-result-' + id + '"',
+        '       style="margin-top:9px;font-size:11px;line-height:1.6;height:260px;overflow-y:auto;color:#374151">',
+        initialResult,
+        '  </div>',
+        '</div>'
+    ].join('');
+
+    return '<div style="display:flex;gap:14px;align-items:flex-start;width:650px">' + left + right + '</div>';
+}
+
+function eventPopupHtml(events) {
+    var header = events.length === 1 ? '<b>Event</b>' : '<b>Events (' + events.length + ')</b>';
+    var items = events.map(function (e) {
+        return '<div style="margin:3px 0">• ' + e.event
+            + '<br><span style="color:#888;margin-left:12px">' + e.zuluTime + '</span></div>';
+    }).join('');
+    return header + '<div style="margin:10px 0">' + items + '</div>';
+}
+
+// ── Map helpers ──────────────────────────────────────────────────────────────
 
 function nearestIndexIn(latLngs, lat, lng) {
     var best = 0;
@@ -35,40 +466,6 @@ function nearestIndexIn(latLngs, lat, lng) {
         }
     }
     return best;
-}
-
-function touchdownPopupHtml(t) {
-    var lines = ['<b>Touchdown</b>'];
-    if (t.icao) {
-        var airportLabel = t.icao;
-        if (t.airportName) airportLabel += ' – ' + t.airportName;
-        lines.push('Airport: ' + airportLabel);
-    }
-    if (t.runway)
-        lines.push('Rwy ' + t.runway);
-    lines.push('Airspeed: ' + t.airspeed + ' kt');
-    lines.push('Vertical Speed: ' + t.verticalSpeed + ' ft/min');
-    lines.push('G-Force: ' + Number(t.gForce).toFixed(2));
-    lines.push('Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°, Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
-    lines.push('Heading: ' + t.headingDegrees + '°');
-    if (t.distanceLength >= 0) {
-        lines.push('From threshold: ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '%)');
-        var side = t.distanceWidth >= 0 ? 'R' : 'L';
-        lines.push('Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '%)');
-    }
-    lines.push('Wind: ' + t.windDirection + '° / ' + t.windVelocity + ' kt');
-    lines.push('Zulu: ' + t.zuluTime);
-    if (t.localTime) lines.push('Local: ' + t.localTime);
-    return lines.join('<br>');
-}
-
-function eventPopupHtml(events) {
-    var header = events.length === 1 ? '<b>Event</b>' : '<b>Events (' + events.length + ')</b>';
-    var items = events.map(function (e) {
-        return '<div style="margin:3px 0">• ' + e.event
-            + '<br><span style="color:#888;margin-left:12px">' + e.zuluTime + '</span></div>';
-    }).join('');
-    return header + '<div style="margin:10px 0">' + items + '</div>';
 }
 
 // Translates the map's current viewport into a [minIndex, maxIndex] range
@@ -209,7 +606,7 @@ function initLeafletProvider() {
             points.forEach(function (t) {
                 var icon = L.divIcon({ className: 'touchdown-icon', html: '\u{1F6EC}', iconSize: [24, 24], iconAnchor: [12, 12] });
                 var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
-                m.bindPopup(touchdownPopupHtml(t));
+                m.bindPopup(touchdownPopupHtml(t), { maxWidth: 700 });
                 touchdownMarkers.push(m);
             });
         },
