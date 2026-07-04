@@ -346,18 +346,10 @@ async function analyzeTouchdown(id) {
             continue;
         }
 
-        // Fallback: model emitted only thought-tagged parts with no final response.
-        if (sawThinking && !finalDiv.textContent.trim()) {
-            finalDiv.innerHTML = thBody.innerHTML;
-            thDet.style.display = 'none';
-        } else if (!sawThinking) {
-            thDet.style.display = 'none';
-        }
-
-        // Success: both thinking and final content arrived.
+        // Success: both thinking and final response arrived.
         if (sawThinking && finalDiv.textContent.trim()) break;
 
-        // Incomplete response — retry silently; on last attempt show message.
+        // Incomplete — retry silently; on last attempt show message.
         if (attempt === MAX_ATTEMPTS - 1) {
             finalDiv.innerHTML = '<span style="color:#64748b">The AI didn\'t return a complete analysis. '
                 + 'This can happen occasionally — click <b>Analyze Landing</b> to try again.</span>';
