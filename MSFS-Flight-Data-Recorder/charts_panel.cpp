@@ -9,8 +9,43 @@
 
 #include <QtGraphs/qlineseries.h>
 #include <QtGraphs/qdatetimeaxis.h>
+#include <QtGraphs/qvalueaxis.h>
+
+#include <QtMath>
 
 namespace {
+
+// Convert a "yyyy-MM-ddTHH:mm:ss.zzz..." zulu-time string to epoch milliseconds,
+// adjusted so that Qt's buggy DateTimeAxis (which renders epoch-ms as local wall
+// time instead of UTC) displays the correct Zulu values.
+//
+// The original implementation used QDateTime(QDate,QTime).toMSecsSinceEpoch()
+// which triggers a Windows timezone DST lookup on every call (~16 µs each,
+// ~800 ms for 50k points). This version does equivalent pure arithmetic:
+//   1. Gregorian → Julian Day Number (integer formula, no system calls)
+//   2. JDN + time → UTC epoch ms
+//   3. Subtract localOffsetMs so Qt's local-time display shows the Zulu values
+static double epochMillisFor(const QString& zuluTime, qint64 localOffsetMs) {
+	if (zuluTime.size() < 23) return 0.0;
+	const QChar* c = zuluTime.constData();
+	auto d1 = [&](int i) { return c[i].digitValue(); };
+	int y  = d1(0)*1000 + d1(1)*100 + d1(2)*10 + d1(3);
+	int mo = d1(5)*10  + d1(6);
+	int dy = d1(8)*10  + d1(9);
+	int h  = d1(11)*10 + d1(12);
+	int mi = d1(14)*10 + d1(15);
+	int s  = d1(17)*10 + d1(18);
+	int ms = d1(20)*100 + d1(21)*10 + d1(22);
+	// Proleptic Gregorian calendar → Julian Day Number (no Qt/system calls)
+	int a  = (14 - mo) / 12;
+	int yy = y + 4800 - a;
+	int mm = mo + 12*a - 3;
+	qint64 jd = (qint64)dy + (153*mm + 2)/5 + 365LL*yy + yy/4 - yy/100 + yy/400 - 32045LL;
+	const qint64 kUnixEpochJd = 2440588LL;
+	qint64 utcMs = (jd - kUnixEpochJd) * 86400000LL
+	             + (qint64)h * 3600000LL + (qint64)mi * 60000LL + (qint64)s * 1000LL + ms;
+	return (double)(utcMs - localOffsetMs);
+}
 
 QLineSeries* findSeries(QQuickItem* root, const char* objectName) {
 	return root->findChild<QLineSeries*>(QString::fromLatin1(objectName));
@@ -18,6 +53,18 @@ QLineSeries* findSeries(QQuickItem* root, const char* objectName) {
 
 QDateTimeAxis* findXAxis(QQuickItem* root, const char* objectName) {
 	return root->findChild<QDateTimeAxis*>(QString::fromLatin1(objectName));
+}
+
+QValueAxis* findYAxis(QQuickItem* root, const char* objectName) {
+	return root->findChild<QValueAxis*>(QString::fromLatin1(objectName));
+}
+
+// Round value up to the nearest multiple of step with 10% headroom.
+// Returns the default fallback if value <= 0.
+static double yAxisMax(double value, double step, double fallback) {
+	if (value <= 0.0)
+		return fallback;
+	return qCeil(value * 1.25 / step) * step;
 }
 
 // Lightweight copy of one TripSamplePoint carrying only the fields the chart
@@ -44,6 +91,8 @@ struct ChartSeriesData {
 	std::vector<double> pointTimesMs;
 	QDateTime axisLo;
 	QDateTime axisHi;
+	double speedYMax = 0.0;
+	double fuelYMax  = 0.0;
 	QList<QPointF> n1_1, n1_2, n2_1, n2_2;
 	QList<QPointF> verticalSpeed;
 	QList<QPointF> airspeed, groundSpeed;
@@ -56,6 +105,7 @@ struct ChartSeriesData {
 }
 
 ChartsPanel::ChartsPanel(QWidget* parent) : QWidget(parent) {
+	localOffsetMs_ = (qint64)QDateTime::currentDateTime().offsetFromUtc() * 1000LL;
 	view_ = new QQuickWidget(this);
 	view_->setResizeMode(QQuickWidget::SizeRootObjectToView);
 	view_->setSource(QUrl(QStringLiteral("qrc:/charts/charts_panel.qml")));
@@ -63,28 +113,6 @@ ChartsPanel::ChartsPanel(QWidget* parent) : QWidget(parent) {
 	auto* layout = new QVBoxLayout(this);
 	layout->setContentsMargins(0, 0, 0, 0);
 	layout->addWidget(view_);
-}
-
-double ChartsPanel::epochMillisFor(const QString& zuluTime) {
-	// Format: "yyyy-MM-ddTHH:mm:ss.zzz..." (fixed positions, always ASCII digits).
-	// QDateTime::fromString with a format string does locale-aware parsing and
-	// costs ~0.7 ms per call -- ~3.7 s for 5k points. Parse directly from char
-	// positions instead: no allocation, no format scanning, no locale lookup.
-	if (zuluTime.size() < 23) return 0.0;
-	const QChar* c = zuluTime.constData();
-	auto d1 = [&](int i) { return c[i].digitValue(); };
-	int year  = d1(0)*1000 + d1(1)*100 + d1(2)*10 + d1(3);
-	int month = d1(5)*10  + d1(6);
-	int day   = d1(8)*10  + d1(9);
-	int hour  = d1(11)*10 + d1(12);
-	int min   = d1(14)*10 + d1(15);
-	int sec   = d1(17)*10 + d1(18);
-	int ms    = d1(20)*100 + d1(21)*10 + d1(22);
-	// QDateTimeAxis renders epoch-ms values in local timezone regardless of axis
-	// timezone (Qt 6.11 bug). Build a LocalTime QDateTime from the raw Zulu
-	// components so the axis labels display the correct Zulu values.
-	return (double)QDateTime(QDate(year, month, day), QTime(hour, min, sec, ms))
-	                   .toMSecsSinceEpoch();
 }
 
 void ChartsPanel::buildSeriesCache() {
@@ -113,10 +141,16 @@ void ChartsPanel::buildSeriesCache() {
 	cache_.spoilers      = findSeries(root, "spoilersSeries");
 	cache_.fuelWeight    = findSeries(root, "fuelWeightSeries");
 	cache_.xAxis         = findXAxis(root, "sharedXAxis");
+	cache_.speedYAxis    = findYAxis(root, "speedYAxis");
+	cache_.fuelYAxis     = findYAxis(root, "fuelYAxis");
 	cache_.valid         = (cache_.n1_1 != nullptr);
 }
 
 void ChartsPanel::setDataset(const TripDataset& dataset) {
+	liveSpeedMax_   = 0.0;
+	liveFuelMax_    = 0.0;
+	localOffsetMs_  = (qint64)QDateTime::currentDateTime().offsetFromUtc() * 1000LL;
+
 	QQuickItem* root = view_->rootObject();
 	if (root == nullptr) {
 		emit seriesLoaded();
@@ -168,6 +202,12 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 			xAxis->setMin(data.axisLo);
 			xAxis->setMax(data.axisHi);
 		}
+		if (QValueAxis* ax = findYAxis(root, "speedYAxis"))
+			ax->setMax(yAxisMax(data.speedYMax, 50.0, 400.0));
+		if (QValueAxis* ax = findYAxis(root, "fuelYAxis"))
+			ax->setMax(yAxisMax(data.fuelYMax, 1000.0, 30000.0));
+		liveSpeedMax_ = data.speedYMax;
+		liveFuelMax_  = data.fuelYMax;
 		root->setProperty("isFullRangeVisible", true);
 
 		auto apply = [&](const char* seriesName, const QList<QPointF>& values) {
@@ -202,11 +242,11 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		emit seriesLoaded();
 	});
 
-	watcher->setFuture(QtConcurrent::run([this, points = std::move(points)]() {
+	watcher->setFuture(QtConcurrent::run([this, points = std::move(points), offsetMs = localOffsetMs_]() {
 		ChartSeriesData data;
 		data.pointTimesMs.reserve(points.size());
 		for (const LightPoint& p : points)
-			data.pointTimesMs.push_back(epochMillisFor(p.zuluTime));
+			data.pointTimesMs.push_back(epochMillisFor(p.zuluTime, offsetMs));
 
 		data.axisLo = data.pointTimesMs.empty()
 			? QDateTime::currentDateTime()
@@ -243,6 +283,14 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		fill(data.spoilers,     [](const LightPoint& p) { return p.spoilersHandlePosition; });
 		fill(data.fuelWeight,   [](const LightPoint& p) { return p.fuelTotalQuantityWeight; });
 
+		for (const LightPoint& p : points) {
+			double spd = qMax((double)p.airspeed, (double)p.groundSpeed);
+			if (spd > data.speedYMax)
+				data.speedYMax = spd;
+			if (p.fuelTotalQuantityWeight > data.fuelYMax)
+				data.fuelYMax = p.fuelTotalQuantityWeight;
+		}
+
 		return data;
 	}));
 }
@@ -262,7 +310,7 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 		return;
 
 	pointCount_++;
-	double t = epochMillisFor(point.zuluTime);
+	double t = epochMillisFor(point.zuluTime, localOffsetMs_);
 	pointTimesMs_.push_back(t);
 
 	QDateTime hi = QDateTime::fromMSecsSinceEpoch((qint64)t);
@@ -270,6 +318,18 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 		if (pointTimesMs_.size() == 1)
 			cache_.xAxis->setMin(hi.addSecs(-1));
 		cache_.xAxis->setMax(hi);
+	}
+
+	double spd = qMax((double)point.airspeed, (double)point.groundSpeed);
+	if (spd > liveSpeedMax_) {
+		liveSpeedMax_ = spd;
+		if (cache_.speedYAxis)
+			cache_.speedYAxis->setMax(yAxisMax(liveSpeedMax_, 50.0, 400.0));
+	}
+	if (point.fuelTotalQuantityWeight > liveFuelMax_) {
+		liveFuelMax_ = point.fuelTotalQuantityWeight;
+		if (cache_.fuelYAxis)
+			cache_.fuelYAxis->setMax(yAxisMax(liveFuelMax_, 1000.0, 30000.0));
 	}
 
 	cache_.n1_1->append(t, point.n1_1);

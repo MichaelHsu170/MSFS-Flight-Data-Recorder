@@ -9,6 +9,7 @@
 class QQuickWidget;
 class QLineSeries;
 class QDateTimeAxis;
+class QValueAxis;
 
 // Stacked timeline charts (N1/N2, vertical speed, speed, altitude, gear,
 // brake/flaps/spoiler, fuel weight) sharing one X axis of real Zulu
@@ -45,11 +46,6 @@ signals:
 	void seriesLoaded();
 
 private:
-	// Milliseconds since the Unix epoch, parsed from a DATETIME::
-	// format_date_time() string ("yyyy-MM-ddTHH:mm:ss.zzz+HH:MM_<dow>") and
-	// interpreted as UTC, matching the database's zulu_time column.
-	double epochMillisFor(const QString& zuluTime);
-
 	// Resolves all 19 QLineSeries* + the shared QDateTimeAxis* once from the
 	// QML object tree and caches them. Idempotent -- safe to call multiple
 	// times; no-op after the first successful resolution.
@@ -92,6 +88,18 @@ private:
 		QLineSeries* fuelWeight = nullptr;
 		// Driver axis -- C++ calls setMin/setMax here; per-chart axes bind to it.
 		QDateTimeAxis* xAxis = nullptr;
+		QValueAxis* speedYAxis = nullptr;
+		QValueAxis* fuelYAxis = nullptr;
 		bool valid = false;
 	} cache_;
+
+	// Running Y-axis maximums for the live append path -- updated whenever an
+	// incoming point exceeds the current axis max (reset by setDataset).
+	double liveSpeedMax_ = 0.0;
+	double liveFuelMax_  = 0.0;
+
+	// Cached local-UTC offset used by epochMillisFor to avoid per-call timezone
+	// DST lookups. Refreshed at setDataset() time and initialized in the ctor.
+	qint64 localOffsetMs_ = 0;
+
 };

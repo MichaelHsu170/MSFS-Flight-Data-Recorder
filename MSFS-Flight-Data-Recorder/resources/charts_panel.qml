@@ -194,7 +194,7 @@ Item {
                     anchors.fill: parent
                     axisX: SyncedXAxis {}
                     theme: chartTheme
-                    axisY: ValueAxis { min: 0; max: 400; labelFormat: "%.0f"; titleText: "Speed (kt)"; titleVisible: true }
+                    axisY: ValueAxis { objectName: "speedYAxis"; min: 0; max: 400; labelFormat: "%.0f"; titleText: "Speed (kt)"; titleVisible: true }
                     LineSeries { objectName: "airspeedSeries"; name: "Airspeed"; color: "#1f77b4" }
                     LineSeries { objectName: "groundSpeedSeries"; name: "Ground Speed"; color: "#ff7f0e" }
                 }
@@ -287,7 +287,7 @@ Item {
                     anchors.fill: parent
                     axisX: SyncedXAxis {}
                     theme: chartTheme
-                    axisY: ValueAxis { min: 0; max: 30000; labelFormat: "%.0f"; titleText: "Fuel Weight (lb)"; titleVisible: true }
+                    axisY: ValueAxis { objectName: "fuelYAxis"; min: 0; max: 30000; labelFormat: "%.0f"; titleText: "Fuel Weight (lb)"; titleVisible: true }
                     LineSeries { objectName: "fuelWeightSeries"; name: "Fuel Weight"; color: "#9467bd" }
                 }
                 CursorLine { graphsView: chart7 }
