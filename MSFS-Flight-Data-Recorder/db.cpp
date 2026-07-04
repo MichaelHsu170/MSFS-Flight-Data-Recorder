@@ -608,6 +608,101 @@ sqlite3* connect_db_readonly() {
 	return sql;
 }
 
+// Remove constraint keywords that SQLite disallows in ALTER TABLE ADD COLUMN:
+// NOT NULL (requires a DEFAULT when rows exist), PRIMARY KEY, UNIQUE, AUTOINCREMENT.
+// The added column defaults to NULL for any existing rows, which is fine — the
+// app reads integer/real columns as 0 and text columns as empty when NULL.
+static void strip_alter_column_constraints(const char* src, char* dst, int dst_size) {
+	static const char* kws[] = { "NOT NULL", "PRIMARY KEY", "AUTOINCREMENT", "UNIQUE", nullptr };
+	strncpy(dst, src, (size_t)(dst_size - 1));
+	dst[dst_size - 1] = '\0';
+	for (int i = 0; kws[i]; i++) {
+		int klen = (int)strlen(kws[i]);
+		char* p;
+		while ((p = strstr(dst, kws[i])) != nullptr)
+			memmove(p, p + klen, strlen(p + klen) + 1);
+	}
+}
+
+// For each column in fields_def (comma-separated column definitions) that is
+// absent from table_name, run ALTER TABLE ADD COLUMN. Called from connect_db()
+// only — the write connection — never from the readonly path.
+static void migrate_table_columns(sqlite3* sql, const char* table_name, const char* fields_def) {
+	// Collect existing column names via PRAGMA table_info.
+	char pragma_buf[128];
+	snprintf(pragma_buf, sizeof(pragma_buf), "PRAGMA table_info(%s);", table_name);
+	sqlite3_stmt* stmt;
+	if (sqlite3_prepare_v2(sql, pragma_buf, -1, &stmt, nullptr) != SQLITE_OK)
+		return;
+
+	const int MAX_COLS = 256;
+	const int NAME_LEN = 64;
+	char existing[MAX_COLS][NAME_LEN];
+	int nexist = 0;
+	while (sqlite3_step(stmt) == SQLITE_ROW && nexist < MAX_COLS) {
+		const char* n = (const char*)sqlite3_column_text(stmt, 1); // column 1 = name
+		if (n) {
+			strncpy(existing[nexist], n, NAME_LEN - 1);
+			existing[nexist][NAME_LEN - 1] = '\0';
+			nexist++;
+		}
+	}
+	sqlite3_finalize(stmt);
+
+	// Walk fields_def, splitting by comma while respecting parentheses.
+	int flen = (int)strlen(fields_def);
+	char* buf = (char*)malloc((size_t)(flen + 1));
+	if (!buf) return;
+	memcpy(buf, fields_def, (size_t)(flen + 1));
+
+	int depth = 0, seg_start = 0;
+	for (int i = 0; i <= flen; i++) {
+		char c = buf[i];
+		if      (c == '(') { depth++; continue; }
+		else if (c == ')') { depth--; continue; }
+		else if ((c == ',' || c == '\0') && depth == 0) {
+			buf[i] = '\0';
+			char* seg = buf + seg_start;
+			while (*seg == ' ' || *seg == '\t' || *seg == '\n') seg++;
+
+			// Extract column name (first whitespace-delimited word).
+			char col_name[NAME_LEN] = {};
+			int k = 0;
+			while (seg[k] && seg[k] != ' ' && seg[k] != '\t' && k < NAME_LEN - 1) {
+				col_name[k] = seg[k];
+				k++;
+			}
+
+			if (col_name[0] != '\0') {
+				bool found = false;
+				for (int m = 0; m < nexist && !found; m++)
+					found = (strcmp(existing[m], col_name) == 0);
+
+				if (!found) {
+					char safe_def[512];
+					strip_alter_column_constraints(seg, safe_def, (int)sizeof(safe_def));
+
+					char alter_sql[640];
+					snprintf(alter_sql, sizeof(alter_sql),
+						"ALTER TABLE %s ADD COLUMN %s;", table_name, safe_def);
+
+					sqlite3_stmt* alter_stmt;
+					if (sqlite3_prepare_v2(sql, alter_sql, -1, &alter_stmt, nullptr) == SQLITE_OK) {
+						sqlite3_step(alter_stmt);
+						sqlite3_finalize(alter_stmt);
+						printf("Schema migration: %s — added column %s\n", table_name, col_name);
+					} else {
+						printf("Schema migration failed (%s): %s\n", sqlite3_errmsg(sql), alter_sql);
+					}
+				}
+			}
+
+			seg_start = i + 1;
+		}
+	}
+	free(buf);
+}
+
 void connect_db(struct STATUS* status) {
 	char fn_db[MAX_PATH];
 	resolve_db_path(fn_db, MAX_PATH);
@@ -645,6 +740,11 @@ void connect_db(struct STATUS* status) {
 		sqlite3_finalize(stmt);
 		free(stmt_txt);
 	}
+
+	// Add any columns present in the in-code schema but absent in the on-disk
+	// table (i.e. databases created by an older build of the app).
+	for (int i = 0; i < (int)(sizeof(DATABASE_TABLE_NAMES) / sizeof(char*)); i++)
+		migrate_table_columns(status->sql, DATABASE_TABLE_NAMES[i], DATABASE_TABLE_FIELDS[i]);
 
 	// trip_data/trip_events/trip_touchdowns are all queried with "WHERE trip = ?"
 	// (db_history.cpp) -- without an index that's a full table scan across every
