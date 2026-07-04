@@ -2,6 +2,7 @@
 
 #include <QWidget>
 #include <QDateTime>
+#include <QVariantMap>
 #include <vector>
 
 #include "trip_dataset.h"
@@ -39,6 +40,12 @@ public:
 	// by MapWidget::visibleRangeChanged so the charts track the map's current
 	// viewport.
 	void setVisibleRange(int startIndex, int endIndex);
+
+	// Called from QML via the "chartsBridge" context property. Finds the sample
+	// nearest to timeMs (epoch ms, same scale as the chart X axis) and returns
+	// all series values at that index as a JS-ready map. Returns an empty map
+	// when no dataset is loaded.
+	Q_INVOKABLE QVariantMap valueAt(double timeMs) const;
 
 signals:
 	// Emitted once the worker thread has finished building all series and pushed

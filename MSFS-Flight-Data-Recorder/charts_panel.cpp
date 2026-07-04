@@ -2,12 +2,14 @@
 
 #include <QQuickWidget>
 #include <QQuickItem>
+#include <QQmlContext>
 #include <QVBoxLayout>
 #include <QUrl>
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QElapsedTimer>
 #include "logger.h"
+#include <algorithm>
 
 #include <QtGraphs/qlineseries.h>
 #include <QtGraphs/qdatetimeaxis.h>
@@ -110,6 +112,7 @@ ChartsPanel::ChartsPanel(QWidget* parent) : QWidget(parent) {
 	localOffsetMs_ = (qint64)QDateTime::currentDateTime().offsetFromUtc() * 1000LL;
 	view_ = new QQuickWidget(this);
 	view_->setResizeMode(QQuickWidget::SizeRootObjectToView);
+	view_->rootContext()->setContextProperty(QStringLiteral("chartsBridge"), this);
 	view_->setSource(QUrl(QStringLiteral("qrc:/charts/charts_panel.qml")));
 
 	auto* layout = new QVBoxLayout(this);
@@ -524,4 +527,80 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 	             (startIndex < 0 || endIndex < 0 || pointTimesMs_.empty())
 	                 ? displayStride_
 	                 : std::max(1, (qAbs(lastRangeEnd_ - lastRangeStart_) + 1) / kDisplayPoints));
+}
+
+QVariantMap ChartsPanel::valueAt(double timeMs) const {
+	if (pointTimesMs_.empty())
+		return {};
+
+	// Find the sample index closest to timeMs.
+	auto it = std::lower_bound(pointTimesMs_.begin(), pointTimesMs_.end(), timeMs);
+	int idx = (int)(it - pointTimesMs_.begin());
+	if (idx >= (int)pointTimesMs_.size())
+		idx = (int)pointTimesMs_.size() - 1;
+	// lower_bound lands on the first element >= timeMs; check if idx-1 is closer.
+	if (idx > 0 && (pointTimesMs_[idx] - timeMs > timeMs - pointTimesMs_[idx - 1]))
+		idx--;
+
+	// timeMs is epoch_utc - localOffset (so Qt renders it as Zulu). Recover UTC.
+	qint64 utcMs = (qint64)pointTimesMs_[idx] + localOffsetMs_;
+	QString timeStr = QDateTime::fromMSecsSinceEpoch(utcMs, Qt::UTC).toString(QStringLiteral("HH:mm:ss.zzz"))
+	                  + QStringLiteral(" UTC");
+
+	auto fromFull = [&](const QList<QPointF>& v) -> double {
+		return (idx < v.size()) ? v[idx].y() : 0.0;
+	};
+	auto fromSeries = [&](const QLineSeries* s) -> double {
+		if (!s) return 0.0;
+		auto pts = s->points();
+		return (idx < pts.size()) ? pts[idx].y() : 0.0;
+	};
+
+	QVariantMap m;
+	m[QStringLiteral("timeStr")] = timeStr;
+
+	if (full_.ready) {
+		m[QStringLiteral("n1_1")]       = fromFull(full_.n1_1);
+		m[QStringLiteral("n1_2")]       = fromFull(full_.n1_2);
+		m[QStringLiteral("n2_1")]       = fromFull(full_.n2_1);
+		m[QStringLiteral("n2_2")]       = fromFull(full_.n2_2);
+		m[QStringLiteral("vs")]         = fromFull(full_.verticalSpeed);
+		m[QStringLiteral("ias")]        = fromFull(full_.airspeed);
+		m[QStringLiteral("gs")]         = fromFull(full_.groundSpeed);
+		m[QStringLiteral("alt")]        = fromFull(full_.altitude);
+		m[QStringLiteral("gearHandle")] = fromFull(full_.gearHandle);
+		m[QStringLiteral("gearPos0")]   = fromFull(full_.gearPos0);
+		m[QStringLiteral("gearPos1")]   = fromFull(full_.gearPos1);
+		m[QStringLiteral("gearPos2")]   = fromFull(full_.gearPos2);
+		m[QStringLiteral("onGnd0")]     = fromFull(full_.gearOnGround0) > 0.5;
+		m[QStringLiteral("onGnd1")]     = fromFull(full_.gearOnGround1) > 0.5;
+		m[QStringLiteral("onGnd2")]     = fromFull(full_.gearOnGround2) > 0.5;
+		m[QStringLiteral("brake")]      = fromFull(full_.brake);
+		m[QStringLiteral("flaps")]      = fromFull(full_.flaps);
+		m[QStringLiteral("spoilers")]   = fromFull(full_.spoilers);
+		m[QStringLiteral("fuel")]       = fromFull(full_.fuelWeight);
+	} else if (cache_.valid) {
+		// Live mode: cache series are appended one-by-one (no decimation), so
+		// their point index matches pointTimesMs_ directly.
+		m[QStringLiteral("n1_1")]       = fromSeries(cache_.n1_1);
+		m[QStringLiteral("n1_2")]       = fromSeries(cache_.n1_2);
+		m[QStringLiteral("n2_1")]       = fromSeries(cache_.n2_1);
+		m[QStringLiteral("n2_2")]       = fromSeries(cache_.n2_2);
+		m[QStringLiteral("vs")]         = fromSeries(cache_.verticalSpeed);
+		m[QStringLiteral("ias")]        = fromSeries(cache_.airspeed);
+		m[QStringLiteral("gs")]         = fromSeries(cache_.groundSpeed);
+		m[QStringLiteral("alt")]        = fromSeries(cache_.altitude);
+		m[QStringLiteral("gearHandle")] = fromSeries(cache_.gearHandle);
+		m[QStringLiteral("gearPos0")]   = fromSeries(cache_.gearPos0);
+		m[QStringLiteral("gearPos1")]   = fromSeries(cache_.gearPos1);
+		m[QStringLiteral("gearPos2")]   = fromSeries(cache_.gearPos2);
+		m[QStringLiteral("onGnd0")]     = fromSeries(cache_.gearOnGround0) > 0.5;
+		m[QStringLiteral("onGnd1")]     = fromSeries(cache_.gearOnGround1) > 0.5;
+		m[QStringLiteral("onGnd2")]     = fromSeries(cache_.gearOnGround2) > 0.5;
+		m[QStringLiteral("brake")]      = fromSeries(cache_.brake);
+		m[QStringLiteral("flaps")]      = fromSeries(cache_.flaps);
+		m[QStringLiteral("spoilers")]   = fromSeries(cache_.spoilers);
+		m[QStringLiteral("fuel")]       = fromSeries(cache_.fuelWeight);
+	}
+	return m;
 }
