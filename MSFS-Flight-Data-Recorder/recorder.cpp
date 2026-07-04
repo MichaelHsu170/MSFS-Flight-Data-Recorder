@@ -571,77 +571,29 @@ void displayTouchdownData(struct TOUCHDOWN_DATA* tmp) {
 
 void stop_recording(struct STATUS* status) {
 	status->recording = FALSE;
+	// Destination lat/lon was written at each touchdown; only the arrival time
+	// (engine shutdown) is set here — consistent with departure time being engine start.
 	db_insert_update_table(
 		status->sql,
-		"UPDATE trips SET destination_latitude=?,destination_longitude=?,destination_zulu_time=?,destination_local_time=? WHERE id=?;",
+		"UPDATE trips SET destination_zulu_time=?,destination_local_time=? WHERE id=?;",
 		status->q_data_end == NULL ? status->q_data_last : status->q_data_end,
 		status,
 		NULL,
 		[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
 			struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
-			db_bind(stmt, stmt_txt, 1, pS->plane_coordinate.latitude);
-			db_bind(stmt, stmt_txt, 2, pS->plane_coordinate.longitude);
-			db_bind(stmt, stmt_txt, 3, pS->time_zulu.format_date_time().c_str());
-			db_bind(stmt, stmt_txt, 4, pS->time_local.format_date_time().c_str());
-			db_bind(stmt, stmt_txt, 5, status->id_trip);
+			db_bind(stmt, stmt_txt, 1, pS->time_zulu.format_date_time().c_str());
+			db_bind(stmt, stmt_txt, 2, pS->time_local.format_date_time().c_str());
+			db_bind(stmt, stmt_txt, 3, status->id_trip);
 		}
 	);
+	// trip_touchdowns rows were already inserted at touchdown time; just free the list.
 	while (status->touchdown_data != NULL) {
 		struct TOUCHDOWN_DATA* cur = status->touchdown_data;
-		db_insert_update_table(
-			status->sql,
-			"INSERT INTO trip_touchdowns ("
-			"trip,"
-			"airspeed_indicated,"
-			"vertical_speed,"
-			"g_force,"
-			"plane_pitch_degrees,"
-			"plane_bank_degrees,"
-			"heading_indicator,"
-			"plane_latitude,"
-			"plane_longitude,"
-			"icao,"
-			"airport_name,"
-			"runway,"
-			"distance_length,"
-			"distance_width,"
-			"distance_length_percent,"
-			"distance_width_percent,"
-			"wind_direction,"
-			"wind_velocity,"
-			"time_zulu,"
-			"time_local"
-			") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
-			cur,
-			status,
-			NULL,
-			[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-				struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
-				db_bind(stmt, stmt_txt, 1, status->id_trip);
-				db_bind(stmt, stmt_txt, 2, pS->flight_data.speed);
-				db_bind(stmt, stmt_txt, 3, pS->flight_data.vertical_speed);
-				db_bind(stmt, stmt_txt, 4, pS->flight_data.g_force);
-				db_bind(stmt, stmt_txt, 5, pS->flight_data.pitch);
-				db_bind(stmt, stmt_txt, 6, pS->flight_data.bank);
-				db_bind(stmt, stmt_txt, 7, pS->flight_data.heading);
-				db_bind(stmt, stmt_txt, 8, pS->flight_data.coordinate.latitude);
-				db_bind(stmt, stmt_txt, 9, pS->flight_data.coordinate.longitude);
-				db_bind(stmt, stmt_txt, 10, pS->airport.icao);
-				db_bind(stmt, stmt_txt, 11, pS->airport.name);
-				db_bind(stmt, stmt_txt, 12, pS->airport.runway_code_generator().c_str());
-				db_bind(stmt, stmt_txt, 13, pS->airport.runway_act.distances[0] < 0 ? -1.0 : pS->airport.runway_act.distances[0]);
-				db_bind(stmt, stmt_txt, 14, pS->airport.runway_act.distances[1]);
-				db_bind(stmt, stmt_txt, 15, pS->airport.runway_act.distances_percent[0]);
-				db_bind(stmt, stmt_txt, 16, pS->airport.runway_act.distances_percent[1]);
-				db_bind(stmt, stmt_txt, 17, pS->flight_data.wind_direction);
-				db_bind(stmt, stmt_txt, 18, pS->flight_data.wind_velocity);
-				db_bind(stmt, stmt_txt, 19, pS->flight_data.time_zulu.format_date_time().c_str());
-				db_bind(stmt, stmt_txt, 20, pS->flight_data.time_local.format_date_time().c_str());
-			}
-		);
 		status->touchdown_data = status->touchdown_data->next;
+		cur->airport.clear();
 		free(cur);
 	}
+	status->touchdown_data_end = NULL;
 	int ended_trip_id = status->id_trip;
 	std::thread([status, ended_trip_id]() {
 		db_consume(status);
@@ -911,6 +863,45 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					status->touchdown_data_end->flight_data.time_zulu = tmp.time_zulu;
 					status->touchdown_data_end->flight_data.time_local = tmp.time_local;
 					status->touchdown_data_end->airport.runway_act.distances[0] = -1;
+					// Insert immediately so the row survives a crash before stop_recording.
+					// Airport/runway fields are NULL until the facility callback resolves.
+					db_insert_update_table(status->sql,
+						"INSERT INTO trip_touchdowns ("
+						"trip,airspeed_indicated,vertical_speed,g_force,plane_pitch_degrees,"
+						"plane_bank_degrees,heading_indicator,plane_latitude,plane_longitude,"
+						"wind_direction,wind_velocity,time_zulu,time_local"
+						") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);",
+						status->touchdown_data_end, status, NULL,
+						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+							struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
+							db_bind(stmt, stmt_txt, 1, status->id_trip);
+							db_bind(stmt, stmt_txt, 2, pS->flight_data.speed);
+							db_bind(stmt, stmt_txt, 3, pS->flight_data.vertical_speed);
+							db_bind(stmt, stmt_txt, 4, pS->flight_data.g_force);
+							db_bind(stmt, stmt_txt, 5, pS->flight_data.pitch);
+							db_bind(stmt, stmt_txt, 6, pS->flight_data.bank);
+							db_bind(stmt, stmt_txt, 7, pS->flight_data.heading);
+							db_bind(stmt, stmt_txt, 8, pS->flight_data.coordinate.latitude);
+							db_bind(stmt, stmt_txt, 9, pS->flight_data.coordinate.longitude);
+							db_bind(stmt, stmt_txt, 10, pS->flight_data.wind_direction);
+							db_bind(stmt, stmt_txt, 11, pS->flight_data.wind_velocity);
+							db_bind(stmt, stmt_txt, 12, pS->flight_data.time_zulu.format_date_time().c_str());
+							db_bind(stmt, stmt_txt, 13, pS->flight_data.time_local.format_date_time().c_str());
+						}
+					);
+					status->touchdown_data_end->db_id = (int)sqlite3_last_insert_rowid(status->sql);
+					// Update the destination position in trips to reflect this landing.
+					db_insert_update_table(status->sql,
+						"UPDATE trips SET destination_latitude=?,destination_longitude=? WHERE id=?;",
+						status->touchdown_data_end, status, NULL,
+						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+							struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
+							db_bind(stmt, stmt_txt, 1, pS->flight_data.coordinate.latitude);
+							db_bind(stmt, stmt_txt, 2, pS->flight_data.coordinate.longitude);
+							db_bind(stmt, stmt_txt, 3, status->id_trip);
+						}
+					);
+					gui_notify_trip_updated(status);
 					SimConnect_RequestFacilitiesList_EX1(status->hSimConnect, SIMCONNECT_FACILITY_LIST_TYPE_AIRPORT, REQUEST_AIRPORTS);
 				}
 				status->airborne = !(bool)tmp.sim_on_ground;
@@ -1019,6 +1010,9 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				if (tmp != NULL) {
 					tmp->airport.runway_act.distances[0] = -2;
 					displayTouchdownData(tmp);
+					// trip_touchdowns row already has NULL airport fields from the immediate
+					// INSERT at touchdown; no further DB update needed for this path.
+					gui_notify_trip_updated(status);
 				}
 			}
 		}
@@ -1149,6 +1143,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						db_bind(stmt, stmt_txt, 5, status->id_trip);
 					}
 				);
+				gui_notify_trip_updated(status);
 			} else {
 				gui_log_printf(status, "Touchdown at %s (%s) runway %s\n", rep->name, rep->icao, strRunway.c_str());
 				db_insert_update_table(status->sql,
@@ -1170,6 +1165,26 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				if (tmp != NULL) {
 					tmp->airport.copy(rep);
 					displayTouchdownData(tmp);
+					// Update trip_touchdowns with the resolved airport/runway/distance data.
+					db_insert_update_table(status->sql,
+						"UPDATE trip_touchdowns SET icao=?,airport_name=?,runway=?,"
+						"distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
+						" WHERE id=?;",
+						tmp, status,
+						(char*)strRunway.c_str(),
+						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+							struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
+							db_bind(stmt, stmt_txt, 1, pS->airport.icao);
+							db_bind(stmt, stmt_txt, 2, pS->airport.name);
+							db_bind(stmt, stmt_txt, 3, (char*)aux);
+							db_bind(stmt, stmt_txt, 4, pS->airport.runway_act.distances[0] < 0 ? -1.0 : pS->airport.runway_act.distances[0]);
+							db_bind(stmt, stmt_txt, 5, pS->airport.runway_act.distances[1]);
+							db_bind(stmt, stmt_txt, 6, pS->airport.runway_act.distances_percent[0]);
+							db_bind(stmt, stmt_txt, 7, pS->airport.runway_act.distances_percent[1]);
+							db_bind(stmt, stmt_txt, 8, pS->db_id);
+						}
+					);
+					gui_notify_trip_updated(status);
 				}
 				rep->clear();
 			}
@@ -1194,6 +1209,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						db_bind(stmt, stmt_txt, 4, status->id_trip);
 					}
 				);
+				gui_notify_trip_updated(status);
 			} else {
 				gui_log_printf(status, "Touchdown at %s (%s) [%s, %s]\n",
 					rep->name,
@@ -1219,6 +1235,19 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					memcpy(tmp->airport.icao, rep->icao, sizeof(rep->icao));
 					tmp->airport.runway_act.distances[0] = -2;
 					displayTouchdownData(tmp);
+					// Airport found but no matching runway; update trip_touchdowns with
+					// the ICAO/name only (runway and distances stay NULL).
+					db_insert_update_table(status->sql,
+						"UPDATE trip_touchdowns SET icao=?,airport_name=? WHERE id=?;",
+						tmp, status, NULL,
+						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+							struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
+							db_bind(stmt, stmt_txt, 1, status->destination.icao);
+							db_bind(stmt, stmt_txt, 2, status->destination.name);
+							db_bind(stmt, stmt_txt, 3, pS->db_id);
+						}
+					);
+					gui_notify_trip_updated(status);
 				}
 			}
 		}

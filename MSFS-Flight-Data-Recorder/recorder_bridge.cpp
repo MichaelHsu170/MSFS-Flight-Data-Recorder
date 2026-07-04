@@ -195,6 +195,13 @@ void gui_notify_recording_changed(struct STATUS* status, bool recording, int tri
 		emit bridge->tripEnded(tripId);
 }
 
+void gui_notify_trip_updated(struct STATUS* status) {
+	if (!status || !status->gui_context)
+		return;
+	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
+	emit bridge->tripUpdated(status->id_trip);
+}
+
 void gui_notify_sample(struct STATUS* status, const struct FLIGHT_DATA_RECORD* sample) {
 	if (!status || !status->gui_context)
 		return;
