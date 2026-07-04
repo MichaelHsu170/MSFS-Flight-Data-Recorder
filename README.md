@@ -103,7 +103,7 @@ gemini_api_key=
 
 ## Database
 
-`flight_data.db` is a SQLite database. The schema is created automatically on first launch and never migrated — tables and indexes use `CREATE TABLE/INDEX IF NOT EXISTS`.
+`flight_data.db` is a SQLite database. The schema is created automatically on first launch. On every subsequent launch `connect_db()` adds any columns present in the current code but missing from the on-disk table (`ALTER TABLE ADD COLUMN`), so databases created by older builds are automatically upgraded without data loss.
 
 | Table | Contents |
 |---|---|
