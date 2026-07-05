@@ -214,8 +214,7 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 	std::vector<TouchdownPoint> touchdowns;
 
-	// connect_db() migrates the schema to the current version before any query
-	// runs, so the full column set is always available.
+	// migrate_db() at app startup ensures all columns exist before any query runs.
 	const char* stmt_txt =
 		"SELECT id, plane_latitude, plane_longitude, icao, airport_name, runway, airspeed_indicated, "
 		"vertical_speed, g_force, plane_pitch_degrees, plane_bank_degrees, heading_indicator, "

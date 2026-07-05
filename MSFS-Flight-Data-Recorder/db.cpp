@@ -699,6 +699,44 @@ static void migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 	free(buf);
 }
 
+void migrate_db() {
+	char fn_db[MAX_PATH];
+	resolve_db_path(fn_db, MAX_PATH);
+	sqlite3* sql = nullptr;
+	if (sqlite3_open_v2(fn_db, &sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
+		if (sql) sqlite3_close(sql);
+		return;
+	}
+	sqlite3_busy_timeout(sql, 5000);
+
+	const char* stmt_txt_start = "CREATE TABLE IF NOT EXISTS ";
+	const char* stmt_txt_sep_1 = " (";
+	const char* stmt_txt_sep_2 = ");";
+	int len_start = (int)strlen(stmt_txt_start);
+	int len_sep_1 = (int)strlen(stmt_txt_sep_1);
+	int len_sep_2 = (int)strlen(stmt_txt_sep_2);
+	sqlite3_stmt* stmt = nullptr;
+	for (int i = 0; i < (int)(sizeof(DATABASE_TABLE_NAMES) / sizeof(char*)); i++) {
+		int len_name   = (int)strlen(DATABASE_TABLE_NAMES[i]);
+		int len_fields = (int)strlen(DATABASE_TABLE_FIELDS[i]);
+		char* stmt_txt = (char*)malloc(len_start + len_name + len_sep_1 + len_fields + len_sep_2 + 2);
+		memset(stmt_txt, 0, len_start + len_name + len_sep_1 + len_fields + len_sep_2 + 2);
+		memcpy(stmt_txt, stmt_txt_start, len_start);
+		memcpy(stmt_txt + len_start, DATABASE_TABLE_NAMES[i], len_name);
+		memcpy(stmt_txt + len_start + len_name, stmt_txt_sep_1, len_sep_1);
+		memcpy(stmt_txt + len_start + len_name + len_sep_1, DATABASE_TABLE_FIELDS[i], len_fields);
+		memcpy(stmt_txt + len_start + len_name + len_sep_1 + len_fields, stmt_txt_sep_2, len_sep_2);
+		if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) == SQLITE_OK)
+			sqlite3_step(stmt);
+		sqlite3_finalize(stmt);
+		free(stmt_txt);
+	}
+	for (int i = 0; i < (int)(sizeof(DATABASE_TABLE_NAMES) / sizeof(char*)); i++)
+		migrate_table_columns(sql, DATABASE_TABLE_NAMES[i], DATABASE_TABLE_FIELDS[i]);
+
+	sqlite3_close(sql);
+}
+
 void connect_db(struct STATUS* status) {
 	char fn_db[MAX_PATH];
 	resolve_db_path(fn_db, MAX_PATH);

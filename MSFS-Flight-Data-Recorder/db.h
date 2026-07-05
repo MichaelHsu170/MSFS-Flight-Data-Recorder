@@ -244,6 +244,11 @@ void db_insert_update_table(
 
 void db_consume(STATUS* status);
 
+// Creates the schema and migrates any missing columns on an ephemeral R/W
+// connection. Called at app startup so read-only queries always see the
+// current schema, even when the simulator has never connected this session.
+void migrate_db();
+
 void connect_db(struct STATUS* status);
 sqlite3* connect_db_readonly();
 // Read-write connection for explicit GUI write operations (e.g. deleting a
