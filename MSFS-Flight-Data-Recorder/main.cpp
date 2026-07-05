@@ -6,6 +6,7 @@
 #include <QQuickStyle>
 
 #include "logger.h"
+#include "db.h"
 #include "recorder_bridge.h"
 #include "main_window.h"
 
@@ -66,6 +67,8 @@ int main(int argc, char* argv[]) {
     QApplication::setAttribute(Qt::AA_ShareOpenGLContexts, true);
     QApplication app(argc, argv);
     app.setWindowIcon(QIcon(":/app_icon.ico"));
+
+    migrate_db();
 
     RecorderBridge bridge;
     MainWindow window(bridge);
