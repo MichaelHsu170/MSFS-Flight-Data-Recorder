@@ -206,7 +206,8 @@ static const char* DATABASE_TABLE_FIELDS[] = {
 	"wind_direction INTEGER,"
 	"wind_velocity INTEGER,"
 	"time_zulu VARCHAR(32) NOT NULL,"
-	"time_local VARCHAR(32) NOT NULL"
+	"time_local VARCHAR(32) NOT NULL,"
+	"analysis_report TEXT"
 };
 
 struct db_exception {

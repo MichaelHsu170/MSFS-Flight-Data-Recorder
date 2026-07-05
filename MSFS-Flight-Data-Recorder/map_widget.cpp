@@ -51,6 +51,8 @@ QJsonObject touchdownToJson(const TouchdownPoint& t) {
 	obj["windVelocity"] = t.windVelocity;
 	obj["zuluTime"] = t.zuluTime;
 	obj["localTime"] = t.localTime;
+	obj["rowId"] = t.rowId;
+	obj["analysisReport"] = t.analysisReport;
 	return obj;
 }
 

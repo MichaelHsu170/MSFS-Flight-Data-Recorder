@@ -61,6 +61,8 @@ struct TouchdownPoint {
 	int windVelocity = 0;    // knots
 	QString zuluTime;
 	QString localTime;
+	int rowId = 0;           // trip_touchdowns.id, used to UPDATE analysis_report
+	QString analysisReport;  // stored AI analysis text, empty if never analyzed
 };
 
 // One discrete cockpit event (gear/flaps/spoilers/etc. toggled) logged during
