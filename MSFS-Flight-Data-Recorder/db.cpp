@@ -1,7 +1,6 @@
 #include "db.h"
 #include "logger_c.h"
 #include "simconnect_defs.h"
-#include <thread>
 
 void db_error(const char* stmt_txt, int sql_ret, char** errmsg) {
 	std::string msg;
@@ -62,11 +61,7 @@ void db_query_table(
 	while (sqlite3_step(stmt) == SQLITE_ROW)
 		func_retrieve_data(stmt, stmt_txt, status, aux_out);
 	sqlite3_reset(stmt);
-	if (sql_ret)
-		db_error(stmt_txt, sql_ret, NULL);
 	sqlite3_finalize(stmt);
-	if (sql_ret)
-		db_error(stmt_txt, sql_ret, NULL);
 }
 
 void db_insert_update_table(

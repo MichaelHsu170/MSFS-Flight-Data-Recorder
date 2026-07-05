@@ -1,6 +1,5 @@
 #include <QApplication>
 #include <QIcon>
-#include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <QSettings>
