@@ -244,6 +244,7 @@ async function analyzeTouchdown(id) {
     // over them; initAttempt() reassigns them before each attempt.
     var thDet, thSum, thArr, thLbl, thBody, finalDiv;
     var sawThinking, thinkingDone;
+    var thinkingText, finalText;
 
     function initAttempt() {
         result.innerHTML =
@@ -264,6 +265,8 @@ async function analyzeTouchdown(id) {
         finalDiv = document.getElementById('td-th-final-' + id);
         sawThinking  = false;
         thinkingDone = false;
+        thinkingText = '';
+        finalText    = '';
         // Guard on thinkingDone prevents the browser's spurious initial toggle
         // event (queued when <details open> is created via innerHTML) from
         // overwriting "Thinking…" with "Hide thinking".
@@ -276,8 +279,10 @@ async function analyzeTouchdown(id) {
     function onChunk(text, isThought) {
         if (isThought) {
             sawThinking = true;
+            thinkingText += text;
             appendHtml(thBody, text);
         } else {
+            finalText += text;
             if (sawThinking && !thinkingDone) {
                 thinkingDone = true;
                 thSum.style.pointerEvents = '';
@@ -347,7 +352,13 @@ async function analyzeTouchdown(id) {
         }
 
         // Success: both thinking and final response arrived.
-        if (sawThinking && finalDiv.textContent.trim()) break;
+        if (sawThinking && finalDiv.textContent.trim()) {
+            if (t.rowId && mapBridge) {
+                var stored = '<thinking>' + thinkingText + '</thinking>' + finalText;
+                mapBridge.saveAnalysisReport(t.rowId, stored);
+            }
+            break;
+        }
 
         // Incomplete — retry silently; on last attempt show message.
         if (attempt === MAX_ATTEMPTS - 1) {
@@ -363,6 +374,38 @@ async function analyzeTouchdown(id) {
 }
 
 // ── Popup builders ───────────────────────────────────────────────────────────
+
+// Renders a stored analysis report (loaded from the DB) into the result div.
+// Parses the stored format: '<thinking>TEXT</thinking>FINAL' for reports from
+// a thinking model, or plain text for non-thinking models.
+// Called from a Leaflet popupopen handler once the popup DOM is live.
+function renderStoredReport(id, report) {
+    var result = document.getElementById('td-result-' + id);
+    if (!result) return;
+    var thinkMatch = report.match(/^<thinking>([\s\S]*?)<\/thinking>([\s\S]*)$/);
+    if (thinkMatch) {
+        var storedThinking = thinkMatch[1];
+        var storedFinal    = thinkMatch[2].replace(/^\n/, '');
+        result.innerHTML =
+            '<details class="td-think-det" id="td-th-det-' + id + '">'
+          +   '<summary class="td-think-sum" id="td-th-sum-' + id + '">'
+          +     '<span id="td-th-arr-' + id + '">▸</span>'
+          +     '<span id="td-th-lbl-' + id + '"> Show thinking</span>'
+          +   '</summary>'
+          +   '<div class="td-think-body" id="td-th-body-' + id + '"></div>'
+          + '</details>'
+          + '<div id="td-th-final-' + id + '"></div>';
+        appendHtml(document.getElementById('td-th-body-'  + id), storedThinking);
+        appendHtml(document.getElementById('td-th-final-' + id), storedFinal);
+        var det = document.getElementById('td-th-det-' + id);
+        det.addEventListener('toggle', function() {
+            toggleThinkLabel(det, 'td-th-arr-' + id, 'td-th-lbl-' + id);
+        });
+    } else {
+        result.innerHTML = '<div id="td-th-final-' + id + '"></div>';
+        appendHtml(document.getElementById('td-th-final-' + id), report);
+    }
+}
 
 function touchdownPopupHtml(t) {
     var id = 'td' + (++_tdIdx);
@@ -406,7 +449,7 @@ function touchdownPopupHtml(t) {
     leftHtml += '</div>';
     var left = leftHtml;
 
-    // Right column: analyze button + streaming result
+    // Right column: analyze button + result area (pre-filled from DB if available)
     var hasKey = !!(window._geminiApiKey && window._geminiApiKey.trim().length > 0);
     var disabledAttr = hasKey ? '' : ' disabled title="Set gemini_api_key in settings.ini to enable"';
     var clickAttr = hasKey ? ' onclick="analyzeTouchdown(\'' + id + '\')"' : '';
@@ -431,7 +474,8 @@ function touchdownPopupHtml(t) {
         '</div>'
     ].join('');
 
-    return '<div style="display:flex;gap:14px;align-items:flex-start;width:650px">' + left + right + '</div>';
+    var html = '<div style="display:flex;gap:14px;align-items:flex-start;width:650px">' + left + right + '</div>';
+    return { html: html, id: id };
 }
 
 function eventPopupHtml(events) {
@@ -631,7 +675,13 @@ function initLeafletProvider() {
             points.forEach(function (t) {
                 var icon = L.divIcon({ className: 'touchdown-icon', html: '\u{1F6EC}', iconSize: [24, 24], iconAnchor: [12, 12] });
                 var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
-                m.bindPopup(touchdownPopupHtml(t), { maxWidth: 700 });
+                var popup = touchdownPopupHtml(t);
+                m.bindPopup(popup.html, { maxWidth: 700 });
+                if (t.analysisReport) {
+                    (function(capturedId, capturedReport) {
+                        m.on('popupopen', function() { renderStoredReport(capturedId, capturedReport); });
+                    })(popup.id, t.analysisReport);
+                }
                 touchdownMarkers.push(m);
             });
         },
