@@ -125,4 +125,10 @@ private:
 	} full_;
 	int displayStride_ = 1;
 
+	// Incremented at the start of each setDataset call. The background worker's
+	// finished lambda captures this value and bails out if it no longer matches,
+	// preventing a stale (pre-Deselect) worker from reloading its series after
+	// the charts have already been cleared.
+	int datasetVersion_ = 0;
+
 };

@@ -43,6 +43,14 @@ signals:
 public slots:
 	void setDataset(std::shared_ptr<TripDataset> dataset);
 
+	// Clears the current trip and shows departure→destination line segments
+	// for every trip in the list on the map (the default "no trip selected" view).
+	void clearAndShowOverview(const std::vector<TripSummary>& trips);
+
+	// Resets the map viewport to fit the full trajectory and the charts X axis
+	// to the full time range, as they were immediately after the trip was loaded.
+	void resetZoom();
+
 	// Live mode: append one point to the map/charts. While unpinned (see
 	// setLiveFollow), points are buffered instead of pushed to the UI, so
 	// "Jump to Live" can catch up in one go without losing samples.

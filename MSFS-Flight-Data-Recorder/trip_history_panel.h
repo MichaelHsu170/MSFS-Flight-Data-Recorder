@@ -37,6 +37,7 @@ public:
 
 	void setTrips(std::vector<TripSummary> trips);
 	const TripSummary* tripAt(int row) const;
+	const std::vector<TripSummary>& trips() const { return trips_; }
 
 	int rowCount(const QModelIndex& parent = QModelIndex()) const override;
 	int columnCount(const QModelIndex& parent = QModelIndex()) const override;
@@ -61,11 +62,18 @@ public:
 
 signals:
 	void tripDatasetReady(std::shared_ptr<TripDataset> dataset);
+	// Emitted when the user deselects the current trip; carries all trip
+	// summaries so the map can render the departure→destination overview.
+	void tripDeselected(std::vector<TripSummary> trips);
+	void zoomResetRequested();
 
 public slots:
 	// Called by MainWindow when TrajectoryView signals that both chart series
 	// and map trajectory workers have finished rendering. Clears loading state.
 	void setLoadingFinished();
+	// Emits tripDeselected with the current trip list so the map shows the
+	// departure→destination overview immediately at startup.
+	void showInitialOverview();
 
 private slots:
 	void refreshTrips();
@@ -94,6 +102,7 @@ private:
 	QFutureWatcher<std::vector<TripEvent>>* eventsWatcher_;
 	QElapsedTimer loadTimer_;
 	int pendingTripId_ = -1;
+	int selectedTripId_ = -1;
 	bool loading_ = false;
 	// Independent from RecorderBridge's STATUS::sql: that connection is opened
 	// with SQLITE_OPEN_NOMUTEX (single-thread-only) so it cannot be shared with

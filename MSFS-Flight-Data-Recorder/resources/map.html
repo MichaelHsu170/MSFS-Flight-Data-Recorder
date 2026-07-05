@@ -589,6 +589,7 @@ function initLeafletProvider() {
     var marker = null;
     var touchdownMarkers = [];
     var eventMarkers = [];
+    var overviewLines = [];
     var eventsVisible = true;
 
     function snapAndReport(decimatedIdx) {
@@ -609,6 +610,8 @@ function initLeafletProvider() {
 
     currentProvider = {
         setTrajectory: function (data) {
+            overviewLines.forEach(function(l) { map.removeLayer(l); });
+            overviewLines = [];
             // data is {lats:[...], lngs:[...], idxs:[...]} -- parallel flat
             // arrays are more compact JSON and faster to iterate than an array
             // of {lat, lng, idx} objects.
@@ -726,6 +729,44 @@ function initLeafletProvider() {
                     map.removeLayer(m);
                 }
             });
+        },
+        setOverview: function (segments) {
+            // Clear trajectory and markers.
+            trajectoryLatLngs = [];
+            origIndices = [];
+            polyline.setLatLngs([]);
+            if (marker !== null) { map.removeLayer(marker); marker = null; }
+            touchdownMarkers.forEach(function(m) { map.removeLayer(m); });
+            touchdownMarkers = [];
+            eventMarkers.forEach(function(m) { map.removeLayer(m); });
+            eventMarkers = [];
+            overviewLines.forEach(function(l) { map.removeLayer(l); });
+            overviewLines = [];
+
+            var bounds = [];
+            segments.forEach(function(s) {
+                if (s.fromLat === 0 && s.fromLng === 0) return;
+                bounds.push([s.fromLat, s.fromLng]);
+                if (s.toLat !== 0 || s.toLng !== 0) {
+                    var line = L.polyline(
+                        [[s.fromLat, s.fromLng], [s.toLat, s.toLng]],
+                        { color: '#3b82f6', weight: 2, opacity: 0.7 }
+                    ).addTo(map);
+                    overviewLines.push(line);
+                    bounds.push([s.toLat, s.toLng]);
+                } else {
+                    var dot = L.circleMarker([s.fromLat, s.fromLng],
+                        { radius: 4, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.7, weight: 1 }
+                    ).addTo(map);
+                    overviewLines.push(dot);
+                }
+            });
+            if (bounds.length > 0)
+                map.fitBounds(L.latLngBounds(bounds), { padding: [20, 20], animate: false });
+        },
+        resetZoom: function () {
+            if (trajectoryLatLngs.length > 0)
+                map.fitBounds(polyline.getBounds(), { padding: [20, 20], animate: false });
         }
     };
 
@@ -764,6 +805,16 @@ function setEvents(points) {
 function setEventsVisible(visible) {
     if (currentProvider)
         currentProvider.setEventsVisible(visible);
+}
+
+function setOverview(segments) {
+    if (currentProvider)
+        currentProvider.setOverview(segments);
+}
+
+function resetZoom() {
+    if (currentProvider)
+        currentProvider.resetZoom();
 }
 
 new QWebChannel(qt.webChannelTransport, function (channel) {

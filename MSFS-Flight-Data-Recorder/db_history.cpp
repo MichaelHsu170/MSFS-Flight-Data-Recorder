@@ -23,15 +23,18 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 	// than touching the schema from this read-only path.
 	const char* stmt_txt_full =
 		"SELECT id, title, atc_airline, atc_flight_number, departure_icao, departure_name, departure_region, departure_rwy, "
-		"destination_icao, destination_name, destination_region, destination_rwy, departure_zulu_time, destination_zulu_time "
+		"destination_icao, destination_name, destination_region, destination_rwy, departure_zulu_time, destination_zulu_time, "
+		"departure_latitude, departure_longitude, destination_latitude, destination_longitude "
 		"FROM trips ORDER BY id DESC";
 	const char* stmt_txt_with_region =
 		"SELECT id, title, atc_airline, atc_flight_number, departure_icao, departure_region, departure_rwy, "
-		"destination_icao, destination_region, destination_rwy, departure_zulu_time, destination_zulu_time "
+		"destination_icao, destination_region, destination_rwy, departure_zulu_time, destination_zulu_time, "
+		"departure_latitude, departure_longitude, destination_latitude, destination_longitude "
 		"FROM trips ORDER BY id DESC";
 	const char* stmt_txt_no_region =
 		"SELECT id, title, atc_airline, atc_flight_number, departure_icao, departure_rwy, "
-		"destination_icao, destination_rwy, departure_zulu_time, destination_zulu_time "
+		"destination_icao, destination_rwy, departure_zulu_time, destination_zulu_time, "
+		"departure_latitude, departure_longitude, destination_latitude, destination_longitude "
 		"FROM trips ORDER BY id DESC";
 
 	sqlite3_stmt* stmt = nullptr;
@@ -62,6 +65,10 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 			trip.destinationRwy = columnTextOrEmpty(stmt, 11);
 			trip.departureZuluTime = columnTextOrEmpty(stmt, 12);
 			trip.destinationZuluTime = columnTextOrEmpty(stmt, 13);
+			trip.departureLat    = sqlite3_column_double(stmt, 14);
+			trip.departureLng    = sqlite3_column_double(stmt, 15);
+			trip.destinationLat  = sqlite3_column_double(stmt, 16);
+			trip.destinationLng  = sqlite3_column_double(stmt, 17);
 		} else if (hasRegion) {
 			trip.departureRegion = columnTextOrEmpty(stmt, 5);
 			trip.departureRwy = columnTextOrEmpty(stmt, 6);
@@ -70,12 +77,20 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 			trip.destinationRwy = columnTextOrEmpty(stmt, 9);
 			trip.departureZuluTime = columnTextOrEmpty(stmt, 10);
 			trip.destinationZuluTime = columnTextOrEmpty(stmt, 11);
+			trip.departureLat    = sqlite3_column_double(stmt, 12);
+			trip.departureLng    = sqlite3_column_double(stmt, 13);
+			trip.destinationLat  = sqlite3_column_double(stmt, 14);
+			trip.destinationLng  = sqlite3_column_double(stmt, 15);
 		} else {
 			trip.departureRwy = columnTextOrEmpty(stmt, 5);
 			trip.destinationIcao = columnTextOrEmpty(stmt, 6);
 			trip.destinationRwy = columnTextOrEmpty(stmt, 7);
 			trip.departureZuluTime = columnTextOrEmpty(stmt, 8);
 			trip.destinationZuluTime = columnTextOrEmpty(stmt, 9);
+			trip.departureLat    = sqlite3_column_double(stmt, 10);
+			trip.departureLng    = sqlite3_column_double(stmt, 11);
+			trip.destinationLat  = sqlite3_column_double(stmt, 12);
+			trip.destinationLng  = sqlite3_column_double(stmt, 13);
 		}
 
 		if (trip.id == liveTripId)

@@ -205,8 +205,12 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 }
 
 void DataTablePanel::showEmpty() {
+	QHeaderView* vh = table_->verticalHeader();
+	vh->setSectionResizeMode(QHeaderView::Fixed);
 	for (int row = 0; row < rowLabels_.size(); ++row) {
 		table_->item(row, 1)->setText(QString());
 		table_->item(row, 1)->setToolTip(QString());
 	}
+	vh->setSectionResizeMode(QHeaderView::ResizeToContents);
+	table_->resizeRowsToContents();
 }

@@ -7,6 +7,9 @@
 #include "logger.h"
 #include <QSplitter>
 #include <QVBoxLayout>
+#include <QElapsedTimer>
+#include <QThreadPool>
+#include <QtConcurrent/QtConcurrentRun>
 
 TrajectoryView::TrajectoryView(QWidget* parent) : QWidget(parent) {
 	mapWidget_ = new MapWidget(this);
@@ -83,6 +86,32 @@ void TrajectoryView::onSubviewLoaded() {
 		}
 		emit renderingFinished();
 	}
+}
+
+void TrajectoryView::clearAndShowOverview(const std::vector<TripSummary>& trips) {
+	QElapsedTimer t; t.start();
+	pendingRenders_ = 0;
+	// Move the dataset out before anything else. Destroying it inline on the main
+	// thread is slow: 50k TripSamplePoints each carry a std::vector<double> rawNums,
+	// meaning 50k+ individual heap frees that visibly stall the UI on Windows.
+	// We hand it to a background task so destruction runs off the main thread.
+	auto oldDataset = std::move(dataset_);
+	currentTripId_ = -1;
+	pendingLivePoints_.clear();
+	static const TripDataset kEmpty;
+	chartsPanel_->setDataset(kEmpty);
+	Logger::logf(Logger::Profile, "TrajView", "clearAndShowOverview: chartsPanel done %lld ms", t.nsecsElapsed() / 1000000);
+	dataTablePanel_->setDataset(nullptr);
+	Logger::logf(Logger::Profile, "TrajView", "clearAndShowOverview: dataTable done %lld ms", t.nsecsElapsed() / 1000000);
+	mapWidget_->showOverview(trips);
+	Logger::logf(Logger::Profile, "TrajView", "clearAndShowOverview: complete %lld ms total", t.nsecsElapsed() / 1000000);
+	if (oldDataset)
+		QThreadPool::globalInstance()->start([d = std::move(oldDataset)]() mutable {});
+}
+
+void TrajectoryView::resetZoom() {
+	mapWidget_->resetZoom();
+	chartsPanel_->setVisibleRange(-1, -1);
 }
 
 void TrajectoryView::appendLivePoint(const TripSamplePoint& point) {

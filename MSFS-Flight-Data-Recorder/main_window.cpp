@@ -55,6 +55,13 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 	mainSplitter->setCollapsible(1, false);
 	setCentralWidget(mainSplitter);
 
-	connect(tripHistoryPanel_, &TripHistoryPanel::tripDatasetReady, trajectoryView_, &TrajectoryView::setDataset);
+	connect(tripHistoryPanel_, &TripHistoryPanel::tripDatasetReady,  trajectoryView_, &TrajectoryView::setDataset);
+	connect(tripHistoryPanel_, &TripHistoryPanel::tripDeselected,   trajectoryView_, &TrajectoryView::clearAndShowOverview);
+	connect(tripHistoryPanel_, &TripHistoryPanel::zoomResetRequested, trajectoryView_, &TrajectoryView::resetZoom);
 	connect(trajectoryView_, &TrajectoryView::renderingFinished, tripHistoryPanel_, &TripHistoryPanel::setLoadingFinished);
+
+	// Show departure→destination arcs for all trips on the initial map load.
+	// The WebEngine page isn't ready yet at this point; MapWidget stores the
+	// trips and re-sends them when onLoadFinished fires via refreshProvider.
+	tripHistoryPanel_->showInitialOverview();
 }
