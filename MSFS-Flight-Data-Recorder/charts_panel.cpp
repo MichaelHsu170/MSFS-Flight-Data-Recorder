@@ -180,10 +180,9 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	// Empty dataset (Deselect / overview mode): make charts appear empty by
 	// resetting the X axis to a 1-second window at current time. The stale
 	// series points are left in memory but become invisible outside the axis
-	// range. Deliberately avoids QLineSeries::clear() on a populated series —
-	// that call blocks the main thread on a Qt Graphs render-thread sync,
-	// causing the same freeze as the problem we're fixing. The next trip load
-	// will replace the stale points via s->replace() with no intermediate clear.
+	// range. Avoids QLineSeries::clear() here because clear() on a populated
+	// series blocks the main thread on a Qt Graphs render-thread sync. The next
+	// trip load replaces stale points via s->replace() with no intermediate clear.
 	if (dataset.points.empty()) {
 		pointTimesMs_.clear();
 		pointCount_ = 0;

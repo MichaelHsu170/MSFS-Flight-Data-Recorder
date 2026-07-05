@@ -123,7 +123,7 @@
 <div id="map"></div>
 <script>
 // OSM/Leaflet map. currentProvider exposes: setTrajectory(points),
-// appendPoint(p), appendPoints(pts), setCursorIndex(index),
+// appendPoints(pts), setCursorIndex(index),
 // setTouchdowns(points), setEvents(points), setEventsVisible(visible).
 var currentProvider = null;
 var mapBridge = null;
@@ -639,13 +639,6 @@ function initLeafletProvider() {
                 marker.setLatLng(trajectoryLatLngs[0]);
             }
         },
-        appendPoint: function (p) {
-            origIndices.push(origIndices.length);
-            trajectoryLatLngs.push([p.lat, p.lng]);
-            polyline.addLatLng([p.lat, p.lng]);
-            if (marker !== null)
-                marker.setLatLng([p.lat, p.lng]);
-        },
         appendPoints: function (pts) {
             pts.forEach(function (p) {
                 origIndices.push(origIndices.length);
@@ -775,11 +768,6 @@ function initLeafletProvider() {
 function setTrajectory(points) {
     if (currentProvider)
         currentProvider.setTrajectory(points);
-}
-
-function appendPoint(p) {
-    if (currentProvider)
-        currentProvider.appendPoint(p);
 }
 
 function appendPoints(pts) {

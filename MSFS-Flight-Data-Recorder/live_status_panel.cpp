@@ -17,7 +17,7 @@ constexpr int kDotDiameter = 16;
 // etc.): even "text presentation" code points fall back to Windows' color
 // emoji font when the UI font lacks the glyph, and that font ignores
 // QLabel's stylesheet/text color entirely -- painting the pixmap ourselves
-// guarantees a strict grey/black result on every platform.
+// guarantees a strict green/red result on every platform.
 QPixmap dotPixmap(bool active) {
 	QPixmap pixmap(kDotDiameter, kDotDiameter);
 	pixmap.fill(Qt::transparent);

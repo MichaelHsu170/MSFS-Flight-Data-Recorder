@@ -1,10 +1,8 @@
 #pragma once
 
-#include <algorithm>
 #include <iostream>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 #include <Windows.h>
 #include "sqlite3.h"
@@ -234,7 +232,6 @@ public:
 struct RUNWAY_OPERATION {
 	int index = -1;
 	bool is_primary = TRUE;
-	double diff_bearing_pos = 0;
 	double diff_bearing_tra = 0;
 	double distances[2];
 	double distances_percent[2];
@@ -268,7 +265,6 @@ public:
 		runways = NULL;
 		runway_act.index = -1;
 		runway_act.is_primary = TRUE;
-		runway_act.diff_bearing_pos = 0;
 		runway_act.diff_bearing_tra = 0;
 		for (int i = 0; i < (int)(sizeof(runway_act.distances) / sizeof(double)); i++)
 			runway_act.distances[i] = -1;

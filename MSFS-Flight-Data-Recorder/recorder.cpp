@@ -110,13 +110,6 @@ static const char* EVENT_ID_TXT[] = {
 	"TOGGLE_AVIONICS_MASTER"
 };
 
-std::string trim(const std::string& source) {
-	std::string s(source);
-	s.erase(0, s.find_first_not_of(" \n\r\t"));
-	s.erase(s.find_last_not_of(" \n\r\t") + 1);
-	return s;
-}
-
 void add_flight_definition(HANDLE hSimConnect) {
 	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT AIRSPEED HOLD", "Bool");
 	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "AUTOPILOT AIRSPEED HOLD VAR", "Knots");
@@ -544,29 +537,6 @@ void add_client_events(HANDLE hSimConnect) {
 	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_WINDSHIELD_DEICE_ON);
 	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_WINDSHIELD_DEICE_TOGGLE);
 	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_TOGGLE_AVIONICS_MASTER);
-}
-
-void displayTouchdownData(struct TOUCHDOWN_DATA* tmp) {
-	printf("********************************************************************************************************************************************\n");
-	printf("speed | v-speed | g-force |  pitch |  bank | heading |       coordinate       |    dis_len   |   dis_wid   |           time local\n");
-	printf("knots |  ft/min |         |    deg |   deg |   deg   |                        |   ft  |    %% |   ft |    %% |\n");
-	printf("--------------------------------------------------------------------------------------------------------------------------------------------\n");
-	printf("  %3d |   %4d  |   %+2.1f  |  %+5.1f | %+5.1f |   %03d   | %s, %s | %5.0f | %4.0f | %4.0f | %4.0f | %s\n",
-		tmp->flight_data.speed,
-		tmp->flight_data.vertical_speed,
-		tmp->flight_data.g_force,
-		tmp->flight_data.pitch,
-		tmp->flight_data.bank,
-		tmp->flight_data.heading,
-		tmp->flight_data.coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
-		tmp->flight_data.coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
-		tmp->airport.runway_act.distances[0] < 0 ? -1 : tmp->airport.runway_act.distances[0],
-		tmp->airport.runway_act.distances_percent[0] * 100,
-		tmp->airport.runway_act.distances[1],
-		tmp->airport.runway_act.distances_percent[1] * 100,
-		tmp->flight_data.time_local.format_date_time().c_str()
-	);
-	printf("********************************************************************************************************************************************\n");
 }
 
 void stop_recording(struct STATUS* status) {
@@ -1009,8 +979,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					tmp = tmp->next;
 				if (tmp != NULL) {
 					tmp->airport.runway_act.distances[0] = -2;
-					displayTouchdownData(tmp);
-					// trip_touchdowns row already has NULL airport fields from the immediate
+						// trip_touchdowns row already has NULL airport fields from the immediate
 					// INSERT at touchdown; no further DB update needed for this path.
 					gui_notify_trip_updated(status);
 				}
@@ -1088,10 +1057,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					index = 1;
 				}
 
-				double bearing_pos = status->data.coordinate.bearing2Coordinate(rwy->start_points[1 - index]);
-				candidate.diff_bearing_pos = abs(bearing_pos - heading);
-				if (candidate.diff_bearing_pos > 180)
-					candidate.diff_bearing_pos = 360 - candidate.diff_bearing_pos;
 				candidate.diff_bearing_tra = abs(bearing_tra - heading);
 				if (candidate.diff_bearing_tra > 180)
 					candidate.diff_bearing_tra = 360 - candidate.diff_bearing_tra;
@@ -1164,8 +1129,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					tmp = tmp->next;
 				if (tmp != NULL) {
 					tmp->airport.copy(rep);
-					displayTouchdownData(tmp);
-					// Update trip_touchdowns with the resolved airport/runway/distance data.
+						// Update trip_touchdowns with the resolved airport/runway/distance data.
 					db_insert_update_table(status->sql,
 						"UPDATE trip_touchdowns SET icao=?,airport_name=?,runway=?,"
 						"distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
@@ -1234,8 +1198,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				if (tmp != NULL) {
 					memcpy(tmp->airport.icao, rep->icao, sizeof(rep->icao));
 					tmp->airport.runway_act.distances[0] = -2;
-					displayTouchdownData(tmp);
-					// Airport found but no matching runway; update trip_touchdowns with
+						// Airport found but no matching runway; update trip_touchdowns with
 					// the ICAO/name only (runway and distances stay NULL).
 					db_insert_update_table(status->sql,
 						"UPDATE trip_touchdowns SET icao=?,airport_name=? WHERE id=?;",
