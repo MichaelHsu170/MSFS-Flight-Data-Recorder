@@ -260,7 +260,7 @@ Item {
                     anchors.fill: parent
                     axisX: SyncedXAxis {}
                     theme: chartTheme
-                    axisY: ValueAxis { min: 0; max: 45000; labelFormat: "%.0f"; titleText: "Altitude (ft)"; titleVisible: true }
+                    axisY: ValueAxis { objectName: "altYAxis"; min: 0; max: 45000; labelFormat: "%.0f"; titleText: "Altitude (ft)"; titleVisible: true }
                     LineSeries { objectName: "altitudeSeries"; name: "Altitude"; color: "#2ca02c" }
                 }
                 CursorLine { graphsView: chart4 }
