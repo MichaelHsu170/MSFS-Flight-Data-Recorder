@@ -1,8 +1,10 @@
 # MSFS Flight Data Recorder
 
-A Qt desktop application for Microsoft Flight Simulator 2024 that records telemetry, cockpit events, and landing data to a local SQLite database and visualises them on an interactive map with synchronised timeline charts. Hovering over any chart shows a tooltip with the values of all curves in that chart at the cursor's time position.
+A Qt desktop application for Microsoft Flight Simulator 2024 that records telemetry, cockpit events, and landing data to a local SQLite database and visualises them on an interactive map with synchronised timeline charts. When no trip is selected the map shows all recorded routes as blue departure-to-destination line segments. Hovering over any chart shows a tooltip with the values of all curves in that chart at the cursor's time position.
 
-![Trajectory view](imgs/Screenshot%202026-07-04%20062158.jpg)
+![Trajectory view — Fenix A320 circuit around Toulouse (LFBO) with the full-flight N1/N2 and vertical-speed charts below and a hover tooltip showing engine values at the cursor position](imgs/Screenshot%202026-07-05%20195501.png)
+
+![Overview map — three recorded routes (Toulouse → Reykjavik → Edinburgh → London Heathrow) shown as blue departure-to-destination line segments on a zoomed-out world map when no trip is selected](imgs/Screenshot%202026-07-06%20062215.png)
 
 ![Touchdown AI analysis](imgs/Screen%20Recording%202026-07-04%20094211.gif)
 
