@@ -96,13 +96,16 @@ private:
 		// Driver axis -- C++ calls setMin/setMax here; per-chart axes bind to it.
 		QDateTimeAxis* xAxis = nullptr;
 		QValueAxis* speedYAxis = nullptr;
-		QValueAxis* fuelYAxis = nullptr;
+		QValueAxis* altYAxis   = nullptr;
+		QValueAxis* fuelYAxis  = nullptr;
 		bool valid = false;
 	} cache_;
 
 	// Running Y-axis maximums for the live append path -- updated whenever an
 	// incoming point exceeds the current axis max (reset by setDataset).
+	// Also used by setVisibleRange to restore full-range maxima on zoom-out.
 	double liveSpeedMax_ = 0.0;
+	double liveAltMax_   = 0.0;
 	double liveFuelMax_  = 0.0;
 
 	// Cached local-UTC offset used by epochMillisFor to avoid per-call timezone

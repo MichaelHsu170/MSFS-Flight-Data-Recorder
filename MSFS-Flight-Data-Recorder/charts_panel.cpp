@@ -63,12 +63,20 @@ QValueAxis* findYAxis(QQuickItem* root, const char* objectName) {
 	return root->findChild<QValueAxis*>(QString::fromLatin1(objectName));
 }
 
-// Round value up to the nearest multiple of step with 10% headroom.
-// Returns the default fallback if value <= 0.
-static double yAxisMax(double value, double step, double fallback) {
+// Compute a Y axis max for value: apply 25% headroom, then round up to the
+// nearest "nice" step (1/2/5 × power-of-10) sized to give ~5 grid intervals.
+static double yAxisMax(double value) {
 	if (value <= 0.0)
-		return fallback;
-	return qCeil(value * 1.25 / step) * step;
+		return 1.0;
+	double target  = value * 1.25;
+	double rawStep = target / 5.0;
+	double mag     = qPow(10.0, qFloor(qLn(rawStep) / qLn(10.0)));
+	double norm    = rawStep / mag;
+	double step    = (norm <= 1.0) ? mag
+	               : (norm <= 2.0) ? 2.0 * mag
+	               : (norm <= 5.0) ? 5.0 * mag
+	               :                 10.0 * mag;
+	return qCeil(target / step) * step;
 }
 
 // Lightweight copy of one TripSamplePoint carrying only the fields the chart
@@ -95,6 +103,7 @@ struct ChartSeriesData {
 	QDateTime axisLo;
 	QDateTime axisHi;
 	double speedYMax = 0.0;
+	double altYMax   = 0.0;
 	double fuelYMax  = 0.0;
 	qint64 computeNs = 0;
 	QList<QPointF> n1_1, n1_2, n2_1, n2_2;
@@ -147,6 +156,7 @@ void ChartsPanel::buildSeriesCache() {
 	cache_.fuelWeight    = findSeries(root, "fuelWeightSeries");
 	cache_.xAxis         = findXAxis(root, "sharedXAxis");
 	cache_.speedYAxis    = findYAxis(root, "speedYAxis");
+	cache_.altYAxis      = findYAxis(root, "altYAxis");
 	cache_.fuelYAxis     = findYAxis(root, "fuelYAxis");
 	cache_.valid         = (cache_.n1_1 != nullptr);
 }
@@ -154,6 +164,7 @@ void ChartsPanel::buildSeriesCache() {
 void ChartsPanel::setDataset(const TripDataset& dataset) {
 	++datasetVersion_;
 	liveSpeedMax_   = 0.0;
+	liveAltMax_     = 0.0;
 	liveFuelMax_    = 0.0;
 	localOffsetMs_  = (qint64)QDateTime::currentDateTime().offsetFromUtc() * 1000LL;
 	full_.ready      = false;
@@ -244,10 +255,13 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 			xAxis->setMax(data.axisHi);
 		}
 		if (QValueAxis* ax = findYAxis(root, "speedYAxis"))
-			ax->setMax(yAxisMax(data.speedYMax, 50.0, 400.0));
+			ax->setMax(yAxisMax(data.speedYMax));
+		if (QValueAxis* ax = findYAxis(root, "altYAxis"))
+			ax->setMax(yAxisMax(data.altYMax));
 		if (QValueAxis* ax = findYAxis(root, "fuelYAxis"))
-			ax->setMax(yAxisMax(data.fuelYMax, 1000.0, 30000.0));
+			ax->setMax(yAxisMax(data.fuelYMax));
 		liveSpeedMax_ = data.speedYMax;
+		liveAltMax_   = data.altYMax;
 		liveFuelMax_  = data.fuelYMax;
 		root->setProperty("isFullRangeVisible", true);
 
@@ -364,6 +378,8 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 			double spd = qMax((double)p.airspeed, (double)p.groundSpeed);
 			if (spd > data.speedYMax)
 				data.speedYMax = spd;
+			if (p.altitude > data.altYMax)
+				data.altYMax = p.altitude;
 			if (p.fuelTotalQuantityWeight > data.fuelYMax)
 				data.fuelYMax = p.fuelTotalQuantityWeight;
 		}
@@ -403,12 +419,17 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 	if (spd > liveSpeedMax_) {
 		liveSpeedMax_ = spd;
 		if (cache_.speedYAxis)
-			cache_.speedYAxis->setMax(yAxisMax(liveSpeedMax_, 50.0, 400.0));
+			cache_.speedYAxis->setMax(yAxisMax(liveSpeedMax_));
+	}
+	if (point.altitude > liveAltMax_) {
+		liveAltMax_ = point.altitude;
+		if (cache_.altYAxis)
+			cache_.altYAxis->setMax(yAxisMax(liveAltMax_));
 	}
 	if (point.fuelTotalQuantityWeight > liveFuelMax_) {
 		liveFuelMax_ = point.fuelTotalQuantityWeight;
 		if (cache_.fuelYAxis)
-			cache_.fuelYAxis->setMax(yAxisMax(liveFuelMax_, 1000.0, 30000.0));
+			cache_.fuelYAxis->setMax(yAxisMax(liveFuelMax_));
 	}
 
 	cache_.n1_1->append(t, point.n1_1);
@@ -457,6 +478,12 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 		cache_.xAxis->setMin(lo);
 		cache_.xAxis->setMax(hi);
 		root->setProperty("isFullRangeVisible", true);
+		if (cache_.speedYAxis)
+			cache_.speedYAxis->setMax(yAxisMax(liveSpeedMax_));
+		if (cache_.altYAxis)
+			cache_.altYAxis->setMax(yAxisMax(liveAltMax_));
+		if (cache_.fuelYAxis)
+			cache_.fuelYAxis->setMax(yAxisMax(liveFuelMax_));
 
 		// Reload the decimated view so Qt Graphs renders ~kDisplayPoints points
 		// instead of the full-resolution zoomed slice that was previously loaded.
@@ -503,6 +530,22 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 		cache_.xAxis->setMin(QDateTime::fromMSecsSinceEpoch((qint64)loMs));
 		cache_.xAxis->setMax(QDateTime::fromMSecsSinceEpoch((qint64)hiMs));
 		root->setProperty("isFullRangeVisible", false);
+
+		if (full_.ready) {
+			double speedMax = 0.0, altMax = 0.0, fuelMax = 0.0;
+			for (int i = lo; i <= hi; ++i) {
+				if (i < full_.airspeed.size())   speedMax = qMax(speedMax, full_.airspeed[i].y());
+				if (i < full_.groundSpeed.size()) speedMax = qMax(speedMax, full_.groundSpeed[i].y());
+				if (i < full_.altitude.size())    altMax   = qMax(altMax,   full_.altitude[i].y());
+				if (i < full_.fuelWeight.size())  fuelMax  = qMax(fuelMax,  full_.fuelWeight[i].y());
+			}
+			if (cache_.speedYAxis)
+				cache_.speedYAxis->setMax(yAxisMax(speedMax));
+			if (cache_.altYAxis)
+				cache_.altYAxis->setMax(yAxisMax(altMax));
+			if (cache_.fuelYAxis)
+				cache_.fuelYAxis->setMax(yAxisMax(fuelMax));
+		}
 
 		// Load a decimated view of the visible slice — same kDisplayPoints cap
 		// as the full-range view. A large but partial viewport (half the flight)
