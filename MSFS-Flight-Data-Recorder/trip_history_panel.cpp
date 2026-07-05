@@ -201,6 +201,10 @@ void TripHistoryPanel::refreshTrips() {
 	model_->setTrips(queryAllTrips(sql, bridge_.currentTripId()));
 }
 
+void TripHistoryPanel::showInitialOverview() {
+	emit tripDeselected(model_->trips());
+}
+
 void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	// Block re-entrant loads: the table itself is disabled below for the same
 	// reason (belt and suspenders against a queued click slipping through).
@@ -285,6 +289,7 @@ void TripHistoryPanel::tryFinishLoad() {
 		}
 	}
 
+	selectedTripId_ = pendingTripId_;
 	// Keep loading_ = true and table disabled until TrajectoryView signals that
 	// both the chart series and map trajectory workers have finished rendering.
 	// setLoadingFinished() (connected via MainWindow) clears that state.
@@ -302,46 +307,73 @@ void TripHistoryPanel::setLoadingFinished() {
 void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	if (loading_)
 		return;
-	QModelIndex index = table_->indexAt(pos);
-	if (!index.isValid())
-		return;
-	const TripSummary* trip = model_->tripAt(index.row());
-	if (!trip || trip->status == TripStatus::Live)
-		return;
 
 	QMenu menu(this);
-	QAction* deleteAction = menu.addAction(QStringLiteral("Delete Trip"));
-	if (menu.exec(table_->viewport()->mapToGlobal(pos)) != deleteAction)
-		return;
 
-	int tripId = trip->id;
-	QString displayName = trip->title.isEmpty()
-		? QStringLiteral("Trip #%1").arg(tripId)
-		: trip->title;
-
-	QMessageBox confirm(this);
-	confirm.setWindowTitle(QStringLiteral("Delete Trip"));
-	confirm.setText(QStringLiteral("Delete \"%1\"?").arg(displayName));
-	confirm.setInformativeText(QStringLiteral("All flight data for this trip will be permanently deleted."));
-	confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
-	confirm.setDefaultButton(QMessageBox::Cancel);
-	confirm.setIcon(QMessageBox::Warning);
-	if (confirm.exec() != QMessageBox::Yes)
-		return;
-
-	sqlite3* sql = connect_db_readwrite();
-	if (!sql) {
-		QMessageBox::critical(this, QStringLiteral("Error"),
-			QStringLiteral("Could not open the database for writing."));
-		return;
+	// Global actions first — available when any trip is currently loaded.
+	QAction* deselectAction = nullptr;
+	QAction* resetZoomAction = nullptr;
+	if (selectedTripId_ != -1) {
+		deselectAction  = menu.addAction(QStringLiteral("Deselect"));
+		resetZoomAction = menu.addAction(QStringLiteral("Reset Zoom"));
 	}
-	bool ok = deleteTripData(sql, tripId);
-	sqlite3_close(sql);
 
-	if (!ok) {
-		QMessageBox::critical(this, QStringLiteral("Error"),
-			QStringLiteral("Failed to delete trip data."));
-		return;
+	// Row-specific "Delete Trip" at the bottom — only for the right-clicked, non-Live row.
+	QAction* deleteAction = nullptr;
+	int deleteId = -1;
+	QString deleteName;
+	QModelIndex index = table_->indexAt(pos);
+	if (index.isValid()) {
+		const TripSummary* trip = model_->tripAt(index.row());
+		if (trip && trip->status != TripStatus::Live) {
+			if (!menu.isEmpty())
+				menu.addSeparator();
+			deleteAction = menu.addAction(QStringLiteral("Delete Trip"));
+			deleteId = trip->id;
+			deleteName = trip->title.isEmpty()
+				? QStringLiteral("Trip #%1").arg(trip->id)
+				: trip->title;
+		}
 	}
-	refreshTrips();
+
+	if (menu.isEmpty())
+		return;
+
+	QAction* chosen = menu.exec(table_->viewport()->mapToGlobal(pos));
+	if (!chosen)
+		return;
+
+	if (chosen == deleteAction) {
+		QMessageBox confirm(this);
+		confirm.setWindowTitle(QStringLiteral("Delete Trip"));
+		confirm.setText(QStringLiteral("Delete \"%1\"?").arg(deleteName));
+		confirm.setInformativeText(QStringLiteral("All flight data for this trip will be permanently deleted."));
+		confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+		confirm.setDefaultButton(QMessageBox::Cancel);
+		confirm.setIcon(QMessageBox::Warning);
+		if (confirm.exec() != QMessageBox::Yes)
+			return;
+		sqlite3* sql = connect_db_readwrite();
+		if (!sql) {
+			QMessageBox::critical(this, QStringLiteral("Error"),
+				QStringLiteral("Could not open the database for writing."));
+			return;
+		}
+		bool ok = deleteTripData(sql, deleteId);
+		sqlite3_close(sql);
+		if (!ok) {
+			QMessageBox::critical(this, QStringLiteral("Error"),
+				QStringLiteral("Failed to delete trip data."));
+			return;
+		}
+		if (deleteId == selectedTripId_)
+			selectedTripId_ = -1;
+		refreshTrips();
+	} else if (chosen == deselectAction) {
+		table_->clearSelection();
+		selectedTripId_ = -1;
+		emit tripDeselected(model_->trips());
+	} else if (chosen == resetZoomAction) {
+		emit zoomResetRequested();
+	}
 }

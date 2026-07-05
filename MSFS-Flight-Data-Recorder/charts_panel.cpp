@@ -152,6 +152,7 @@ void ChartsPanel::buildSeriesCache() {
 }
 
 void ChartsPanel::setDataset(const TripDataset& dataset) {
+	++datasetVersion_;
 	liveSpeedMax_   = 0.0;
 	liveFuelMax_    = 0.0;
 	localOffsetMs_  = (qint64)QDateTime::currentDateTime().offsetFromUtc() * 1000LL;
@@ -161,6 +162,27 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 
 	QQuickItem* root = view_->rootObject();
 	if (root == nullptr) {
+		emit seriesLoaded();
+		return;
+	}
+
+	// Empty dataset (Deselect / overview mode): make charts appear empty by
+	// resetting the X axis to a 1-second window at current time. The stale
+	// series points are left in memory but become invisible outside the axis
+	// range. Deliberately avoids QLineSeries::clear() on a populated series —
+	// that call blocks the main thread on a Qt Graphs render-thread sync,
+	// causing the same freeze as the problem we're fixing. The next trip load
+	// will replace the stale points via s->replace() with no intermediate clear.
+	if (dataset.points.empty()) {
+		pointTimesMs_.clear();
+		pointCount_ = 0;
+		full_.ready = false;
+		buildSeriesCache();
+		if (cache_.xAxis) {
+			QDateTime now = QDateTime::currentDateTimeUtc();
+			cache_.xAxis->setMin(now);
+			cache_.xAxis->setMax(now.addSecs(1));
+		}
 		emit seriesLoaded();
 		return;
 	}
@@ -194,12 +216,17 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	}
 	Logger::logf(Logger::Profile, "Charts", "copy: %lld ms  (%zu pts)", copyTimer.nsecsElapsed() / 1000000, points.size());
 
+	int ver = datasetVersion_;
 	auto* watcher = new QFutureWatcher<ChartSeriesData>(this);
-	connect(watcher, &QFutureWatcher<ChartSeriesData>::finished, this, [this, watcher]() {
+	connect(watcher, &QFutureWatcher<ChartSeriesData>::finished, this, [this, watcher, ver]() {
+		Logger::logf(Logger::Profile, "Charts", "finished lambda: ver=%d cur=%d", ver, datasetVersion_);
+		watcher->deleteLater();
+		// A newer setDataset call superseded this one — discard stale results
+		// rather than writing old trip data into series that were already cleared.
+		if (ver != datasetVersion_) return;
 		// Non-const so we can std::move the QList members into full_ below,
 		// avoiding a second 15 MB copy into the QLineSeries objects.
 		ChartSeriesData data = watcher->result();
-		watcher->deleteLater();
 		Logger::logf(Logger::Profile, "Charts", "compute (bg): %lld ms", data.computeNs / 1000000);
 
 		QElapsedTimer applyTimer; applyTimer.start();
@@ -251,16 +278,18 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		// Load a decimated view into each series. Qt Graphs renders every
 		// loaded QPointF per frame; keeping this to ~kDisplayPoints points
 		// makes the initial paint and subsequent zoom-out fast.
+		// replace() atomically swaps all points in one scene-graph notification
+		// instead of clear()+append() which sends two and causes the main thread
+		// to block on a render-thread sync for each call on a populated series.
 		buildSeriesCache();
 		auto loadDec = [&](QLineSeries* s, const QList<QPointF>& full) {
 			if (!s) return;
-			s->clear();
-			if (displayStride_ <= 1) { s->append(full); return; }
+			if (displayStride_ <= 1) { s->replace(full); return; }
 			QList<QPointF> dec;
 			dec.reserve(full.size() / displayStride_ + 1);
 			for (int i = 0; i < full.size(); i += displayStride_)
 				dec.append(full[i]);
-			s->append(dec);
+			s->replace(dec);
 		};
 
 		loadDec(cache_.n1_1,          full_.n1_1);

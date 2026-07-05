@@ -134,6 +134,8 @@ void MapWidget::resizeEvent(QResizeEvent* event) {
 }
 
 void MapWidget::setDataset(const TripDataset& dataset) {
+	++datasetVersion_;
+	inOverviewMode_ = false;
 	mapGenTimer_.start();
 	liveUpdateTimer_->stop();
 	pendingLiveCoords_.clear();
@@ -160,6 +162,40 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 		// ready. Signal immediately so TrajectoryView's pending counter doesn't stall.
 		emit trajectoryLoaded();
 	}
+}
+
+void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
+	QElapsedTimer t; t.start();
+	++datasetVersion_;
+	inOverviewMode_ = true;
+	overviewTrips_ = trips;
+	liveUpdateTimer_->stop();
+	pendingLiveCoords_.clear();
+	trajCoords_.clear();
+	touchdowns_.clear();
+	events_.clear();
+	Logger::logf(Logger::Profile, "Map", "showOverview: cleared vectors: %lld µs", t.nsecsElapsed() / 1000);
+	if (!pageReady_)
+		return;
+	QJsonArray segments;
+	for (const TripSummary& t2 : trips) {
+		QJsonObject seg;
+		seg[QStringLiteral("fromLat")] = t2.departureLat;
+		seg[QStringLiteral("fromLng")] = t2.departureLng;
+		seg[QStringLiteral("toLat")]   = t2.destinationLat;
+		seg[QStringLiteral("toLng")]   = t2.destinationLng;
+		segments.append(seg);
+	}
+	Logger::logf(Logger::Profile, "Map", "showOverview: JSON built: %lld µs", t.nsecsElapsed() / 1000);
+	QString js = QStringLiteral("setOverview(%1);")
+		.arg(QString::fromUtf8(QJsonDocument(segments).toJson(QJsonDocument::Compact)));
+	runJs(js);
+	Logger::logf(Logger::Profile, "Map", "showOverview: runJs done: %lld µs", t.nsecsElapsed() / 1000);
+}
+
+void MapWidget::resetZoom() {
+	if (pageReady_)
+		runJs(QStringLiteral("resetZoom();"));
 }
 
 void MapWidget::appendLivePoint(const TripSamplePoint& point) {
@@ -213,8 +249,12 @@ void MapWidget::refreshProvider() {
 	liveUpdateTimer_->stop();
 	pendingLiveCoords_.clear();
 	runJs(QStringLiteral("initProvider();"));
-	pushTrajectory();
-	pushTouchdownsAndEvents();
+	if (inOverviewMode_)
+		showOverview(overviewTrips_);
+	else {
+		pushTrajectory();
+		pushTouchdownsAndEvents();
+	}
 }
 
 void MapWidget::setEventsVisible(bool visible) {
@@ -230,12 +270,14 @@ void MapWidget::pushTrajectory() {
 	// last point exactly. Each JSON point carries its original sample index (idx)
 	// so the JS side can report correct indices back to C++ for cursor and range.
 	std::vector<std::pair<double,double>> coords = trajCoords_;
+	int ver = datasetVersion_;
 	auto* watcher = new QFutureWatcher<QString>(this);
-	connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher]() {
+	connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, ver]() {
+		watcher->deleteLater();
+		if (ver != datasetVersion_) return;  // showOverview() superseded this setDataset
 		QElapsedTimer t; t.start();
 		runJs(watcher->result());
 		Logger::logf(Logger::Profile, "Map", "runJs trajectory: %lld µs  (async — JS render time not captured)", t.nsecsElapsed() / 1000);
-		watcher->deleteLater();
 		emit trajectoryLoaded();
 	});
 	watcher->setFuture(QtConcurrent::run([coords = std::move(coords)]() {
@@ -267,12 +309,14 @@ void MapWidget::pushTrajectory() {
 }
 
 void MapWidget::pushTouchdownsAndEvents() {
+	int ver = datasetVersion_;
 	auto* touchdownWatcher = new QFutureWatcher<QString>(this);
-	connect(touchdownWatcher, &QFutureWatcher<QString>::finished, this, [this, touchdownWatcher]() {
+	connect(touchdownWatcher, &QFutureWatcher<QString>::finished, this, [this, touchdownWatcher, ver]() {
+		touchdownWatcher->deleteLater();
+		if (ver != datasetVersion_) return;
 		QElapsedTimer t; t.start();
 		runJs(touchdownWatcher->result());
 		Logger::logf(Logger::Profile, "Map", "runJs touchdowns: %lld µs", t.nsecsElapsed() / 1000);
-		touchdownWatcher->deleteLater();
 	});
 	touchdownWatcher->setFuture(QtConcurrent::run([touchdowns = touchdowns_]() {
 		QElapsedTimer t; t.start();
@@ -285,11 +329,12 @@ void MapWidget::pushTouchdownsAndEvents() {
 	}));
 
 	auto* eventWatcher = new QFutureWatcher<QString>(this);
-	connect(eventWatcher, &QFutureWatcher<QString>::finished, this, [this, eventWatcher]() {
+	connect(eventWatcher, &QFutureWatcher<QString>::finished, this, [this, eventWatcher, ver]() {
+		eventWatcher->deleteLater();
+		if (ver != datasetVersion_) return;
 		QElapsedTimer t; t.start();
 		runJs(eventWatcher->result());
 		Logger::logf(Logger::Profile, "Map", "runJs events: %lld µs", t.nsecsElapsed() / 1000);
-		eventWatcher->deleteLater();
 	});
 	eventWatcher->setFuture(QtConcurrent::run([events = events_]() {
 		QElapsedTimer t; t.start();

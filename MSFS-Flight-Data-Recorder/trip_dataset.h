@@ -107,5 +107,9 @@ struct TripSummary {
 	QString destinationRwy;
 	QString departureZuluTime;
 	QString destinationZuluTime;
+	double departureLat = 0;
+	double departureLng = 0;
+	double destinationLat = 0;
+	double destinationLng = 0;
 	TripStatus status = TripStatus::Completed;
 };

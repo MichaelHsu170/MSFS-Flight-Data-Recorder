@@ -26,6 +26,12 @@ public:
 	void setDataset(const TripDataset& dataset);
 	// Live mode: append one point without re-sending the whole trajectory.
 	void appendLivePoint(const TripSamplePoint& point);
+	// Clears the trajectory and draws departure→destination line segments for
+	// every trip (the default overview shown when no trip is selected).
+	void showOverview(const std::vector<TripSummary>& trips);
+	// Refits the map to the current trajectory bounds — same view as right
+	// after a trip was loaded.
+	void resetZoom();
 	// Re-inits the Leaflet map and re-pushes the current trajectory.
 	// Called internally from onLoadFinished.
 	void refreshProvider();
@@ -68,7 +74,16 @@ private:
 	std::vector<TripEvent> events_;
 	// Buffered lat/lng pairs waiting for the next liveUpdateTimer_ flush.
 	std::vector<std::pair<double, double>> pendingLiveCoords_;
+	// Stored by showOverview so refreshProvider can re-send them when the
+	// WebEngine page finishes loading (the page may not be ready yet on the
+	// first showOverview call at startup).
+	std::vector<TripSummary> overviewTrips_;
+	bool inOverviewMode_ = true;  // start in overview mode; cleared by setDataset
 	QString aircraftTitle_;
 	bool pageReady_ = false;
 	QElapsedTimer mapGenTimer_;
+	// Incremented by setDataset and showOverview to invalidate any in-flight
+	// pushTrajectory / pushTouchdownsAndEvents workers so their finished lambdas
+	// don't call setTrajectory() / setTouchdowns() after showOverview() was issued.
+	int datasetVersion_ = 0;
 };
