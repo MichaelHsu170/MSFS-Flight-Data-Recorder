@@ -8,7 +8,6 @@
 #include "sqlite3.h"
 
 #define Q_DB_LENGTH 200
-#define DB_SAMPLING_INTERVAL 0.3
 #define DATABASE_NAME "flight_data"
 #define V_PI 3.14159265358979323846
 #define M_2_FT 3.2808399
@@ -314,13 +313,6 @@ struct TOUCHDOWN_DATA {
 	struct TOUCHDOWN_DATA* next = NULL;
 };
 
-struct EVENT_DB {
-	char event[32];
-	DATETIME time_zulu;
-	DATETIME time_local;
-	struct EVENT_DB* next;
-};
-
 // Forward declaration — full definition in simconnect_defs.h
 struct FLIGHT_DATA_RECORD;
 
@@ -335,11 +327,10 @@ struct STATUS {
 	struct FLIGHT_DATA_RECORD* q_data_end = NULL;
 	struct FLIGHT_DATA_RECORD* q_data_last = NULL;
 	int q_data_db_length = 0;
-	struct EVENT_DB* q_event_start = NULL;
-	struct EVENT_DB* q_event_end = NULL;
 	HANDLE hSimConnect = NULL;
 	sqlite3* sql = NULL;
 	std::mutex mutex_db_commit;
+	int sample_interval_ms = 500;
 	int id_trip = -1;
 	bool airborne = FALSE;
 	TOUCHDOWN_DATA* touchdown_data = NULL;

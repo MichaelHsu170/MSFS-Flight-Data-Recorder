@@ -3,6 +3,7 @@
 #include "db.h"
 #include "gui_notify.h"
 #include "logger.h"
+#include "app_settings.h"
 #include "trip_data_fields.h"
 
 #include <QTimer>
@@ -113,6 +114,7 @@ void RecorderBridge::tryConnect() {
 	add_flight_definition(status_.hSimConnect);
 
 	connect_db(&status_);
+	status_.sample_interval_ms = AppSettings::instance().sampleIntervalMs();
 
 	connected_ = true;
 	dispatchTimer_->start(15);

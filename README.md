@@ -2,9 +2,9 @@
 
 A Qt desktop application for Microsoft Flight Simulator 2024 that records telemetry, cockpit events, and landing data to a local SQLite database and visualises them on an interactive map with synchronised timeline charts. When no trip is selected the map shows all recorded routes as blue departure-to-destination line segments. Hovering over any chart shows a tooltip with the values of all curves in that chart at the cursor's time position.
 
-![Trajectory view — Fenix A320 circuit around Toulouse (LFBO) with the full-flight N1/N2 and vertical-speed charts below and a hover tooltip showing engine values at the cursor position](imgs/Screenshot%202026-07-05%20195501.png)
-
 ![Overview map — three recorded routes (Toulouse → Reykjavik → Edinburgh → London Heathrow) shown as blue departure-to-destination line segments on a zoomed-out world map when no trip is selected](imgs/Screenshot%202026-07-06%20062215.png)
+
+![Trajectory view — Fenix A320 circuit around Toulouse (LFBO) with the full-flight N1/N2 and vertical-speed charts below and a hover tooltip showing engine values at the cursor position](imgs/Screenshot%202026-07-05%20195501.png)
 
 ![Touchdown AI analysis](imgs/Screen%20Recording%202026-07-04%20094211.gif)
 
@@ -79,6 +79,31 @@ All runtime files follow the same rule: **Debug** builds use the **current worki
 The file is a standard Windows INI edited automatically by the app as the user resizes panels or changes preferences. All values are human-readable integers or comma-separated strings and can be edited by hand while the app is not running.
 
 ```ini
+[ai]
+; Gemini API key for the AI touchdown analysis feature.
+; Obtain a free key from Google AI Studio (aistudio.google.com), then paste it
+; here and restart the app. The app never writes this value.
+; Without a key the Analyze Landing button is disabled.
+gemini_api_key=
+
+[recording]
+; Maximum time between telemetry samples written to trip_data, in milliseconds.
+; Lower values produce finer trajectory and chart resolution at the cost of
+; a larger database and slower trip load times. Must be a positive integer.
+; Default: 500  (0.5 s — adequate for all aircraft types including fast jets
+; at subsonic speeds; go lower only for supersonic recording needs).
+sample_interval_ms=500
+
+[logging]
+; Maximum log level written to msfs_fdr_debug.log.
+; Levels (inclusive — each includes all levels above it):
+;   FATAL    — unrecoverable errors only
+;   WARNING  — unexpected conditions that don't abort the app
+;   INFO     — operational events (connect, recording start/stop, takeoff, touchdown)
+;   PROFILE  — performance timing for all subsystems (high-volume; for profiling only)
+; Default: INFO
+verbose=INFO
+
 [layout]
 ; Width in pixels of the Live Status panel (top-right) and Data Table panel
 ; (bottom-right). Both columns share one value so they stay aligned when
@@ -93,23 +118,6 @@ charts_panel_height=400
 ; Comma-separated list of field labels hidden in the Data Table panel via the
 ; Fields dialog. Absent or empty means all fields are visible.
 hidden_fields=
-
-[ai]
-; Gemini API key for the AI touchdown analysis feature.
-; Obtain a free key from Google AI Studio (aistudio.google.com), then paste it
-; here and restart the app. The app never writes this value.
-; Without a key the Analyze Landing button is disabled.
-gemini_api_key=
-
-[logging]
-; Maximum log level written to msfs_fdr_debug.log.
-; Levels (inclusive — each includes all levels above it):
-;   FATAL    — unrecoverable errors only
-;   WARNING  — unexpected conditions that don't abort the app
-;   INFO     — operational events (connect, recording start/stop, takeoff, touchdown)
-;   PROFILE  — performance timing for all subsystems (high-volume; for profiling only)
-; Default: INFO
-verbose=INFO
 ```
 
 ## Database
@@ -119,7 +127,7 @@ verbose=INFO
 | Table | Contents |
 |---|---|
 | `trips` | One row per flight session: departure/destination airport ICAO, runway, times, ATC callsign |
-| `trip_data` | Telemetry sampled every 0.3 s while recording: position, altitude, airspeed, engine N1/N2, gear/flaps/spoilers, fuel, autopilot state, and ~60 other variables |
+| `trip_data` | Telemetry sampled at a configurable interval (default 0.5 s) while recording: position, altitude, airspeed, engine N1/N2, gear/flaps/spoilers, fuel, autopilot state, and ~60 other variables |
 | `trip_events` | Discrete cockpit events (gear up/down, flaps, spoilers, parking brake, anti-ice, etc.) with zulu and local timestamps |
 | `trip_touchdowns` | One row per touchdown: airport, runway, airspeed, vertical speed, g-force, pitch/bank/heading, wind direction/speed, and lateral/longitudinal distance from the runway threshold and centreline |
 

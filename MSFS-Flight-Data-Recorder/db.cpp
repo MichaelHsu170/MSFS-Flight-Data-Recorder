@@ -105,6 +105,21 @@ void db_insert_update_table(
 	status->mutex_db_commit.unlock();
 }
 
+void db_insert_event(STATUS* status, const char* event, const char* time_zulu, const char* time_local) {
+	const char* args[3] = { event, time_zulu, time_local };
+	db_insert_update_table(status->sql,
+		"INSERT INTO trip_events (trip,event,time_zulu,time_local) VALUES (?,?,?,?);",
+		(void*)args, status, NULL,
+		[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+			const char** a = (const char**)data;
+			db_bind(stmt, stmt_txt, 1, status->id_trip);
+			db_bind(stmt, stmt_txt, 2, a[0]);
+			db_bind(stmt, stmt_txt, 3, a[1]);
+			db_bind(stmt, stmt_txt, 4, a[2]);
+		}
+	);
+}
+
 void db_consume(STATUS* status) {
 	while (status->q_data_db_start != NULL) {
 		struct FLIGHT_DATA_RECORD* pS = status->q_data_db_start;
@@ -527,35 +542,6 @@ void db_consume(STATUS* status) {
 		status->q_data_db_end = NULL;
 	}
 
-	int count = 0;
-	while (status->q_event_start != NULL) {
-		struct EVENT_DB* pS = status->q_event_start;
-		db_insert_update_table(
-			status->sql,
-			"INSERT INTO trip_events ("
-			"trip,"
-			"event,"
-			"time_zulu,"
-			"time_local"
-			") VALUES (?,?,?,?)",
-			pS,
-			status,
-			NULL,
-			[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-				struct EVENT_DB* pS = (struct EVENT_DB*)data;
-				db_bind(stmt, stmt_txt, 1, status->id_trip);
-				db_bind(stmt, stmt_txt, 2, pS->event);
-				db_bind(stmt, stmt_txt, 3, pS->time_zulu.format_date_time().c_str());
-				db_bind(stmt, stmt_txt, 4, pS->time_local.format_date_time().c_str());
-			}
-		);
-		status->q_event_start = status->q_event_start->next;
-		free(pS);
-		if (status->recording && ++count == Q_DB_LENGTH)
-			break;
-	}
-	if (status->q_event_start == NULL)
-		status->q_event_end = NULL;
 }
 
 static void resolve_db_path(char* fn_db, size_t len) {
