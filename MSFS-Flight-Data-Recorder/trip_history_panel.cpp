@@ -177,7 +177,13 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	// double-click ("activated") requirement felt sluggish for browsing.
 	connect(table_, &QTableView::clicked, this, &TripHistoryPanel::onRowActivated);
 	connect(&bridge_, &RecorderBridge::recordingStateChanged, this, &TripHistoryPanel::refreshTrips);
-	connect(&bridge_, &RecorderBridge::tripEnded, this, &TripHistoryPanel::refreshTrips);
+	connect(&bridge_, &RecorderBridge::tripEnded, this, [this](int) {
+		refreshTrips();
+		// If no trip is selected the overview map is visible. Re-emit tripDeselected
+		// so it picks up the new departure→destination segment immediately.
+		if (selectedTripId_ == -1)
+			emit tripDeselected(model_->trips());
+	});
 	connect(&bridge_, &RecorderBridge::tripUpdated, this, &TripHistoryPanel::refreshTrips);
 
 	table_->setContextMenuPolicy(Qt::CustomContextMenu);
