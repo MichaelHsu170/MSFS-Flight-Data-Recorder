@@ -10,6 +10,9 @@
 #include <QHeaderView>
 #include <QProgressBar>
 #include <QMenu>
+#include <QProxyStyle>
+#include <QStyleOption>
+#include <QPainter>
 #include <QMessageBox>
 #include <QtConcurrent/QtConcurrent>
 #include <QBrush>
@@ -308,7 +311,37 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	if (loading_)
 		return;
 
+	// Colours the "Delete Trip" item red by intercepting its CE_MenuItem paint
+	// call and substituting a red Text/ButtonText palette role. Uses QProxyStyle
+	// so the item keeps its normal geometry, selection highlight, and alignment.
+	struct RedDeleteStyle : QProxyStyle {
+		using QProxyStyle::QProxyStyle;
+		void drawControl(ControlElement ce, const QStyleOption* opt,
+		                 QPainter* p, const QWidget* w) const override {
+			if (ce == CE_MenuItem) {
+				if (const auto* mi = qstyleoption_cast<const QStyleOptionMenuItem*>(opt)) {
+					if (mi->text.section('\t', 0, 0) == QLatin1String("Delete Trip")) {
+						QStyleOptionMenuItem m = *mi;
+						const QColor red(0xd0, 0x30, 0x30);
+						m.palette.setColor(QPalette::Text, red);
+						m.palette.setColor(QPalette::ButtonText, red);
+						QProxyStyle::drawControl(ce, &m, p, w);
+						return;
+					}
+				}
+			}
+			QProxyStyle::drawControl(ce, opt, p, w);
+		}
+	};
+
+	// Declare before menu: local variables are destroyed in reverse order, so
+	// menu is destroyed first and never holds a dangling style pointer.
+	// Pass the style name string (not a pointer) so QProxyStyle creates its own
+	// internal base style — passing a pointer would transfer ownership and delete
+	// the app-wide QStyle when redStyle goes out of scope.
+	RedDeleteStyle redStyle(this->style()->name());
 	QMenu menu(this);
+	menu.setStyle(&redStyle);
 
 	// Global actions first — available when any trip is currently loaded.
 	QAction* deselectAction = nullptr;
@@ -322,6 +355,8 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	QAction* deleteAction = nullptr;
 	int deleteId = -1;
 	QString deleteName;
+	QString deleteFrom;
+	QString deleteTo;
 	QModelIndex index = table_->indexAt(pos);
 	if (index.isValid()) {
 		const TripSummary* trip = model_->tripAt(index.row());
@@ -333,6 +368,13 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 			deleteName = trip->title.isEmpty()
 				? QStringLiteral("Trip #%1").arg(trip->id)
 				: trip->title;
+			auto airportLabel = [](const QString& icao, const QString& name) {
+				return icao.isEmpty() ? QStringLiteral("—")
+				     : name.isEmpty() ? icao
+				     : QStringLiteral("%1 (%2)").arg(name, icao);
+			};
+			deleteFrom = airportLabel(trip->departureIcao,    trip->departureName);
+			deleteTo   = airportLabel(trip->destinationIcao,  trip->destinationName);
 		}
 	}
 
@@ -346,8 +388,10 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	if (chosen == deleteAction) {
 		QMessageBox confirm(this);
 		confirm.setWindowTitle(QStringLiteral("Delete Trip"));
-		confirm.setText(QStringLiteral("Delete \"%1\"?").arg(deleteName));
-		confirm.setInformativeText(QStringLiteral("All flight data for this trip will be permanently deleted."));
+		confirm.setText(QStringLiteral("Delete the trip?"));
+		confirm.setInformativeText(
+			QStringLiteral("Aircraft: %1\nFrom: %2\nTo: %3\n\nAll flight data for this trip will be permanently deleted.")
+				.arg(deleteName, deleteFrom, deleteTo));
 		confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
 		confirm.setDefaultButton(QMessageBox::Cancel);
 		confirm.setIcon(QMessageBox::Warning);
@@ -366,9 +410,14 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 				QStringLiteral("Failed to delete trip data."));
 			return;
 		}
-		if (deleteId == selectedTripId_)
+		const bool wasSelected = (deleteId == selectedTripId_);
+		if (wasSelected)
 			selectedTripId_ = -1;
 		refreshTrips();
+		if (wasSelected) {
+			table_->clearSelection();
+			emit tripDeselected(model_->trips());
+		}
 	} else if (chosen == deselectAction) {
 		table_->clearSelection();
 		selectedTripId_ = -1;
