@@ -242,6 +242,11 @@ void db_insert_update_table(
 	void (*func)(sqlite3_stmt*, const char*, void*, struct STATUS*, void*)
 );
 
+// Immediately writes one event row to trip_events. Safe to call from the
+// SimConnect dispatch callback (main thread) while db_consume runs on a worker
+// thread — both paths serialize through STATUS::mutex_db_commit.
+void db_insert_event(STATUS* status, const char* event, const char* time_zulu, const char* time_local);
+
 void db_consume(STATUS* status);
 
 // Creates the schema and migrates any missing columns on an ephemeral R/W

@@ -697,19 +697,9 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		case EVENT_TOGGLE_AVIONICS_MASTER:
 			if (status->id_trip > 0 && !is_skipped_event((int)evt->uEventID)) {
 				gui_log_printf(status, GUI_LOG_INFO, "Event: %s\n", EVENT_ID_TXT[evt->uEventID]);
-				struct EVENT_DB* pS = (struct EVENT_DB*)malloc(sizeof(struct EVENT_DB));
-				memset(pS, 0, sizeof(struct EVENT_DB));
-				memcpy(pS->event, EVENT_ID_TXT[evt->uEventID], strlen(EVENT_ID_TXT[evt->uEventID]));
-				pS->time_zulu = status->data.time_zulu;
-				pS->time_local = status->data.time_local;
-				if (status->q_event_end == NULL)
-					status->q_event_end = pS;
-				else {
-					status->q_event_end->next = pS;
-					status->q_event_end = pS;
-				}
-				if (status->q_event_start == NULL)
-					status->q_event_start = pS;
+				std::string tz = status->data.time_zulu.format_date_time();
+				std::string tl = status->data.time_local.format_date_time();
+				db_insert_event(status, EVENT_ID_TXT[evt->uEventID], tz.c_str(), tl.c_str());
 			}
 			break;
 		default:
@@ -876,14 +866,14 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				}
 				status->airborne = !(bool)tmp.sim_on_ground;
 
-				double delta_s = DB_SAMPLING_INTERVAL;
+				double delta_s = status->sample_interval_ms / 1000.0;
 				if (status->q_data_end != NULL)
 					delta_s = tmp.time_zulu.time_day - status->q_data_end->time_zulu.time_day;
 				else if (status->q_data_last != NULL)
 					delta_s = tmp.time_zulu.time_day - status->q_data_last->time_zulu.time_day;
 				if (delta_s < 0)
 					delta_s += 86400;
-				if (delta_s >= DB_SAMPLING_INTERVAL) {
+				if (delta_s >= status->sample_interval_ms / 1000.0) {
 					struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)malloc(sizeof(struct FLIGHT_DATA_RECORD));
 					memset(pS, 0, sizeof(struct FLIGHT_DATA_RECORD));
 					memcpy(pS, &tmp, sizeof(struct FLIGHT_DATA_RECORD));

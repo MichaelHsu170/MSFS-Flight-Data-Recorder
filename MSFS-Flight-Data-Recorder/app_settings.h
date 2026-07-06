@@ -30,6 +30,11 @@ public:
 	QString geminiApiKey() const;
 	void setGeminiApiKey(const QString& key);
 
+	// Maximum milliseconds between telemetry samples written to trip_data.
+	// Read from [recording] sample_interval_ms in settings.ini.
+	// If unset, empty, or not a positive integer, defaults to 500.
+	int sampleIntervalMs() const;
+
 	// Log verbosity level written to [logging] verbose in settings.ini.
 	// Valid values: "FATAL", "WARNING", "INFO" (default), "PROFILE".
 	// INFO includes user-visible events; PROFILE also writes timing breakdowns.

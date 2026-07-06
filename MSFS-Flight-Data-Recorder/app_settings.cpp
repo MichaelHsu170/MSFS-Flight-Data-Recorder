@@ -65,6 +65,13 @@ void AppSettings::setGeminiApiKey(const QString& key) {
 	settings.setValue(QStringLiteral("ai/gemini_api_key"), key);
 }
 
+int AppSettings::sampleIntervalMs() const {
+	QSettings settings = makeSettings();
+	bool ok = false;
+	int v = settings.value(QStringLiteral("recording/sample_interval_ms")).toInt(&ok);
+	return (ok && v > 0) ? v : 500;
+}
+
 QString AppSettings::verboseLevel() const {
 	QSettings settings = makeSettings();
 	return settings.value(QStringLiteral("logging/verbose"), QStringLiteral("INFO")).toString();
