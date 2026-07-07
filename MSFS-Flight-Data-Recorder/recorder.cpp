@@ -717,6 +717,14 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			struct FLIGHT_DATA_RECORD tmp;
 			memset(&tmp, 0, sizeof(struct FLIGHT_DATA_RECORD));
 			memcpy(&tmp, &pObjData->dwData, sizeof(struct FLIGHT_DATA_RECORD) - sizeof(double) - sizeof(struct FLIGHT_DATA_RECORD*));
+			// SimConnect returns pitch and bank inverted from aviation convention:
+			//   pitch: positive = nose down  → negate to positive = nose up
+			//   bank:  positive = left wing down → negate to positive = right bank
+			// Negate here so all downstream code — DB, charts, data table, touchdown
+			// records — uses the standard aviation sign convention.
+			tmp.plane_pitch_degrees = -tmp.plane_pitch_degrees;
+			tmp.plane_touchdown_pitch_degrees = -tmp.plane_touchdown_pitch_degrees;
+			tmp.plane_bank_degrees = -tmp.plane_bank_degrees;
 			status->data.altitude = (int)tmp.plane_altitude;
 			status->data.heading = (int)tmp.plane_heading_degrees_magnetic;
 			status->data.speed = (int)tmp.airspeed_indicated;
