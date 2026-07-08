@@ -34,6 +34,7 @@ private:
 	static void setIndicator(QLabel* icon, bool active, const QString& tooltip);
 
 	RecorderBridge& bridge_;
+	QLabel* versionLabel_;
 	QLabel* connectionIcon_;
 	QLabel* recordingIcon_;
 	QLabel* snapshotLabel_;
