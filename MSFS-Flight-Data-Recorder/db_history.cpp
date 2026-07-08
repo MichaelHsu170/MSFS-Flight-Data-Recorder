@@ -155,6 +155,8 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	const int idxFlapsHandleIndex = indexOf("flaps_handle_index");
 	const int idxSpoilersHandlePosition = indexOf("spoilers_handle_position");
 	const int idxFuelTotalQuantityWeight = indexOf("fuel_total_quantity_weight");
+	const int idxPitch = indexOf("plane_pitch_degrees");
+	const int idxBank  = indexOf("plane_bank_degrees");
 	const int idxZuluTime = indexOf("zulu_time");
 	const int idxLocalTime = indexOf("local_time");
 
@@ -195,6 +197,8 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 		point.flapsHandleIndex = colDouble(idxFlapsHandleIndex);
 		point.spoilersHandlePosition = colDouble(idxSpoilersHandlePosition);
 		point.fuelTotalQuantityWeight = colDouble(idxFuelTotalQuantityWeight);
+		point.pitchDegrees = colDouble(idxPitch);
+		point.bankDegrees  = colDouble(idxBank);
 		point.zuluTime = colText(idxZuluTime);
 		point.localTime = colText(idxLocalTime);
 

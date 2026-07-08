@@ -19,36 +19,18 @@
 
 namespace {
 
-// Convert a "yyyy-MM-ddTHH:mm:ss.zzz..." zulu-time string to epoch milliseconds,
-// adjusted so that Qt's buggy DateTimeAxis (which renders epoch-ms as local wall
-// time instead of UTC) displays the correct Zulu values.
-//
-// The original implementation used QDateTime(QDate,QTime).toMSecsSinceEpoch()
-// which triggers a Windows timezone DST lookup on every call (~16 µs each,
-// ~800 ms for 50k points). This version does equivalent pure arithmetic:
-//   1. Gregorian → Julian Day Number (integer formula, no system calls)
-//   2. JDN + time → UTC epoch ms
-//   3. Subtract localOffsetMs so Qt's local-time display shows the Zulu values
-static double epochMillisFor(const QString& zuluTime, qint64 localOffsetMs) {
+// Convert a "yyyy-MM-ddTHH:mm:ss.zzz+HH:MM_D" zulu-time string to an epoch ms
+// value that, when Qt Graphs displays it as local time, shows the UTC (zulu)
+// components. Qt Graphs DateTimeAxis always renders labels in local time regardless
+// of setTimeZone(), so we store epoch ms = QDateTime(utcDate, utcTime, LocalTime)
+// — the point whose local time LOOKS like the zulu time we actually want.
+static double epochMillisFor(const QString& zuluTime) {
 	if (zuluTime.size() < 23) return 0.0;
-	const QChar* c = zuluTime.constData();
-	auto d1 = [&](int i) { return c[i].digitValue(); };
-	int y  = d1(0)*1000 + d1(1)*100 + d1(2)*10 + d1(3);
-	int mo = d1(5)*10  + d1(6);
-	int dy = d1(8)*10  + d1(9);
-	int h  = d1(11)*10 + d1(12);
-	int mi = d1(14)*10 + d1(15);
-	int s  = d1(17)*10 + d1(18);
-	int ms = d1(20)*100 + d1(21)*10 + d1(22);
-	// Proleptic Gregorian calendar → Julian Day Number (no Qt/system calls)
-	int a  = (14 - mo) / 12;
-	int yy = y + 4800 - a;
-	int mm = mo + 12*a - 3;
-	qint64 jd = (qint64)dy + (153*mm + 2)/5 + 365LL*yy + yy/4 - yy/100 + yy/400 - 32045LL;
-	const qint64 kUnixEpochJd = 2440588LL;
-	qint64 utcMs = (jd - kUnixEpochJd) * 86400000LL
-	             + (qint64)h * 3600000LL + (qint64)mi * 60000LL + (qint64)s * 1000LL + ms;
-	return (double)(utcMs - localOffsetMs);
+	QDate d(zuluTime.mid(0, 4).toInt(), zuluTime.mid(5, 2).toInt(), zuluTime.mid(8, 2).toInt());
+	QTime t(zuluTime.mid(11, 2).toInt(), zuluTime.mid(14, 2).toInt(),
+	        zuluTime.mid(17, 2).toInt(), zuluTime.mid(20, 3).toInt());
+	if (!d.isValid() || !t.isValid()) return 0.0;
+	return (double)QDateTime(d, t, QTimeZone::LocalTime).toMSecsSinceEpoch();
 }
 
 QLineSeries* findSeries(QQuickItem* root, const char* objectName) {
@@ -79,6 +61,31 @@ static double yAxisMax(double value) {
 	return qCeil(target / step) * step;
 }
 
+// Returns [lo, hi] for a signed axis spanning [minVal, maxVal] with 25% margin
+// on each side, then floor/ceil to the nearest nice tick step (~5 grid lines).
+static std::pair<double, double> signedAxisRange(double minVal, double maxVal) {
+	double range = maxVal - minVal;
+	if (range < 2.0) {
+		double mid = (minVal + maxVal) * 0.5;
+		minVal = mid - 1.0;
+		maxVal = mid + 1.0;
+		range = 2.0;
+	}
+	double margin = range * 0.25;
+	double lo = minVal - margin;
+	double hi = maxVal + margin;
+	double rawStep = (hi - lo) / 5.0;
+	double mag  = qPow(10.0, qFloor(qLn(rawStep) / qLn(10.0)));
+	double norm = rawStep / mag;
+	double step = (norm <= 1.0) ? mag
+	            : (norm <= 2.0) ? 2.0 * mag
+	            : (norm <= 5.0) ? 5.0 * mag
+	            :                 10.0 * mag;
+	lo = qFloor(lo / step) * step;
+	hi = qCeil(hi  / step) * step;
+	return {lo, hi};
+}
+
 // Lightweight copy of one TripSamplePoint carrying only the fields the chart
 // worker needs, avoiding the rawNums vector (~1 KB per point) that
 // DataTablePanel uses but charts never need.
@@ -91,6 +98,7 @@ struct LightPoint {
 	bool gearOnGround[3];
 	int brakeIndicator;
 	double flapsHandleIndex, spoilersHandlePosition, fuelTotalQuantityWeight;
+	double pitchDegrees, bankDegrees;
 };
 
 // Everything setDataset() needs to push into the QML series/axis, built on a
@@ -105,6 +113,8 @@ struct ChartSeriesData {
 	double speedYMax = 0.0;
 	double altYMax   = 0.0;
 	double fuelYMax  = 0.0;
+	double pitchMin = 0.0, pitchMax = 0.0;
+	double bankMin  = 0.0, bankMax  = 0.0;
 	qint64 computeNs = 0;
 	QList<QPointF> n1_1, n1_2, n2_1, n2_2;
 	QList<QPointF> verticalSpeed;
@@ -113,12 +123,12 @@ struct ChartSeriesData {
 	QList<QPointF> gearHandle, gearPos0, gearPos1, gearPos2, gearOnGround0, gearOnGround1, gearOnGround2;
 	QList<QPointF> brake, flaps, spoilers;
 	QList<QPointF> fuelWeight;
+	QList<QPointF> pitch, bank;
 };
 
 }
 
 ChartsPanel::ChartsPanel(QWidget* parent) : QWidget(parent) {
-	localOffsetMs_ = (qint64)QDateTime::currentDateTime().offsetFromUtc() * 1000LL;
 	view_ = new QQuickWidget(this);
 	view_->setResizeMode(QQuickWidget::SizeRootObjectToView);
 	view_->rootContext()->setContextProperty(QStringLiteral("chartsBridge"), this);
@@ -127,6 +137,15 @@ ChartsPanel::ChartsPanel(QWidget* parent) : QWidget(parent) {
 	auto* layout = new QVBoxLayout(this);
 	layout->setContentsMargins(0, 0, 0, 0);
 	layout->addWidget(view_);
+}
+
+void ChartsPanel::setAllXAxisRange(const QDateTime& lo, const QDateTime& hi) {
+	QQuickItem* root = view_->rootObject();
+	if (!root) return;
+	for (QDateTimeAxis* ax : root->findChildren<QDateTimeAxis*>()) {
+		ax->setMin(lo);
+		ax->setMax(hi);
+	}
 }
 
 void ChartsPanel::buildSeriesCache() {
@@ -154,10 +173,14 @@ void ChartsPanel::buildSeriesCache() {
 	cache_.flaps         = findSeries(root, "flapsSeries");
 	cache_.spoilers      = findSeries(root, "spoilersSeries");
 	cache_.fuelWeight    = findSeries(root, "fuelWeightSeries");
+	cache_.pitch         = findSeries(root, "pitchSeries");
+	cache_.bank          = findSeries(root, "bankSeries");
 	cache_.xAxis         = findXAxis(root, "sharedXAxis");
 	cache_.speedYAxis    = findYAxis(root, "speedYAxis");
 	cache_.altYAxis      = findYAxis(root, "altYAxis");
 	cache_.fuelYAxis     = findYAxis(root, "fuelYAxis");
+	cache_.pitchYAxis    = findYAxis(root, "pitchYAxis");
+	cache_.bankYAxis     = findYAxis(root, "bankYAxis");
 	cache_.valid         = (cache_.n1_1 != nullptr);
 }
 
@@ -166,7 +189,9 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	liveSpeedMax_   = 0.0;
 	liveAltMax_     = 0.0;
 	liveFuelMax_    = 0.0;
-	localOffsetMs_  = (qint64)QDateTime::currentDateTime().offsetFromUtc() * 1000LL;
+	livePitchMin_ = livePitchMax_ = 0.0;
+	liveBankMin_  = liveBankMax_  = 0.0;
+	livePitchBankValid_ = false;
 	full_.ready      = false;
 	lastRangeStart_  = INT_MIN;
 	lastRangeEnd_    = INT_MIN;
@@ -189,9 +214,8 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		full_.ready = false;
 		buildSeriesCache();
 		if (cache_.xAxis) {
-			QDateTime now = QDateTime::currentDateTimeUtc();
-			cache_.xAxis->setMin(now);
-			cache_.xAxis->setMax(now.addSecs(1));
+			QDateTime now = QDateTime::currentDateTime();
+			setAllXAxisRange(now, now.addSecs(1));
 		}
 		emit seriesLoaded();
 		return;
@@ -222,6 +246,8 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		lp.flapsHandleIndex      = p.flapsHandleIndex;
 		lp.spoilersHandlePosition    = p.spoilersHandlePosition;
 		lp.fuelTotalQuantityWeight   = p.fuelTotalQuantityWeight;
+		lp.pitchDegrees              = p.pitchDegrees;
+		lp.bankDegrees               = p.bankDegrees;
 		points.push_back(std::move(lp));
 	}
 	Logger::logf(Logger::Profile, "Charts", "copy: %lld ms  (%zu pts)", copyTimer.nsecsElapsed() / 1000000, points.size());
@@ -247,21 +273,25 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		pointTimesMs_ = std::move(data.pointTimesMs);
 		pointCount_ = (int)pointTimesMs_.size();
 
-		// Drive the axis via the "driver" DateTimeAxis (found by objectName).
-		// Each chart's per-chart axis binds to it in QML, keeping all in sync.
-		if (QDateTimeAxis* xAxis = findXAxis(root, "sharedXAxis")) {
-			xAxis->setMin(data.axisLo);
-			xAxis->setMax(data.axisHi);
-		}
+		setAllXAxisRange(data.axisLo, data.axisHi);
 		if (QValueAxis* ax = findYAxis(root, "speedYAxis"))
 			ax->setMax(yAxisMax(data.speedYMax));
 		if (QValueAxis* ax = findYAxis(root, "altYAxis"))
 			ax->setMax(yAxisMax(data.altYMax));
 		if (QValueAxis* ax = findYAxis(root, "fuelYAxis"))
 			ax->setMax(yAxisMax(data.fuelYMax));
+		{
+			auto [pLo, pHi] = signedAxisRange(data.pitchMin, data.pitchMax);
+			auto [bLo, bHi] = signedAxisRange(data.bankMin,  data.bankMax);
+			if (QValueAxis* ax = findYAxis(root, "pitchYAxis")) { ax->setMin(pLo); ax->setMax(pHi); }
+			if (QValueAxis* ax = findYAxis(root, "bankYAxis"))  { ax->setMin(bLo); ax->setMax(bHi); }
+		}
 		liveSpeedMax_ = data.speedYMax;
 		liveAltMax_   = data.altYMax;
 		liveFuelMax_  = data.fuelYMax;
+		livePitchMin_ = data.pitchMin; livePitchMax_ = data.pitchMax;
+		liveBankMin_  = data.bankMin;  liveBankMax_  = data.bankMax;
+		livePitchBankValid_ = true;
 		root->setProperty("isFullRangeVisible", true);
 
 		// Move full-resolution data into full_ so setVisibleRange can serve
@@ -286,6 +316,8 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		full_.flaps         = std::move(data.flaps);
 		full_.spoilers      = std::move(data.spoilers);
 		full_.fuelWeight    = std::move(data.fuelWeight);
+		full_.pitch         = std::move(data.pitch);
+		full_.bank          = std::move(data.bank);
 		full_.ready = true;
 
 		// Load a decimated view into each series. Qt Graphs renders every
@@ -324,6 +356,8 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		loadDec(cache_.flaps,         full_.flaps);
 		loadDec(cache_.spoilers,      full_.spoilers);
 		loadDec(cache_.fuelWeight,    full_.fuelWeight);
+		loadDec(cache_.pitch,         full_.pitch);
+		loadDec(cache_.bank,          full_.bank);
 
 		Logger::logf(Logger::Profile, "Charts", "apply (GUI): %lld ms  (stride %d, ~%d pts/series)",
 		             applyTimer.nsecsElapsed() / 1000000, displayStride_,
@@ -331,12 +365,12 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		emit seriesLoaded();
 	});
 
-	watcher->setFuture(QtConcurrent::run([this, points = std::move(points), offsetMs = localOffsetMs_]() {
+	watcher->setFuture(QtConcurrent::run([this, points = std::move(points)]() {
 		QElapsedTimer computeTimer; computeTimer.start();
 		ChartSeriesData data;
 		data.pointTimesMs.reserve(points.size());
 		for (const LightPoint& p : points)
-			data.pointTimesMs.push_back(epochMillisFor(p.zuluTime, offsetMs));
+			data.pointTimesMs.push_back(epochMillisFor(p.zuluTime));
 
 		data.axisLo = data.pointTimesMs.empty()
 			? QDateTime::currentDateTime()
@@ -372,7 +406,10 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		fill(data.flaps,        [](const LightPoint& p) { return p.flapsHandleIndex; });
 		fill(data.spoilers,     [](const LightPoint& p) { return p.spoilersHandlePosition; });
 		fill(data.fuelWeight,   [](const LightPoint& p) { return p.fuelTotalQuantityWeight; });
+		fill(data.pitch,        [](const LightPoint& p) { return p.pitchDegrees; });
+		fill(data.bank,         [](const LightPoint& p) { return p.bankDegrees; });
 
+		bool firstPB = true;
 		for (const LightPoint& p : points) {
 			double spd = qMax((double)p.airspeed, (double)p.groundSpeed);
 			if (spd > data.speedYMax)
@@ -381,6 +418,16 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 				data.altYMax = p.altitude;
 			if (p.fuelTotalQuantityWeight > data.fuelYMax)
 				data.fuelYMax = p.fuelTotalQuantityWeight;
+			if (firstPB) {
+				data.pitchMin = data.pitchMax = p.pitchDegrees;
+				data.bankMin  = data.bankMax  = p.bankDegrees;
+				firstPB = false;
+			} else {
+				data.pitchMin = qMin(data.pitchMin, p.pitchDegrees);
+				data.pitchMax = qMax(data.pitchMax, p.pitchDegrees);
+				data.bankMin  = qMin(data.bankMin,  p.bankDegrees);
+				data.bankMax  = qMax(data.bankMax,  p.bankDegrees);
+			}
 		}
 
 		data.computeNs = computeTimer.nsecsElapsed();
@@ -404,14 +451,15 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 		return;
 
 	pointCount_++;
-	double t = epochMillisFor(point.zuluTime, localOffsetMs_);
+	double t = epochMillisFor(point.zuluTime);
 	pointTimesMs_.push_back(t);
 
 	QDateTime hi = QDateTime::fromMSecsSinceEpoch((qint64)t);
 	if (cache_.xAxis) {
 		if (pointTimesMs_.size() == 1)
-			cache_.xAxis->setMin(hi.addSecs(-1));
-		cache_.xAxis->setMax(hi);
+			setAllXAxisRange(hi.addSecs(-1), hi);
+		else
+			setAllXAxisRange(QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.front()), hi);
 	}
 
 	double spd = qMax((double)point.airspeed, (double)point.groundSpeed);
@@ -450,6 +498,28 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 	cache_.flaps->append(t, point.flapsHandleIndex);
 	cache_.spoilers->append(t, point.spoilersHandlePosition);
 	cache_.fuelWeight->append(t, point.fuelTotalQuantityWeight);
+	if (!livePitchBankValid_) {
+		livePitchMin_ = livePitchMax_ = point.pitchDegrees;
+		liveBankMin_  = liveBankMax_  = point.bankDegrees;
+		livePitchBankValid_ = true;
+	} else {
+		bool pitchChanged = (point.pitchDegrees < livePitchMin_ || point.pitchDegrees > livePitchMax_);
+		bool bankChanged  = (point.bankDegrees  < liveBankMin_  || point.bankDegrees  > liveBankMax_);
+		livePitchMin_ = qMin(livePitchMin_, point.pitchDegrees);
+		livePitchMax_ = qMax(livePitchMax_, point.pitchDegrees);
+		liveBankMin_  = qMin(liveBankMin_,  point.bankDegrees);
+		liveBankMax_  = qMax(liveBankMax_,  point.bankDegrees);
+		if (pitchChanged && cache_.pitchYAxis) {
+			auto [lo, hi] = signedAxisRange(livePitchMin_, livePitchMax_);
+			cache_.pitchYAxis->setMin(lo); cache_.pitchYAxis->setMax(hi);
+		}
+		if (bankChanged && cache_.bankYAxis) {
+			auto [lo, hi] = signedAxisRange(liveBankMin_, liveBankMax_);
+			cache_.bankYAxis->setMin(lo); cache_.bankYAxis->setMax(hi);
+		}
+	}
+	cache_.pitch->append(t, point.pitchDegrees);
+	cache_.bank->append(t, point.bankDegrees);
 }
 
 void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
@@ -474,8 +544,7 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 			? QDateTime::currentDateTime()
 			: QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.front());
 		QDateTime hi = pointTimesMs_.empty() ? lo.addSecs(1) : QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.back());
-		cache_.xAxis->setMin(lo);
-		cache_.xAxis->setMax(hi);
+		setAllXAxisRange(lo, hi);
 		root->setProperty("isFullRangeVisible", true);
 		if (cache_.speedYAxis)
 			cache_.speedYAxis->setMax(yAxisMax(liveSpeedMax_));
@@ -483,6 +552,12 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 			cache_.altYAxis->setMax(yAxisMax(liveAltMax_));
 		if (cache_.fuelYAxis)
 			cache_.fuelYAxis->setMax(yAxisMax(liveFuelMax_));
+		if (livePitchBankValid_) {
+			auto [pLo, pHi] = signedAxisRange(livePitchMin_, livePitchMax_);
+			auto [bLo, bHi] = signedAxisRange(liveBankMin_,  liveBankMax_);
+			if (cache_.pitchYAxis) { cache_.pitchYAxis->setMin(pLo); cache_.pitchYAxis->setMax(pHi); }
+			if (cache_.bankYAxis)  { cache_.bankYAxis->setMin(bLo);  cache_.bankYAxis->setMax(bHi); }
+		}
 
 		// Reload the decimated view so Qt Graphs renders ~kDisplayPoints points
 		// instead of the full-resolution zoomed slice that was previously loaded.
@@ -516,6 +591,8 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 			reloadDec(cache_.flaps,         full_.flaps);
 			reloadDec(cache_.spoilers,      full_.spoilers);
 			reloadDec(cache_.fuelWeight,    full_.fuelWeight);
+			reloadDec(cache_.pitch,         full_.pitch);
+			reloadDec(cache_.bank,          full_.bank);
 		}
 	} else {
 		startIndex = qBound(0, startIndex, (int)pointTimesMs_.size() - 1);
@@ -526,8 +603,8 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 		double hiMs = pointTimesMs_[hi];
 		if (hiMs <= loMs)
 			hiMs = loMs + 1000.0;
-		cache_.xAxis->setMin(QDateTime::fromMSecsSinceEpoch((qint64)loMs));
-		cache_.xAxis->setMax(QDateTime::fromMSecsSinceEpoch((qint64)hiMs));
+		setAllXAxisRange(QDateTime::fromMSecsSinceEpoch((qint64)loMs),
+					 QDateTime::fromMSecsSinceEpoch((qint64)hiMs));
 		root->setProperty("isFullRangeVisible", false);
 
 		if (full_.ready) {
@@ -544,6 +621,28 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 				cache_.altYAxis->setMax(yAxisMax(altMax));
 			if (cache_.fuelYAxis)
 				cache_.fuelYAxis->setMax(yAxisMax(fuelMax));
+			double slicePitchMin = 0.0, slicePitchMax = 0.0;
+			double sliceBankMin  = 0.0, sliceBankMax  = 0.0;
+			bool firstPB = true;
+			for (int i = lo; i <= hi; ++i) {
+				if (i < full_.pitch.size()) {
+					double v = full_.pitch[i].y();
+					if (firstPB) { slicePitchMin = slicePitchMax = v; }
+					else { slicePitchMin = qMin(slicePitchMin, v); slicePitchMax = qMax(slicePitchMax, v); }
+				}
+				if (i < full_.bank.size()) {
+					double v = full_.bank[i].y();
+					if (firstPB) { sliceBankMin = sliceBankMax = v; firstPB = false; }
+					else { sliceBankMin = qMin(sliceBankMin, v); sliceBankMax = qMax(sliceBankMax, v); }
+				}
+				firstPB = false;
+			}
+			if (!firstPB) {
+				auto [pLo, pHi] = signedAxisRange(slicePitchMin, slicePitchMax);
+				auto [bLo, bHi] = signedAxisRange(sliceBankMin,  sliceBankMax);
+				if (cache_.pitchYAxis) { cache_.pitchYAxis->setMin(pLo); cache_.pitchYAxis->setMax(pHi); }
+				if (cache_.bankYAxis)  { cache_.bankYAxis->setMin(bLo);  cache_.bankYAxis->setMax(bHi); }
+			}
 		}
 
 		// Load a decimated view of the visible slice — same kDisplayPoints cap
@@ -588,6 +687,8 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 			loadSliceDec(cache_.flaps,         full_.flaps);
 			loadSliceDec(cache_.spoilers,      full_.spoilers);
 			loadSliceDec(cache_.fuelWeight,    full_.fuelWeight);
+			loadSliceDec(cache_.pitch,         full_.pitch);
+			loadSliceDec(cache_.bank,          full_.bank);
 		}
 	}
 	Logger::logf(Logger::Profile, "Charts", "setVisibleRange: %lld µs  (%d pts in series, stride %d)",
@@ -613,9 +714,8 @@ QVariantMap ChartsPanel::valueAt(double timeMs) const {
 	if (idx > 0 && (pointTimesMs_[idx] - timeMs > timeMs - pointTimesMs_[idx - 1]))
 		idx--;
 
-	// timeMs is epoch_utc - localOffset (so Qt renders it as Zulu). Recover UTC.
-	qint64 utcMs = (qint64)pointTimesMs_[idx] + localOffsetMs_;
-	QString timeStr = QDateTime::fromMSecsSinceEpoch(utcMs, Qt::UTC).toString(QStringLiteral("HH:mm:ss.zzz"))
+	QString timeStr = QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_[idx])
+	                      .toString(QStringLiteral("HH:mm:ss.zzz"))
 	                  + QStringLiteral(" UTC");
 
 	auto fromFull = [&](const QList<QPointF>& v) -> double {
@@ -650,6 +750,8 @@ QVariantMap ChartsPanel::valueAt(double timeMs) const {
 		m[QStringLiteral("flaps")]      = fromFull(full_.flaps);
 		m[QStringLiteral("spoilers")]   = fromFull(full_.spoilers);
 		m[QStringLiteral("fuel")]       = fromFull(full_.fuelWeight);
+		m[QStringLiteral("pitch")]      = fromFull(full_.pitch);
+		m[QStringLiteral("bank")]       = fromFull(full_.bank);
 	} else if (cache_.valid) {
 		// Live mode: cache series are appended one-by-one (no decimation), so
 		// their point index matches pointTimesMs_ directly.
@@ -672,6 +774,8 @@ QVariantMap ChartsPanel::valueAt(double timeMs) const {
 		m[QStringLiteral("flaps")]      = fromSeries(cache_.flaps);
 		m[QStringLiteral("spoilers")]   = fromSeries(cache_.spoilers);
 		m[QStringLiteral("fuel")]       = fromSeries(cache_.fuelWeight);
+		m[QStringLiteral("pitch")]      = fromSeries(cache_.pitch);
+		m[QStringLiteral("bank")]       = fromSeries(cache_.bank);
 	}
 	return m;
 }
