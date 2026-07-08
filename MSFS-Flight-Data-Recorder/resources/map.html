@@ -733,6 +733,7 @@ function initLeafletProvider() {
             });
         },
         setOverview: function (segments) {
+            map.closePopup();
             // Clear trajectory and markers.
             trajectoryLatLngs = [];
             origIndices = [];
@@ -767,6 +768,7 @@ function initLeafletProvider() {
                 map.fitBounds(L.latLngBounds(bounds), { padding: [20, 20], animate: false });
         },
         resetZoom: function () {
+            map.closePopup();
             if (trajectoryLatLngs.length > 0)
                 map.fitBounds(polyline.getBounds(), { padding: [20, 20], animate: false });
         }
