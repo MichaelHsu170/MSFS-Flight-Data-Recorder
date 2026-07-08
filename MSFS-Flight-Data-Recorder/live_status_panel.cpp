@@ -1,7 +1,9 @@
 #include "live_status_panel.h"
 #include "recorder_bridge.h"
+#include "types.h"
 
 #include <QDateTime>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListWidget>
@@ -50,6 +52,19 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 	: QWidget(parent)
 	, bridge_(bridge)
 {
+	// Create version label
+	versionLabel_ = new QLabel(QString("ver. %1").arg(APP_VERSION), this);
+	QFont versionFont = versionLabel_->font();
+	versionFont.setPointSize(versionFont.pointSize() - 1);
+	versionLabel_->setFont(versionFont);
+	versionLabel_->setAlignment(Qt::AlignRight);
+
+	// Create separator line
+	auto* separator = new QFrame(this);
+	separator->setFrameShape(QFrame::HLine);
+	separator->setFrameShadow(QFrame::Sunken);
+	separator->setFixedHeight(1);
+
 	auto* titleLabel = new QLabel("<b>Live Status</b>", this);
 
 	connectionIcon_ = makeIcon(this);
@@ -91,7 +106,11 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 	// is also thinned to match tripHistoryPanel_'s right margin, since the two
 	// panels sit side by side in MainWindow's splitter.
 	layout->setContentsMargins(0, 4, 4, 4);
-	layout->setSpacing(2);
+	layout->setSpacing(0);
+	layout->addWidget(versionLabel_);
+	layout->addSpacing(4);
+	layout->addWidget(separator);
+	layout->addSpacing(4);
 	layout->addLayout(titleRow);
 	layout->addWidget(snapshotLabel_);
 	layout->addWidget(historyList_, 1);

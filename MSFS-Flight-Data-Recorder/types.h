@@ -7,6 +7,7 @@
 #include <Windows.h>
 #include "sqlite3.h"
 
+#define APP_VERSION "2.0.0"
 #define Q_DB_LENGTH 200
 #define DATABASE_NAME "flight_data"
 #define V_PI 3.14159265358979323846
