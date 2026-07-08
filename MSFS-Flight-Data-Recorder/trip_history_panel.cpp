@@ -349,10 +349,14 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	QMenu menu(this);
 	menu.setStyle(&redStyle);
 
-	// Global actions first — available when any trip is currently loaded.
+	// Identify the right-clicked row up front — used by both action groups below.
+	QModelIndex index = table_->indexAt(pos);
+	const TripSummary* rightClickedTrip = index.isValid() ? model_->tripAt(index.row()) : nullptr;
+
+	// Deselect / Reset Zoom — only when right-clicking the currently selected row.
 	QAction* deselectAction = nullptr;
 	QAction* resetZoomAction = nullptr;
-	if (selectedTripId_ != -1) {
+	if (selectedTripId_ != -1 && rightClickedTrip && rightClickedTrip->id == selectedTripId_) {
 		deselectAction  = menu.addAction(QStringLiteral("Deselect"));
 		resetZoomAction = menu.addAction(QStringLiteral("Reset Zoom"));
 	}
@@ -363,25 +367,21 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	QString deleteName;
 	QString deleteFrom;
 	QString deleteTo;
-	QModelIndex index = table_->indexAt(pos);
-	if (index.isValid()) {
-		const TripSummary* trip = model_->tripAt(index.row());
-		if (trip && trip->status != TripStatus::Live) {
-			if (!menu.isEmpty())
-				menu.addSeparator();
-			deleteAction = menu.addAction(QStringLiteral("Delete Trip"));
-			deleteId = trip->id;
-			deleteName = trip->title.isEmpty()
-				? QStringLiteral("Trip #%1").arg(trip->id)
-				: trip->title;
-			auto airportLabel = [](const QString& icao, const QString& name) {
-				return icao.isEmpty() ? QStringLiteral("—")
-				     : name.isEmpty() ? icao
-				     : QStringLiteral("%1 (%2)").arg(name, icao);
-			};
-			deleteFrom = airportLabel(trip->departureIcao,    trip->departureName);
-			deleteTo   = airportLabel(trip->destinationIcao,  trip->destinationName);
-		}
+	if (rightClickedTrip && rightClickedTrip->status != TripStatus::Live) {
+		if (!menu.isEmpty())
+			menu.addSeparator();
+		deleteAction = menu.addAction(QStringLiteral("Delete Trip"));
+		deleteId = rightClickedTrip->id;
+		deleteName = rightClickedTrip->title.isEmpty()
+			? QStringLiteral("Trip #%1").arg(rightClickedTrip->id)
+			: rightClickedTrip->title;
+		auto airportLabel = [](const QString& icao, const QString& name) {
+			return icao.isEmpty() ? QStringLiteral("—")
+			     : name.isEmpty() ? icao
+			     : QStringLiteral("%1 (%2)").arg(name, icao);
+		};
+		deleteFrom = airportLabel(rightClickedTrip->departureIcao,   rightClickedTrip->departureName);
+		deleteTo   = airportLabel(rightClickedTrip->destinationIcao, rightClickedTrip->destinationName);
 	}
 
 	if (menu.isEmpty())
