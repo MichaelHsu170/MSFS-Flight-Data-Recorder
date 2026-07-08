@@ -26,6 +26,8 @@ struct TripSamplePoint {
 	double flapsHandleIndex = 0;
 	double spoilersHandlePosition = 0;
 	double fuelTotalQuantityWeight = 0;
+	double pitchDegrees = 0;
+	double bankDegrees = 0;
 	QString zuluTime;
 	QString localTime;
 

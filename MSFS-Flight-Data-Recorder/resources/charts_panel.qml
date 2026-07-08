@@ -38,8 +38,6 @@ Item {
     }
 
     component SyncedXAxis: DateTimeAxis {
-        min: driverXAxis.min
-        max: driverXAxis.max
         labelFormat: "yyyy-MM-dd\nHH:mm:ss.zzz"
         titleVisible: false
     }
@@ -358,6 +356,48 @@ Item {
                 }
                 CursorLine { graphsView: chart7 }
                 EndOfTrajectoryLine { graphsView: chart7 }
+            }
+
+            ChartBlock {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 180
+                Layout.minimumHeight: 160
+                graphsViewRef: chart8
+                legendEntries: [{ color: "#e377c2", name: "Pitch" }]
+                tooltipSeries: [
+                    { key: "pitch", label: "Pitch", color: "#e377c2", unit: "°", decimals: 1, signed: true, isBool: false }
+                ]
+                GraphsView {
+                    id: chart8
+                    anchors.fill: parent
+                    axisX: SyncedXAxis {}
+                    theme: chartTheme
+                    axisY: ValueAxis { objectName: "pitchYAxis"; min: -10; max: 10; labelFormat: "%.0f"; titleText: "Pitch (°)"; titleVisible: true }
+                    LineSeries { objectName: "pitchSeries"; name: "Pitch"; color: "#e377c2" }
+                }
+                CursorLine { graphsView: chart8 }
+                EndOfTrajectoryLine { graphsView: chart8 }
+            }
+
+            ChartBlock {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 180
+                Layout.minimumHeight: 160
+                graphsViewRef: chart9
+                legendEntries: [{ color: "#17becf", name: "Bank" }]
+                tooltipSeries: [
+                    { key: "bank", label: "Bank", color: "#17becf", unit: "°", decimals: 1, signed: true, isBool: false }
+                ]
+                GraphsView {
+                    id: chart9
+                    anchors.fill: parent
+                    axisX: SyncedXAxis {}
+                    theme: chartTheme
+                    axisY: ValueAxis { objectName: "bankYAxis"; min: -35; max: 35; labelFormat: "%.0f"; titleText: "Bank (°)"; titleVisible: true }
+                    LineSeries { objectName: "bankSeries"; name: "Bank"; color: "#17becf" }
+                }
+                CursorLine { graphsView: chart9 }
+                EndOfTrajectoryLine { graphsView: chart9 }
             }
         }
     }

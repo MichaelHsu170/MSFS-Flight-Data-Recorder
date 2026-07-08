@@ -508,40 +508,49 @@ function nearestIndexIn(latLngs, lat, lng) {
 // over trajectoryLatLngs so the charts can zoom their time axis to match.
 // Reports (-1, -1) when the whole trajectory is in view, which C++ treats as
 // "reset to full range".
-// When the viewport is zoomed in between decimated samples (stride ~16) so
-// that no decimated point falls inside the bounds, finds the decimated point
-// nearest to the viewport centre and expands by ±HALF neighbours so the chart
-// still updates to show a usable window around the visible area.
+// Expands the found range by ±1 decimated step so polyline segments that
+// enter or exit the viewport are included even though their outer endpoint
+// is not strictly inside bounds. Falls back to the nearest-point segment
+// when no decimated point falls inside the viewport at all.
 function reportVisibleRange(trajectoryLatLngs, origIndices, bounds) {
     if (!mapBridge || trajectoryLatLngs.length === 0)
         return;
+    var n = trajectoryLatLngs.length;
     var minIdx = -1, maxIdx = -1;
-    for (var i = 0; i < trajectoryLatLngs.length; i++) {
+    for (var i = 0; i < n; i++) {
         if (bounds.contains([trajectoryLatLngs[i][0], trajectoryLatLngs[i][1]])) {
-            if (minIdx === -1)
-                minIdx = i;
+            if (minIdx === -1) minIdx = i;
             maxIdx = i;
         }
     }
     if (minIdx === -1) {
-        // No decimated point inside the viewport. Find the nearest one to the
-        // viewport centre and expand by ±HALF so the chart shows the time
-        // window that corresponds to the visible map area.
+        // No decimated point inside the viewport — the map may be showing only
+        // the interior of one long decimated segment. Find the segment whose
+        // midpoint is nearest to the viewport centre and include both endpoints.
         var c = bounds.getCenter();
         var bestDist = Infinity, bestIdx = 0;
-        for (var i = 0; i < trajectoryLatLngs.length; i++) {
+        for (var i = 0; i < n; i++) {
             var dLat = trajectoryLatLngs[i][0] - c.lat;
             var dLng = trajectoryLatLngs[i][1] - c.lng;
             var d = dLat * dLat + dLng * dLng;
             if (d < bestDist) { bestDist = d; bestIdx = i; }
         }
-        var HALF = 3;
-        var lo = Math.max(0, bestIdx - HALF);
-        var hi = Math.min(trajectoryLatLngs.length - 1, bestIdx + HALF);
+        // Include the full segment on each side of bestIdx so the chart covers
+        // the trajectory visible on the map even when the viewport is smaller
+        // than one decimated stride.
+        var lo = Math.max(0, bestIdx - 1);
+        var hi = Math.min(n - 1, bestIdx + 1);
         mapBridge.rangeChanged(origIndices[lo], origIndices[hi]);
         return;
     }
-    if (minIdx <= 0 && maxIdx >= trajectoryLatLngs.length - 1)
+    // Expand by one decimated step on each side: the polyline segment entering
+    // the viewport from outside (minIdx-1 → minIdx) and the segment exiting
+    // (maxIdx → maxIdx+1) are both visible on the map but their outer endpoints
+    // are not "inside" bounds. Including them makes the chart time range match
+    // what the user actually sees.
+    if (minIdx > 0) minIdx--;
+    if (maxIdx < n - 1) maxIdx++;
+    if (minIdx <= 0 && maxIdx >= n - 1)
         mapBridge.rangeChanged(-1, -1);
     else
         mapBridge.rangeChanged(origIndices[minIdx], origIndices[maxIdx]);

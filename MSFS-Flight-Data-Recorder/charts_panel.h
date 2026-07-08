@@ -57,6 +57,9 @@ private:
 	// QML object tree and caches them. Idempotent -- safe to call multiple
 	// times; no-op after the first successful resolution.
 	void buildSeriesCache();
+	// Pushes lo/hi directly to every QDateTimeAxis in the QML tree (driver + all
+	// SyncedXAxis instances) so QML date-binding conversion never touches the values.
+	void setAllXAxisRange(const QDateTime& lo, const QDateTime& hi);
 
 	QQuickWidget* view_;
 	int pointCount_ = 0;
@@ -93,11 +96,15 @@ private:
 		QLineSeries* flaps = nullptr;
 		QLineSeries* spoilers = nullptr;
 		QLineSeries* fuelWeight = nullptr;
+		QLineSeries* pitch = nullptr;
+		QLineSeries* bank  = nullptr;
 		// Driver axis -- C++ calls setMin/setMax here; per-chart axes bind to it.
 		QDateTimeAxis* xAxis = nullptr;
 		QValueAxis* speedYAxis = nullptr;
 		QValueAxis* altYAxis   = nullptr;
 		QValueAxis* fuelYAxis  = nullptr;
+		QValueAxis* pitchYAxis = nullptr;
+		QValueAxis* bankYAxis  = nullptr;
 		bool valid = false;
 	} cache_;
 
@@ -107,10 +114,9 @@ private:
 	double liveSpeedMax_ = 0.0;
 	double liveAltMax_   = 0.0;
 	double liveFuelMax_  = 0.0;
-
-	// Cached local-UTC offset used by epochMillisFor to avoid per-call timezone
-	// DST lookups. Refreshed at setDataset() time and initialized in the ctor.
-	qint64 localOffsetMs_ = 0;
+	double livePitchMin_ = 0.0, livePitchMax_ = 0.0;
+	double liveBankMin_  = 0.0, liveBankMax_  = 0.0;
+	bool   livePitchBankValid_ = false;
 
 	// Full-resolution QPointF arrays for all 19 series. Populated by the
 	// setDataset apply callback; setVisibleRange slices this to give Qt Graphs
@@ -124,6 +130,7 @@ private:
 		QList<QPointF> gearHandle, gearPos0, gearPos1, gearPos2;
 		QList<QPointF> gearOnGround0, gearOnGround1, gearOnGround2;
 		QList<QPointF> brake, flaps, spoilers, fuelWeight;
+		QList<QPointF> pitch, bank;
 		bool ready = false;
 	} full_;
 	int displayStride_ = 1;

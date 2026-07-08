@@ -38,6 +38,8 @@ TripSamplePoint toSamplePoint(FLIGHT_DATA_RECORD sample) {
 	p.flapsHandleIndex = sample.flaps_handle_index;
 	p.spoilersHandlePosition = sample.spoilers_handle_position;
 	p.fuelTotalQuantityWeight = sample.fuel_total_quantity_weight;
+	p.pitchDegrees = sample.plane_pitch_degrees;
+	p.bankDegrees  = sample.plane_bank_degrees;
 	p.zuluTime = QString::fromStdString(sample.time_zulu.format_date_time());
 	p.localTime = QString::fromStdString(sample.time_local.format_date_time());
 
