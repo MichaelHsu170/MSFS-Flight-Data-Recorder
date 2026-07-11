@@ -70,7 +70,8 @@ void db_insert_update_table(
 	void* data,
 	struct STATUS* status,
 	void* aux,
-	void (*func)(sqlite3_stmt*, const char*, void*, struct STATUS*, void*)
+	void (*func)(sqlite3_stmt*, const char*, void*, struct STATUS*, void*),
+	int* out_rowid
 ) {
 	status->mutex_db_commit.lock();
 	sqlite3_stmt* stmt = NULL;
@@ -85,6 +86,8 @@ void db_insert_update_table(
 			db_error(stmt_txt, sql_ret, NULL);
 		func(stmt, stmt_txt, data, status, aux);
 		sql_ret = sqlite3_step(stmt);
+		if (out_rowid)
+			*out_rowid = (int)sqlite3_last_insert_rowid(sql);
 		sql_ret = sqlite3_reset(stmt);
 		if (sql_ret)
 			db_error(stmt_txt, sql_ret, NULL);
@@ -120,7 +123,7 @@ void db_insert_event(STATUS* status, const char* event, const char* time_zulu, c
 	);
 }
 
-void db_consume(STATUS* status, int trip_id) {
+void db_consume(STATUS* status, int trip_id, bool is_final) {
 	while (status->q_data_db_start != NULL) {
 		struct FLIGHT_DATA_RECORD* pS = status->q_data_db_start;
 		db_insert_update_table(status->sql,
@@ -525,7 +528,7 @@ void db_consume(STATUS* status, int trip_id) {
 				db_bind(stmt, stmt_txt, 146, pS->time_local.format_date_time().c_str());
 			});
 		bool fBreak = FALSE;
-		if (status->q_data_db_start == status->q_data_db_end)
+		if (!is_final && status->q_data_db_start == status->q_data_db_end)
 			fBreak = TRUE;
 		status->q_data_db_start = status->q_data_db_start->next;
 		if (status->q_data_db_start == NULL) {

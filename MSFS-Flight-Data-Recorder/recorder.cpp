@@ -10,6 +10,8 @@ static const int SKIP_EVENTS[] = {
 	EVENT_APU_STARTER,
 	EVENT_BRAKES,
 	EVENT_AP_VS_ON,
+	EVENT_AUTOPILOT_OFF,
+	EVENT_APU_OFF_SWITCH,
 };
 static const int SKIP_EVENTS_COUNT = (int)(sizeof(SKIP_EVENTS) / sizeof(SKIP_EVENTS[0]));
 
@@ -566,7 +568,7 @@ void stop_recording(struct STATUS* status) {
 	status->touchdown_data_end = NULL;
 	int ended_trip_id = status->id_trip;
 	std::thread([status, ended_trip_id]() {
-		db_consume(status, ended_trip_id);
+		db_consume(status, ended_trip_id, true);
 		if (status->q_data_last != NULL) {
 			free(status->q_data_last);
 			status->q_data_last = NULL;
@@ -864,9 +866,9 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 							db_bind(stmt, stmt_txt, 11, pS->flight_data.wind_velocity);
 							db_bind(stmt, stmt_txt, 12, pS->flight_data.time_zulu.format_date_time().c_str());
 							db_bind(stmt, stmt_txt, 13, pS->flight_data.time_local.format_date_time().c_str());
-						}
+						},
+						&status->touchdown_data_end->db_id
 					);
-					status->touchdown_data_end->db_id = (int)sqlite3_last_insert_rowid(status->sql);
 					// Update the destination position in trips to reflect this landing.
 					db_insert_update_table(status->sql,
 						"UPDATE trips SET destination_latitude=?,destination_longitude=? WHERE id=?;",
@@ -1137,7 +1139,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					tmp = tmp->next;
 				if (tmp != NULL) {
 					tmp->airport.copy(rep);
-						// Update trip_touchdowns with the resolved airport/runway/distance data.
 					db_insert_update_table(status->sql,
 						"UPDATE trip_touchdowns SET icao=?,airport_name=?,runway=?,"
 						"distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"

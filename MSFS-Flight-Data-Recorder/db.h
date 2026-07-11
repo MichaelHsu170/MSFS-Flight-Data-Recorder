@@ -239,7 +239,8 @@ void db_insert_update_table(
 	void* data,
 	struct STATUS* status,
 	void* aux,
-	void (*func)(sqlite3_stmt*, const char*, void*, struct STATUS*, void*)
+	void (*func)(sqlite3_stmt*, const char*, void*, struct STATUS*, void*),
+	int* out_rowid = nullptr
 );
 
 // Immediately writes one event row to trip_events. Safe to call from the
@@ -247,7 +248,7 @@ void db_insert_update_table(
 // thread — both paths serialize through STATUS::mutex_db_commit.
 void db_insert_event(STATUS* status, const char* event, const char* time_zulu, const char* time_local);
 
-void db_consume(STATUS* status, int trip_id);
+void db_consume(STATUS* status, int trip_id, bool is_final = false);
 
 // Creates the schema and migrates any missing columns on an ephemeral R/W
 // connection. Called at app startup so read-only queries always see the

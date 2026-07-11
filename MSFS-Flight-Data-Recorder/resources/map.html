@@ -166,7 +166,7 @@ function buildTouchdownPrompt(t) {
     lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     lines.push('  Heading: ' + t.headingDegrees + '°');
     lines.push('  Wind: ' + t.windDirection + '° at ' + t.windVelocity + ' kt');
-    if (t.distanceLength >= 0) {
+    if (t.distanceLength != null && t.distanceLength >= 0) {
         lines.push('  Distance from threshold: ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of runway)');
         var side = t.distanceWidth >= 0 ? 'right' : 'left';
         lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
@@ -434,7 +434,7 @@ function touchdownPopupHtml(t) {
     leftHtml += row('Bank', Number(t.bankDegrees).toFixed(1) + '°');
     leftHtml += row('Heading', t.headingDegrees + '°');
 
-    if (t.distanceLength >= 0) {
+    if (t.distanceLength != null && t.distanceLength >= 0) {
         leftHtml += div;
         leftHtml += row('Threshold', Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '%)');
         var cSide = t.distanceWidth >= 0 ? 'R' : 'L';
