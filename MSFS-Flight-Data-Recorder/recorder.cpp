@@ -566,7 +566,7 @@ void stop_recording(struct STATUS* status) {
 	status->touchdown_data_end = NULL;
 	int ended_trip_id = status->id_trip;
 	std::thread([status, ended_trip_id]() {
-		db_consume(status);
+		db_consume(status, ended_trip_id);
 		if (status->q_data_last != NULL) {
 			free(status->q_data_last);
 			status->q_data_last = NULL;
@@ -747,6 +747,15 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 							status->recording = TRUE;
 							gui_log_printf(status, GUI_LOG_INFO, "Recording started\n");
 
+							status->q_data_db_start  = NULL;
+							status->q_data_db_end    = NULL;
+							status->q_data_end       = NULL;
+							status->q_data_db_length = 0;
+							if (status->q_data_last != NULL) {
+								free(status->q_data_last);
+								status->q_data_last = NULL;
+							}
+
 							memset(status->departure.icao, 0, sizeof(status->departure.icao));
 							memset(status->destination.icao, 0, sizeof(status->destination.icao));
 							status->airborne = !(bool)tmp.sim_on_ground;
@@ -898,7 +907,8 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					if (status->q_data_db_length == Q_DB_LENGTH) {
 						status->q_data_db_end = pS;
 						status->q_data_db_length = 0;
-						std::thread thd(db_consume, status);
+						int batch_trip_id = status->id_trip;
+						std::thread thd([status, batch_trip_id]() { db_consume(status, batch_trip_id); });
 						thd.detach();
 					}
 				}
