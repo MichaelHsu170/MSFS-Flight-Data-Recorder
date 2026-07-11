@@ -247,7 +247,7 @@ void db_insert_update_table(
 // thread — both paths serialize through STATUS::mutex_db_commit.
 void db_insert_event(STATUS* status, const char* event, const char* time_zulu, const char* time_local);
 
-void db_consume(STATUS* status);
+void db_consume(STATUS* status, int trip_id);
 
 // Creates the schema and migrates any missing columns on an ephemeral R/W
 // connection. Called at app startup so read-only queries always see the
