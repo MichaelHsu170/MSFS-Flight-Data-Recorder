@@ -21,13 +21,47 @@
 #include <algorithm>
 
 #include "sqlite3.h"
+#include <QEvent>
+#include <QMouseEvent>
+#include <QStyledItemDelegate>
+#include <QPainter>
+
+namespace {
+
+// Strips the per-cell hover state before Qt's style paints, so the row-level
+// BackgroundRole color shows uniformly across all cells in the hovered row.
+class HoverStripDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    void paint(QPainter* p, const QStyleOptionViewItem& opt, const QModelIndex& idx) const override {
+        QStyleOptionViewItem o = opt;
+        o.state &= ~QStyle::State_MouseOver;
+        QStyledItemDelegate::paint(p, o, idx);
+    }
+};
+
+}
 
 TripHistoryModel::TripHistoryModel(QObject* parent) : QAbstractTableModel(parent) {}
 
 void TripHistoryModel::setTrips(std::vector<TripSummary> trips) {
 	beginResetModel();
 	trips_ = std::move(trips);
+	hoveredRow_ = -1;
 	endResetModel();
+}
+
+void TripHistoryModel::setHoveredRow(int row) {
+	if (row == hoveredRow_)
+		return;
+	int old = hoveredRow_;
+	hoveredRow_ = row;
+	auto notify = [&](int r) {
+		if (r >= 0 && r < (int)trips_.size())
+			emit dataChanged(index(r, 0), index(r, ColumnCount - 1), {Qt::BackgroundRole});
+	};
+	notify(old);
+	notify(hoveredRow_);
 }
 
 const TripSummary* TripHistoryModel::tripAt(int row) const {
@@ -69,7 +103,10 @@ QVariant TripHistoryModel::data(const QModelIndex& index, int role) const {
 		switch (trip.status) {
 		case TripStatus::Live: return QBrush(QColor(200, 255, 200));
 		case TripStatus::Open: return QBrush(QColor(255, 235, 180));
-		case TripStatus::Completed: break;
+		case TripStatus::Completed:
+			if (index.row() == hoveredRow_)
+				return QBrush(QColor(220, 230, 245));
+			break;
 		}
 	}
 	return QVariant();
@@ -133,6 +170,7 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	header->setSectionResizeMode(TripHistoryModel::DestinationTimeColumn, QHeaderView::Interactive);
 	table_->setColumnWidth(TripHistoryModel::DepartureTimeColumn, 175);
 	table_->setColumnWidth(TripHistoryModel::DestinationTimeColumn, 175);
+	table_->setItemDelegate(new HoverStripDelegate(this));
 	table_->verticalHeader()->setVisible(false);
 	// Default selection highlight clashes with the status BackgroundRole
 	// colors (Live/Open rows) and looks washed out -- a solid, high-contrast
@@ -185,6 +223,9 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 			emit tripDeselected(model_->trips());
 	});
 	connect(&bridge_, &RecorderBridge::tripUpdated, this, &TripHistoryPanel::refreshTrips);
+
+	table_->viewport()->setMouseTracking(true);
+	table_->viewport()->installEventFilter(this);
 
 	table_->setContextMenuPolicy(Qt::CustomContextMenu);
 	connect(table_, &QTableView::customContextMenuRequested, this, &TripHistoryPanel::onTableContextMenu);
@@ -321,6 +362,18 @@ void TripHistoryPanel::setLoadingFinished() {
 	loading_ = false;
 	table_->setEnabled(true);
 	loadingBar_->setVisible(false);
+}
+
+bool TripHistoryPanel::eventFilter(QObject* obj, QEvent* event) {
+	if (obj == table_->viewport()) {
+		if (event->type() == QEvent::MouseMove) {
+			QPoint pos = static_cast<QMouseEvent*>(event)->pos();
+			model_->setHoveredRow(table_->indexAt(pos).row());
+		} else if (event->type() == QEvent::Leave) {
+			model_->setHoveredRow(-1);
+		}
+	}
+	return QWidget::eventFilter(obj, event);
 }
 
 void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {

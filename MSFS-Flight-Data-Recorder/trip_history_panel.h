@@ -36,6 +36,7 @@ public:
 	explicit TripHistoryModel(QObject* parent = nullptr);
 
 	void setTrips(std::vector<TripSummary> trips);
+	void setHoveredRow(int row);
 	const TripSummary* tripAt(int row) const;
 	const std::vector<TripSummary>& trips() const { return trips_; }
 
@@ -47,6 +48,7 @@ public:
 
 private:
 	std::vector<TripSummary> trips_;
+	int hoveredRow_ = -1;
 };
 
 // Trip History feature: lists every trip from the database (refreshing its
@@ -74,6 +76,9 @@ public slots:
 	// Emits tripDeselected with the current trip list so the map shows the
 	// departure→destination overview immediately at startup.
 	void showInitialOverview();
+
+protected:
+	bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
 	void refreshTrips();
