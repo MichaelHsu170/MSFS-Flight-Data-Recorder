@@ -371,6 +371,11 @@ bool TripHistoryPanel::eventFilter(QObject* obj, QEvent* event) {
 			model_->setHoveredRow(table_->indexAt(pos).row());
 		} else if (event->type() == QEvent::Leave) {
 			model_->setHoveredRow(-1);
+		} else if (event->type() == QEvent::MouseButtonPress) {
+			QPoint pos = static_cast<QMouseEvent*>(event)->pos();
+			const TripSummary* trip = model_->tripAt(table_->indexAt(pos).row());
+			if (trip && (trip->status == TripStatus::Live || trip->id == selectedTripId_))
+				return true; // consume: prevent selection model from processing this click
 		}
 	}
 	return QWidget::eventFilter(obj, event);
