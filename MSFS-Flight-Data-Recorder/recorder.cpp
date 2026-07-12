@@ -1142,7 +1142,27 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					);
 					gui_notify_trip_updated(status);
 				}
-				rep->clear();
+				// FACILITY_DATA_AIRPORT does not carry icao — only AIRPORT_LIST does.
+				// If another touchdown's AIRPORT_LIST already fired but its FACILITY_DATA
+				// callbacks haven't completed yet, rep->clear() would zero icao before
+				// that touchdown's FACILITY_DATA_END runs copy(rep). Preserve it.
+				{
+					TOUCHDOWN_DATA* next = status->touchdown_data;
+					while (next && next->airport.runway_act.distances[0] != -1)
+						next = next->next;
+					char saved_icao[sizeof(rep->icao)];
+					char saved_region[sizeof(rep->region)];
+					bool has_more = (next != nullptr);
+					if (has_more) {
+						memcpy(saved_icao, rep->icao, sizeof(saved_icao));
+						memcpy(saved_region, rep->region, sizeof(saved_region));
+					}
+					rep->clear();
+					if (has_more) {
+						memcpy(rep->icao, saved_icao, sizeof(rep->icao));
+						memcpy(rep->region, saved_region, sizeof(rep->region));
+					}
+				}
 			}
 		} else {
 			if (rep == &status->departure) {
