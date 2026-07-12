@@ -100,6 +100,7 @@ private:
 		QLineSeries* bank  = nullptr;
 		// Driver axis -- C++ calls setMin/setMax here; per-chart axes bind to it.
 		QDateTimeAxis* xAxis = nullptr;
+		QValueAxis* vsYAxis    = nullptr;
 		QValueAxis* speedYAxis = nullptr;
 		QValueAxis* altYAxis   = nullptr;
 		QValueAxis* fuelYAxis  = nullptr;
@@ -111,6 +112,8 @@ private:
 	// Running Y-axis maximums for the live append path -- updated whenever an
 	// incoming point exceeds the current axis max (reset by setDataset).
 	// Also used by setVisibleRange to restore full-range maxima on zoom-out.
+	double liveVsMin_  = 0.0, liveVsMax_  = 0.0;
+	bool   liveVsValid_ = false;
 	double liveSpeedMax_ = 0.0;
 	double liveAltMax_   = 0.0;
 	double liveFuelMax_  = 0.0;

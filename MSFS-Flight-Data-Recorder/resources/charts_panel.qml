@@ -209,7 +209,7 @@ Item {
                     anchors.fill: parent
                     axisX: SyncedXAxis {}
                     theme: chartTheme
-                    axisY: ValueAxis { min: -6000; max: 6000; labelFormat: "%.0f"; titleText: "V/S (ft/min)"; titleVisible: true }
+                    axisY: ValueAxis { objectName: "vsYAxis"; labelFormat: "%.0f"; titleText: "V/S (ft/min)"; titleVisible: true }
                     LineSeries { objectName: "verticalSpeedSeries"; name: "Vertical Speed"; color: "#9467bd" }
                 }
                 CursorLine { graphsView: chart2 }
@@ -234,7 +234,7 @@ Item {
                     anchors.fill: parent
                     axisX: SyncedXAxis {}
                     theme: chartTheme
-                    axisY: ValueAxis { objectName: "speedYAxis"; min: 0; max: 400; labelFormat: "%.0f"; titleText: "Speed (kt)"; titleVisible: true }
+                    axisY: ValueAxis { objectName: "speedYAxis"; labelFormat: "%.0f"; titleText: "Speed (kt)"; titleVisible: true }
                     LineSeries { objectName: "airspeedSeries"; name: "Airspeed"; color: "#1f77b4" }
                     LineSeries { objectName: "groundSpeedSeries"; name: "Ground Speed"; color: "#ff7f0e" }
                 }
@@ -258,7 +258,7 @@ Item {
                     anchors.fill: parent
                     axisX: SyncedXAxis {}
                     theme: chartTheme
-                    axisY: ValueAxis { objectName: "altYAxis"; min: 0; max: 45000; labelFormat: "%.0f"; titleText: "Altitude (ft)"; titleVisible: true }
+                    axisY: ValueAxis { objectName: "altYAxis"; labelFormat: "%.0f"; titleText: "Altitude (ft)"; titleVisible: true }
                     LineSeries { objectName: "altitudeSeries"; name: "Altitude"; color: "#2ca02c" }
                 }
                 CursorLine { graphsView: chart4 }
@@ -351,7 +351,7 @@ Item {
                     anchors.fill: parent
                     axisX: SyncedXAxis {}
                     theme: chartTheme
-                    axisY: ValueAxis { objectName: "fuelYAxis"; min: 0; max: 30000; labelFormat: "%.0f"; titleText: "Fuel Weight (lb)"; titleVisible: true }
+                    axisY: ValueAxis { objectName: "fuelYAxis"; labelFormat: "%.0f"; titleText: "Fuel Weight (lb)"; titleVisible: true }
                     LineSeries { objectName: "fuelWeightSeries"; name: "Fuel Weight"; color: "#9467bd" }
                 }
                 CursorLine { graphsView: chart7 }
@@ -372,7 +372,7 @@ Item {
                     anchors.fill: parent
                     axisX: SyncedXAxis {}
                     theme: chartTheme
-                    axisY: ValueAxis { objectName: "pitchYAxis"; min: -10; max: 10; labelFormat: "%.0f"; titleText: "Pitch (°)"; titleVisible: true }
+                    axisY: ValueAxis { objectName: "pitchYAxis"; labelFormat: "%.0f"; titleText: "Pitch (°)"; titleVisible: true }
                     LineSeries { objectName: "pitchSeries"; name: "Pitch"; color: "#e377c2" }
                 }
                 CursorLine { graphsView: chart8 }
@@ -393,7 +393,7 @@ Item {
                     anchors.fill: parent
                     axisX: SyncedXAxis {}
                     theme: chartTheme
-                    axisY: ValueAxis { objectName: "bankYAxis"; min: -35; max: 35; labelFormat: "%.0f"; titleText: "Bank (°)"; titleVisible: true }
+                    axisY: ValueAxis { objectName: "bankYAxis"; labelFormat: "%.0f"; titleText: "Bank (°)"; titleVisible: true }
                     LineSeries { objectName: "bankSeries"; name: "Bank"; color: "#17becf" }
                 }
                 CursorLine { graphsView: chart9 }
