@@ -110,6 +110,7 @@ struct ChartSeriesData {
 	std::vector<double> pointTimesMs;
 	QDateTime axisLo;
 	QDateTime axisHi;
+	double vsMin = 0.0, vsMax = 0.0;
 	double speedYMax = 0.0;
 	double altYMax   = 0.0;
 	double fuelYMax  = 0.0;
@@ -176,6 +177,7 @@ void ChartsPanel::buildSeriesCache() {
 	cache_.pitch         = findSeries(root, "pitchSeries");
 	cache_.bank          = findSeries(root, "bankSeries");
 	cache_.xAxis         = findXAxis(root, "sharedXAxis");
+	cache_.vsYAxis       = findYAxis(root, "vsYAxis");
 	cache_.speedYAxis    = findYAxis(root, "speedYAxis");
 	cache_.altYAxis      = findYAxis(root, "altYAxis");
 	cache_.fuelYAxis     = findYAxis(root, "fuelYAxis");
@@ -186,6 +188,8 @@ void ChartsPanel::buildSeriesCache() {
 
 void ChartsPanel::setDataset(const TripDataset& dataset) {
 	++datasetVersion_;
+	liveVsMin_ = liveVsMax_ = 0.0;
+	liveVsValid_ = false;
 	liveSpeedMax_   = 0.0;
 	liveAltMax_     = 0.0;
 	liveFuelMax_    = 0.0;
@@ -274,6 +278,10 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		pointCount_ = (int)pointTimesMs_.size();
 
 		setAllXAxisRange(data.axisLo, data.axisHi);
+		{
+			auto [vsLo, vsHi] = signedAxisRange(data.vsMin, data.vsMax);
+			if (QValueAxis* ax = findYAxis(root, "vsYAxis")) { ax->setMin(vsLo); ax->setMax(vsHi); }
+		}
 		if (QValueAxis* ax = findYAxis(root, "speedYAxis"))
 			ax->setMax(yAxisMax(data.speedYMax));
 		if (QValueAxis* ax = findYAxis(root, "altYAxis"))
@@ -286,6 +294,8 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 			if (QValueAxis* ax = findYAxis(root, "pitchYAxis")) { ax->setMin(pLo); ax->setMax(pHi); }
 			if (QValueAxis* ax = findYAxis(root, "bankYAxis"))  { ax->setMin(bLo); ax->setMax(bHi); }
 		}
+		liveVsMin_ = data.vsMin; liveVsMax_ = data.vsMax;
+		liveVsValid_ = true;
 		liveSpeedMax_ = data.speedYMax;
 		liveAltMax_   = data.altYMax;
 		liveFuelMax_  = data.fuelYMax;
@@ -419,10 +429,13 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 			if (p.fuelTotalQuantityWeight > data.fuelYMax)
 				data.fuelYMax = p.fuelTotalQuantityWeight;
 			if (firstPB) {
+				data.vsMin    = data.vsMax    = p.verticalSpeed;
 				data.pitchMin = data.pitchMax = p.pitchDegrees;
 				data.bankMin  = data.bankMax  = p.bankDegrees;
 				firstPB = false;
 			} else {
+				data.vsMin    = qMin(data.vsMin,    (double)p.verticalSpeed);
+				data.vsMax    = qMax(data.vsMax,    (double)p.verticalSpeed);
 				data.pitchMin = qMin(data.pitchMin, p.pitchDegrees);
 				data.pitchMax = qMax(data.pitchMax, p.pitchDegrees);
 				data.bankMin  = qMin(data.bankMin,  p.bankDegrees);
@@ -477,6 +490,22 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 		liveFuelMax_ = point.fuelTotalQuantityWeight;
 		if (cache_.fuelYAxis)
 			cache_.fuelYAxis->setMax(yAxisMax(liveFuelMax_));
+	}
+
+	if (!liveVsValid_) {
+		liveVsMin_ = liveVsMax_ = point.verticalSpeed;
+		liveVsValid_ = true;
+		if (cache_.vsYAxis) {
+			auto [lo, hi] = signedAxisRange(liveVsMin_, liveVsMax_);
+			cache_.vsYAxis->setMin(lo); cache_.vsYAxis->setMax(hi);
+		}
+	} else if (point.verticalSpeed < liveVsMin_ || point.verticalSpeed > liveVsMax_) {
+		liveVsMin_ = qMin(liveVsMin_, (double)point.verticalSpeed);
+		liveVsMax_ = qMax(liveVsMax_, (double)point.verticalSpeed);
+		if (cache_.vsYAxis) {
+			auto [lo, hi] = signedAxisRange(liveVsMin_, liveVsMax_);
+			cache_.vsYAxis->setMin(lo); cache_.vsYAxis->setMax(hi);
+		}
 	}
 
 	cache_.n1_1->append(t, point.n1_1);
@@ -546,6 +575,10 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 		QDateTime hi = pointTimesMs_.empty() ? lo.addSecs(1) : QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.back());
 		setAllXAxisRange(lo, hi);
 		root->setProperty("isFullRangeVisible", true);
+		if (liveVsValid_ && cache_.vsYAxis) {
+			auto [vsLo, vsHi] = signedAxisRange(liveVsMin_, liveVsMax_);
+			cache_.vsYAxis->setMin(vsLo); cache_.vsYAxis->setMax(vsHi);
+		}
 		if (cache_.speedYAxis)
 			cache_.speedYAxis->setMax(yAxisMax(liveSpeedMax_));
 		if (cache_.altYAxis)
@@ -609,11 +642,22 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 
 		if (full_.ready) {
 			double speedMax = 0.0, altMax = 0.0, fuelMax = 0.0;
+			double sliceVsMin = 0.0, sliceVsMax = 0.0;
+			bool firstVS = true;
 			for (int i = lo; i <= hi; ++i) {
 				if (i < full_.airspeed.size())   speedMax = qMax(speedMax, full_.airspeed[i].y());
 				if (i < full_.groundSpeed.size()) speedMax = qMax(speedMax, full_.groundSpeed[i].y());
 				if (i < full_.altitude.size())    altMax   = qMax(altMax,   full_.altitude[i].y());
 				if (i < full_.fuelWeight.size())  fuelMax  = qMax(fuelMax,  full_.fuelWeight[i].y());
+				if (i < full_.verticalSpeed.size()) {
+					double v = full_.verticalSpeed[i].y();
+					if (firstVS) { sliceVsMin = sliceVsMax = v; firstVS = false; }
+					else { sliceVsMin = qMin(sliceVsMin, v); sliceVsMax = qMax(sliceVsMax, v); }
+				}
+			}
+			if (!firstVS && cache_.vsYAxis) {
+				auto [vsLo, vsHi] = signedAxisRange(sliceVsMin, sliceVsMax);
+				cache_.vsYAxis->setMin(vsLo); cache_.vsYAxis->setMax(vsHi);
 			}
 			if (cache_.speedYAxis)
 				cache_.speedYAxis->setMax(yAxisMax(speedMax));
