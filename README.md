@@ -71,7 +71,7 @@ All runtime files follow the same rule: **Debug** builds use the **current worki
 | File | Purpose |
 |---|---|
 | `flight_data.db` | SQLite database — created on first run, grows as flights are recorded |
-| `settings.ini` | User preferences (panel sizes, hidden data-table fields, log level) — created on first change |
+| `settings.ini` | User preferences (panel sizes, hidden data-table fields, log level, event skip list, sample interval, Gemini API key) — created on first launch |
 | `msfs_fdr_debug.log` | Unified log — truncated on each launch; level-filtered output from all modules (Qt, SimConnect, DB, map, charts) |
 
 ## settings.ini Reference
@@ -93,6 +93,18 @@ gemini_api_key=
 ; Default: 500  (0.5 s — adequate for all aircraft types including fast jets
 ; at subsonic speeds; go lower only for supersonic recording needs).
 sample_interval_ms=500
+
+; Comma-separated list of SimConnect event names to suppress from trip_events.
+; Not all aircraft emit events in the same pattern. Some third-party or WASM-based
+; aircraft fire certain events at extremely high frequency as internal signals that
+; carry no meaningful flight data — logging them bloats trip_events and makes
+; recordings hard to read. If you notice an event appearing excessively in a
+; recording, add its name here and restart the app to silence it.
+;
+; Each entry can be written either as the value stored in the database
+; (e.g. APU_STARTER) or with the EVENT_ prefix (e.g. EVENT_APU_STARTER).
+; Names are case-insensitive.
+skip_events=APU_STARTER,BRAKES,AP_VS_ON,AUTOPILOT_OFF,APU_OFF_SWITCH
 
 [logging]
 ; Maximum log level written to msfs_fdr_debug.log.

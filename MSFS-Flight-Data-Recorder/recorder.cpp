@@ -3,23 +3,8 @@
 #include "gui_notify.h"
 #include <thread>
 
-// Events to skip entirely — not logged and not written to the DB.
-// Add event IDs here for events that fire continuously or at high frequency
-// and produce no useful flight-data signal (e.g. A350 WASM internals).
-static const int SKIP_EVENTS[] = {
-	EVENT_APU_STARTER,
-	EVENT_BRAKES,
-	EVENT_AP_VS_ON,
-	EVENT_AUTOPILOT_OFF,
-	EVENT_APU_OFF_SWITCH,
-};
-static const int SKIP_EVENTS_COUNT = (int)(sizeof(SKIP_EVENTS) / sizeof(SKIP_EVENTS[0]));
-
-static bool is_skipped_event(int eventId) {
-	for (int i = 0; i < SKIP_EVENTS_COUNT; i++)
-		if (SKIP_EVENTS[i] == eventId)
-			return true;
-	return false;
+static bool is_skipped_event(struct STATUS* status, const char* eventName) {
+	return status->skip_events.count(eventName) > 0;
 }
 
 static const char* EVENT_ID_TXT[] = {
@@ -697,7 +682,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		case EVENT_WINDSHIELD_DEICE_ON:
 		case EVENT_WINDSHIELD_DEICE_TOGGLE:
 		case EVENT_TOGGLE_AVIONICS_MASTER:
-			if (status->id_trip > 0 && !is_skipped_event((int)evt->uEventID)) {
+			if (status->id_trip > 0 && !is_skipped_event(status, EVENT_ID_TXT[evt->uEventID])) {
 				gui_log_printf(status, GUI_LOG_INFO, "Event: %s\n", EVENT_ID_TXT[evt->uEventID]);
 				std::string tz = status->data.time_zulu.format_date_time();
 				std::string tl = status->data.time_local.format_date_time();

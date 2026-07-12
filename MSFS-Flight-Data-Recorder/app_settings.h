@@ -41,6 +41,11 @@ public:
 	QString verboseLevel() const;
 	void setVerboseLevel(const QString& level);
 
+	// SimConnect event names to suppress from trip_events recording.
+	// Read from [recording] skip_events in settings.ini as a comma-separated list.
+	// Each entry may be "APU_STARTER" or "EVENT_APU_STARTER" — both forms accepted.
+	QStringList skipEvents() const;
+
 private:
 	AppSettings() = default;
 };

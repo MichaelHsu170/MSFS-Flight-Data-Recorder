@@ -3,6 +3,7 @@
 #include <iostream>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 #include <Windows.h>
 #include "sqlite3.h"
@@ -340,5 +341,6 @@ struct STATUS {
 	COORDINATE loc_dh;
 	AIRPORT departure;
 	AIRPORT destination;
+	std::unordered_set<std::string> skip_events;
 	void* gui_context = nullptr;
 };
