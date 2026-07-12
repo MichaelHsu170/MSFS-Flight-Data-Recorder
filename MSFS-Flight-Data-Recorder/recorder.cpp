@@ -559,8 +559,6 @@ void stop_recording(struct STATUS* status) {
 			status->q_data_last = NULL;
 		}
 		status->id_trip = -1;
-		status->departure.clear();
-		status->destination.clear();
 		gui_log_printf(status, GUI_LOG_INFO, "Recording stopped\n");
 		gui_notify_recording_changed(status, false, ended_trip_id);
 	}).detach();
@@ -743,8 +741,8 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 								status->q_data_last = NULL;
 							}
 
-							memset(status->departure.icao, 0, sizeof(status->departure.icao));
-							memset(status->destination.icao, 0, sizeof(status->destination.icao));
+							status->departure.clear();
+							status->destination.clear();
 							status->airborne = !(bool)tmp.sim_on_ground;
 
 							db_insert_update_table(
@@ -1191,16 +1189,17 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					tmp = tmp->next;
 				if (tmp != NULL) {
 					memcpy(tmp->airport.icao, rep->icao, sizeof(rep->icao));
+					memcpy(tmp->airport.name, rep->name, sizeof(rep->name));
 					tmp->airport.runway_act.distances[0] = -2;
-						// Airport found but no matching runway; update trip_touchdowns with
+					// Airport found but no matching runway; update trip_touchdowns with
 					// the ICAO/name only (runway and distances stay NULL).
 					db_insert_update_table(status->sql,
 						"UPDATE trip_touchdowns SET icao=?,airport_name=? WHERE id=?;",
 						tmp, status, NULL,
 						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
 							struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
-							db_bind(stmt, stmt_txt, 1, status->destination.icao);
-							db_bind(stmt, stmt_txt, 2, status->destination.name);
+							db_bind(stmt, stmt_txt, 1, pS->airport.icao);
+							db_bind(stmt, stmt_txt, 2, pS->airport.name);
 							db_bind(stmt, stmt_txt, 3, pS->db_id);
 						}
 					);
