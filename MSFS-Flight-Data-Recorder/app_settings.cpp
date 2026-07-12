@@ -137,6 +137,18 @@ void ensureSettingsFileExists() {
 		"; at subsonic speeds; go lower only for supersonic recording needs).\n"
 		"sample_interval_ms=500\n"
 		"\n"
+		"; Comma-separated list of SimConnect event names to suppress from trip_events.\n"
+		"; Not all aircraft emit events in the same pattern. Some third-party or WASM-based\n"
+		"; aircraft fire certain events at extremely high frequency as internal signals that\n"
+		"; carry no meaningful flight data — logging them bloats trip_events and makes\n"
+		"; recordings hard to read. If you notice an event appearing excessively in a\n"
+		"; recording, add its name here and restart the app to silence it.\n"
+		";\n"
+		"; Each entry can be written either as the value stored in the database\n"
+		"; (e.g. APU_STARTER) or with the EVENT_ prefix (e.g. EVENT_APU_STARTER).\n"
+		"; Names are case-insensitive.\n"
+		"skip_events=APU_STARTER,BRAKES,AP_VS_ON,AUTOPILOT_OFF,APU_OFF_SWITCH\n"
+		"\n"
 		"[logging]\n"
 		"; Maximum log level written to msfs_fdr_debug.log.\n"
 		"; Levels (inclusive — each includes all levels above it):\n"
@@ -255,6 +267,15 @@ int AppSettings::sampleIntervalMs() const {
 QString AppSettings::verboseLevel() const {
 	QSettings settings = makeSettings();
 	return settings.value(QStringLiteral("logging/verbose"), QStringLiteral("INFO")).toString();
+}
+
+QStringList AppSettings::skipEvents() const {
+	QSettings settings = makeSettings();
+	const QVariant raw = settings.value(QStringLiteral("recording/skip_events"));
+	if (raw.typeId() == QMetaType::QStringList)
+		return raw.toStringList();
+	const QString s = raw.toString();
+	return s.isEmpty() ? QStringList{} : s.split(',', Qt::SkipEmptyParts);
 }
 
 void AppSettings::setVerboseLevel(const QString& level) {

@@ -118,6 +118,15 @@ void RecorderBridge::tryConnect() {
 	connect_db(&status_);
 	status_.sample_interval_ms = AppSettings::instance().sampleIntervalMs();
 
+	status_.skip_events.clear();
+	for (const QString& entry : AppSettings::instance().skipEvents()) {
+		QString name = entry.trimmed().toUpper();
+		if (name.startsWith(QStringLiteral("EVENT_")))
+			name = name.mid(6);
+		if (!name.isEmpty())
+			status_.skip_events.insert(name.toStdString());
+	}
+
 	connected_ = true;
 	dispatchTimer_->start(15);
 }
