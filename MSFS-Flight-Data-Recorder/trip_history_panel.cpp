@@ -208,6 +208,16 @@ void TripHistoryPanel::refreshTrips() {
 	if (sql == nullptr)
 		return;
 	model_->setTrips(queryAllTrips(sql, bridge_.currentTripId()));
+
+	if (selectedTripId_ != -1) {
+		const auto& trips = model_->trips();
+		for (int i = 0; i < (int)trips.size(); ++i) {
+			if (trips[i].id == selectedTripId_) {
+				table_->selectRow(i);
+				break;
+			}
+		}
+	}
 }
 
 void TripHistoryPanel::showInitialOverview() {
