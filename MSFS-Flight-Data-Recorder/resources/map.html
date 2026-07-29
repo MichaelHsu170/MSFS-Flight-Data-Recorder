@@ -746,22 +746,33 @@ function initLeafletProvider() {
             overviewLines.forEach(function(l) { map.removeLayer(l); });
             overviewLines = [];
 
+            // Marks a segment endpoint so departure/destination points stand out
+            // clearly even where several segments' lines overlap or run close
+            // together -- a plain polyline alone makes it hard to tell where one
+            // segment ends and the next begins.
+            function endpointMarker(lat, lng) {
+                var icon = L.divIcon({
+                    className: 'overview-endpoint',
+                    html: '<div style="width:8px;height:8px;line-height:8px;text-align:center;'
+                        + 'color:#1d4ed8;font-size:11px;font-weight:bold">&times;</div>',
+                    iconSize: [8, 8], iconAnchor: [4, 4]
+                });
+                return L.marker([lat, lng], { icon: icon, interactive: false }).addTo(map);
+            }
+
             var bounds = [];
             segments.forEach(function(s) {
                 if (s.fromLat === 0 && s.fromLng === 0) return;
                 bounds.push([s.fromLat, s.fromLng]);
+                overviewLines.push(endpointMarker(s.fromLat, s.fromLng));
                 if (s.toLat !== 0 || s.toLng !== 0) {
                     var line = L.polyline(
                         [[s.fromLat, s.fromLng], [s.toLat, s.toLng]],
                         { color: '#3b82f6', weight: 2, opacity: 0.7 }
                     ).addTo(map);
                     overviewLines.push(line);
+                    overviewLines.push(endpointMarker(s.toLat, s.toLng));
                     bounds.push([s.toLat, s.toLng]);
-                } else {
-                    var dot = L.circleMarker([s.fromLat, s.fromLng],
-                        { radius: 4, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.7, weight: 1 }
-                    ).addTo(map);
-                    overviewLines.push(dot);
                 }
             });
             if (bounds.length > 0)
