@@ -128,6 +128,22 @@ void RecorderBridge::tryConnect() {
 	connect_db(&status_);
 	status_.sample_interval_ms = AppSettings::instance().sampleIntervalMs();
 
+	// A fresh SimConnect connection starts with no data definitions registered
+	// and no requests outstanding, so any facility-lookup state carried over
+	// from a previous connection (e.g. MSFS quit/crashed with a lookup still
+	// in flight, leaving facility_lookup_pending stuck true forever with no
+	// response ever able to arrive to clear it) must be reset here. Safe to
+	// clear departure/destination unconditionally: shutdown() always stops
+	// any active recording before connected_ can go false and tryConnect()
+	// can fire again, so no trip can be recording at this point.
+	status_.facility_lookup_pending = false;
+	status_.facility_lookup_trip_id = -1;
+	status_.facility_lookup_departure_needed = false;
+	status_.facility_lookup_send_id = 0;
+	status_.facility_definition_runways_added = false;
+	status_.departure.clear();
+	status_.destination.clear();
+
 	status_.skip_events.clear();
 	for (const QString& entry : AppSettings::instance().skipEvents()) {
 		QString name = entry.trimmed().toUpper();

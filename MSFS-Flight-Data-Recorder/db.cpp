@@ -64,8 +64,13 @@ void db_query_table(
 			db_error(stmt_txt, sql_ret, NULL);
 		if (func_set_stmt != NULL)
 			func_set_stmt(stmt, stmt_txt, data, status, aux_in);
-		while (sqlite3_step(stmt) == SQLITE_ROW)
-			func_retrieve_data(stmt, stmt_txt, status, aux_out);
+		int step_ret;
+		while ((step_ret = sqlite3_step(stmt)) == SQLITE_ROW) {
+			if (func_retrieve_data != NULL)
+				func_retrieve_data(stmt, stmt_txt, status, aux_out);
+		}
+		if (step_ret != SQLITE_DONE)
+			db_error(stmt_txt, step_ret, NULL);
 		sqlite3_reset(stmt);
 		sqlite3_finalize(stmt);
 	}
@@ -114,6 +119,7 @@ void db_insert_update_table(
 		if (errmsg != NULL)
 			db_error(stmt_txt, 0, &errmsg);
 		sql_ret = sqlite3_finalize(stmt);
+		stmt = NULL;
 		if (sql_ret)
 			db_error(stmt_txt, sql_ret, NULL);
 	}
@@ -161,6 +167,14 @@ static void db_write_worker(STATUS* status) {
 			// queue, so it's now safe to announce the trip as finished.
 			gui_log_printf(status, GUI_LOG_INFO, "Recording stopped\n");
 			gui_notify_recording_changed(status, false, item.trip_id);
+			// This trip's data is now fully flushed -- safe to delete. Only
+			// clear if it's still this trip (guards against a pathological
+			// case where flushing_trip_id was already reused by a newer
+			// stop_recording() call before this barrier was reached, though
+			// that can't happen in practice since barriers are drained in the
+			// same strict order they're pushed).
+			int expected = item.trip_id;
+			status->flushing_trip_id.compare_exchange_strong(expected, -1, std::memory_order_acq_rel);
 			continue;
 		}
 		struct FLIGHT_DATA_RECORD* pS = item.data;

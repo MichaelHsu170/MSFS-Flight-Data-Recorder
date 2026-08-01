@@ -284,7 +284,10 @@ public:
 		n_runways = src->n_runways;
 		if (src->runways != NULL) {
 			runways = (RUNWAY*)malloc(sizeof(RUNWAY) * n_runways);
-			memcpy(runways, src->runways, sizeof(RUNWAY) * n_runways);
+			if (runways != NULL)
+				memcpy(runways, src->runways, sizeof(RUNWAY) * n_runways);
+			else
+				n_runways = 0;
 		}
 		runway_act = src->runway_act;
 	}
@@ -402,6 +405,21 @@ struct STATUS {
 	std::thread db_writer_thread;
 	int sample_interval_ms = 500;
 	int id_trip = -1;
+	// The id of a trip whose tail samples may still be draining through
+	// sample_write_queue after stop_recording() already reset id_trip to -1
+	// on this (dispatch) thread, or -1 if none. id_trip is reset synchronously
+	// so a new trip's event logging can never be mistaken for the old one's
+	// (see stop_recording()), but that also makes the ended trip look
+	// non-Live in the UI immediately -- before db_write_worker has actually
+	// finished flushing its samples on the DB-write thread. Without this,
+	// TripHistoryPanel could let the user delete that trip's row while the
+	// worker is still inserting trip_data rows for it, orphaning them. Set by
+	// stop_recording() right before it pushes the trip's end-of-trip barrier;
+	// cleared by db_write_worker (db.cpp) once that barrier is processed.
+	// Atomic because it's written on the dispatch thread and read from the
+	// GUI thread (RecorderBridge::flushingTripId()) and cleared on the
+	// DB-write worker thread.
+	std::atomic<int> flushing_trip_id{ -1 };
 	bool airborne = FALSE;
 	TOUCHDOWN_DATA* touchdown_data = NULL;
 	TOUCHDOWN_DATA* touchdown_data_end = NULL;
@@ -409,6 +427,77 @@ struct STATUS {
 	COORDINATE loc_dh;
 	AIRPORT departure;
 	AIRPORT destination;
+	// Set right before SimConnect_RequestFacilitiesList_EX1() is called (on
+	// takeoff or touchdown) and cleared once the async facility lookup it
+	// starts (AIRPORT_LIST -> optional FACILITY_DATA(s) -> FACILITY_DATA_END)
+	// terminates. Only one such lookup may be in flight at a time -- overlapping
+	// lookups would race on the departure/destination scratch objects above
+	// (see MyDispatchProc in recorder.cpp). facility_lookup_trip_id records
+	// which trip issued the in-flight lookup, so a response that arrives after
+	// that trip has already ended (id_trip changed) can be recognized as stale
+	// and dropped instead of being applied to whatever trip is active when it
+	// lands.
+	bool facility_lookup_pending = FALSE;
+	int facility_lookup_trip_id = -1;
+	// Set when a takeoff's own facility lookup was skipped because
+	// facility_lookup_pending was already true (a previous trip's lookup was
+	// still draining when this trip took off). request_next_touchdown_facility_lookup()
+	// in recorder.cpp checks this before touchdown_data, so the departure lookup
+	// is retried as soon as the shared slot frees up rather than being lost --
+	// unlike touchdowns, a skipped takeoff has no "unresolved" marker of its own
+	// to search for later. Cleared in stop_recording() so a lookup skipped by a
+	// trip that ends before its retry turn can't be mistakenly fired for
+	// whatever trip is active later.
+	bool facility_lookup_departure_needed = FALSE;
+	// SendID of the most recent SimConnect_RequestFacilitiesList_EX1/
+	// RequestFacilityData_EX1 call belonging to the in-flight lookup (see
+	// facility_lookup_pending above), captured via SimConnect_GetLastSentPacketID
+	// right after each call. SIMCONNECT_RECV_ID_EXCEPTION reports failed requests
+	// asynchronously with no other correlation to the request that failed; matching
+	// its dwSendID against this lets a rejected lookup request be recognized and
+	// terminated instead of leaving facility_lookup_pending stuck true forever.
+	DWORD facility_lookup_send_id = 0;
+	// Guards SimConnect_AddToFacilityDefinition(DEFINITION_RUNWAYS, ...): those
+	// fields describe the definition itself (server-side, per-connection state),
+	// not any particular request, so they only need to be registered once per
+	// connection -- re-adding the same fields on every lookup is wasteful and
+	// risks eventually exceeding an internal SDK limit. Reset on reconnect
+	// (RecorderBridge::tryConnect()) since a new SimConnect connection starts
+	// with an empty definition table.
+	bool facility_definition_runways_added = FALSE;
+	// SimConnect_RequestFacilitiesList_EX1() takes no lat/lon -- it always
+	// returns facilities near the aircraft's CURRENT position at the moment
+	// the request is sent, not any historical position. Since only one lookup
+	// may be in flight at a time (see facility_lookup_pending above), a
+	// touchdown/departure lookup queued behind an earlier one can fire well
+	// after the aircraft has moved from where that event actually happened
+	// (e.g. a go-around after a bounced landing). facility_lookup_coordinate
+	// is set immediately before each SimConnect_RequestFacilitiesList_EX1
+	// call to the *historical* coordinate the response should be evaluated
+	// against (the touchdown's stored TOUCHDOWN_DATA::flight_data.coordinate,
+	// or facility_lookup_departure_coordinate below for a departure), and used
+	// in place of status->data.coordinate throughout the AIRPORT_LIST/
+	// FACILITY_DATA_END handlers so a moved-since aircraft position can't
+	// misattribute the response to the wrong airport/runway.
+	COORDINATE facility_lookup_coordinate;
+	// The aircraft's coordinate at the moment of takeoff, captured whether or
+	// not that takeoff's lookup fires immediately (see facility_lookup_departure_needed
+	// above) -- a deferred departure lookup has no other record of where the
+	// takeoff actually happened once request_next_touchdown_facility_lookup()
+	// finally sends it.
+	COORDINATE facility_lookup_departure_coordinate;
+	// Same staleness problem as facility_lookup_coordinate above, but for the
+	// heading used as the runway-bearing fallback when loc_dh (the low-altitude
+	// decision-height position) isn't available: status->data.heading reflects
+	// the aircraft's heading at the moment FACILITY_DATA_END arrives, which can
+	// be well after the actual touchdown/takeoff (e.g. queued behind an earlier
+	// lookup, or the aircraft has already turned off the runway). Set alongside
+	// facility_lookup_coordinate from the same historical source (magnetic
+	// heading, matching status->data.heading's units) each time that field is.
+	int facility_lookup_heading = 0;
+	// The aircraft's heading at the moment of takeoff -- see
+	// facility_lookup_departure_coordinate above, same reasoning.
+	int facility_lookup_departure_heading = 0;
 	std::unordered_set<std::string> skip_events;
 	void* gui_context = nullptr;
 };

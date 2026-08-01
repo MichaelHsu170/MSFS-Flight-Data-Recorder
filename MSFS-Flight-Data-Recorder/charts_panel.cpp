@@ -274,8 +274,14 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 
 		QElapsedTimer applyTimer; applyTimer.start();
 		QQuickItem* root = view_->rootObject();
-		if (root == nullptr)
+		if (root == nullptr) {
+			// Matches the synchronous early-return above: always emit seriesLoaded()
+			// so TrajectoryView::pendingRenders_ reaches 0 even if the QML root was
+			// torn down while this background computation was in flight, instead of
+			// leaving the trip table permanently disabled with a stuck loading spinner.
+			emit seriesLoaded();
 			return;
+		}
 
 		pointTimesMs_ = std::move(data.pointTimesMs);
 		pointCount_ = (int)pointTimesMs_.size();
@@ -347,6 +353,11 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 			dec.reserve(full.size() / displayStride_ + 1);
 			for (int i = 0; i < full.size(); i += displayStride_)
 				dec.append(full[i]);
+			// Force-include the trailing sample (e.g. touchdown) -- same fix as
+			// loadSliceDec below; without it, the last point is silently dropped
+			// whenever (full.size()-1) isn't a multiple of displayStride_.
+			if (!full.isEmpty() && (full.size() - 1) % displayStride_ != 0)
+				dec.append(full.last());
 			s->replace(dec);
 		};
 
@@ -610,6 +621,9 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 				dec.reserve(full.size() / displayStride_ + 1);
 				for (int i = 0; i < full.size(); i += displayStride_)
 					dec.append(full[i]);
+				// Force-include the trailing sample -- see loadDec above.
+				if ((full.size() - 1) % displayStride_ != 0)
+					dec.append(full.last());
 				s->append(dec);
 			};
 			reloadDec(cache_.n1_1,          full_.n1_1);

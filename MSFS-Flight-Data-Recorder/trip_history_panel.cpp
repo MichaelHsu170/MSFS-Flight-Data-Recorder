@@ -297,15 +297,32 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	// A single click selects a trip and loads its data -- the previous
 	// double-click ("activated") requirement felt sluggish for browsing.
 	connect(table_, &QTableView::clicked, this, &TripHistoryPanel::onRowActivated);
-	connect(&bridge_, &RecorderBridge::recordingStateChanged, this, &TripHistoryPanel::refreshTrips);
+	connect(&bridge_, &RecorderBridge::recordingStateChanged, this, [this](int) {
+		refreshTrips();
+		// If no trip is selected the overview map is visible. Re-emit tripDeselected
+		// so a newly-started/ended live trip shows up on it immediately -- same
+		// reasoning as the tripEnded handler below. Skip while a trip is actively
+		// loading: selectedTripId_ still holds the pre-load value (possibly -1)
+		// until tryFinishLoad() completes, so without the loading_ guard this would
+		// briefly flash the overview map over the trip the user just clicked.
+		if (!loading_ && selectedTripId_ == -1)
+			emit tripDeselected(model_->trips());
+	});
 	connect(&bridge_, &RecorderBridge::tripEnded, this, [this](int) {
 		refreshTrips();
 		// If no trip is selected the overview map is visible. Re-emit tripDeselected
 		// so it picks up the new departure→destination segment immediately.
-		if (selectedTripId_ == -1)
+		if (!loading_ && selectedTripId_ == -1)
 			emit tripDeselected(model_->trips());
 	});
-	connect(&bridge_, &RecorderBridge::tripUpdated, this, &TripHistoryPanel::refreshTrips);
+	connect(&bridge_, &RecorderBridge::tripUpdated, this, [this](int) {
+		refreshTrips();
+		// A live trip's departure/destination can resolve mid-flight well after
+		// recordingStateChanged fired -- without this, the overview map would
+		// keep showing the trip with no segment until it ends (tripEnded).
+		if (!loading_ && selectedTripId_ == -1)
+			emit tripDeselected(model_->trips());
+	});
 
 	table_->viewport()->setMouseTracking(true);
 	table_->viewport()->installEventFilter(this);
@@ -411,10 +428,18 @@ void TripHistoryPanel::refreshTrips() {
 		return;
 	model_->setTrips(queryAllTrips(sql, bridge_.currentTripId()));
 
-	if (selectedTripId_ != -1) {
+	// setTrips() resets the model, clearing any selection. While a trip is
+	// mid-load, selectedTripId_ still holds the *previous* selection (it only
+	// becomes pendingTripId_ once tryFinishLoad() completes) -- re-selecting it
+	// here would desync the highlighted row from the trip actually being loaded
+	// if a bridge signal (tripUpdated/tripEnded/recordingStateChanged) fires
+	// mid-load and calls refreshTrips(). Highlight whichever trip is relevant
+	// right now.
+	int highlightTripId = loading_ ? pendingTripId_ : selectedTripId_;
+	if (highlightTripId != -1) {
 		const auto& trips = model_->trips();
 		for (int i = 0; i < (int)trips.size(); ++i) {
-			if (trips[i].id == selectedTripId_) {
+			if (trips[i].id == highlightTripId) {
 				table_->selectRow(i);
 				break;
 			}
@@ -666,6 +691,18 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	} else if (groupActionIds.contains(chosen)) {
 		setTripGroupFromUi(rightClickedTripId, groupActionIds.value(chosen));
 	} else if (chosen == deleteAction) {
+		// Re-check right before deleting (not just via the TripStatus::Live
+		// filter that built the menu): a trip that just stopped recording can
+		// still have samples draining onto the DB-write thread even though it
+		// no longer looks Live (id_trip is reset synchronously, before that
+		// flush completes -- see flushing_trip_id in types.h). Deleting now
+		// would race the worker's still-pending trip_data inserts and orphan
+		// rows with no parent trip.
+		if (deleteId == bridge_.flushingTripId()) {
+			QMessageBox::information(this, QStringLiteral("Trip Still Saving"),
+				QStringLiteral("This trip's data is still being saved. Please wait a moment and try again."));
+			return;
+		}
 		QMessageBox confirm(this);
 		confirm.setWindowTitle(QStringLiteral("Delete Trip"));
 		confirm.setText(QStringLiteral("Delete the trip?"));
@@ -677,6 +714,15 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		confirm.setIcon(QMessageBox::Warning);
 		if (confirm.exec() != QMessageBox::Yes)
 			return;
+		// confirm.exec() runs a nested event loop -- re-check once more right
+		// before the actual delete, since the flush could still be draining
+		// (or could have started, if this trip only just stopped recording)
+		// while the dialog was open.
+		if (deleteId == bridge_.flushingTripId()) {
+			QMessageBox::information(this, QStringLiteral("Trip Still Saving"),
+				QStringLiteral("This trip's data is still being saved. Please wait a moment and try again."));
+			return;
+		}
 		sqlite3* sql = connect_db_readwrite();
 		if (!sql) {
 			QMessageBox::critical(this, QStringLiteral("Error"),

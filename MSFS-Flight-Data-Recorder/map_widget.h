@@ -1,7 +1,6 @@
 #pragma once
 
 #include <QWidget>
-#include <QElapsedTimer>
 
 #include <utility>
 #include <vector>
@@ -81,9 +80,14 @@ private:
 	bool inOverviewMode_ = true;  // start in overview mode; cleared by setDataset
 	QString aircraftTitle_;
 	bool pageReady_ = false;
-	QElapsedTimer mapGenTimer_;
 	// Incremented by setDataset and showOverview to invalidate any in-flight
 	// pushTrajectory / pushTouchdownsAndEvents workers so their finished lambdas
 	// don't call setTrajectory() / setTouchdowns() after showOverview() was issued.
 	int datasetVersion_ = 0;
+	// Set when setDataset() emits trajectoryLoaded() early because the page
+	// wasn't ready yet (see setDataset()). Consumed by pushTrajectory()'s
+	// completion lambda so the real, deferred push (fired later once the page
+	// loads and refreshProvider() catches up) doesn't emit trajectoryLoaded()
+	// a second time for the same dataset.
+	bool suppressNextTrajectoryLoaded_ = false;
 };

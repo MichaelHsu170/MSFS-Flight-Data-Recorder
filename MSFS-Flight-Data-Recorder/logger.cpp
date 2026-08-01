@@ -5,7 +5,6 @@
 #include <QFile>
 #include <QMutex>
 #include <QMutexLocker>
-#include <QTextStream>
 
 #include <atomic>
 #include <cstdarg>
@@ -14,9 +13,18 @@
 
 namespace {
 
-QFile*             g_file;
-QMutex             g_mutex;
-std::atomic<int>   g_maxLevel{static_cast<int>(Logger::Info)};
+// Opened with FILE_APPEND_DATA (not plain GENERIC_WRITE) so every WriteFile
+// call is an OS-level atomic append: Windows positions each write at the
+// current end-of-file itself, as part of the write, rather than relying on a
+// handle-cached position that a seek established once. That guarantee is
+// what makes logCrash()'s lock-free fallback below safe -- two handles (or
+// two threads sharing this one) issuing WriteFile concurrently can never
+// land at overlapping offsets and corrupt/truncate each other's bytes, which
+// a QFile opened in QIODevice::Append (a one-time seek-to-EOF at open(), not
+// a per-write OS append) cannot promise.
+HANDLE              g_fileHandle = INVALID_HANDLE_VALUE;
+QMutex              g_mutex;
+std::atomic<int>    g_maxLevel{static_cast<int>(Logger::Info)};
 
 const char* levelTag(Logger::Level level) {
     switch (level) {
@@ -28,6 +36,14 @@ const char* levelTag(Logger::Level level) {
     return "?    ";
 }
 
+void writeLine(const QString& line) {
+    if (g_fileHandle == INVALID_HANDLE_VALUE)
+        return;
+    QByteArray utf8 = line.toUtf8();
+    DWORD written = 0;
+    WriteFile(g_fileHandle, utf8.constData(), static_cast<DWORD>(utf8.size()), &written, nullptr);
+}
+
 }
 
 namespace Logger {
@@ -35,26 +51,40 @@ namespace Logger {
 void init(Level maxLevel, const QString& filePath, const QString& appVersion) {
     g_maxLevel.store(static_cast<int>(maxLevel));
     QMutexLocker lock(&g_mutex);
-    if (g_file)
+    if (g_fileHandle != INVALID_HANDLE_VALUE)
         return;
     // Preserve the previous run's log instead of truncating it, so a crash
     // followed by a manual relaunch doesn't erase the only record of it.
     const QString oldPath = filePath + QStringLiteral(".old");
     QFile::remove(oldPath);
     QFile::rename(filePath, oldPath);
-    g_file = new QFile(filePath);
-    if (!g_file->open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        delete g_file;
-        g_file = nullptr;
+    // OPEN_ALWAYS, not CREATE_ALWAYS: CREATE_ALWAYS truncates an existing file,
+    // which per CreateFile's documented access-right requirements needs
+    // GENERIC_WRITE/FILE_WRITE_DATA -- access this handle deliberately doesn't
+    // request (see the FILE_APPEND_DATA-only rationale above). If the rename
+    // above fails (e.g. .old locked by an AV scanner or a second app instance)
+    // filePath still exists, and CREATE_ALWAYS against it would fail with
+    // ERROR_ACCESS_DENIED, leaving logging silently disabled for the whole
+    // session. OPEN_ALWAYS has no such requirement: it creates the file if
+    // absent (the normal case, after a successful rename) or just opens it
+    // without truncating if present, so a failed rotate degrades to appending
+    // after the old content instead of losing all logging.
+    g_fileHandle = CreateFileW(
+        reinterpret_cast<const wchar_t*>(filePath.utf16()),
+        FILE_APPEND_DATA,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (g_fileHandle == INVALID_HANDLE_VALUE)
         return;
-    }
-    QTextStream out(g_file);
-    out << QStringLiteral("==== MSFS Flight Data Recorder")
-        << (appVersion.isEmpty() ? QString() : QStringLiteral(" v%1").arg(appVersion))
-        << QStringLiteral(" started (PID %1) at %2 ====\n")
+    QString header = QStringLiteral("==== MSFS Flight Data Recorder")
+        + (appVersion.isEmpty() ? QString() : QStringLiteral(" v%1").arg(appVersion))
+        + QStringLiteral(" started (PID %1) at %2 ====\n")
               .arg(GetCurrentProcessId())
               .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")));
-    out.flush();
+    writeLine(header);
 }
 
 Level levelFromString(const QString& s) {
@@ -69,15 +99,13 @@ Level levelFromString(const QString& s) {
 void log(Level level, const char* module, const QString& msg) {
     if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
         return;
-    QMutexLocker lock(&g_mutex);
-    if (!g_file)
+    if (g_fileHandle == INVALID_HANDLE_VALUE)
         return;
-    QTextStream out(g_file);
-    out << QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
-        << " [" << levelTag(level) << "] ["
-        << QString::fromUtf8(module).leftJustified(8)
-        << "] " << msg << '\n';
-    out.flush();
+    QString line = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
+        + QStringLiteral(" [") + QLatin1String(levelTag(level)) + QStringLiteral("] [")
+        + QString::fromUtf8(module).leftJustified(8) + QStringLiteral("] ") + msg + QStringLiteral("\n");
+    QMutexLocker lock(&g_mutex);
+    writeLine(line);
 }
 
 void logf(Level level, const char* module, const char* fmt, ...) {
@@ -94,20 +122,18 @@ void logf(Level level, const char* module, const char* fmt, ...) {
 void logCrash(Level level, const char* module, const QString& msg) {
     if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
         return;
-    if (!g_file)
+    if (g_fileHandle == INVALID_HANDLE_VALUE)
         return;
-    // Bounded wait instead of QMutexLocker's indefinite lock() -- if the thread
-    // that crashed already holds g_mutex, waiting forever here would turn a
-    // crash into a silent hang instead of a logged one.
-    bool locked = g_mutex.tryLock(200);
-    QTextStream out(g_file);
-    out << QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
-        << " [" << levelTag(level) << "] ["
-        << QString::fromUtf8(module).leftJustified(8)
-        << "] " << msg << '\n';
-    out.flush();
-    if (locked)
-        g_mutex.unlock();
+    QString line = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
+        + QStringLiteral(" [") + QLatin1String(levelTag(level)) + QStringLiteral("] [")
+        + QString::fromUtf8(module).leftJustified(8) + QStringLiteral("] ") + msg + QStringLiteral("\n");
+    // Deliberately skips g_mutex: g_fileHandle was opened with FILE_APPEND_DATA,
+    // so each WriteFile call atomically appends at EOF at the OS level -- safe
+    // to call concurrently with log()'s own writeLine() even if the thread that
+    // crashed died while holding g_mutex, which would otherwise deadlock the
+    // handler (waiting on a lock its own thread can never release) instead of
+    // recording the crash.
+    writeLine(line);
 }
 
 void logCrashf(Level level, const char* module, const char* fmt, ...) {

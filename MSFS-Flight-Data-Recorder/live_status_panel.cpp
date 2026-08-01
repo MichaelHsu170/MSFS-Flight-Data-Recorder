@@ -133,6 +133,11 @@ void LiveStatusPanel::onLogMessage(const QString& text) {
 		return;
 	QDateTime now = QDateTime::currentDateTime();
 	historyList_->addItem(QString("[%1] %2").arg(now.toString("hh:mm:ss"), trimmed));
+	// Cap so an extremely long recording session doesn't grow this list (and its
+	// underlying widget items) without bound.
+	constexpr int kMaxHistoryItems = 500;
+	while (historyList_->count() > kMaxHistoryItems)
+		delete historyList_->takeItem(0);
 	historyList_->scrollToBottom();
 }
 
