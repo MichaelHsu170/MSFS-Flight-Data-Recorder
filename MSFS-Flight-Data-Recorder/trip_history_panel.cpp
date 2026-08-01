@@ -316,6 +316,10 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	connect(manageGroupsButton_, &QPushButton::clicked, this, &TripHistoryPanel::openManageGroupsDialog);
 	connect(groupFilterCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
 		model_->setGroupFilter(groupFilterCombo_->itemData(index).toInt());
+		// If no trip is selected the overview map is visible; re-emit
+		// tripDeselected so it reflects the newly filtered trip list.
+		if (selectedTripId_ == -1)
+			emit tripDeselected(model_->trips());
 	});
 
 	reloadGroupFilterCombo();
@@ -351,7 +355,17 @@ void TripHistoryPanel::reloadGroupFilterCombo() {
 
 	int idx = groupFilterCombo_->findData(previousData);
 	groupFilterCombo_->setCurrentIndex(idx >= 0 ? idx : 0);
-	model_->setGroupFilter(groupFilterCombo_->currentData().toInt());
+	int newData = groupFilterCombo_->currentData().toInt();
+	model_->setGroupFilter(newData);
+	// The combo's currentIndexChanged signal is suppressed above, so if the
+	// filter actually changed (e.g. the previously-selected group was
+	// deleted, falling back to "All Trips"), the overview map needs a
+	// manual nudge to match -- same as the combo's own change handler. Only
+	// do this when the filter really changed, since groupsChanged fires on
+	// every add/rename/delete in the Manage Groups dialog and most of those
+	// don't affect the current filter.
+	if (newData != previousData && selectedTripId_ == -1)
+		emit tripDeselected(model_->trips());
 }
 
 void TripHistoryPanel::setTripGroupFromUi(int tripId, int groupId) {
@@ -369,6 +383,11 @@ void TripHistoryPanel::setTripGroupFromUi(int tripId, int groupId) {
 		return;
 	}
 	refreshTrips();
+	// Under an active group filter, this reassignment may have added or
+	// removed the trip from the filtered set. If no trip is selected the
+	// overview map is showing that set, so nudge it to match.
+	if (selectedTripId_ == -1)
+		emit tripDeselected(model_->trips());
 }
 
 void TripHistoryPanel::openManageGroupsDialog() {
