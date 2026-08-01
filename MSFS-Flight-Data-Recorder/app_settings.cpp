@@ -147,8 +147,11 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 // file does not yet exist — never modifies an existing file, even a partial one.
 void ensureSettingsFileExists() {
 	const QString path = settingsFilePath();
-	if (QFile::exists(path))
+	if (QFile::exists(path)) {
+		Logger::logf(Logger::Trace, "Settings", "Using existing settings.ini at %s", qUtf8Printable(path));
 		return;
+	}
+	Logger::logf(Logger::Trace, "Settings", "No settings.ini found; creating default at %s", qUtf8Printable(path));
 
 	QFile file(path);
 	if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -196,7 +199,8 @@ void ensureSettingsFileExists() {
 		";   FATAL    — unrecoverable errors only\n"
 		";   WARNING  — unexpected conditions that don't abort the app\n"
 		";   INFO     — operational events (connect, recording start/stop, takeoff, touchdown)\n"
-		";   PROFILE  — performance timing for all subsystems (high-volume; for profiling only)\n"
+		";   TRACE    — fine-grained diagnostic detail, e.g. raw Qt debug output (high-volume)\n"
+		";   PROFILE  — performance timing for all subsystems (highest volume; for profiling only)\n"
 		"; Default: INFO\n"
 		"verbose=INFO\n"
 		"\n"
@@ -227,6 +231,8 @@ void ensureSettingsFileExists() {
 		"; TitleColumn=120). Columns using Stretch sizing are never stored. Unknown\n"
 		"; or missing keys fall back to that column's coded default.\n"
 		"trip_history_column_widths=\n";
+
+	Logger::logf(Logger::Trace, "Settings", "Default settings.ini created at %s", qUtf8Printable(path));
 }
 
 }
@@ -250,6 +256,7 @@ QStringList AppSettings::dataTableHiddenFields() const {
 }
 
 void AppSettings::setDataTableHiddenFields(const QStringList& fields) {
+	Logger::logf(Logger::Trace, "Settings", "Data Table field visibility changed: %d field(s) now hidden", (int)fields.size());
 	writeIniValue(
 		QStringLiteral("data_table"),
 		QStringLiteral("hidden_fields"),
@@ -365,6 +372,8 @@ QString AppSettings::geminiApiKey() const {
 }
 
 void AppSettings::setGeminiApiKey(const QString& key) {
+	// Never log the key value itself, only whether one is now configured.
+	Logger::logf(Logger::Trace, "Settings", "Gemini API key %s", key.isEmpty() ? "cleared" : "updated");
 	writeIniValue(
 		QStringLiteral("ai"),
 		QStringLiteral("gemini_api_key"),
@@ -381,7 +390,12 @@ int AppSettings::sampleIntervalMs() const {
 	QSettings settings = makeSettings();
 	bool ok = false;
 	int v = settings.value(QStringLiteral("recording/sample_interval_ms")).toInt(&ok);
-	return (ok && v > 0) ? v : 500;
+	if (ok && v > 0) {
+		Logger::logf(Logger::Trace, "Settings", "sample_interval_ms=%d read from settings.ini", v);
+		return v;
+	}
+	Logger::logf(Logger::Trace, "Settings", "sample_interval_ms missing or invalid in settings.ini; falling back to default 500");
+	return 500;
 }
 
 QString AppSettings::verboseLevel() const {
@@ -399,6 +413,7 @@ QStringList AppSettings::skipEvents() const {
 }
 
 void AppSettings::setVerboseLevel(const QString& level) {
+	Logger::logf(Logger::Trace, "Settings", "Log verbosity level set to %s", qUtf8Printable(level));
 	writeIniValue(
 		QStringLiteral("logging"),
 		QStringLiteral("verbose"),

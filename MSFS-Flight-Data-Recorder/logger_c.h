@@ -1,7 +1,7 @@
 #pragma once
 // C-compatible logging shim for Qt-free source files (db.cpp).
 // Integer level values match Logger::Level in logger.h exactly:
-//   0 = Fatal, 1 = Warning, 2 = Info, 3 = Profile
+//   0 = Fatal, 1 = Warning, 2 = Info, 3 = Trace, 4 = Profile
 #ifdef __cplusplus
 extern "C" {
 #endif

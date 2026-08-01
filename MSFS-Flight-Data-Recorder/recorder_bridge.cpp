@@ -153,6 +153,9 @@ void RecorderBridge::tryConnect() {
 			status_.skip_events.insert(name.toStdString());
 	}
 
+	Logger::logf(Logger::Trace, "Recorder", "SimConnect connected: sample_interval_ms=%d, skip_events=%zu",
+		status_.sample_interval_ms, status_.skip_events.size());
+
 	connected_ = true;
 	dispatchTimer_->start(15);
 }
@@ -177,6 +180,8 @@ void RecorderBridge::pollDispatch() {
 void RecorderBridge::shutdown() {
 	if (!connected_)
 		return;
+
+	Logger::logf(Logger::Trace, "Recorder", "shutdown: recording=%d", status_.recording ? 1 : 0);
 
 	connected_ = false;
 	connectFailureLogged_ = false;
@@ -203,6 +208,7 @@ void RecorderBridge::shutdown() {
 	watcher->setFuture(stopFuture_);
 	connect(watcher, &QFutureWatcher<void>::finished, this, [this, watcher]() {
 		watcher->deleteLater();
+		Logger::log(Logger::Trace, "Recorder", QStringLiteral("shutdown: db writers drained, sql closed; scheduling reconnect"));
 		connectTimer_->start(2000);
 	});
 }
@@ -229,6 +235,7 @@ void gui_log_printf(struct STATUS* status, GuiLogLevel level, const char* fmt, .
 }
 
 void gui_notify_connection_changed(struct STATUS* status, bool connected) {
+	Logger::logf(Logger::Trace, "Recorder", "connection changed: connected=%d", connected ? 1 : 0);
 	if (!status || !status->gui_context)
 		return;
 	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
@@ -236,6 +243,7 @@ void gui_notify_connection_changed(struct STATUS* status, bool connected) {
 }
 
 void gui_notify_recording_changed(struct STATUS* status, bool recording, int tripId) {
+	Logger::logf(Logger::Trace, "Recorder", "recording changed: recording=%d, trip=%d", recording ? 1 : 0, tripId);
 	if (!status || !status->gui_context)
 		return;
 	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
@@ -248,6 +256,7 @@ void gui_notify_recording_changed(struct STATUS* status, bool recording, int tri
 void gui_notify_trip_updated(struct STATUS* status) {
 	if (!status || !status->gui_context)
 		return;
+	Logger::logf(Logger::Trace, "Recorder", "trip updated: trip=%d", status->id_trip);
 	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
 	emit bridge->tripUpdated(status->id_trip);
 }

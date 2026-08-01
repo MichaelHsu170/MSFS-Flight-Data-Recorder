@@ -4,6 +4,7 @@
 #include "trajectory_view.h"
 #include "recorder_bridge.h"
 #include "app_settings.h"
+#include "logger.h"
 
 #include <QSplitter>
 #include <QVBoxLayout>
@@ -63,5 +64,6 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 	// Show departure→destination arcs for all trips on the initial map load.
 	// The WebEngine page isn't ready yet at this point; MapWidget stores the
 	// trips and re-sends them when onLoadFinished fires via refreshProvider.
+	Logger::log(Logger::Trace, "MainWin", QStringLiteral("Requesting initial trip overview on map"));
 	tripHistoryPanel_->showInitialOverview();
 }

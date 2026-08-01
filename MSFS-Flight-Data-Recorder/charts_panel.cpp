@@ -205,6 +205,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 
 	QQuickItem* root = view_->rootObject();
 	if (root == nullptr) {
+		Logger::log(Logger::Trace, "Charts", QStringLiteral("setDataset: QML root not ready yet; skipping series update, emitting seriesLoaded immediately"));
 		emit seriesLoaded();
 		return;
 	}
@@ -216,6 +217,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	// series blocks the main thread on a Qt Graphs render-thread sync. The next
 	// trip load replaces stale points via s->replace() with no intermediate clear.
 	if (dataset.points.empty()) {
+		Logger::log(Logger::Trace, "Charts", QStringLiteral("setDataset: empty dataset (Deselect/overview); collapsing axis to a 1s window instead of rebuilding series"));
 		pointTimesMs_.clear();
 		pointCount_ = 0;
 		full_.ready = false;
@@ -266,7 +268,10 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		watcher->deleteLater();
 		// A newer setDataset call superseded this one — discard stale results
 		// rather than writing old trip data into series that were already cleared.
-		if (ver != datasetVersion_) return;
+		if (ver != datasetVersion_) {
+			Logger::logf(Logger::Trace, "Charts", "setDataset: dataset superseded (ver=%d cur=%d); discarding stale computed series", ver, datasetVersion_);
+			return;
+		}
 		// Non-const so we can std::move the QList members into full_ below,
 		// avoiding a second 15 MB copy into the QLineSeries objects.
 		ChartSeriesData data = watcher->result();
@@ -279,6 +284,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 			// so TrajectoryView::pendingRenders_ reaches 0 even if the QML root was
 			// torn down while this background computation was in flight, instead of
 			// leaving the trip table permanently disabled with a stuck loading spinner.
+			Logger::log(Logger::Trace, "Charts", QStringLiteral("setDataset: QML root torn down while computing series (bg); discarding result, emitting seriesLoaded"));
 			emit seriesLoaded();
 			return;
 		}
@@ -316,6 +322,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		// Move full-resolution data into full_ so setVisibleRange can serve
 		// exact slices on zoom rather than leaving all 49k points in Qt Graphs.
 		displayStride_ = std::max(1, (pointCount_ + kDisplayPoints - 1) / kDisplayPoints);
+		Logger::logf(Logger::Trace, "Charts", "setDataset: %d pts, decimating to stride %d (target ~%d pts/series) for initial display", pointCount_, displayStride_, kDisplayPoints);
 		full_.n1_1          = std::move(data.n1_1);
 		full_.n1_2          = std::move(data.n1_2);
 		full_.n2_1          = std::move(data.n2_1);
@@ -578,8 +585,10 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 	// Leaflet fires both zoomend and moveend on every zoom interaction -- skip
 	// the second call when both events produce the same range.
-	if (startIndex == lastRangeStart_ && endIndex == lastRangeEnd_)
+	if (startIndex == lastRangeStart_ && endIndex == lastRangeEnd_) {
+		Logger::log(Logger::Trace, "Charts", QStringLiteral("setVisibleRange: duplicate range (Leaflet zoomend+moveend); ignoring"));
 		return;
+	}
 	lastRangeStart_ = startIndex;
 	lastRangeEnd_   = endIndex;
 
@@ -593,6 +602,7 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 		return;
 
 	if (startIndex < 0 || endIndex < 0 || pointTimesMs_.empty()) {
+		Logger::log(Logger::Trace, "Charts", QStringLiteral("setVisibleRange: full range requested (zoomed all the way out); reloading full-resolution decimated view"));
 		QDateTime lo = pointTimesMs_.empty()
 			? QDateTime::currentDateTime()
 			: QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.front());
@@ -724,6 +734,7 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 		if (full_.ready) {
 			int count = hi - lo + 1;
 			int sliceStride = std::max(1, (count + kDisplayPoints - 1) / kDisplayPoints);
+			Logger::logf(Logger::Trace, "Charts", "setVisibleRange: zoomed slice [%d..%d] (%d pts), stride %d (target ~%d pts/series)", lo, hi, count, sliceStride, kDisplayPoints);
 			auto loadSliceDec = [&](QLineSeries* s, const QList<QPointF>& full) {
 				if (!s || hi >= full.size()) return;
 				s->clear();

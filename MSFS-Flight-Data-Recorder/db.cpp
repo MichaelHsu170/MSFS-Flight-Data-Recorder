@@ -159,6 +159,7 @@ void db_insert_event(STATUS* status, const char* event, const char* time_zulu, c
 // threads racing each other, or a new trip's samples being interleaved with
 // (or lost during) a previous trip's flush.
 static void db_write_worker(STATUS* status) {
+	log_cf(3, "DB", "db_write_worker: thread started");
 	SAMPLE_QUEUE_ITEM item;
 	while (status->sample_write_queue.pop(item)) {
 		if (item.data == NULL) {
@@ -602,6 +603,7 @@ static void db_write_worker(STATUS* status) {
 		}
 		free(pS);
 	}
+	log_cf(3, "DB", "db_write_worker: queue stopped; thread exiting");
 }
 
 static void resolve_db_path(char* fn_db, size_t len) {
@@ -748,6 +750,7 @@ static void migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 void migrate_db() {
 	char fn_db[MAX_PATH];
 	resolve_db_path(fn_db, MAX_PATH);
+	log_cf(3, "DB", "migrate_db: checking schema for %s", fn_db);
 	sqlite3* sql = nullptr;
 	if (sqlite3_open_v2(fn_db, &sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
 		if (sql) sqlite3_close(sql);
@@ -780,6 +783,7 @@ void migrate_db() {
 	for (int i = 0; i < (int)(sizeof(DATABASE_TABLE_NAMES) / sizeof(char*)); i++)
 		migrate_table_columns(sql, DATABASE_TABLE_NAMES[i], DATABASE_TABLE_FIELDS[i]);
 
+	log_cf(3, "DB", "migrate_db: schema check complete");
 	sqlite3_close(sql);
 }
 
@@ -858,5 +862,6 @@ void connect_db(struct STATUS* status) {
 	// clears any stop() left over from a previous connection's shutdown, so
 	// the freshly-started thread's pop() loop doesn't exit immediately.
 	status->sample_write_queue.reset();
+	log_cf(3, "DB", "connect_db: schema ready; starting db_write_worker");
 	status->db_writer_thread = std::thread(db_write_worker, status);
 }

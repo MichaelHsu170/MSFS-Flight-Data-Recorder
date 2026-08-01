@@ -14,7 +14,10 @@ void MapBridge::rangeChanged(int startIndex, int endIndex) {
 }
 
 void MapBridge::saveAnalysisReport(int rowId, const QString& report) {
-	if (rowId <= 0) return;
+	if (rowId <= 0) {
+		Logger::logf(Logger::Trace, "DB", "saveAnalysisReport: ignoring invalid touchdown id %d", rowId);
+		return;
+	}
 	sqlite3* sql = connect_db_readwrite();
 	if (!sql) {
 		Logger::logf(Logger::Warning, "DB", "saveAnalysisReport(touchdown %d): failed to open read-write connection; analysis was not saved", rowId);
@@ -28,6 +31,8 @@ void MapBridge::saveAnalysisReport(int rowId, const QString& report) {
 		sqlite3_bind_int(stmt, 2, rowId);
 		if (sqlite3_step(stmt) != SQLITE_DONE)
 			Logger::logf(Logger::Warning, "DB", "saveAnalysisReport(touchdown %d): update failed: %s", rowId, sqlite3_errmsg(sql));
+		else
+			Logger::logf(Logger::Trace, "DB", "saveAnalysisReport(touchdown %d): analysis report saved (%d chars)", rowId, utf8.size());
 		sqlite3_finalize(stmt);
 	} else {
 		Logger::logf(Logger::Warning, "DB", "saveAnalysisReport(touchdown %d): prepare failed: %s", rowId, sqlite3_errmsg(sql));

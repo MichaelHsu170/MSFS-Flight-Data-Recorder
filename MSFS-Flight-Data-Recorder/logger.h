@@ -10,15 +10,18 @@
 //   Fatal   – unrecoverable errors that halt the app
 //   Warning – unexpected/unhandled conditions that don't stop execution
 //   Info    – user-visible events (connect, record, takeoff, touchdown, …)
+//   Trace   – fine-grained diagnostic detail (e.g. raw Qt debug output) that's
+//             too noisy for Info but isn't a timing measurement.
 //   Profile – elapsed-time/performance measurements ONLY (ms/µs durations).
-//             Non-timing diagnostic detail belongs at Info or Warning instead,
-//             so a Profile-filtered log stays a clean timing trace.
+//             Non-timing diagnostic detail belongs at Info, Warning, or Trace
+//             instead. Profile is the highest (most verbose) level, so it
+//             still includes every other level's output alongside timings.
 //
-// Example: verbose=INFO writes Fatal + Warning + Info but not Profile.
+// Example: verbose=INFO writes Fatal + Warning + Info but not Trace or Profile.
 // Thread-safe: log() and logf() may be called from any thread after init().
 namespace Logger {
 
-enum Level { Fatal = 0, Warning = 1, Info = 2, Profile = 3 };
+enum Level { Fatal = 0, Warning = 1, Info = 2, Trace = 3, Profile = 4 };
 
 // Open the log file at filePath and set the maximum verbosity level.
 // Must be called once from the main thread before any background work starts.
@@ -27,7 +30,7 @@ enum Level { Fatal = 0, Warning = 1, Info = 2, Profile = 3 };
 // ID, and the start time is written first so each run is easy to identify.
 void init(Level maxLevel, const QString& filePath, const QString& appVersion = QString());
 
-// Parse a level name case-insensitively ("FATAL", "WARNING", "INFO", "PROFILE").
+// Parse a level name case-insensitively ("FATAL", "WARNING", "INFO", "TRACE", "PROFILE").
 // Returns Info for unrecognised strings.
 Level levelFromString(const QString& s);
 

@@ -1,6 +1,7 @@
 #include "manage_groups_dialog.h"
 #include "db_groups.h"
 #include "db.h"
+#include "logger.h"
 
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
@@ -66,11 +67,14 @@ void ManageGroupsDialog::addGroup() {
 	bool ok = false;
 	QString name = QInputDialog::getText(this, QStringLiteral("New Group"),
 		QStringLiteral("Group name:"), QLineEdit::Normal, QString(), &ok).trimmed();
-	if (!ok || name.isEmpty())
+	if (!ok || name.isEmpty()) {
+		Logger::log(Logger::Trace, "Groups", QStringLiteral("New Group dialog cancelled or left blank"));
 		return;
+	}
 
 	sqlite3* sql = connect_db_readwrite();
 	if (!sql) {
+		Logger::log(Logger::Trace, "Groups", QStringLiteral("Cannot create group: failed to open database for writing"));
 		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Could not open the database for writing."));
 		return;
 	}
@@ -80,12 +84,15 @@ void ManageGroupsDialog::addGroup() {
 		for (const TripGroup& group : queryAllGroups(sql))
 			duplicate = duplicate || group.name.compare(name, Qt::CaseInsensitive) == 0;
 		sqlite3_close(sql);
+		Logger::logf(Logger::Trace, "Groups", "Group creation failed for \"%s\" (%s)",
+			qUtf8Printable(name), duplicate ? "duplicate name" : "insert failed");
 		QMessageBox::critical(this, QStringLiteral("Error"),
 			duplicate ? QStringLiteral("A group named \"%1\" already exists.").arg(name)
 			          : QStringLiteral("Failed to create group."));
 		return;
 	}
 	sqlite3_close(sql);
+	Logger::logf(Logger::Trace, "Groups", "Group \"%s\" created (id=%d)", qUtf8Printable(name), newId);
 	reload();
 	emit groupsChanged();
 }
@@ -104,20 +111,25 @@ void ManageGroupsDialog::deleteSelectedGroup() {
 	confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
 	confirm.setDefaultButton(QMessageBox::Cancel);
 	confirm.setIcon(QMessageBox::Warning);
-	if (confirm.exec() != QMessageBox::Yes)
+	if (confirm.exec() != QMessageBox::Yes) {
+		Logger::logf(Logger::Trace, "Groups", "Deletion of group \"%s\" cancelled by user", qUtf8Printable(name));
 		return;
+	}
 
 	sqlite3* sql = connect_db_readwrite();
 	if (!sql) {
+		Logger::log(Logger::Trace, "Groups", QStringLiteral("Cannot delete group: failed to open database for writing"));
 		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Could not open the database for writing."));
 		return;
 	}
 	bool ok = deleteGroup(sql, groupId);
 	sqlite3_close(sql);
 	if (!ok) {
+		Logger::logf(Logger::Trace, "Groups", "Failed to delete group \"%s\" (id=%d)", qUtf8Printable(name), groupId);
 		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to delete group."));
 		return;
 	}
+	Logger::logf(Logger::Trace, "Groups", "Group \"%s\" (id=%d) deleted", qUtf8Printable(name), groupId);
 	reload();
 	emit groupsChanged();
 }
@@ -130,12 +142,14 @@ void ManageGroupsDialog::onItemChanged(QListWidgetItem* item) {
 	int groupId = item->data(Qt::UserRole).toInt();
 	if (newName.isEmpty()) {
 		// Revert rather than allow a blank group name.
+		Logger::logf(Logger::Trace, "Groups", "Rename of group id=%d rejected: blank name; reverting", groupId);
 		reload();
 		return;
 	}
 
 	sqlite3* sql = connect_db_readwrite();
 	if (!sql) {
+		Logger::log(Logger::Trace, "Groups", QStringLiteral("Cannot rename group: failed to open database for writing"));
 		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Could not open the database for writing."));
 		reload();
 		return;
@@ -145,9 +159,13 @@ void ManageGroupsDialog::onItemChanged(QListWidgetItem* item) {
 		bool duplicate = false;
 		for (const TripGroup& group : queryAllGroups(sql))
 			duplicate = duplicate || (group.id != groupId && group.name.compare(newName, Qt::CaseInsensitive) == 0);
+		Logger::logf(Logger::Trace, "Groups", "Rename of group id=%d to \"%s\" failed (%s)",
+			groupId, qUtf8Printable(newName), duplicate ? "duplicate name" : "update failed");
 		QMessageBox::critical(this, QStringLiteral("Error"),
 			duplicate ? QStringLiteral("A group named \"%1\" already exists.").arg(newName)
 			          : QStringLiteral("Failed to rename group."));
+	} else {
+		Logger::logf(Logger::Trace, "Groups", "Group id=%d renamed to \"%s\"", groupId, qUtf8Printable(newName));
 	}
 	sqlite3_close(sql);
 	reload();
