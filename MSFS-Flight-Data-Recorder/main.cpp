@@ -26,7 +26,7 @@ static LONG WINAPI crashHandler(EXCEPTION_POINTERS* info) {
         // rest of this handler has normal stack space to run in.
         _resetstkoflw();
     }
-    Logger::logf(Logger::Fatal, "Crash",
+    Logger::logCrashf(Logger::Fatal, "Crash",
         "Unhandled exception 0x%08lX at address %p",
         info->ExceptionRecord->ExceptionCode,
         info->ExceptionRecord->ExceptionAddress);
@@ -46,7 +46,7 @@ static void terminateHandler() {
     } else {
         detail = QStringLiteral("no active exception");
     }
-    Logger::log(Logger::Fatal, "Crash", QStringLiteral("std::terminate called: %1").arg(detail));
+    Logger::logCrash(Logger::Fatal, "Crash", QStringLiteral("std::terminate called: %1").arg(detail));
     std::abort();
 }
 

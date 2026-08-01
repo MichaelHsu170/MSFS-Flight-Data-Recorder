@@ -52,17 +52,33 @@ void db_query_table(
 	void (*func_set_stmt)(sqlite3_stmt*, const char*, void*, struct STATUS*, void*),
 	void (*func_retrieve_data)(sqlite3_stmt*, const char*, struct STATUS*, void*)
 ) {
+	// status->sql is opened NOMUTEX -- this connection has no thread-safety of its
+	// own, so every access (including reads) must go through mutex_db_commit, the
+	// same as db_insert_update_table.
+	status->mutex_db_commit.lock();
 	sqlite3_stmt* stmt = NULL;
 	int sql_ret = 0;
-	sql_ret = sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, NULL);
-	if (sql_ret)
-		db_error(stmt_txt, sql_ret, NULL);
-	if (func_set_stmt != NULL)
-		func_set_stmt(stmt, stmt_txt, data, status, aux_in);
-	while (sqlite3_step(stmt) == SQLITE_ROW)
-		func_retrieve_data(stmt, stmt_txt, status, aux_out);
-	sqlite3_reset(stmt);
-	sqlite3_finalize(stmt);
+	try {
+		sql_ret = sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, NULL);
+		if (sql_ret)
+			db_error(stmt_txt, sql_ret, NULL);
+		if (func_set_stmt != NULL)
+			func_set_stmt(stmt, stmt_txt, data, status, aux_in);
+		while (sqlite3_step(stmt) == SQLITE_ROW)
+			func_retrieve_data(stmt, stmt_txt, status, aux_out);
+		sqlite3_reset(stmt);
+		sqlite3_finalize(stmt);
+	}
+	catch (...) {
+		// Catch-all, not just db_exception -- func_set_stmt/func_retrieve_data are
+		// caller-supplied callbacks that could throw something else entirely, and
+		// mutex_db_commit must be released either way or every later call deadlocks.
+		if (stmt != NULL)
+			sqlite3_finalize(stmt);
+		status->mutex_db_commit.unlock();
+		throw;
+	}
+	status->mutex_db_commit.unlock();
 }
 
 void db_insert_update_table(
@@ -99,7 +115,11 @@ void db_insert_update_table(
 		if (sql_ret)
 			db_error(stmt_txt, sql_ret, NULL);
 	}
-	catch (const db_exception&) {
+	catch (...) {
+		// Catch-all, not just db_exception -- func is a caller-supplied callback
+		// that could throw something else entirely, and mutex_db_commit must be
+		// released (and the transaction rolled back) either way, or every later
+		// call deadlocks/finds a transaction still open.
 		if (stmt != NULL)
 			sqlite3_finalize(stmt);
 		sqlite3_exec(sql, "ROLLBACK TRANSACTION", NULL, NULL, NULL);
@@ -543,6 +563,13 @@ void db_consume(STATUS* status, int trip_id, bool is_final) {
 			// permanently stalling all recording for the rest of the trip
 			// instead of losing a single row.
 			gui_log_printf(status, GUI_LOG_WARNING, "db_consume: dropped one sample for trip %d: %s\n", trip_id, e.message.c_str());
+		}
+		catch (...) {
+			// db_insert_update_table's own catch is now catch(...) too (a bound
+			// callback could throw anything), so this must be as well -- otherwise
+			// a non-db_exception would escape this detached thread and terminate
+			// the app instead of just dropping one sample.
+			gui_log_printf(status, GUI_LOG_WARNING, "db_consume: dropped one sample for trip %d: unknown exception\n", trip_id);
 		}
 		bool fBreak = FALSE;
 		if (!is_final && status->q_data_db_start == status->q_data_db_end)

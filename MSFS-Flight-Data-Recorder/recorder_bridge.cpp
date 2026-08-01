@@ -92,6 +92,10 @@ RecorderBridge::~RecorderBridge() {
 		if (status_.recording)
 			stop_recording(&status_);
 		SimConnect_Close(status_.hSimConnect);
+		// Must happen before closing sql: stop_recording's final flush runs on a
+		// detached thread, so sql would otherwise be closed/nulled while that
+		// thread is still writing to it.
+		wait_for_db_writers(&status_);
 		if (status_.sql) {
 			sqlite3_close_v2(status_.sql);
 			status_.sql = nullptr;
@@ -164,27 +168,26 @@ void RecorderBridge::shutdown() {
 	SimConnect_Close(status_.hSimConnect);
 	status_.quit = FALSE;
 
-	if (status_.recording) {
-		// stop_recording joins the db_consume worker thread, which can block
-		// for several seconds flushing the final batch of samples to SQLite.
-		// Run it on a worker thread so the UI stays responsive; reconnect and
-		// close the write connection in the watcher callback once it's done.
-		stopFuture_ = QtConcurrent::run([this]() {
-			stop_recording(&status_);
-			sqlite3_close_v2(status_.sql);
-			status_.sql = nullptr;
-		});
-		auto* watcher = new QFutureWatcher<void>(this);
-		watcher->setFuture(stopFuture_);
-		connect(watcher, &QFutureWatcher<void>::finished, this, [this, watcher]() {
-			watcher->deleteLater();
-			connectTimer_->start(2000);
-		});
-	} else {
+	if (status_.recording)
+		stop_recording(&status_);
+
+	// A detached db_consume thread may still be writing through status_.sql --
+	// either stop_recording's final flush just started above, or a mid-flight
+	// batch flush that was still running when the trip ended earlier (recording
+	// can already be false here, e.g. the plane landed a while before MSFS quit).
+	// Waiting can block for several seconds, so do it on a worker thread to keep
+	// the UI responsive; reconnect once the connection is closed.
+	stopFuture_ = QtConcurrent::run([this]() {
+		wait_for_db_writers(&status_);
 		sqlite3_close_v2(status_.sql);
 		status_.sql = nullptr;
+	});
+	auto* watcher = new QFutureWatcher<void>(this);
+	watcher->setFuture(stopFuture_);
+	connect(watcher, &QFutureWatcher<void>::finished, this, [this, watcher]() {
+		watcher->deleteLater();
 		connectTimer_->start(2000);
-	}
+	});
 }
 
 void gui_notify_log(struct STATUS* status, GuiLogLevel level, const char* text) {

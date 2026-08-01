@@ -7,5 +7,6 @@ void add_flight_definition(HANDLE hSimConnect);
 void add_client_events(HANDLE hSimConnect);
 
 void stop_recording(struct STATUS* status);
+void wait_for_db_writers(struct STATUS* status);
 
 void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContext);

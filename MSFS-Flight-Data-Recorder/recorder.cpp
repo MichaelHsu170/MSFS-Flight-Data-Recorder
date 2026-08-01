@@ -1,6 +1,7 @@
 #include "recorder.h"
 #include "db.h"
 #include "gui_notify.h"
+#include <chrono>
 #include <thread>
 
 static bool is_skipped_event(struct STATUS* status, const char* eventName) {
@@ -571,6 +572,7 @@ void stop_recording(struct STATUS* status) {
 	}
 	status->touchdown_data_end = NULL;
 	int ended_trip_id = status->id_trip;
+	status->pending_db_writers++;
 	std::thread([status, ended_trip_id]() {
 		db_consume(status, ended_trip_id, true);
 		if (status->q_data_last != NULL) {
@@ -580,7 +582,15 @@ void stop_recording(struct STATUS* status) {
 		status->id_trip = -1;
 		gui_log_printf(status, GUI_LOG_INFO, "Recording stopped\n");
 		gui_notify_recording_changed(status, false, ended_trip_id);
+		status->pending_db_writers--;
 	}).detach();
+}
+
+// Blocks until every detached db_consume thread spawned above has finished.
+// Callers must call this before closing/nulling status->sql.
+void wait_for_db_writers(struct STATUS* status) {
+	while (status->pending_db_writers.load() > 0)
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 }
 
 void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContext) {
@@ -912,7 +922,11 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						status->q_data_db_end = pS;
 						status->q_data_db_length = 0;
 						int batch_trip_id = status->id_trip;
-						std::thread thd([status, batch_trip_id]() { db_consume(status, batch_trip_id); });
+						status->pending_db_writers++;
+						std::thread thd([status, batch_trip_id]() {
+							db_consume(status, batch_trip_id);
+							status->pending_db_writers--;
+						});
 						thd.detach();
 					}
 				}
@@ -1255,6 +1269,16 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					gui_notify_trip_updated(status);
 				}
 			}
+		}
+		// Only the destination/match branch above frees runways via rep->clear().
+		// The other three branches (departure match, departure no-match, destination
+		// no-match) leave it allocated; free it here so a later facility lookup into
+		// the same slot (e.g. a subsequent touch-and-go) doesn't leak the previous
+		// malloc when it overwrites rep->runways. Guarded because clear() already
+		// nulls it out when that branch ran.
+		if (rep->runways != NULL) {
+			free(rep->runways);
+			rep->runways = NULL;
 		}
 		status->loc_dh.clear();
 	}
