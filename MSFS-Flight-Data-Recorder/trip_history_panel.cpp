@@ -625,6 +625,11 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	QAction* ungroupedAction = nullptr;
 	QAction* manageGroupsAction = nullptr;
 	QMap<QAction*, int> groupActionIds;
+	// Captured up front (not read from rightClickedTrip after menu.exec()) because
+	// menu.exec() runs a nested event loop; a tripUpdated/recordingStateChanged
+	// signal delivered while the menu is open can reallocate the model's backing
+	// vector and dangle rightClickedTrip.
+	const int rightClickedTripId = rightClickedTrip ? rightClickedTrip->id : -1;
 	if (rightClickedTrip) {
 		if (!menu.isEmpty())
 			menu.addSeparator();
@@ -655,11 +660,11 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		return;
 
 	if (chosen == ungroupedAction) {
-		setTripGroupFromUi(rightClickedTrip->id, 0);
+		setTripGroupFromUi(rightClickedTripId, 0);
 	} else if (chosen == manageGroupsAction) {
 		openManageGroupsDialog();
 	} else if (groupActionIds.contains(chosen)) {
-		setTripGroupFromUi(rightClickedTrip->id, groupActionIds.value(chosen));
+		setTripGroupFromUi(rightClickedTripId, groupActionIds.value(chosen));
 	} else if (chosen == deleteAction) {
 		QMessageBox confirm(this);
 		confirm.setWindowTitle(QStringLiteral("Delete Trip"));

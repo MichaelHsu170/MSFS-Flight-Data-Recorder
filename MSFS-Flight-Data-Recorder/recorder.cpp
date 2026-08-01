@@ -1303,5 +1303,11 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 	}
 	} catch (const db_exception& e) {
 		gui_log_printf(status, GUI_LOG_WARNING, "Database error in dispatch: %s\n", e.message.c_str());
+	} catch (...) {
+		// Catch-all, not just db_exception -- this callback also does raw SimConnect
+		// data handling, malloc/free, and geodesic math, any of which could throw
+		// something else. Left uncaught, it would escape a Qt timer slot and likely
+		// terminate the app instead of just logging and continuing.
+		gui_log_printf(status, GUI_LOG_WARNING, "Unknown error in dispatch\n");
 	}
 }
