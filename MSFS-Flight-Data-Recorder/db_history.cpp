@@ -55,7 +55,8 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 		}
 	}
 
-	while (sqlite3_step(stmt) == SQLITE_ROW) {
+	int rc;
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
 		TripSummary trip;
 		trip.id = sqlite3_column_int(stmt, 0);
 		trip.title = columnTextOrEmpty(stmt, 1);
@@ -111,6 +112,8 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 
 		trips.push_back(trip);
 	}
+	if (rc != SQLITE_DONE)
+		Logger::logf(Logger::Warning, "DB", "queryAllTrips: step failed: %s", sqlite3_errmsg(sql));
 	sqlite3_finalize(stmt);
 	return trips;
 }
@@ -182,7 +185,8 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	auto colInt = [&](int index) -> int { return index >= 0 ? sqlite3_column_int(stmt, index) : 0; };
 	auto colText = [&](int index) -> QString { return index >= 0 ? columnTextOrEmpty(stmt, index) : QString(); };
 
-	while (sqlite3_step(stmt) == SQLITE_ROW) {
+	int rc;
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
 		TripSamplePoint point;
 		int boolGroup1 = colInt(idxBoolGroup1);
 		int boolGroup2 = colInt(idxBoolGroup2);
@@ -222,6 +226,8 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 
 		dataset.points.push_back(point);
 	}
+	if (rc != SQLITE_DONE)
+		Logger::logf(Logger::Warning, "DB", "queryTripData(trip %d): step failed: %s", tripId, sqlite3_errmsg(sql));
 	sqlite3_finalize(stmt);
 	return dataset;
 }
@@ -243,7 +249,8 @@ std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 	}
 	sqlite3_bind_int(stmt, 1, tripId);
 
-	while (sqlite3_step(stmt) == SQLITE_ROW) {
+	int rc;
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
 		TouchdownPoint point;
 		point.rowId              = sqlite3_column_int(stmt, 0);
 		point.latitude           = sqlite3_column_double(stmt, 1);
@@ -268,6 +275,8 @@ std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 		point.analysisReport     = columnTextOrEmpty(stmt, 20);
 		touchdowns.push_back(point);
 	}
+	if (rc != SQLITE_DONE)
+		Logger::logf(Logger::Warning, "DB", "queryTouchdowns(trip %d): step failed: %s", tripId, sqlite3_errmsg(sql));
 	sqlite3_finalize(stmt);
 	return touchdowns;
 }
@@ -280,7 +289,10 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 		"DELETE FROM trip_touchdowns WHERE trip = ?",
 		"DELETE FROM trips WHERE id = ?",
 	};
-	sqlite3_exec(sql, "BEGIN TRANSACTION", nullptr, nullptr, nullptr);
+	if (sqlite3_exec(sql, "BEGIN TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
+		Logger::logf(Logger::Warning, "DB", "deleteTripData(trip %d): BEGIN TRANSACTION failed: %s", tripId, sqlite3_errmsg(sql));
+		return false;
+	}
 	for (const char* stmt_txt : stmts) {
 		sqlite3_stmt* stmt = nullptr;
 		if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -300,7 +312,10 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 			return false;
 		}
 	}
-	sqlite3_exec(sql, "COMMIT TRANSACTION", nullptr, nullptr, nullptr);
+	if (sqlite3_exec(sql, "COMMIT TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
+		Logger::logf(Logger::Warning, "DB", "deleteTripData(trip %d): COMMIT TRANSACTION failed: %s", tripId, sqlite3_errmsg(sql));
+		return false;
+	}
 	return true;
 }
 
@@ -321,12 +336,15 @@ std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId) {
 	}
 	sqlite3_bind_int(stmt, 1, tripId);
 
-	while (sqlite3_step(stmt) == SQLITE_ROW) {
+	int rc;
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
 		TripEvent event;
 		event.event = columnTextOrEmpty(stmt, 0);
 		event.zuluTime = columnTextOrEmpty(stmt, 1);
 		events.push_back(event);
 	}
+	if (rc != SQLITE_DONE)
+		Logger::logf(Logger::Warning, "DB", "queryEvents(trip %d): step failed: %s", tripId, sqlite3_errmsg(sql));
 	sqlite3_finalize(stmt);
 	return events;
 }

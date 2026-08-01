@@ -66,7 +66,18 @@ TrajectoryView::TrajectoryView(QWidget* parent) : QWidget(parent) {
 }
 
 void TrajectoryView::setDataset(std::shared_ptr<TripDataset> dataset) {
+	if (!dataset) {
+		Logger::log(Logger::Warning, "TrajView", QStringLiteral("setDataset() called with a null dataset; ignoring"));
+		return;
+	}
+	// Move the old dataset out before assigning the new one, and destroy it off
+	// the main thread -- same reasoning as clearAndShowOverview() below: freeing
+	// 50k+ TripSamplePoints (each with a std::vector<double> rawNums) inline can
+	// visibly stall the UI on Windows.
+	auto oldDataset = std::move(dataset_);
 	dataset_ = std::move(dataset);
+	if (oldDataset)
+		QThreadPool::globalInstance()->start([d = std::move(oldDataset)]() mutable {});
 	currentTripId_ = dataset_ ? dataset_->tripId : -1;
 	pendingLivePoints_.clear();
 	pendingRenders_ = 2;  // chartsPanel_ worker + mapWidget_ trajectory worker
@@ -78,6 +89,16 @@ void TrajectoryView::setDataset(std::shared_ptr<TripDataset> dataset) {
 }
 
 void TrajectoryView::onSubviewLoaded() {
+	// Guard against calls with no render actually pending -- e.g.
+	// clearAndShowOverview() sets pendingRenders_ = 0 and then calls
+	// chartsPanel_->setDataset(kEmpty), which (empty dataset) takes the
+	// synchronous early-return path and emits seriesLoaded() immediately.
+	// Without this guard that decrements an already-zeroed pendingRenders_ to
+	// -1 and spuriously emits renderingFinished() on every overview reset,
+	// which TripHistoryPanel would mistake for "the real load just finished"
+	// and use to clear its loading_ guard mid-load.
+	if (pendingRenders_ <= 0)
+		return;
 	if (--pendingRenders_ <= 0) {
 		pendingRenders_ = 0;
 		if (genTimer_.isValid()) {

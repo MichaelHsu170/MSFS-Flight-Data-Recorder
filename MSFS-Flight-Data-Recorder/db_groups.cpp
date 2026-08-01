@@ -1,4 +1,5 @@
 #include "db_groups.h"
+#include "logger.h"
 
 #include "sqlite3.h"
 
@@ -12,7 +13,8 @@ std::vector<TripGroup> queryAllGroups(sqlite3* sql) {
 	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
 		return groups;
 
-	while (sqlite3_step(stmt) == SQLITE_ROW) {
+	int rc;
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
 		TripGroup group;
 		group.id = sqlite3_column_int(stmt, 0);
 		const unsigned char* text = sqlite3_column_text(stmt, 1);
@@ -20,6 +22,8 @@ std::vector<TripGroup> queryAllGroups(sqlite3* sql) {
 		group.tripCount = sqlite3_column_int(stmt, 2);
 		groups.push_back(group);
 	}
+	if (rc != SQLITE_DONE)
+		Logger::logf(Logger::Warning, "DB", "queryAllGroups: step failed: %s", sqlite3_errmsg(sql));
 	sqlite3_finalize(stmt);
 	return groups;
 }
@@ -50,22 +54,36 @@ bool renameGroup(sqlite3* sql, int groupId, const QString& newName) {
 }
 
 bool deleteGroup(sqlite3* sql, int groupId) {
-	// Ungroup member trips first, then remove the group itself.
+	// Ungroup member trips first, then remove the group itself. Both statements
+	// must commit together -- without an explicit transaction, a failure on the
+	// second leaves trips permanently pointing at a group_id that no longer
+	// exists in trip_groups.
 	const char* stmts[] = {
 		"UPDATE trips SET group_id = NULL WHERE group_id = ?",
 		"DELETE FROM trip_groups WHERE id = ?",
 	};
+	if (sqlite3_exec(sql, "BEGIN TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
+		Logger::logf(Logger::Warning, "DB", "deleteGroup(%d): BEGIN TRANSACTION failed: %s", groupId, sqlite3_errmsg(sql));
+		return false;
+	}
 	for (const char* stmt_txt : stmts) {
 		sqlite3_stmt* stmt = nullptr;
 		if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
 			if (stmt) sqlite3_finalize(stmt);
+			sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
 			return false;
 		}
 		sqlite3_bind_int(stmt, 1, groupId);
 		bool ok = sqlite3_step(stmt) == SQLITE_DONE;
 		sqlite3_finalize(stmt);
-		if (!ok)
+		if (!ok) {
+			sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
 			return false;
+		}
+	}
+	if (sqlite3_exec(sql, "COMMIT TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
+		Logger::logf(Logger::Warning, "DB", "deleteGroup(%d): COMMIT TRANSACTION failed: %s", groupId, sqlite3_errmsg(sql));
+		return false;
 	}
 	return true;
 }

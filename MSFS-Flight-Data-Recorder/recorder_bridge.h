@@ -25,6 +25,12 @@ public:
 	bool isConnected() const { return connected_; }
 	bool isRecording() const { return status_.recording; }
 	int currentTripId() const { return status_.id_trip; }
+	// The id of a trip that stopped recording but whose tail samples may
+	// still be draining onto the DB-write thread, or -1 if none. A trip can
+	// look non-Live (currentTripId() no longer matches it) while this is
+	// still its id -- callers that need to know a trip's data is safe to
+	// delete should check both. See STATUS::flushing_trip_id in types.h.
+	int flushingTripId() const { return status_.flushing_trip_id.load(std::memory_order_acquire); }
 
 	STATUS* status() { return &status_; }
 

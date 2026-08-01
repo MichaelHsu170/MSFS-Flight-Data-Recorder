@@ -135,8 +135,9 @@ void MapWidget::resizeEvent(QResizeEvent* event) {
 
 void MapWidget::setDataset(const TripDataset& dataset) {
 	++datasetVersion_;
+	// A newer load supersedes any earlier one this flag might still refer to.
+	suppressNextTrajectoryLoaded_ = false;
 	inOverviewMode_ = false;
-	mapGenTimer_.start();
 	liveUpdateTimer_->stop();
 	pendingLiveCoords_.clear();
 	trajCoords_.clear();
@@ -159,7 +160,10 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 		pushTouchdownsAndEvents();
 	} else {
 		// Page still loading; trajectory will be pushed in refreshProvider() when
-		// ready. Signal immediately so TrajectoryView's pending counter doesn't stall.
+		// ready. Signal immediately so TrajectoryView's pending counter doesn't
+		// stall, but remember to swallow that deferred push's own emit (in
+		// pushTrajectory() below) so this dataset load doesn't count twice.
+		suppressNextTrajectoryLoaded_ = true;
 		emit trajectoryLoaded();
 	}
 }
@@ -278,7 +282,10 @@ void MapWidget::pushTrajectory() {
 		QElapsedTimer t; t.start();
 		runJs(watcher->result());
 		Logger::logf(Logger::Profile, "Map", "runJs trajectory: %lld µs  (async — JS render time not captured)", t.nsecsElapsed() / 1000);
-		emit trajectoryLoaded();
+		if (suppressNextTrajectoryLoaded_)
+			suppressNextTrajectoryLoaded_ = false;
+		else
+			emit trajectoryLoaded();
 	});
 	watcher->setFuture(QtConcurrent::run([coords = std::move(coords)]() {
 		QElapsedTimer t; t.start();

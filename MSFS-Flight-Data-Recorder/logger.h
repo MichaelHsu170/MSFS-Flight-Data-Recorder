@@ -39,11 +39,13 @@ void log(Level level, const char* module, const QString& msg);
 void logf(Level level, const char* module, const char* fmt, ...);
 
 // Crash/terminate-handler-safe variants of log()/logf(). The regular functions
-// block indefinitely on a non-recursive mutex; if the faulting thread is the
-// one that already holds it (e.g. the fault occurred inside log() itself),
-// that would deadlock the handler instead of recording the crash. These try
-// to acquire the mutex for a bounded time and fall back to a best-effort
-// unlocked write rather than never writing the diagnostic at all.
+// take a non-recursive mutex; if the faulting thread is the one that already
+// holds it (e.g. the fault occurred inside log() itself), waiting on it would
+// deadlock the handler instead of recording the crash. These skip the mutex
+// entirely and write directly -- safe because the log file handle is opened
+// with FILE_APPEND_DATA, which makes every WriteFile call an OS-level atomic
+// append (see logger.cpp), so an unsynchronized write here can't corrupt or
+// interleave with one from log()/logf() on another thread.
 void logCrash(Level level, const char* module, const QString& msg);
 void logCrashf(Level level, const char* module, const char* fmt, ...);
 
