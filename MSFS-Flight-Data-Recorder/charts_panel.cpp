@@ -526,25 +526,31 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 		}
 	}
 
-	cache_.n1_1->append(t, point.n1_1);
-	cache_.n1_2->append(t, point.n1_2);
-	cache_.n2_1->append(t, point.n2_1);
-	cache_.n2_2->append(t, point.n2_2);
-	cache_.verticalSpeed->append(t, point.verticalSpeed);
-	cache_.airspeed->append(t, point.airspeed);
-	cache_.groundSpeed->append(t, point.groundSpeed);
-	cache_.altitude->append(t, point.altitude);
-	cache_.gearHandle->append(t, point.gearHandlePosition);
-	cache_.gearPos0->append(t, point.gearPosition[0]);
-	cache_.gearPos1->append(t, point.gearPosition[1]);
-	cache_.gearPos2->append(t, point.gearPosition[2]);
-	cache_.gearOnGround0->append(t, point.gearOnGround[0] ? 1 : 0);
-	cache_.gearOnGround1->append(t, point.gearOnGround[1] ? 1 : 0);
-	cache_.gearOnGround2->append(t, point.gearOnGround[2] ? 1 : 0);
-	cache_.brake->append(t, point.brakeIndicator);
-	cache_.flaps->append(t, point.flapsHandleIndex);
-	cache_.spoilers->append(t, point.spoilersHandlePosition);
-	cache_.fuelWeight->append(t, point.fuelTotalQuantityWeight);
+	// buildSeriesCache() only validates cache_.n1_1 (see cache_.valid above);
+	// the remaining series pointers come from the same findSeries() lookup
+	// and can independently be null if the QML object tree is missing that
+	// item, so each append here must be guarded the same way setDataset's
+	// loadDec/reloadDec lambdas guard theirs.
+	auto appendIf = [t](QLineSeries* s, double y) { if (s) s->append(t, y); };
+	appendIf(cache_.n1_1, point.n1_1);
+	appendIf(cache_.n1_2, point.n1_2);
+	appendIf(cache_.n2_1, point.n2_1);
+	appendIf(cache_.n2_2, point.n2_2);
+	appendIf(cache_.verticalSpeed, point.verticalSpeed);
+	appendIf(cache_.airspeed, point.airspeed);
+	appendIf(cache_.groundSpeed, point.groundSpeed);
+	appendIf(cache_.altitude, point.altitude);
+	appendIf(cache_.gearHandle, point.gearHandlePosition);
+	appendIf(cache_.gearPos0, point.gearPosition[0]);
+	appendIf(cache_.gearPos1, point.gearPosition[1]);
+	appendIf(cache_.gearPos2, point.gearPosition[2]);
+	appendIf(cache_.gearOnGround0, point.gearOnGround[0] ? 1 : 0);
+	appendIf(cache_.gearOnGround1, point.gearOnGround[1] ? 1 : 0);
+	appendIf(cache_.gearOnGround2, point.gearOnGround[2] ? 1 : 0);
+	appendIf(cache_.brake, point.brakeIndicator);
+	appendIf(cache_.flaps, point.flapsHandleIndex);
+	appendIf(cache_.spoilers, point.spoilersHandlePosition);
+	appendIf(cache_.fuelWeight, point.fuelTotalQuantityWeight);
 	if (!livePitchBankValid_) {
 		livePitchMin_ = livePitchMax_ = point.pitchDegrees;
 		liveBankMin_  = liveBankMax_  = point.bankDegrees;
@@ -565,8 +571,8 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 			cache_.bankYAxis->setMin(lo); cache_.bankYAxis->setMax(hi);
 		}
 	}
-	cache_.pitch->append(t, point.pitchDegrees);
-	cache_.bank->append(t, point.bankDegrees);
+	appendIf(cache_.pitch, point.pitchDegrees);
+	appendIf(cache_.bank, point.bankDegrees);
 }
 
 void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {

@@ -314,6 +314,7 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 	}
 	if (sqlite3_exec(sql, "COMMIT TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
 		Logger::logf(Logger::Warning, "DB", "deleteTripData(trip %d): COMMIT TRANSACTION failed: %s", tripId, sqlite3_errmsg(sql));
+		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
 		return false;
 	}
 	return true;
