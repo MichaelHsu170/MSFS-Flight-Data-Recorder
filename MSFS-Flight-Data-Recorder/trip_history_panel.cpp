@@ -333,10 +333,13 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	connect(manageGroupsButton_, &QPushButton::clicked, this, &TripHistoryPanel::openManageGroupsDialog);
 	connect(groupFilterCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
 		model_->setGroupFilter(groupFilterCombo_->itemData(index).toInt());
-		// If no trip is selected the overview map is visible; re-emit
-		// tripDeselected so it reflects the newly filtered trip list.
-		if (selectedTripId_ == -1)
-			emit tripDeselected(model_->trips());
+		// Switching the filter shows a different set of trips in the table --
+		// a previously selected trip may not even be in it anymore, so drop
+		// the selection and show the overview map for the newly filtered set
+		// instead, keeping the map aligned with the table.
+		selectedTripId_ = -1;
+		table_->clearSelection();
+		emit tripDeselected(model_->trips());
 	});
 
 	reloadGroupFilterCombo();
@@ -376,13 +379,16 @@ void TripHistoryPanel::reloadGroupFilterCombo() {
 	model_->setGroupFilter(newData);
 	// The combo's currentIndexChanged signal is suppressed above, so if the
 	// filter actually changed (e.g. the previously-selected group was
-	// deleted, falling back to "All Trips"), the overview map needs a
-	// manual nudge to match -- same as the combo's own change handler. Only
+	// deleted, falling back to "All Trips"), this needs to do the same
+	// deselect-and-realign-the-map the combo's own change handler does. Only
 	// do this when the filter really changed, since groupsChanged fires on
 	// every add/rename/delete in the Manage Groups dialog and most of those
 	// don't affect the current filter.
-	if (newData != previousData && selectedTripId_ == -1)
+	if (newData != previousData) {
+		selectedTripId_ = -1;
+		table_->clearSelection();
 		emit tripDeselected(model_->trips());
+	}
 }
 
 void TripHistoryPanel::setTripGroupFromUi(int tripId, int groupId) {
@@ -399,7 +405,16 @@ void TripHistoryPanel::setTripGroupFromUi(int tripId, int groupId) {
 			QStringLiteral("Failed to update the trip's group."));
 		return;
 	}
+	// Changing the selected trip's group can move it out of the active group
+	// filter (or just no longer matches what the user picked it for) -- drop
+	// the selection rather than leave it selected under a changed group, same
+	// as deleting a trip does.
+	const bool wasSelected = (tripId == selectedTripId_);
+	if (wasSelected)
+		selectedTripId_ = -1;
 	refreshTrips();
+	if (wasSelected)
+		table_->clearSelection();
 	// Under an active group filter, this reassignment may have added or
 	// removed the trip from the filtered set. If no trip is selected the
 	// overview map is showing that set, so nudge it to match.
