@@ -36,6 +36,12 @@ public:
 		DestinationTimeColumn,
 		ColumnCount,
 	};
+	// Lets AppSettings key persisted column widths by enum member name
+	// (via QMetaEnum) instead of ordinal position, so a future column being
+	// inserted, removed, or reordered can't silently misassign saved widths
+	// onto the wrong column -- see trip_history_panel.cpp's use of
+	// QMetaEnum::fromType<Column>().
+	Q_ENUM(Column)
 
 	explicit TripHistoryModel(QObject* parent = nullptr);
 

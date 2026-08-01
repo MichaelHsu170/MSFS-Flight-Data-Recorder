@@ -62,6 +62,7 @@ flight_data.db
 
 # Logs
 *.log
+*.log.old
 
 # User settings
 *.ini

@@ -51,21 +51,37 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 
 	const QString sectionHeader = '[' + section + ']';
 	bool inSection = false;
-	int sectionLastLine = -1; // last line index belonging to the target section
-	int keyLine = -1;         // line index of the existing key=… entry, or -1
+	int sectionHeaderLine = -1; // index of this section's own "[section]" line, or -1
+	int sectionLastLine = -1;   // last line index belonging to the target section
+	int keyLine = -1;           // line index of the existing key=… entry, or -1
 
 	for (int i = 0; i < lines.size(); ++i) {
 		const QString t = lines[i].trimmed();
 		if (t.startsWith('[')) {
 			if (inSection) break;             // just left the target section
 			inSection = (t == sectionHeader);
-			if (inSection) sectionLastLine = i;
+			if (inSection) sectionHeaderLine = sectionLastLine = i;
 		} else if (inSection) {
 			sectionLastLine = i;
 			if (keyLine < 0 && !t.startsWith(';') && !t.startsWith('#')
 					&& t.section('=', 0, 0).trimmed() == key)
 				keyLine = i;
 		}
+	}
+
+	// A trailing blank line + comment here aren't necessarily this section's
+	// own trailing content -- they're also exactly what the "section not
+	// present" branch below writes as the auto-generated preamble (blank
+	// separator + sectionComment) of a *later* section, written before its
+	// own header ever appeared in the file. Trim them back off the end of
+	// this section so a later insertion into *this* section can't land
+	// inside that preamble and separate it from the header it belongs to.
+	while (sectionLastLine > sectionHeaderLine) {
+		const QString t = lines[sectionLastLine].trimmed();
+		if (t.isEmpty() || t.startsWith(';') || t.startsWith('#'))
+			--sectionLastLine;
+		else
+			break;
 	}
 
 	auto commentLines = [](const QString& comment) {
@@ -83,8 +99,15 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 		lines[keyLine] = entry;
 	} else if (sectionLastLine >= 0) {
 		// Section exists but key is missing — insert key (with comment) after
-		// the last line of the section, preserving everything that follows.
-		QStringList toInsert = commentLines(keyComment);
+		// the last line of the section, preserving everything that follows. A
+		// blank line separates it from the prior key, matching the grouping
+		// convention used between distinct settings elsewhere in this file
+		// (see ensureSettingsFileExists()) -- skipped if there's no comment to
+		// separate (nothing to visually group) or the prior line is already blank.
+		QStringList toInsert;
+		if (!keyComment.isEmpty() && !lines[sectionLastLine].trimmed().isEmpty())
+			toInsert.append(QString());
+		toInsert += commentLines(keyComment);
 		toInsert.append(entry);
 		for (int j = toInsert.size() - 1; j >= 0; --j)
 			lines.insert(sectionLastLine + 1, toInsert[j]);
@@ -180,7 +203,20 @@ void ensureSettingsFileExists() {
 		"[data_table]\n"
 		"; Comma-separated list of field labels hidden in the Data Table panel via the\n"
 		"; Fields dialog. Absent or empty means all fields are visible.\n"
-		"hidden_fields=\n";
+		"hidden_fields=\n"
+		"\n"
+		"; Auto-managed by the app. Persisted column widths for the tables in the\n"
+		"; UI that support user resizing.\n"
+		"[table_column_width]\n"
+		"; Width in pixels of the Field column in the Data Table panel. The Value\n"
+		"; column always stretches to fill the rest. Default: 140.\n"
+		"data_table_field_column_width=140\n"
+		"\n"
+		"; Column widths in pixels for the Trip History table, as comma-separated\n"
+		"; key=value pairs keyed by TripHistoryModel::Column enum member name (e.g.\n"
+		"; TitleColumn=120). Columns using Stretch sizing are never stored. Unknown\n"
+		"; or missing keys fall back to that column's coded default.\n"
+		"trip_history_column_widths=\n";
 }
 
 }
@@ -214,6 +250,23 @@ void AppSettings::setDataTableHiddenFields(const QStringList& fields) {
 	);
 }
 
+int AppSettings::dataTableFieldColumnWidth() const {
+	QSettings settings = makeSettings();
+	return settings.value(QStringLiteral("table_column_width/data_table_field_column_width"), 140).toInt();
+}
+
+void AppSettings::setDataTableFieldColumnWidth(int w) {
+	writeIniValue(
+		QStringLiteral("table_column_width"),
+		QStringLiteral("data_table_field_column_width"),
+		QString::number(w),
+		QStringLiteral("Auto-managed by the app. Persisted column widths for the tables in the\n"
+		               "UI that support user resizing."),
+		QStringLiteral("Width in pixels of the Field column in the Data Table panel. The Value\n"
+		               "column always stretches to fill the rest. Default: 140.")
+	);
+}
+
 int AppSettings::rightPanelWidth() const {
 	QSettings settings = makeSettings();
 	return settings.value(QStringLiteral("layout/right_panel_width"), 260).toInt();
@@ -244,6 +297,49 @@ void AppSettings::setChartsPanelHeight(int h) {
 		{},
 		QStringLiteral("Height in pixels of the Charts panel (below the map). The map takes the\n"
 		               "remaining vertical space. Default: 400.")
+	);
+}
+
+QMap<QString, int> AppSettings::tripHistoryColumnWidths() const {
+	QSettings settings = makeSettings();
+	const QVariant raw = settings.value(QStringLiteral("table_column_width/trip_history_column_widths"));
+	// QSettings' ini reader auto-detects a comma-separated value as a list and
+	// returns it typed as QStringList rather than QString -- QVariant::toString()
+	// on a multi-element QStringList yields an empty string, silently discarding
+	// every saved width. Same issue as dataTableHiddenFields()/skipEvents(); handle
+	// both forms.
+	QStringList parts;
+	if (raw.typeId() == QMetaType::QStringList)
+		parts = raw.toStringList();
+	else if (!raw.toString().isEmpty())
+		parts = raw.toString().split(',', Qt::SkipEmptyParts);
+	QMap<QString, int> widths;
+	for (const QString& part : parts) {
+		const int eq = part.indexOf('=');
+		if (eq < 0)
+			continue; // e.g. leftover from the old positional format -- ignore
+		bool ok = false;
+		int w = part.mid(eq + 1).toInt(&ok);
+		if (ok)
+			widths.insert(part.left(eq), w);
+	}
+	return widths;
+}
+
+void AppSettings::setTripHistoryColumnWidths(const QMap<QString, int>& widths) {
+	QStringList parts;
+	for (auto it = widths.constBegin(); it != widths.constEnd(); ++it)
+		parts.append(it.key() + '=' + QString::number(it.value()));
+	writeIniValue(
+		QStringLiteral("table_column_width"),
+		QStringLiteral("trip_history_column_widths"),
+		parts.join(','),
+		QStringLiteral("Auto-managed by the app. Persisted column widths for the tables in the\n"
+		               "UI that support user resizing."),
+		QStringLiteral("Column widths in pixels for the Trip History table, as comma-separated\n"
+		               "key=value pairs keyed by TripHistoryModel::Column enum member name (e.g.\n"
+		               "TitleColumn=120). Columns using Stretch sizing are never stored. Unknown\n"
+		               "or missing keys fall back to that column's coded default.")
 	);
 }
 
