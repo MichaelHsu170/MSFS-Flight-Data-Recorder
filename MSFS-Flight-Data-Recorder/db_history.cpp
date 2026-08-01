@@ -280,18 +280,27 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 		"DELETE FROM trip_touchdowns WHERE trip = ?",
 		"DELETE FROM trips WHERE id = ?",
 	};
+	sqlite3_exec(sql, "BEGIN TRANSACTION", nullptr, nullptr, nullptr);
 	for (const char* stmt_txt : stmts) {
 		sqlite3_stmt* stmt = nullptr;
 		if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
 			Logger::logf(Logger::Warning, "DB", "deleteTripData(trip %d): prepare failed for \"%s\": %s",
 				tripId, stmt_txt, sqlite3_errmsg(sql));
 			if (stmt) sqlite3_finalize(stmt);
+			sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
 			return false;
 		}
 		sqlite3_bind_int(stmt, 1, tripId);
-		sqlite3_step(stmt);
+		bool ok = sqlite3_step(stmt) == SQLITE_DONE;
 		sqlite3_finalize(stmt);
+		if (!ok) {
+			Logger::logf(Logger::Warning, "DB", "deleteTripData(trip %d): step failed for \"%s\": %s",
+				tripId, stmt_txt, sqlite3_errmsg(sql));
+			sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
+			return false;
+		}
 	}
+	sqlite3_exec(sql, "COMMIT TRANSACTION", nullptr, nullptr, nullptr);
 	return true;
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -332,6 +333,11 @@ struct STATUS {
 	HANDLE hSimConnect = NULL;
 	sqlite3* sql = NULL;
 	std::mutex mutex_db_commit;
+	// Number of detached threads currently flushing data through `sql`
+	// (see recorder.cpp's db_consume threads). Callers must wait for this to
+	// reach 0 before closing/nulling `sql` -- otherwise a still-running flush
+	// can use the connection after (or while) it's closed.
+	std::atomic<int> pending_db_writers{ 0 };
 	int sample_interval_ms = 500;
 	int id_trip = -1;
 	bool airborne = FALSE;

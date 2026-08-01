@@ -91,6 +91,36 @@ void logf(Level level, const char* module, const char* fmt, ...) {
     log(level, module, QString::fromUtf8(buf));
 }
 
+void logCrash(Level level, const char* module, const QString& msg) {
+    if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
+        return;
+    if (!g_file)
+        return;
+    // Bounded wait instead of QMutexLocker's indefinite lock() -- if the thread
+    // that crashed already holds g_mutex, waiting forever here would turn a
+    // crash into a silent hang instead of a logged one.
+    bool locked = g_mutex.tryLock(200);
+    QTextStream out(g_file);
+    out << QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
+        << " [" << levelTag(level) << "] ["
+        << QString::fromUtf8(module).leftJustified(8)
+        << "] " << msg << '\n';
+    out.flush();
+    if (locked)
+        g_mutex.unlock();
+}
+
+void logCrashf(Level level, const char* module, const char* fmt, ...) {
+    if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
+        return;
+    char buf[1024];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    logCrash(level, module, QString::fromUtf8(buf));
+}
+
 }
 
 extern "C" {
