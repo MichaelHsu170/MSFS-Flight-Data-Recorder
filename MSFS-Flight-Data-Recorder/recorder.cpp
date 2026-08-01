@@ -550,19 +550,25 @@ void stop_recording(struct STATUS* status) {
 	status->recording = FALSE;
 	// Destination lat/lon was written at each touchdown; only the arrival time
 	// (engine shutdown) is set here — consistent with departure time being engine start.
-	db_insert_update_table(
-		status->sql,
-		"UPDATE trips SET destination_zulu_time=?,destination_local_time=? WHERE id=?;",
-		status->q_data_end == NULL ? status->q_data_last : status->q_data_end,
-		status,
-		NULL,
-		[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-			struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
-			db_bind(stmt, stmt_txt, 1, pS->time_zulu.format_date_time().c_str());
-			db_bind(stmt, stmt_txt, 2, pS->time_local.format_date_time().c_str());
-			db_bind(stmt, stmt_txt, 3, status->id_trip);
-		}
-	);
+	// last_sample is NULL if the trip ended before a single sample was ever
+	// recorded (e.g. engine start immediately followed by engine cutoff, within
+	// one sample interval) -- there's no flight data to source a destination
+	// time from, so leave those columns unset instead of dereferencing NULL.
+	if (status->last_sample != NULL) {
+		db_insert_update_table(
+			status->sql,
+			"UPDATE trips SET destination_zulu_time=?,destination_local_time=? WHERE id=?;",
+			status->last_sample,
+			status,
+			NULL,
+			[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+				struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
+				db_bind(stmt, stmt_txt, 1, pS->time_zulu.format_date_time().c_str());
+				db_bind(stmt, stmt_txt, 2, pS->time_local.format_date_time().c_str());
+				db_bind(stmt, stmt_txt, 3, status->id_trip);
+			}
+		);
+	}
 	// trip_touchdowns rows were already inserted at touchdown time; just free the list.
 	while (status->touchdown_data != NULL) {
 		struct TOUCHDOWN_DATA* cur = status->touchdown_data;
@@ -572,25 +578,26 @@ void stop_recording(struct STATUS* status) {
 	}
 	status->touchdown_data_end = NULL;
 	int ended_trip_id = status->id_trip;
-	status->pending_db_writers++;
-	std::thread([status, ended_trip_id]() {
-		db_consume(status, ended_trip_id, true);
-		if (status->q_data_last != NULL) {
-			free(status->q_data_last);
-			status->q_data_last = NULL;
-		}
-		status->id_trip = -1;
-		gui_log_printf(status, GUI_LOG_INFO, "Recording stopped\n");
-		gui_notify_recording_changed(status, false, ended_trip_id);
-		status->pending_db_writers--;
-	}).detach();
+	// Reset id_trip synchronously (not from the worker thread) so a new trip
+	// starting right after this one can never have its dispatch-callback event
+	// logging (see the id_trip > 0 gate above) mistaken for the ended trip's.
+	status->id_trip = -1;
+	// Push an end-of-trip barrier instead of flushing here: the worker thread
+	// still has this trip's earlier samples queued ahead of this entry, and
+	// processes everything strictly in order, so "Recording stopped" and the
+	// GUI notification only fire once every sample has actually been written.
+	// A new trip's samples pushed after this point queue up safely behind it
+	// -- there's nothing to race, since it's the same one worker thread and
+	// the same queue for every trip.
+	status->sample_write_queue.push(NULL, ended_trip_id);
 }
 
-// Blocks until every detached db_consume thread spawned above has finished.
-// Callers must call this before closing/nulling status->sql.
+// Signals the DB-write worker to drain and exit, then joins it. Callers must
+// call this before closing/nulling status->sql.
 void wait_for_db_writers(struct STATUS* status) {
-	while (status->pending_db_writers.load() > 0)
-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	status->sample_write_queue.stop();
+	if (status->db_writer_thread.joinable())
+		status->db_writer_thread.join();
 }
 
 void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContext) {
@@ -761,13 +768,14 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 							status->recording = TRUE;
 							gui_log_printf(status, GUI_LOG_INFO, "Recording started\n");
 
-							status->q_data_db_start  = NULL;
-							status->q_data_db_end    = NULL;
-							status->q_data_end       = NULL;
-							status->q_data_db_length = 0;
-							if (status->q_data_last != NULL) {
-								free(status->q_data_last);
-								status->q_data_last = NULL;
+							// No queue state to reset here -- sample_write_queue is shared
+							// across trips by design (see stop_recording()'s end-of-trip
+							// barrier), so a previous trip's still-draining samples are
+							// simply ahead of this trip's in line, not something this trip
+							// needs to wait for or clear out.
+							if (status->last_sample != NULL) {
+								free(status->last_sample);
+								status->last_sample = NULL;
 							}
 
 							status->departure.clear();
@@ -898,10 +906,8 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				status->airborne = !(bool)tmp.sim_on_ground;
 
 				double delta_s = status->sample_interval_ms / 1000.0;
-				if (status->q_data_end != NULL)
-					delta_s = tmp.time_zulu.time_day - status->q_data_end->time_zulu.time_day;
-				else if (status->q_data_last != NULL)
-					delta_s = tmp.time_zulu.time_day - status->q_data_last->time_zulu.time_day;
+				if (status->last_sample != NULL)
+					delta_s = tmp.time_zulu.time_day - status->last_sample->time_zulu.time_day;
 				if (delta_s < 0)
 					delta_s += 86400;
 				if (delta_s >= status->sample_interval_ms / 1000.0) {
@@ -909,26 +915,16 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					memset(pS, 0, sizeof(struct FLIGHT_DATA_RECORD));
 					memcpy(pS, &tmp, sizeof(struct FLIGHT_DATA_RECORD));
 					gui_notify_sample(status, pS);
-					if (status->q_data_end == NULL)
-						status->q_data_end = pS;
-					else {
-						status->q_data_end->next = pS;
-						status->q_data_end = pS;
-					}
-					status->q_data_db_length++;
-					if (status->q_data_db_start == NULL)
-						status->q_data_db_start = pS;
-					if (status->q_data_db_length == Q_DB_LENGTH) {
-						status->q_data_db_end = pS;
-						status->q_data_db_length = 0;
-						int batch_trip_id = status->id_trip;
-						status->pending_db_writers++;
-						std::thread thd([status, batch_trip_id]() {
-							db_consume(status, batch_trip_id);
-							status->pending_db_writers--;
-						});
-						thd.detach();
-					}
+					// pS is handed off to the DB-write worker below, which owns it
+					// from here and frees it once flushed. Keep our own copy so the
+					// next delta_s calculation (and stop_recording()'s destination-
+					// time update) don't touch memory the worker thread may be
+					// using or have already freed.
+					if (status->last_sample != NULL)
+						free(status->last_sample);
+					status->last_sample = (struct FLIGHT_DATA_RECORD*)malloc(sizeof(struct FLIGHT_DATA_RECORD));
+					memcpy(status->last_sample, pS, sizeof(struct FLIGHT_DATA_RECORD));
+					status->sample_write_queue.push(pS, status->id_trip);
 				}
 			}
 		}

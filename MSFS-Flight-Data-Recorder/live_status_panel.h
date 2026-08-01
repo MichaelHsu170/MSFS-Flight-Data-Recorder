@@ -39,4 +39,8 @@ private:
 	QLabel* recordingIcon_;
 	QLabel* snapshotLabel_;
 	QListWidget* historyList_;
+	// Trip currently shown as "Recording" -- lets a tripEnded() for a stale
+	// (already-superseded) trip arriving late from the DB writer's queue be
+	// ignored instead of clearing the indicator for the trip that replaced it.
+	int recordingTripId_ = -1;
 };

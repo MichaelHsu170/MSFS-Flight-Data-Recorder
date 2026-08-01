@@ -146,15 +146,30 @@ void db_insert_event(STATUS* status, const char* event, const char* time_zulu, c
 	);
 }
 
-void db_consume(STATUS* status, int trip_id, bool is_final) {
-	// Runs on a detached worker thread (recorder.cpp) with no caller to catch
-	// an escaping exception — letting one propagate calls std::terminate and
-	// kills the whole app mid-flight. db_insert_update_table already rolls
-	// back and rethrows on failure; the try/catch is scoped to just this one
-	// call (not the whole loop) so a single bad row is dropped and the queue
-	// still advances past it -- see the catch below for why that matters.
-	while (status->q_data_db_start != NULL) {
-		struct FLIGHT_DATA_RECORD* pS = status->q_data_db_start;
+// Runs on the single persistent DB-write worker thread (started in
+// connect_db(), joined in wait_for_db_writers()) draining
+// STATUS::sample_write_queue. This is the only thread that ever flushes
+// samples through STATUS::sql, so there is no possibility of two writer
+// threads racing each other, or a new trip's samples being interleaved with
+// (or lost during) a previous trip's flush.
+static void db_write_worker(STATUS* status) {
+	SAMPLE_QUEUE_ITEM item;
+	while (status->sample_write_queue.pop(item)) {
+		if (item.data == NULL) {
+			// End-of-trip barrier pushed by stop_recording() -- every sample
+			// for this trip was pushed (and so flushed) ahead of it in the
+			// queue, so it's now safe to announce the trip as finished.
+			gui_log_printf(status, GUI_LOG_INFO, "Recording stopped\n");
+			gui_notify_recording_changed(status, false, item.trip_id);
+			continue;
+		}
+		struct FLIGHT_DATA_RECORD* pS = item.data;
+		// db_insert_update_table already rolls back and rethrows on failure;
+		// the try/catch is scoped to just this one call (not the whole loop)
+		// so a single bad row is dropped and the worker keeps draining the
+		// queue -- see the catch below for why that matters. No caller here
+		// can catch an escaping exception either -- letting one propagate
+		// calls std::terminate and kills the whole app mid-flight.
 		try {
 		db_insert_update_table(status->sql,
 			"INSERT INTO trip_data ("
@@ -307,7 +322,7 @@ void db_consume(STATUS* status, int trip_id, bool is_final) {
 			") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);",
 			pS,
 			status,
-			(void*)&trip_id,
+			(void*)&item.trip_id,
 			[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
 				struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
 				int bool_group_1 = 0;
@@ -559,36 +574,19 @@ void db_consume(STATUS* status, int trip_id, bool is_final) {
 			});
 		}
 		catch (const db_exception& e) {
-			// Drop just this one sample and keep going -- leaving it at the
-			// head of the queue would re-throw on every future flush (this
-			// batch, every later batch, and the final flush at trip end),
-			// permanently stalling all recording for the rest of the trip
-			// instead of losing a single row.
-			gui_log_printf(status, GUI_LOG_WARNING, "db_consume: dropped one sample for trip %d: %s\n", trip_id, e.message.c_str());
+			// Drop just this one sample and keep draining the queue, rather
+			// than stalling every later sample (this trip's and any future
+			// trip's) behind one bad row.
+			gui_log_printf(status, GUI_LOG_WARNING, "db_write_worker: dropped one sample for trip %d: %s\n", item.trip_id, e.message.c_str());
 		}
 		catch (...) {
 			// db_insert_update_table's own catch is now catch(...) too (a bound
 			// callback could throw anything), so this must be as well -- otherwise
-			// a non-db_exception would escape this detached thread and terminate
+			// a non-db_exception would escape the worker thread and terminate
 			// the app instead of just dropping one sample.
-			gui_log_printf(status, GUI_LOG_WARNING, "db_consume: dropped one sample for trip %d: unknown exception\n", trip_id);
+			gui_log_printf(status, GUI_LOG_WARNING, "db_write_worker: dropped one sample for trip %d: unknown exception\n", item.trip_id);
 		}
-		bool fBreak = FALSE;
-		if (!is_final && status->q_data_db_start == status->q_data_db_end)
-			fBreak = TRUE;
-		status->q_data_db_start = status->q_data_db_start->next;
-		if (status->q_data_db_start == NULL) {
-			if (status->q_data_last != NULL)
-				free(status->q_data_last);
-			status->q_data_last = pS;
-		} else
-			free(pS);
-		if (fBreak)
-			break;
-	}
-	if (status->q_data_db_start == NULL) {
-		status->q_data_end = NULL;
-		status->q_data_db_end = NULL;
+		free(pS);
 	}
 }
 
@@ -608,7 +606,7 @@ static void resolve_db_path(char* fn_db, size_t len) {
 // A second, independent connection for read-only history queries (Trip History
 // feature). connect_db()'s connection is opened with SQLITE_OPEN_NOMUTEX, so it
 // is only safe to use from the single thread that owns it (the dispatch loop /
-// db_consume worker) — it must never be shared with a background query thread.
+// db_write_worker thread) — it must never be shared with a background query thread.
 // This connection is opened without NOMUTEX, so SQLite's own per-connection
 // mutex makes it safe to call from whichever single thread is using it at a time.
 sqlite3* connect_db_readwrite() {
@@ -781,6 +779,11 @@ void connect_db(struct STATUS* status) {
 		log_cf(0, "DB", "Cannot open database: %s", sqlite3_errmsg(status->sql));
 		exit(1);
 	}
+	// Without this, a lock held by connect_db_readwrite() (group/delete-trip
+	// operations from the Trip History UI) makes db_write_worker's writes fail
+	// with SQLITE_BUSY immediately instead of waiting the few ms those short
+	// operations actually take -- dropping recorded samples for no reason.
+	sqlite3_busy_timeout(status->sql, 5000);
 
 	const char* stmt_txt_start = "CREATE TABLE IF NOT EXISTS ";
 	const char* stmt_txt_sep_1 = " (";
@@ -836,4 +839,10 @@ void connect_db(struct STATUS* status) {
 		}
 		sqlite3_finalize(stmt);
 	}
+
+	// Start the single persistent DB-write worker for this connection. Reset
+	// clears any stop() left over from a previous connection's shutdown, so
+	// the freshly-started thread's pop() loop doesn't exit immediately.
+	status->sample_write_queue.reset();
+	status->db_writer_thread = std::thread(db_write_worker, status);
 }

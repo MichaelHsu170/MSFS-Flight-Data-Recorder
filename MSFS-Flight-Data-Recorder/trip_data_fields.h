@@ -33,7 +33,7 @@ inline QString tripFieldLabel(const char* name) {
 //
 // TRIP_DATA_BOOL_FIELDS(X): X(name, boolGroup, bitIndex) -- a boolean that's
 // bit-packed into bool_group_<boolGroup> at bit <bitIndex> for storage (see
-// db.cpp's db_consume()); `name` is both the trip_data column's FLIGHT_DATA_
+// db.cpp's db_write_worker()); `name` is both the trip_data column's FLIGHT_DATA_
 // RECORD member name (live path reads it as a plain bool) and the storage
 // bit's label (historical path unpacks it from the matching bool_group).
 
