@@ -104,8 +104,14 @@ void RecorderBridge::tryConnect() {
 		return;
 
 	HRESULT hr = SimConnect_Open(&status_.hSimConnect, "Flight Data Recorder", NULL, 0, 0, SIMCONNECT_OPEN_CONFIGINDEX_LOCAL);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
+		if (!connectFailureLogged_) {
+			Logger::logf(Logger::Warning, "Recorder", "SimConnect_Open failed (hr=0x%08lX); retrying every 2s", hr);
+			connectFailureLogged_ = true;
+		}
 		return;
+	}
+	connectFailureLogged_ = false;
 
 	connectTimer_->stop();
 
@@ -141,7 +147,8 @@ void RecorderBridge::pollDispatch() {
 	// either way, so treat it the same as an explicit quit.
 	HRESULT hr = SimConnect_CallDispatch(status_.hSimConnect, MyDispatchProc, &status_);
 	if (FAILED(hr)) {
-		emit logMessage(QStringLiteral("Disconnected from Microsoft Flight Simulator"));
+		Logger::logf(Logger::Warning, "Recorder", "SimConnect_CallDispatch failed (hr=0x%08lX); treating as disconnect", hr);
+		gui_notify_log(&status_, GUI_LOG_INFO, "Disconnected from Microsoft Flight Simulator");
 		emit connectionChanged(false);
 		status_.quit = TRUE;
 	}
@@ -152,6 +159,7 @@ void RecorderBridge::shutdown() {
 		return;
 
 	connected_ = false;
+	connectFailureLogged_ = false;
 	dispatchTimer_->stop();
 	SimConnect_Close(status_.hSimConnect);
 	status_.quit = FALSE;

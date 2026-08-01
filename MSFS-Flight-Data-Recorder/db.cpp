@@ -1,6 +1,7 @@
 #include "db.h"
 #include "logger_c.h"
 #include "simconnect_defs.h"
+#include "gui_notify.h"
 
 void db_error(const char* stmt_txt, int sql_ret, char** errmsg) {
 	std::string msg;
@@ -124,8 +125,15 @@ void db_insert_event(STATUS* status, const char* event, const char* time_zulu, c
 }
 
 void db_consume(STATUS* status, int trip_id, bool is_final) {
+	// Runs on a detached worker thread (recorder.cpp) with no caller to catch
+	// an escaping exception — letting one propagate calls std::terminate and
+	// kills the whole app mid-flight. db_insert_update_table already rolls
+	// back and rethrows on failure; the try/catch is scoped to just this one
+	// call (not the whole loop) so a single bad row is dropped and the queue
+	// still advances past it -- see the catch below for why that matters.
 	while (status->q_data_db_start != NULL) {
 		struct FLIGHT_DATA_RECORD* pS = status->q_data_db_start;
+		try {
 		db_insert_update_table(status->sql,
 			"INSERT INTO trip_data ("
 			"trip,"
@@ -527,6 +535,15 @@ void db_consume(STATUS* status, int trip_id, bool is_final) {
 				db_bind(stmt, stmt_txt, 145, pS->time_zulu.format_date_time().c_str());
 				db_bind(stmt, stmt_txt, 146, pS->time_local.format_date_time().c_str());
 			});
+		}
+		catch (const db_exception& e) {
+			// Drop just this one sample and keep going -- leaving it at the
+			// head of the queue would re-throw on every future flush (this
+			// batch, every later batch, and the final flush at trip end),
+			// permanently stalling all recording for the rest of the trip
+			// instead of losing a single row.
+			gui_log_printf(status, GUI_LOG_WARNING, "db_consume: dropped one sample for trip %d: %s\n", trip_id, e.message.c_str());
+		}
 		bool fBreak = FALSE;
 		if (!is_final && status->q_data_db_start == status->q_data_db_end)
 			fBreak = TRUE;
@@ -544,7 +561,6 @@ void db_consume(STATUS* status, int trip_id, bool is_final) {
 		status->q_data_end = NULL;
 		status->q_data_db_end = NULL;
 	}
-
 }
 
 static void resolve_db_path(char* fn_db, size_t len) {

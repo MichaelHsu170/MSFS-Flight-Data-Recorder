@@ -1,5 +1,6 @@
 #include "map_bridge.h"
 #include "db.h"
+#include "logger.h"
 #include "sqlite3.h"
 
 MapBridge::MapBridge(QObject* parent) : QObject(parent) {}
@@ -15,15 +16,21 @@ void MapBridge::rangeChanged(int startIndex, int endIndex) {
 void MapBridge::saveAnalysisReport(int rowId, const QString& report) {
 	if (rowId <= 0) return;
 	sqlite3* sql = connect_db_readwrite();
-	if (!sql) return;
+	if (!sql) {
+		Logger::logf(Logger::Warning, "DB", "saveAnalysisReport(touchdown %d): failed to open read-write connection; analysis was not saved", rowId);
+		return;
+	}
 	const char* q = "UPDATE trip_touchdowns SET analysis_report = ? WHERE id = ?";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(sql, q, -1, &stmt, nullptr) == SQLITE_OK) {
 		QByteArray utf8 = report.toUtf8();
 		sqlite3_bind_text(stmt, 1, utf8.constData(), utf8.size(), SQLITE_TRANSIENT);
 		sqlite3_bind_int(stmt, 2, rowId);
-		sqlite3_step(stmt);
+		if (sqlite3_step(stmt) != SQLITE_DONE)
+			Logger::logf(Logger::Warning, "DB", "saveAnalysisReport(touchdown %d): update failed: %s", rowId, sqlite3_errmsg(sql));
 		sqlite3_finalize(stmt);
+	} else {
+		Logger::logf(Logger::Warning, "DB", "saveAnalysisReport(touchdown %d): prepare failed: %s", rowId, sqlite3_errmsg(sql));
 	}
 	sqlite3_close(sql);
 }

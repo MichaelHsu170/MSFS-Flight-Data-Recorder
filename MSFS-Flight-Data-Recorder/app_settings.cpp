@@ -1,4 +1,5 @@
 #include "app_settings.h"
+#include "logger.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -102,6 +103,10 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 		out.setEncoding(QStringConverter::Utf8);
 		for (const QString& line : lines)
 			out << line << '\n';
+	} else {
+		Logger::logf(Logger::Warning, "Settings",
+			"Failed to write %s (section [%s], key %s) - change was not saved",
+			qUtf8Printable(path), qUtf8Printable(section), qUtf8Printable(key));
 	}
 }
 
@@ -113,8 +118,11 @@ void ensureSettingsFileExists() {
 		return;
 
 	QFile file(path);
-	if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+	if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+		Logger::logf(Logger::Warning, "Settings",
+			"Failed to create default settings.ini at %s", qUtf8Printable(path));
 		return;
+	}
 
 	QTextStream out(&file);
 	out.setEncoding(QStringConverter::Utf8);

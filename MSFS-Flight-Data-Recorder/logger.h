@@ -8,9 +8,11 @@
 //
 // Levels (ordered lowest → highest verbosity):
 //   Fatal   – unrecoverable errors that halt the app
-//   Warning – unexpected conditions that don't stop execution
+//   Warning – unexpected/unhandled conditions that don't stop execution
 //   Info    – user-visible events (connect, record, takeoff, touchdown, …)
-//   Profile – performance timing and internal pipeline detail
+//   Profile – elapsed-time/performance measurements ONLY (ms/µs durations).
+//             Non-timing diagnostic detail belongs at Info or Warning instead,
+//             so a Profile-filtered log stays a clean timing trace.
 //
 // Example: verbose=INFO writes Fatal + Warning + Info but not Profile.
 // Thread-safe: log() and logf() may be called from any thread after init().
@@ -20,7 +22,10 @@ enum Level { Fatal = 0, Warning = 1, Info = 2, Profile = 3 };
 
 // Open the log file at filePath and set the maximum verbosity level.
 // Must be called once from the main thread before any background work starts.
-void init(Level maxLevel, const QString& filePath);
+// The previous run's log (if any) is preserved as filePath + ".old" instead of
+// being overwritten, and a header line stamped with appVersion, the process
+// ID, and the start time is written first so each run is easy to identify.
+void init(Level maxLevel, const QString& filePath, const QString& appVersion = QString());
 
 // Parse a level name case-insensitively ("FATAL", "WARNING", "INFO", "PROFILE").
 // Returns Info for unrecognised strings.

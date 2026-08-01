@@ -7,6 +7,25 @@ static bool is_skipped_event(struct STATUS* status, const char* eventName) {
 	return status->skip_events.count(eventName) > 0;
 }
 
+static const char* simconnect_exception_txt(DWORD exception) {
+	static const char* names[] = {
+		"NONE", "ERROR", "SIZE_MISMATCH", "UNRECOGNIZED_ID", "UNOPENED",
+		"VERSION_MISMATCH", "TOO_MANY_GROUPS", "NAME_UNRECOGNIZED", "TOO_MANY_EVENT_NAMES",
+		"EVENT_ID_DUPLICATE", "TOO_MANY_MAPS", "TOO_MANY_OBJECTS", "TOO_MANY_REQUESTS",
+		"WEATHER_INVALID_PORT", "WEATHER_INVALID_METAR", "WEATHER_UNABLE_TO_GET_OBSERVATION",
+		"WEATHER_UNABLE_TO_CREATE_STATION", "WEATHER_UNABLE_TO_REMOVE_STATION",
+		"INVALID_DATA_TYPE", "INVALID_DATA_SIZE", "DATA_ERROR", "INVALID_ARRAY",
+		"CREATE_OBJECT_FAILED", "LOAD_FLIGHTPLAN_FAILED", "OPERATION_INVALID_FOR_OBJECT_TYPE",
+		"ILLEGAL_OPERATION", "ALREADY_SUBSCRIBED", "INVALID_ENUM", "DEFINITION_ERROR",
+		"DUPLICATE_ID", "DATUM_ID", "OUT_OF_BOUNDS", "ALREADY_CREATED",
+		"OBJECT_OUTSIDE_REALITY_BUBBLE", "OBJECT_CONTAINER", "OBJECT_AI", "OBJECT_ATC",
+		"OBJECT_SCHEDULE", "JETWAY_DATA", "ACTION_NOT_FOUND", "NOT_AN_ACTION",
+		"INCORRECT_ACTION_PARAMS", "GET_INPUT_EVENT_FAILED", "SET_INPUT_EVENT_FAILED",
+		"EVENT_NAME_RESERVED", "INTERNAL", "CAMERA_API",
+	};
+	return exception < (sizeof(names) / sizeof(names[0])) ? names[exception] : "UNKNOWN";
+}
+
 static const char* EVENT_ID_TXT[] = {
 	"SIM",
 	"PAUSE",
@@ -901,7 +920,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		}
 		break;
 		default:
-			gui_log_printf(status, GUI_LOG_PROFILE, "SIMCONNECT_RECV_SIMOBJECT_DATA: %d\n", pObjData->dwRequestID);
+			gui_log_printf(status, GUI_LOG_WARNING, "SIMCONNECT_RECV_SIMOBJECT_DATA: %d\n", pObjData->dwRequestID);
 			break;
 		}
 	}
@@ -930,6 +949,8 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			apt->icao[sizeof(apt->icao) - 1] = '\0';
 			strncpy(apt->region, region, sizeof(apt->region) - 1);
 			apt->region[sizeof(apt->region) - 1] = '\0';
+			gui_log_printf(status, GUI_LOG_INFO, "Requesting facility data for %s (%s) into %s slot\n",
+				apt->icao, apt->region, (apt == &status->departure) ? "departure" : "destination");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN AIRPORT");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "NAME64");
 			SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "MAGVAR");
@@ -989,11 +1010,17 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			AIRPORT* tmp = (status->departure.runway_act.index == -1) ? &status->departure : &status->destination;
 			memcpy(tmp, &pWxData->Data, sizeof(tmp->name) + sizeof(tmp->magvar) + sizeof(tmp->n_runways));
 			tmp->runways = (RUNWAY*)malloc(sizeof(RUNWAY) * tmp->n_runways);
+			gui_log_printf(status, GUI_LOG_INFO, "FACILITY_DATA_AIRPORT: %s slot, name=%s, n_runways=%d\n",
+				(tmp == &status->departure) ? "departure" : "destination", tmp->name, tmp->n_runways);
 		}
 		break;
 		case SIMCONNECT_FACILITY_DATA_RUNWAY:
 		{
-			RUNWAY* rep = (status->departure.runway_act.index == -1) ? status->departure.runways : status->destination.runways;
+			bool is_departure = (status->departure.runway_act.index == -1);
+			AIRPORT* apt = is_departure ? &status->departure : &status->destination;
+			RUNWAY* rep = apt->runways;
+			gui_log_printf(status, GUI_LOG_INFO, "FACILITY_DATA_RUNWAY: %s slot, ItemIndex=%lu, n_runways=%d\n",
+				is_departure ? "departure" : "destination", pWxData->ItemIndex, apt->n_runways);
 			memset(&rep[pWxData->ItemIndex], 0, sizeof(RUNWAY));
 			memcpy((char*)&rep[pWxData->ItemIndex] + sizeof(rep->placeholder), &pWxData->Data, sizeof(RUNWAY) - sizeof(rep->placeholder) - sizeof(rep->start_points));
 		}
@@ -1006,6 +1033,8 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 	case SIMCONNECT_RECV_ID_FACILITY_DATA_END:
 	{
 		AIRPORT* rep = (status->departure.runway_act.index == -1) ? &status->departure : &status->destination;
+		gui_log_printf(status, GUI_LOG_INFO, "FACILITY_DATA_END: %s slot, icao=%s, n_runways=%d\n",
+			(rep == &status->departure) ? "departure" : "destination", rep->icao, rep->n_runways);
 		double bearing_tra = (double)status->data.heading - rep->magvar;
 		if (bearing_tra <= 0)
 			bearing_tra += 360;
@@ -1230,11 +1259,22 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		status->loc_dh.clear();
 	}
 	break;
-	case SIMCONNECT_RECV_ID_EXCEPTION:
-		// SIMCONNECT_RECV_EXCEPTION* except = (SIMCONNECT_RECV_EXCEPTION*)pData;
+	case SIMCONNECT_RECV_ID_EXCEPTION: {
+		// SimConnect reports failed AddToDataDefinition/MapClientEventToSimEvent/
+		// RequestDataOnSimObject calls asynchronously here rather than through
+		// their own (synchronous, "queued OK") return values, so this is the
+		// only place a bad simvar/event name from an SDK or aircraft-SDK change
+		// would ever surface -- silently dropping it would desync the data
+		// definition's field ordering with zero trace in the log.
+		SIMCONNECT_RECV_EXCEPTION* except = (SIMCONNECT_RECV_EXCEPTION*)pData;
+		gui_log_printf(status, GUI_LOG_WARNING,
+			"SimConnect exception SIMCONNECT_EXCEPTION_%s (%lu) (SendID=%lu, Index=%lu)\n",
+			simconnect_exception_txt(except->dwException), except->dwException,
+			except->dwSendID, except->dwIndex);
 		break;
+	}
 	default:
-		gui_log_printf(status, GUI_LOG_PROFILE, "SIMCONNECT_RECV: %d\n", pData->dwID);
+		gui_log_printf(status, GUI_LOG_WARNING, "SIMCONNECT_RECV: %d\n", pData->dwID);
 		break;
 	}
 	} catch (const db_exception& e) {

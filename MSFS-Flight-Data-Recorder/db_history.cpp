@@ -1,5 +1,6 @@
 #include "db_history.h"
 #include "trip_data_fields.h"
+#include "logger.h"
 
 #include "sqlite3.h"
 
@@ -47,8 +48,10 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 	if (!hasName) {
 		hasRegion = sqlite3_prepare_v2(sql, stmt_txt_with_region, -1, &stmt, nullptr) == SQLITE_OK;
 		if (!hasRegion) {
-			if (sqlite3_prepare_v2(sql, stmt_txt_no_region, -1, &stmt, nullptr) != SQLITE_OK)
+			if (sqlite3_prepare_v2(sql, stmt_txt_no_region, -1, &stmt, nullptr) != SQLITE_OK) {
+				Logger::logf(Logger::Warning, "DB", "queryAllTrips: prepare failed: %s", sqlite3_errmsg(sql));
 				return trips;
+			}
 		}
 	}
 
@@ -122,8 +125,10 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	// positions in the table.
 	const char* stmt_txt = "SELECT * FROM trip_data WHERE trip = ? ORDER BY rowid";
 	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
+	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
+		Logger::logf(Logger::Warning, "DB", "queryTripData(trip %d): prepare failed: %s", tripId, sqlite3_errmsg(sql));
 		return dataset;
+	}
 	sqlite3_bind_int(stmt, 1, tripId);
 
 	QHash<QString, int> columnIndex;
@@ -232,8 +237,10 @@ std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 		"wind_direction, wind_velocity, time_zulu, time_local, analysis_report "
 		"FROM trip_touchdowns WHERE trip = ? ORDER BY id";
 	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
+	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
+		Logger::logf(Logger::Warning, "DB", "queryTouchdowns(trip %d): prepare failed: %s", tripId, sqlite3_errmsg(sql));
 		return touchdowns;
+	}
 	sqlite3_bind_int(stmt, 1, tripId);
 
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -276,6 +283,8 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 	for (const char* stmt_txt : stmts) {
 		sqlite3_stmt* stmt = nullptr;
 		if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
+			Logger::logf(Logger::Warning, "DB", "deleteTripData(trip %d): prepare failed for \"%s\": %s",
+				tripId, stmt_txt, sqlite3_errmsg(sql));
 			if (stmt) sqlite3_finalize(stmt);
 			return false;
 		}
@@ -297,8 +306,10 @@ std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId) {
 	// marker since the aircraft is stationary between set and release.
 	const char* stmt_txt = "SELECT event, time_zulu FROM trip_events WHERE trip = ? AND event != 'BRAKES' ORDER BY rowid";
 	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
+	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
+		Logger::logf(Logger::Warning, "DB", "queryEvents(trip %d): prepare failed: %s", tripId, sqlite3_errmsg(sql));
 		return events;
+	}
 	sqlite3_bind_int(stmt, 1, tripId);
 
 	while (sqlite3_step(stmt) == SQLITE_ROW) {
