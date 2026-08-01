@@ -479,6 +479,13 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	loading_ = true;
 	pendingTripId_ = trip->id;
 	table_->setEnabled(false);
+	// Also block the filter/group controls: tryFinishLoad() applies
+	// pendingTripId_ unconditionally once the load completes, so allowing
+	// the filter to change (or a group to be renamed/deleted) mid-load
+	// would let a completing load silently override the selection the
+	// user just moved away from.
+	groupFilterCombo_->setEnabled(false);
+	manageGroupsButton_->setEnabled(false);
 	loadingBar_->setVisible(true);
 	loadTimer_.start();
 	Logger::logf(Logger::Profile, "DB", "--- start: trip %d ---", trip->id);
@@ -568,6 +575,8 @@ void TripHistoryPanel::setLoadingFinished() {
 		return;
 	loading_ = false;
 	table_->setEnabled(true);
+	groupFilterCombo_->setEnabled(true);
+	manageGroupsButton_->setEnabled(true);
 	loadingBar_->setVisible(false);
 }
 

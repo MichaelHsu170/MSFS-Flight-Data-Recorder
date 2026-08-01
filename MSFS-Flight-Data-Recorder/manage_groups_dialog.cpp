@@ -75,11 +75,17 @@ void ManageGroupsDialog::addGroup() {
 		return;
 	}
 	int newId = insertGroup(sql, name);
-	sqlite3_close(sql);
 	if (newId == 0) {
-		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to create group."));
+		bool duplicate = false;
+		for (const TripGroup& group : queryAllGroups(sql))
+			duplicate = duplicate || group.name.compare(name, Qt::CaseInsensitive) == 0;
+		sqlite3_close(sql);
+		QMessageBox::critical(this, QStringLiteral("Error"),
+			duplicate ? QStringLiteral("A group named \"%1\" already exists.").arg(name)
+			          : QStringLiteral("Failed to create group."));
 		return;
 	}
+	sqlite3_close(sql);
 	reload();
 	emit groupsChanged();
 }
@@ -135,9 +141,15 @@ void ManageGroupsDialog::onItemChanged(QListWidgetItem* item) {
 		return;
 	}
 	bool ok = renameGroup(sql, groupId, newName);
+	if (!ok) {
+		bool duplicate = false;
+		for (const TripGroup& group : queryAllGroups(sql))
+			duplicate = duplicate || (group.id != groupId && group.name.compare(newName, Qt::CaseInsensitive) == 0);
+		QMessageBox::critical(this, QStringLiteral("Error"),
+			duplicate ? QStringLiteral("A group named \"%1\" already exists.").arg(newName)
+			          : QStringLiteral("Failed to rename group."));
+	}
 	sqlite3_close(sql);
-	if (!ok)
-		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to rename group."));
 	reload();
 	if (ok)
 		emit groupsChanged();

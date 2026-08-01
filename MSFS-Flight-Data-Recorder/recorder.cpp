@@ -913,6 +913,15 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					}
 					memset(tmp_touchdown, 0, sizeof(struct TOUCHDOWN_DATA));
 					tmp_touchdown->airport.clear();
+					// memset zeroed this to 0, not TOUCHDOWN_DATA::db_id's declared
+					// default of -1 (malloc+memset never runs the member initializer).
+					// db_id is only overwritten with the real rowid if the immediate
+					// INSERT below succeeds; if it throws, db_id must stay -1 (an
+					// invalid rowid) rather than 0, which would make a later
+					// "UPDATE trip_touchdowns ... WHERE id = 0" resolve to no rows
+					// and silently drop the touchdown's icao/runway match instead of
+					// visibly failing.
+					tmp_touchdown->db_id = -1;
 					if (status->touchdown_data == NULL) {
 						status->touchdown_data = tmp_touchdown;
 						status->touchdown_data_end = tmp_touchdown;
@@ -1132,7 +1141,16 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		{
 			AIRPORT* tmp = (status->departure.runway_act.index == -1) ? &status->departure : &status->destination;
 			memcpy(tmp, &pWxData->Data, sizeof(tmp->name) + sizeof(tmp->magvar) + sizeof(tmp->n_runways));
-			tmp->runways = (RUNWAY*)malloc(sizeof(RUNWAY) * tmp->n_runways);
+			if (tmp->n_runways < 0) {
+				gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_AIRPORT: negative n_runways=%d from sim; treating as 0 runways\n", tmp->n_runways);
+				tmp->n_runways = 0;
+			}
+			// calloc, not malloc: any slot whose SIMCONNECT_FACILITY_DATA_RUNWAY
+			// response never arrives (e.g. n_runways overstates what MSFS actually
+			// sends) must read back as zero, not uninitialized heap garbage, since
+			// the FACILITY_DATA_END matching loop below iterates all n_runways
+			// slots unconditionally.
+			tmp->runways = (RUNWAY*)calloc((size_t)tmp->n_runways, sizeof(RUNWAY));
 			if (tmp->runways == NULL) {
 				gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_AIRPORT: malloc failed for %d runways; treating as 0 runways\n", tmp->n_runways);
 				tmp->n_runways = 0;
@@ -1148,7 +1166,11 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			RUNWAY* rep = apt->runways;
 			gui_log_printf(status, GUI_LOG_INFO, "FACILITY_DATA_RUNWAY: %s slot, ItemIndex=%lu, n_runways=%d\n",
 				is_departure ? "departure" : "destination", pWxData->ItemIndex, apt->n_runways);
-			if (rep == NULL || (int)pWxData->ItemIndex >= apt->n_runways) {
+			// apt->n_runways is guaranteed >= 0 (clamped in FACILITY_DATA_AIRPORT
+			// above); ItemIndex is unsigned, so comparing it directly against a
+			// non-negative n_runways (rather than casting ItemIndex down to a
+			// possibly-negative int) can't be bypassed by an out-of-range ItemIndex.
+			if (rep == NULL || pWxData->ItemIndex >= (unsigned int)apt->n_runways) {
 				gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_RUNWAY: no runways buffer for ItemIndex=%lu; dropping\n", pWxData->ItemIndex);
 				break;
 			}
@@ -1320,24 +1342,32 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					tmp = tmp->next;
 				if (tmp != NULL) {
 					tmp->airport.copy(rep);
-					db_insert_update_table(status->sql,
-						"UPDATE trip_touchdowns SET icao=?,airport_name=?,runway=?,"
-						"distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
-						" WHERE id=?;",
-						tmp, status,
-						(char*)strRunway.c_str(),
-						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-							struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
-							db_bind(stmt, stmt_txt, 1, pS->airport.icao);
-							db_bind(stmt, stmt_txt, 2, pS->airport.name);
-							db_bind(stmt, stmt_txt, 3, (char*)aux);
-							db_bind(stmt, stmt_txt, 4, pS->airport.runway_act.distances[0] < 0 ? -1.0 : pS->airport.runway_act.distances[0]);
-							db_bind(stmt, stmt_txt, 5, pS->airport.runway_act.distances[1]);
-							db_bind(stmt, stmt_txt, 6, pS->airport.runway_act.distances_percent[0]);
-							db_bind(stmt, stmt_txt, 7, pS->airport.runway_act.distances_percent[1]);
-							db_bind(stmt, stmt_txt, 8, pS->db_id);
-						}
-					);
+					if (tmp->db_id < 0) {
+						// The immediate INSERT at touchdown time never got a valid
+						// rowid (e.g. it hit SQLITE_BUSY and threw) -- "WHERE id=?"
+						// with an invalid id would just match zero rows and silently
+						// drop this resolution, so skip it and say why instead.
+						gui_log_printf(status, GUI_LOG_WARNING, "Touchdown at %s (%s) runway %s: trip_touchdowns row was never inserted; dropping this resolution\n", rep->name, rep->icao, strRunway.c_str());
+					} else {
+						db_insert_update_table(status->sql,
+							"UPDATE trip_touchdowns SET icao=?,airport_name=?,runway=?,"
+							"distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
+							" WHERE id=?;",
+							tmp, status,
+							(char*)strRunway.c_str(),
+							[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+								struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
+								db_bind(stmt, stmt_txt, 1, pS->airport.icao);
+								db_bind(stmt, stmt_txt, 2, pS->airport.name);
+								db_bind(stmt, stmt_txt, 3, (char*)aux);
+								db_bind(stmt, stmt_txt, 4, pS->airport.runway_act.distances[0] < 0 ? -1.0 : pS->airport.runway_act.distances[0]);
+								db_bind(stmt, stmt_txt, 5, pS->airport.runway_act.distances[1]);
+								db_bind(stmt, stmt_txt, 6, pS->airport.runway_act.distances_percent[0]);
+								db_bind(stmt, stmt_txt, 7, pS->airport.runway_act.distances_percent[1]);
+								db_bind(stmt, stmt_txt, 8, pS->db_id);
+							}
+						);
+					}
 					gui_notify_trip_updated(status);
 				}
 				// FACILITY_DATA_AIRPORT does not carry icao — only AIRPORT_LIST does.
@@ -1411,16 +1441,23 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					tmp->airport.runway_act.distances[0] = -2;
 					// Airport found but no matching runway; update trip_touchdowns with
 					// the ICAO/name only (runway and distances stay NULL).
-					db_insert_update_table(status->sql,
-						"UPDATE trip_touchdowns SET icao=?,airport_name=? WHERE id=?;",
-						tmp, status, NULL,
-						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-							struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
-							db_bind(stmt, stmt_txt, 1, pS->airport.icao);
-							db_bind(stmt, stmt_txt, 2, pS->airport.name);
-							db_bind(stmt, stmt_txt, 3, pS->db_id);
-						}
-					);
+					if (tmp->db_id < 0) {
+						// See the identical guard above: an invalid db_id means the
+						// immediate INSERT never completed, so there is no row for
+						// "WHERE id=?" to match -- skip it rather than silently no-op.
+						gui_log_printf(status, GUI_LOG_WARNING, "Touchdown at %s (%s): trip_touchdowns row was never inserted; dropping this resolution\n", rep->name, rep->icao);
+					} else {
+						db_insert_update_table(status->sql,
+							"UPDATE trip_touchdowns SET icao=?,airport_name=? WHERE id=?;",
+							tmp, status, NULL,
+							[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+								struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
+								db_bind(stmt, stmt_txt, 1, pS->airport.icao);
+								db_bind(stmt, stmt_txt, 2, pS->airport.name);
+								db_bind(stmt, stmt_txt, 3, pS->db_id);
+							}
+						);
+					}
 					gui_notify_trip_updated(status);
 				}
 			}

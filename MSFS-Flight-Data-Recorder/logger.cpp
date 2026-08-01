@@ -22,7 +22,12 @@ namespace {
 // land at overlapping offsets and corrupt/truncate each other's bytes, which
 // a QFile opened in QIODevice::Append (a one-time seek-to-EOF at open(), not
 // a per-write OS append) cannot promise.
-HANDLE              g_fileHandle = INVALID_HANDLE_VALUE;
+// atomic, not plain HANDLE: init() writes this once under g_mutex, but log(),
+// logCrash() and writeLine() all read it without taking the lock (logCrash()
+// deliberately, to stay lock-free -- see its own comment below; log()/writeLine()
+// as a fast pre-lock bail-out before logging is enabled). Without atomicity that
+// unsynchronized read/write pair across threads is a data race.
+std::atomic<HANDLE> g_fileHandle{INVALID_HANDLE_VALUE};
 QMutex              g_mutex;
 std::atomic<int>    g_maxLevel{static_cast<int>(Logger::Info)};
 
@@ -37,11 +42,17 @@ const char* levelTag(Logger::Level level) {
 }
 
 void writeLine(const QString& line) {
-    if (g_fileHandle == INVALID_HANDLE_VALUE)
+    HANDLE h = g_fileHandle.load(std::memory_order_acquire);
+    if (h == INVALID_HANDLE_VALUE)
         return;
     QByteArray utf8 = line.toUtf8();
     DWORD written = 0;
-    WriteFile(g_fileHandle, utf8.constData(), static_cast<DWORD>(utf8.size()), &written, nullptr);
+    if (!WriteFile(h, utf8.constData(), static_cast<DWORD>(utf8.size()), &written, nullptr)) {
+        // The log file itself is the usual place failures get reported, so a
+        // WriteFile failure here has nowhere else to go -- surface it to a
+        // debugger (if attached) rather than dropping it silently.
+        OutputDebugStringA("Logger::writeLine: WriteFile failed\n");
+    }
 }
 
 }
@@ -51,7 +62,7 @@ namespace Logger {
 void init(Level maxLevel, const QString& filePath, const QString& appVersion) {
     g_maxLevel.store(static_cast<int>(maxLevel));
     QMutexLocker lock(&g_mutex);
-    if (g_fileHandle != INVALID_HANDLE_VALUE)
+    if (g_fileHandle.load(std::memory_order_relaxed) != INVALID_HANDLE_VALUE)
         return;
     // Preserve the previous run's log instead of truncating it, so a crash
     // followed by a manual relaunch doesn't erase the only record of it.
@@ -69,7 +80,7 @@ void init(Level maxLevel, const QString& filePath, const QString& appVersion) {
     // absent (the normal case, after a successful rename) or just opens it
     // without truncating if present, so a failed rotate degrades to appending
     // after the old content instead of losing all logging.
-    g_fileHandle = CreateFileW(
+    HANDLE h = CreateFileW(
         reinterpret_cast<const wchar_t*>(filePath.utf16()),
         FILE_APPEND_DATA,
         FILE_SHARE_READ,
@@ -77,8 +88,9 @@ void init(Level maxLevel, const QString& filePath, const QString& appVersion) {
         OPEN_ALWAYS,
         FILE_ATTRIBUTE_NORMAL,
         nullptr);
-    if (g_fileHandle == INVALID_HANDLE_VALUE)
+    if (h == INVALID_HANDLE_VALUE)
         return;
+    g_fileHandle.store(h, std::memory_order_release);
     QString header = QStringLiteral("==== MSFS Flight Data Recorder")
         + (appVersion.isEmpty() ? QString() : QStringLiteral(" v%1").arg(appVersion))
         + QStringLiteral(" started (PID %1) at %2 ====\n")
@@ -99,7 +111,7 @@ Level levelFromString(const QString& s) {
 void log(Level level, const char* module, const QString& msg) {
     if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
         return;
-    if (g_fileHandle == INVALID_HANDLE_VALUE)
+    if (g_fileHandle.load(std::memory_order_acquire) == INVALID_HANDLE_VALUE)
         return;
     QString line = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
         + QStringLiteral(" [") + QLatin1String(levelTag(level)) + QStringLiteral("] [")
@@ -122,7 +134,7 @@ void logf(Level level, const char* module, const char* fmt, ...) {
 void logCrash(Level level, const char* module, const QString& msg) {
     if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
         return;
-    if (g_fileHandle == INVALID_HANDLE_VALUE)
+    if (g_fileHandle.load(std::memory_order_acquire) == INVALID_HANDLE_VALUE)
         return;
     QString line = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
         + QStringLiteral(" [") + QLatin1String(levelTag(level)) + QStringLiteral("] [")

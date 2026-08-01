@@ -41,7 +41,17 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 	const QString path = settingsFilePath();
 	QFile file(path);
 	QStringList lines;
-	if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+	if (file.exists()) {
+		// The file exists but couldn't be read (e.g. locked, permissions) --
+		// bail out rather than falling through to the write below, which
+		// would truncate it and replace its entire contents with just this
+		// one key, discarding every other saved setting.
+		if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+			Logger::logf(Logger::Warning, "Settings",
+				"Failed to read %s (section [%s], key %s) - change was not saved",
+				qUtf8Printable(path), qUtf8Printable(section), qUtf8Printable(key));
+			return;
+		}
 		QTextStream in(&file);
 		in.setEncoding(QStringConverter::Utf8);
 		while (!in.atEnd())
@@ -252,7 +262,9 @@ void AppSettings::setDataTableHiddenFields(const QStringList& fields) {
 
 int AppSettings::dataTableFieldColumnWidth() const {
 	QSettings settings = makeSettings();
-	return settings.value(QStringLiteral("table_column_width/data_table_field_column_width"), 140).toInt();
+	bool ok = false;
+	int v = settings.value(QStringLiteral("table_column_width/data_table_field_column_width"), 140).toInt(&ok);
+	return (ok && v > 0) ? v : 140;
 }
 
 void AppSettings::setDataTableFieldColumnWidth(int w) {
@@ -269,7 +281,9 @@ void AppSettings::setDataTableFieldColumnWidth(int w) {
 
 int AppSettings::rightPanelWidth() const {
 	QSettings settings = makeSettings();
-	return settings.value(QStringLiteral("layout/right_panel_width"), 260).toInt();
+	bool ok = false;
+	int v = settings.value(QStringLiteral("layout/right_panel_width"), 260).toInt(&ok);
+	return (ok && v > 0) ? v : 260;
 }
 
 void AppSettings::setRightPanelWidth(int w) {
@@ -286,7 +300,9 @@ void AppSettings::setRightPanelWidth(int w) {
 
 int AppSettings::chartsPanelHeight() const {
 	QSettings settings = makeSettings();
-	return settings.value(QStringLiteral("layout/charts_panel_height"), 400).toInt();
+	bool ok = false;
+	int v = settings.value(QStringLiteral("layout/charts_panel_height"), 400).toInt(&ok);
+	return (ok && v > 0) ? v : 400;
 }
 
 void AppSettings::setChartsPanelHeight(int h) {
