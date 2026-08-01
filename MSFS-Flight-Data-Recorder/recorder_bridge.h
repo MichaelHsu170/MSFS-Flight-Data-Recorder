@@ -51,6 +51,9 @@ private:
 	QTimer* dispatchTimer_;
 	QTimer* connectTimer_;
 	bool connected_ = false;
+	// Logs the SimConnect_Open failure once per disconnected episode instead of
+	// every 2s retry, so the log shows why it isn't connecting without spamming.
+	bool connectFailureLogged_ = false;
 	// Holds the in-progress future when stop_recording is offloaded to a
 	// worker thread so the GUI thread stays live while the DB flush completes.
 	QFuture<void> stopFuture_;

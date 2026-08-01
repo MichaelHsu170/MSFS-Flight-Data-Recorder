@@ -9,6 +9,46 @@
 #include "db.h"
 #include "recorder_bridge.h"
 #include "main_window.h"
+#include "types.h"
+
+#include <Windows.h>
+#include <exception>
+#include <malloc.h>
+
+// Last-resort diagnostics: neither of these can recover the process, but they
+// give the log a chance to say why it died instead of leaving the last line
+// before a crash as the only clue.
+static LONG WINAPI crashHandler(EXCEPTION_POINTERS* info) {
+    if (info->ExceptionRecord->ExceptionCode == EXCEPTION_STACK_OVERFLOW) {
+        // Only a guard-page's worth of stack remains at this point -- Logger::logf's
+        // QString formatting and heap allocation would very likely re-fault before
+        // writing anything. _resetstkoflw() restores the guard page first so the
+        // rest of this handler has normal stack space to run in.
+        _resetstkoflw();
+    }
+    Logger::logf(Logger::Fatal, "Crash",
+        "Unhandled exception 0x%08lX at address %p",
+        info->ExceptionRecord->ExceptionCode,
+        info->ExceptionRecord->ExceptionAddress);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static void terminateHandler() {
+    QString detail;
+    if (std::exception_ptr eptr = std::current_exception()) {
+        try {
+            std::rethrow_exception(eptr);
+        } catch (const std::exception& e) {
+            detail = QString::fromUtf8(e.what());
+        } catch (...) {
+            detail = QStringLiteral("non-standard exception");
+        }
+    } else {
+        detail = QStringLiteral("no active exception");
+    }
+    Logger::log(Logger::Fatal, "Crash", QStringLiteral("std::terminate called: %1").arg(detail));
+    std::abort();
+}
 
 static void logMessageHandler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg) {
     // Suppress high-volume Qt-internal noise that drowns out app messages.
@@ -54,9 +94,11 @@ int main(int argc, char* argv[]) {
         QSettings s(QDir(baseDir).filePath(QStringLiteral("settings.ini")), QSettings::IniFormat);
         Logger::Level lvl = Logger::levelFromString(
             s.value(QStringLiteral("logging/verbose"), QStringLiteral("INFO")).toString());
-        Logger::init(lvl, baseDir + QStringLiteral("/msfs_fdr_debug.log"));
+        Logger::init(lvl, baseDir + QStringLiteral("/msfs_fdr_debug.log"), QStringLiteral(APP_VERSION));
     }
     qInstallMessageHandler(logMessageHandler);
+    SetUnhandledExceptionFilter(crashHandler);
+    std::set_terminate(terminateHandler);
 
     // Must be called before QApplication: QQC2 auto-detects the style from
     // the QWidget app's QStyle, which resolves to "Fusion" in a Widgets context

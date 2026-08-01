@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstdarg>
 #include <cstdio>
+#include <Windows.h>
 
 namespace {
 
@@ -31,16 +32,29 @@ const char* levelTag(Logger::Level level) {
 
 namespace Logger {
 
-void init(Level maxLevel, const QString& filePath) {
+void init(Level maxLevel, const QString& filePath, const QString& appVersion) {
     g_maxLevel.store(static_cast<int>(maxLevel));
     QMutexLocker lock(&g_mutex);
     if (g_file)
         return;
+    // Preserve the previous run's log instead of truncating it, so a crash
+    // followed by a manual relaunch doesn't erase the only record of it.
+    const QString oldPath = filePath + QStringLiteral(".old");
+    QFile::remove(oldPath);
+    QFile::rename(filePath, oldPath);
     g_file = new QFile(filePath);
     if (!g_file->open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         delete g_file;
         g_file = nullptr;
+        return;
     }
+    QTextStream out(g_file);
+    out << QStringLiteral("==== MSFS Flight Data Recorder")
+        << (appVersion.isEmpty() ? QString() : QStringLiteral(" v%1").arg(appVersion))
+        << QStringLiteral(" started (PID %1) at %2 ====\n")
+              .arg(GetCurrentProcessId())
+              .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")));
+    out.flush();
 }
 
 Level levelFromString(const QString& s) {

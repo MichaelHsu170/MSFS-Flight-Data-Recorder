@@ -1,0 +1,69 @@
+2026-08-01 11:19:14.656 [PROF ] [TrajView] clearAndShowOverview: chartsPanel done 1 ms
+2026-08-01 11:19:14.685 [PROF ] [TrajView] clearAndShowOverview: dataTable done 30 ms
+2026-08-01 11:19:14.686 [PROF ] [Map     ] showOverview: cleared vectors: 28 µs
+2026-08-01 11:19:14.686 [PROF ] [TrajView] clearAndShowOverview: complete 31 ms total
+2026-08-01 11:19:15.572 [PROF ] [Map     ] showOverview: cleared vectors: 0 µs
+2026-08-01 11:19:15.573 [PROF ] [Map     ] showOverview: JSON built: 480 µs
+2026-08-01 11:19:15.573 [PROF ] [Map     ] showOverview: runJs done: 1060 µs
+2026-08-01 11:19:45.457 [WARN ] [Qt      ] C:\Users\qt\work\qt\qtbase\src\plugins\platforms\windows\qwindowswindow.cpp:2296 | QWindowsWindow::setGeometry: Unable to set geometry 120x30+4680+447 (frame: 136x69+4672+416) on QWidgetWindow/"QInputDialogClassWindow" on "BenQ GC2870 (2)". Resulting geometry: 190x102+4680+447 (frame: 206x141+4672+416) margins: 8, 31, 8, 8 minimum size: 190x102 maximum size: 524287x102 MINMAXINFO(maxSize=POINT(x=0, y=0), maxpos=POINT(x=0, y=0), maxtrack=POINT(x=524303, y=141), mintrack=POINT(x=206, y=141)))
+2026-08-01 11:19:54.455 [PROF ] [DB      ] --- start: trip 33 ---
+2026-08-01 11:19:54.458 [PROF ] [DB      ] queryEvents: 1 ms  (23 events)
+2026-08-01 11:19:54.458 [PROF ] [DB      ] queryTouchdowns: 1 ms  (36 touchdowns)
+2026-08-01 11:19:54.494 [PROF ] [DB      ] queryTripData: 37 ms  (3628 pts)
+2026-08-01 11:19:54.494 [PROF ] [DB      ] all joined: 40 ms wall time from click
+2026-08-01 11:19:54.495 [PROF ] [TrajView] --- rendering start: 3628 pts ---
+2026-08-01 11:19:54.495 [PROF ] [Charts  ] copy: 0 ms  (3628 pts)
+2026-08-01 11:19:54.495 [PROF ] [Map     ] coord copy: 82 µs  (3628 pts)
+2026-08-01 11:19:54.496 [PROF ] [Map     ] JSON build (bg): 0 ms  (3628 → 1815 pts decimated)
+2026-08-01 11:19:54.498 [PROF ] [Map     ] events JSON (bg): 1364 µs  (23 events)
+2026-08-01 11:19:54.502 [PROF ] [Map     ] touchdowns JSON (bg): 6144 µs  (36 touchdowns)
+2026-08-01 11:19:54.535 [PROF ] [Map     ] runJs events: 205 µs
+2026-08-01 11:19:54.535 [PROF ] [Map     ] runJs touchdowns: 423 µs
+2026-08-01 11:19:54.536 [PROF ] [Map     ] runJs trajectory: 285 µs  (async — JS render time not captured)
+2026-08-01 11:19:54.566 [PROF ] [Charts  ] finished lambda: ver=2 cur=2
+2026-08-01 11:19:54.566 [PROF ] [Charts  ] compute (bg): 68 ms
+2026-08-01 11:19:54.570 [PROF ] [Charts  ] apply (GUI): 3 ms  (stride 2, ~1814 pts/series)
+2026-08-01 11:19:54.570 [PROF ] [TrajView] both subviews loaded: 75 ms total rendering time
+2026-08-01 11:19:54.808 [PROF ] [Charts  ] setVisibleRange: 2740 µs  (1814 pts in series, stride 2)
+2026-08-01 11:19:54.810 [PROF ] [DB      ] --- start: trip 33 ---
+2026-08-01 11:19:54.811 [PROF ] [DB      ] queryEvents: 0 ms  (23 events)
+2026-08-01 11:19:54.811 [PROF ] [DB      ] queryTouchdowns: 0 ms  (36 touchdowns)
+2026-08-01 11:19:54.850 [PROF ] [DB      ] queryTripData: 40 ms  (3628 pts)
+2026-08-01 11:19:55.014 [PROF ] [DB      ] all joined: 203 ms wall time from click
+2026-08-01 11:19:55.016 [PROF ] [TrajView] --- rendering start: 3628 pts ---
+2026-08-01 11:19:55.016 [PROF ] [Charts  ] copy: 0 ms  (3628 pts)
+2026-08-01 11:19:55.016 [PROF ] [Map     ] coord copy: 91 µs  (3628 pts)
+2026-08-01 11:19:55.018 [PROF ] [Map     ] JSON build (bg): 0 ms  (3628 → 1815 pts decimated)
+2026-08-01 11:19:55.019 [PROF ] [Map     ] events JSON (bg): 1834 µs  (23 events)
+2026-08-01 11:19:55.025 [PROF ] [Map     ] touchdowns JSON (bg): 7732 µs  (36 touchdowns)
+2026-08-01 11:19:55.053 [PROF ] [DB      ] all joined: 243 ms wall time from click
+2026-08-01 11:19:55.053 [PROF ] [TrajView] --- rendering start: 3628 pts ---
+2026-08-01 11:19:55.054 [PROF ] [Charts  ] copy: 0 ms  (3628 pts)
+2026-08-01 11:19:55.054 [PROF ] [Map     ] coord copy: 88 µs  (3628 pts)
+2026-08-01 11:19:55.055 [PROF ] [Map     ] JSON build (bg): 0 ms  (3628 → 1815 pts decimated)
+2026-08-01 11:19:55.058 [PROF ] [Map     ] events JSON (bg): 2268 µs  (23 events)
+2026-08-01 11:19:55.063 [PROF ] [Map     ] touchdowns JSON (bg): 8690 µs  (36 touchdowns)
+2026-08-01 11:19:55.101 [PROF ] [Charts  ] setVisibleRange: 805 µs  (1814 pts in series, stride 2)
+2026-08-01 11:19:55.103 [PROF ] [DB      ] all joined: 293 ms wall time from click
+2026-08-01 11:19:55.103 [PROF ] [TrajView] --- rendering start: 3628 pts ---
+2026-08-01 11:19:55.104 [PROF ] [Charts  ] copy: 0 ms  (3628 pts)
+2026-08-01 11:19:55.104 [PROF ] [Map     ] coord copy: 97 µs  (3628 pts)
+2026-08-01 11:19:55.106 [PROF ] [Map     ] JSON build (bg): 0 ms  (3628 → 1815 pts decimated)
+2026-08-01 11:19:55.109 [PROF ] [Map     ] events JSON (bg): 2937 µs  (23 events)
+2026-08-01 11:19:55.117 [PROF ] [Map     ] touchdowns JSON (bg): 11778 µs  (36 touchdowns)
+2026-08-01 11:19:55.329 [PROF ] [Map     ] runJs events: 369 µs
+2026-08-01 11:19:55.330 [PROF ] [Map     ] runJs touchdowns: 453 µs
+2026-08-01 11:19:55.330 [PROF ] [Map     ] runJs trajectory: 316 µs  (async — JS render time not captured)
+2026-08-01 11:19:55.330 [PROF ] [Charts  ] finished lambda: ver=3 cur=5
+2026-08-01 11:19:55.340 [PROF ] [Charts  ] finished lambda: ver=4 cur=5
+2026-08-01 11:19:55.340 [PROF ] [Charts  ] finished lambda: ver=5 cur=5
+2026-08-01 11:19:55.340 [PROF ] [Charts  ] compute (bg): 115 ms
+2026-08-01 11:19:55.344 [PROF ] [Charts  ] apply (GUI): 3 ms  (stride 2, ~1814 pts/series)
+2026-08-01 11:19:55.344 [PROF ] [TrajView] both subviews loaded: 239 ms total rendering time
+2026-08-01 11:19:55.622 [PROF ] [Charts  ] setVisibleRange: 2769 µs  (1814 pts in series, stride 2)
+2026-08-01 11:19:57.404 [PROF ] [TrajView] clearAndShowOverview: chartsPanel done 1 ms
+2026-08-01 11:19:57.436 [PROF ] [TrajView] clearAndShowOverview: dataTable done 34 ms
+2026-08-01 11:19:57.437 [PROF ] [Map     ] showOverview: cleared vectors: 60 µs
+2026-08-01 11:19:57.437 [PROF ] [Map     ] showOverview: JSON built: 488 µs
+2026-08-01 11:19:57.438 [PROF ] [Map     ] showOverview: runJs done: 1304 µs
+2026-08-01 11:19:57.438 [PROF ] [TrajView] clearAndShowOverview: complete 35 ms total

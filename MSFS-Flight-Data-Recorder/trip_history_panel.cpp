@@ -290,8 +290,11 @@ TripHistoryPanel::~TripHistoryPanel() {
 }
 
 sqlite3* TripHistoryPanel::ensureHistoryConnection() {
-	if (historySql_ == nullptr)
+	if (historySql_ == nullptr) {
 		historySql_ = connect_db_readonly();
+		if (historySql_ == nullptr)
+			Logger::log(Logger::Warning, "DB", QStringLiteral("Trip history: failed to open a read-only database connection"));
+	}
 	return historySql_;
 }
 
@@ -397,6 +400,8 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	pointsWatcher_->setFuture(QtConcurrent::run([tripId, aircraftTitle]() {
 		QElapsedTimer t; t.start();
 		sqlite3* sql = connect_db_readonly();
+		if (!sql)
+			Logger::logf(Logger::Warning, "DB", "queryTripData(trip %d): failed to open read-only connection", tripId);
 		auto dataset = std::make_shared<TripDataset>(sql ? queryTripData(sql, tripId) : TripDataset());
 		if (sql)
 			sqlite3_close(sql);
@@ -408,6 +413,8 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	touchdownsWatcher_->setFuture(QtConcurrent::run([tripId]() {
 		QElapsedTimer t; t.start();
 		sqlite3* sql = connect_db_readonly();
+		if (!sql)
+			Logger::logf(Logger::Warning, "DB", "queryTouchdowns(trip %d): failed to open read-only connection", tripId);
 		std::vector<TouchdownPoint> touchdowns = sql ? queryTouchdowns(sql, tripId) : std::vector<TouchdownPoint>();
 		if (sql)
 			sqlite3_close(sql);
@@ -417,6 +424,8 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	eventsWatcher_->setFuture(QtConcurrent::run([tripId]() {
 		QElapsedTimer t; t.start();
 		sqlite3* sql = connect_db_readonly();
+		if (!sql)
+			Logger::logf(Logger::Warning, "DB", "queryEvents(trip %d): failed to open read-only connection", tripId);
 		std::vector<TripEvent> events = sql ? queryEvents(sql, tripId) : std::vector<TripEvent>();
 		if (sql)
 			sqlite3_close(sql);
