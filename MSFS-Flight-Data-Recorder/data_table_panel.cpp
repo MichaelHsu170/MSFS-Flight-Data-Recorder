@@ -61,9 +61,15 @@ DataTablePanel::DataTablePanel(QWidget* parent) : QWidget(parent) {
 	// larger share since most values here are short numbers, while several
 	// field labels need two wrapped lines.
 	table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
-	table_->setColumnWidth(0, 140);
+	table_->setColumnWidth(0, AppSettings::instance().dataTableFieldColumnWidth());
 	table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
 	table_->horizontalHeader()->setStretchLastSection(true);
+	// Value (column 1) is Stretch-mode, so it also fires sectionResized when
+	// the panel width changes -- only persist column 0's width.
+	connect(table_->horizontalHeader(), &QHeaderView::sectionResized, this, [this](int column, int, int newSize) {
+		if (column == 0)
+			AppSettings::instance().setDataTableFieldColumnWidth(newSize);
+	});
 	table_->setStyleSheet(QStringLiteral("QTableWidget { font-size: 9pt; }"));
 	// Long values (e.g. full ISO timestamps) get clipped at the fixed 20px row
 	// height with no wrap -- wrap them instead and let each row grow to fit,

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QMap>
 #include <QString>
 #include <QStringList>
 
@@ -15,6 +16,11 @@ public:
 	QStringList dataTableHiddenFields() const;
 	void setDataTableHiddenFields(const QStringList& fields);
 
+	// Width in pixels of the Data Table panel's "Field" column (the Value
+	// column always stretches to fill the rest).
+	int dataTableFieldColumnWidth() const;
+	void setDataTableFieldColumnWidth(int w);
+
 	// Width of the right-side panels (live status and data table). Both columns
 	// share one value so resizing either one persists for both.
 	int rightPanelWidth() const;
@@ -24,6 +30,16 @@ public:
 	// remaining vertical space.
 	int chartsPanelHeight() const;
 	void setChartsPanelHeight(int h);
+
+	// Column widths (pixels) of the Trip History table, keyed by
+	// TripHistoryModel::Column's enum member name (via Qt's Q_ENUM
+	// reflection) rather than ordinal position, so a column being inserted,
+	// removed, or reordered later can't silently misassign a saved width
+	// onto the wrong column -- an unrecognized or missing key just falls
+	// back to that column's coded default. Columns using Stretch sizing are
+	// never stored.
+	QMap<QString, int> tripHistoryColumnWidths() const;
+	void setTripHistoryColumnWidths(const QMap<QString, int>& widths);
 
 	// Gemini API key used by the touchdown analysis feature in the map popup.
 	// Set manually under [ai] gemini_api_key in settings.ini.

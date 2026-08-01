@@ -4,6 +4,7 @@
 #include "db_groups.h"
 #include "manage_groups_dialog.h"
 #include "db.h"
+#include "app_settings.h"
 
 #include <memory>
 
@@ -21,6 +22,7 @@
 #include <QPainter>
 #include <QMessageBox>
 #include <QMap>
+#include <QMetaEnum>
 #include <QSignalBlocker>
 #include <QtConcurrent/QtConcurrent>
 #include <QBrush>
@@ -206,6 +208,42 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	header->setSectionResizeMode(TripHistoryModel::DestinationTimeColumn, QHeaderView::Interactive);
 	table_->setColumnWidth(TripHistoryModel::DepartureTimeColumn, 175);
 	table_->setColumnWidth(TripHistoryModel::DestinationTimeColumn, 175);
+
+	// Restore any widths the user dragged in a previous session, overriding
+	// the coded defaults set above. Must happen before the sectionResized
+	// connect below so this initial resize doesn't immediately re-save itself.
+	// Keyed by enum member name (via QMetaEnum) rather than ordinal position,
+	// so a saved width from an older settings.ini can't get silently
+	// misassigned to the wrong column if TripHistoryModel::Column ever gains,
+	// loses, or reorders a member -- unrecognized/missing keys are just
+	// skipped, leaving that column at its coded default.
+	{
+		const QMetaEnum columnEnum = QMetaEnum::fromType<TripHistoryModel::Column>();
+		const QMap<QString, int> savedWidths = AppSettings::instance().tripHistoryColumnWidths();
+		for (auto it = savedWidths.constBegin(); it != savedWidths.constEnd(); ++it) {
+			bool ok = false;
+			const int col = columnEnum.keyToValue(it.key().toUtf8().constData(), &ok);
+			if (ok && col >= 0 && col < TripHistoryModel::ColumnCount && it.value() > 0)
+				table_->setColumnWidth(col, it.value());
+		}
+	}
+	// Stretch-mode columns (From/To) resize themselves whenever the panel's
+	// width changes, which also fires sectionResized -- filter to only save
+	// on Interactive columns so those don't trigger a write on every splitter
+	// drag or window resize.
+	connect(header, &QHeaderView::sectionResized, this, [this, header](int column, int, int) {
+		if (header->sectionResizeMode(column) != QHeaderView::Interactive)
+			return;
+		const QMetaEnum columnEnum = QMetaEnum::fromType<TripHistoryModel::Column>();
+		QMap<QString, int> widths;
+		for (int col = 0; col < TripHistoryModel::ColumnCount; ++col) {
+			if (header->sectionResizeMode(col) != QHeaderView::Interactive)
+				continue;
+			widths.insert(QString::fromUtf8(columnEnum.valueToKey(col)), table_->columnWidth(col));
+		}
+		AppSettings::instance().setTripHistoryColumnWidths(widths);
+	});
+
 	table_->setItemDelegate(new HoverStripDelegate(this));
 	table_->verticalHeader()->setVisible(false);
 	// Default selection highlight clashes with the status BackgroundRole
