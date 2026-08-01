@@ -689,10 +689,13 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		if (wasSelected)
 			selectedTripId_ = -1;
 		refreshTrips();
-		if (wasSelected) {
+		if (wasSelected)
 			table_->clearSelection();
+		// If no trip is selected the overview map is showing every trip,
+		// including whichever one was just deleted -- nudge it to drop that
+		// trip's arc whether or not it was the selected one.
+		if (selectedTripId_ == -1)
 			emit tripDeselected(model_->trips());
-		}
 	} else if (chosen == deselectAction) {
 		table_->clearSelection();
 		selectedTripId_ = -1;
