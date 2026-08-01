@@ -24,12 +24,15 @@ namespace {
 // components. Qt Graphs DateTimeAxis always renders labels in local time regardless
 // of setTimeZone(), so we store epoch ms = QDateTime(utcDate, utcTime, LocalTime)
 // — the point whose local time LOOKS like the zulu time we actually want.
+// Returns qQNaN() for a malformed/short zuluTime rather than epoch 0 (1970),
+// so a bad point can't silently drag axisLo/axisHi back to 1970 -- callers that
+// compute axis bounds from these values must skip NaN entries.
 static double epochMillisFor(const QString& zuluTime) {
-	if (zuluTime.size() < 23) return 0.0;
+	if (zuluTime.size() < 23) return qQNaN();
 	QDate d(zuluTime.mid(0, 4).toInt(), zuluTime.mid(5, 2).toInt(), zuluTime.mid(8, 2).toInt());
 	QTime t(zuluTime.mid(11, 2).toInt(), zuluTime.mid(14, 2).toInt(),
 	        zuluTime.mid(17, 2).toInt(), zuluTime.mid(20, 3).toInt());
-	if (!d.isValid() || !t.isValid()) return 0.0;
+	if (!d.isValid() || !t.isValid()) return qQNaN();
 	return (double)QDateTime(d, t, QTimeZone::LocalTime).toMSecsSinceEpoch();
 }
 
@@ -382,12 +385,16 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		for (const LightPoint& p : points)
 			data.pointTimesMs.push_back(epochMillisFor(p.zuluTime));
 
-		data.axisLo = data.pointTimesMs.empty()
+		auto firstValid = std::find_if(data.pointTimesMs.cbegin(), data.pointTimesMs.cend(),
+			[](double ms) { return !qIsNaN(ms); });
+		auto lastValid = std::find_if(data.pointTimesMs.crbegin(), data.pointTimesMs.crend(),
+			[](double ms) { return !qIsNaN(ms); });
+		data.axisLo = firstValid == data.pointTimesMs.cend()
 			? QDateTime::currentDateTime()
-			: QDateTime::fromMSecsSinceEpoch((qint64)data.pointTimesMs.front());
-		data.axisHi = data.pointTimesMs.empty()
+			: QDateTime::fromMSecsSinceEpoch((qint64)*firstValid);
+		data.axisHi = lastValid == data.pointTimesMs.crend()
 			? data.axisLo.addSecs(1)
-			: QDateTime::fromMSecsSinceEpoch((qint64)data.pointTimesMs.back());
+			: QDateTime::fromMSecsSinceEpoch((qint64)*lastValid);
 		if (data.axisHi <= data.axisLo)
 			data.axisHi = data.axisLo.addSecs(1);
 

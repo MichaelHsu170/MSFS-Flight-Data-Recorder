@@ -103,6 +103,8 @@ void db_insert_update_table(
 			db_error(stmt_txt, sql_ret, NULL);
 		func(stmt, stmt_txt, data, status, aux);
 		sql_ret = sqlite3_step(stmt);
+		if (sql_ret != SQLITE_DONE)
+			db_error(stmt_txt, sql_ret, NULL);
 		if (out_rowid)
 			*out_rowid = (int)sqlite3_last_insert_rowid(sql);
 		sql_ret = sqlite3_reset(stmt);
