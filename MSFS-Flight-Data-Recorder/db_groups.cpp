@@ -5,6 +5,7 @@
 
 std::vector<TripGroup> queryAllGroups(sqlite3* sql) {
 	std::vector<TripGroup> groups;
+	Logger::log(Logger::Trace, "DB", QStringLiteral("queryAllGroups: loading group list"));
 
 	const char* stmt_txt =
 		"SELECT g.id, g.name, (SELECT COUNT(*) FROM trips t WHERE t.group_id = g.id) "
@@ -24,6 +25,7 @@ std::vector<TripGroup> queryAllGroups(sqlite3* sql) {
 	}
 	if (rc != SQLITE_DONE)
 		Logger::logf(Logger::Warning, "DB", "queryAllGroups: step failed: %s", sqlite3_errmsg(sql));
+	Logger::logf(Logger::Trace, "DB", "queryAllGroups: loaded %d groups", (int)groups.size());
 	sqlite3_finalize(stmt);
 	return groups;
 }
@@ -51,8 +53,10 @@ int insertGroup(sqlite3* sql, const QString& name) {
 	// no UNIQUE/CHECK constraint of its own, so without this check two groups
 	// named "Vacation" and "vacation" would both silently succeed and then be
 	// indistinguishable in the group filter combo and per-trip "Set Group" menu.
-	if (trimmed.isEmpty() || groupNameExists(sql, trimmed, 0))
+	if (trimmed.isEmpty() || groupNameExists(sql, trimmed, 0)) {
+		Logger::log(Logger::Trace, "DB", QStringLiteral("insertGroup: rejected (blank or duplicate name)"));
 		return 0;
+	}
 	const char* stmt_txt = "INSERT INTO trip_groups (name) VALUES (?)";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
@@ -61,13 +65,17 @@ int insertGroup(sqlite3* sql, const QString& name) {
 	sqlite3_bind_text(stmt, 1, utf8.constData(), utf8.size(), SQLITE_TRANSIENT);
 	bool ok = sqlite3_step(stmt) == SQLITE_DONE;
 	sqlite3_finalize(stmt);
+	if (ok)
+		Logger::logf(Logger::Trace, "DB", "insertGroup: created group %d", (int)sqlite3_last_insert_rowid(sql));
 	return ok ? (int)sqlite3_last_insert_rowid(sql) : 0;
 }
 
 bool renameGroup(sqlite3* sql, int groupId, const QString& newName) {
 	QString trimmed = newName.trimmed();
-	if (trimmed.isEmpty() || groupNameExists(sql, trimmed, groupId))
+	if (trimmed.isEmpty() || groupNameExists(sql, trimmed, groupId)) {
+		Logger::logf(Logger::Trace, "DB", "renameGroup(%d): rejected (blank or duplicate name)", groupId);
 		return false;
+	}
 	const char* stmt_txt = "UPDATE trip_groups SET name = ? WHERE id = ?";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
@@ -77,6 +85,8 @@ bool renameGroup(sqlite3* sql, int groupId, const QString& newName) {
 	sqlite3_bind_int(stmt, 2, groupId);
 	bool ok = sqlite3_step(stmt) == SQLITE_DONE;
 	sqlite3_finalize(stmt);
+	if (ok)
+		Logger::logf(Logger::Trace, "DB", "renameGroup(%d): renamed to \"%s\"", groupId, utf8.constData());
 	return ok;
 }
 
@@ -89,6 +99,7 @@ bool deleteGroup(sqlite3* sql, int groupId) {
 		"UPDATE trips SET group_id = NULL WHERE group_id = ?",
 		"DELETE FROM trip_groups WHERE id = ?",
 	};
+	Logger::logf(Logger::Trace, "DB", "deleteGroup(%d): starting delete", groupId);
 	if (sqlite3_exec(sql, "BEGIN TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
 		Logger::logf(Logger::Warning, "DB", "deleteGroup(%d): BEGIN TRANSACTION failed: %s", groupId, sqlite3_errmsg(sql));
 		return false;
@@ -113,6 +124,7 @@ bool deleteGroup(sqlite3* sql, int groupId) {
 		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
 		return false;
 	}
+	Logger::logf(Logger::Trace, "DB", "deleteGroup(%d): delete committed", groupId);
 	return true;
 }
 
@@ -128,5 +140,7 @@ bool setTripGroup(sqlite3* sql, int tripId, int groupId) {
 	sqlite3_bind_int(stmt, 2, tripId);
 	bool ok = sqlite3_step(stmt) == SQLITE_DONE;
 	sqlite3_finalize(stmt);
+	if (ok)
+		Logger::logf(Logger::Trace, "DB", "setTripGroup(trip %d): group set to %d", tripId, groupId);
 	return ok;
 }

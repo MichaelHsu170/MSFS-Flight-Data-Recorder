@@ -1,6 +1,7 @@
 #include "live_status_panel.h"
 #include "recorder_bridge.h"
 #include "types.h"
+#include "logger.h"
 
 #include <QDateTime>
 #include <QFrame>
@@ -142,11 +143,13 @@ void LiveStatusPanel::onLogMessage(const QString& text) {
 }
 
 void LiveStatusPanel::onConnectionChanged(bool connected) {
+	Logger::logf(Logger::Trace, "LiveStat", "Connection indicator -> %s", connected ? "connected" : "waiting");
 	setIndicator(connectionIcon_, connected,
 		connected ? "Connected to Microsoft Flight Simulator" : "Waiting for simulator…");
 }
 
 void LiveStatusPanel::onRecordingStateChanged(int tripId) {
+	Logger::logf(Logger::Trace, "LiveStat", "Recording indicator -> recording trip #%d", tripId);
 	recordingTripId_ = tripId;
 	setIndicator(recordingIcon_, true, QString("Recording (trip #%1)").arg(tripId));
 }
@@ -155,9 +158,12 @@ void LiveStatusPanel::onTripEnded(int tripId) {
 	// The DB writer's queue can deliver this after a new trip has already
 	// started recording (it's only flushed once that trip's samples finish
 	// draining); ignore it then so the indicator doesn't go stale.
-	if (tripId != recordingTripId_)
+	if (tripId != recordingTripId_) {
+		Logger::logf(Logger::Trace, "LiveStat", "tripEnded(%d) ignored: current recording trip is #%d", tripId, recordingTripId_);
 		return;
+	}
 	recordingTripId_ = -1;
+	Logger::logf(Logger::Trace, "LiveStat", "Recording indicator -> not recording (trip #%d ended)", tripId);
 	setIndicator(recordingIcon_, false, "Not recording");
 }
 

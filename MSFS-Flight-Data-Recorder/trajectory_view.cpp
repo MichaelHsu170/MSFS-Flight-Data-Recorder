@@ -97,8 +97,10 @@ void TrajectoryView::onSubviewLoaded() {
 	// -1 and spuriously emits renderingFinished() on every overview reset,
 	// which TripHistoryPanel would mistake for "the real load just finished"
 	// and use to clear its loading_ guard mid-load.
-	if (pendingRenders_ <= 0)
+	if (pendingRenders_ <= 0) {
+		Logger::log(Logger::Trace, "TrajView", QStringLiteral("onSubviewLoaded: ignoring, no render pending (e.g. overview reset already completed synchronously)"));
 		return;
+	}
 	if (--pendingRenders_ <= 0) {
 		pendingRenders_ = 0;
 		if (genTimer_.isValid()) {
@@ -156,6 +158,7 @@ void TrajectoryView::setLiveFollow(bool follow) {
 	liveFollow_ = follow;
 
 	if (follow && !pendingLivePoints_.empty()) {
+		Logger::logf(Logger::Trace, "TrajView", "setLiveFollow(true): flushing %zu buffered live points into the views", pendingLivePoints_.size());
 		for (const TripSamplePoint& point : pendingLivePoints_) {
 			if (dataset_) dataset_->points.push_back(point);
 			chartsPanel_->appendLivePoint(point);

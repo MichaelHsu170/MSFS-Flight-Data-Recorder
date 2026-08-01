@@ -112,7 +112,8 @@ skip_events=APU_STARTER,BRAKES,AP_VS_ON,AUTOPILOT_OFF,APU_OFF_SWITCH
 ;   FATAL    — unrecoverable errors only
 ;   WARNING  — unexpected conditions that don't abort the app
 ;   INFO     — operational events (connect, recording start/stop, takeoff, touchdown)
-;   PROFILE  — performance timing for all subsystems (high-volume; for profiling only)
+;   TRACE    — fine-grained diagnostic detail, e.g. raw Qt debug output (high-volume)
+;   PROFILE  — performance timing for all subsystems (highest volume; for profiling only)
 ; Default: INFO
 verbose=INFO
 

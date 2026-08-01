@@ -17,6 +17,7 @@ QString columnTextOrEmpty(sqlite3_stmt* stmt, int column) {
 
 std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 	std::vector<TripSummary> trips;
+	Logger::log(Logger::Trace, "DB", QStringLiteral("queryAllTrips: loading trip list"));
 
 	// departure_region/destination_region and departure_name/destination_name
 	// are progressive additions to trips. Try each query in order from newest
@@ -54,6 +55,8 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 			}
 		}
 	}
+	Logger::logf(Logger::Trace, "DB", "queryAllTrips: using %s",
+		hasName ? "full schema" : (hasRegion ? "region schema (fallback)" : "legacy schema (fallback)"));
 
 	int rc;
 	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
@@ -114,6 +117,7 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 	}
 	if (rc != SQLITE_DONE)
 		Logger::logf(Logger::Warning, "DB", "queryAllTrips: step failed: %s", sqlite3_errmsg(sql));
+	Logger::logf(Logger::Trace, "DB", "queryAllTrips: loaded %d trips", (int)trips.size());
 	sqlite3_finalize(stmt);
 	return trips;
 }
@@ -121,6 +125,7 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 TripDataset queryTripData(sqlite3* sql, int tripId) {
 	TripDataset dataset;
 	dataset.tripId = tripId;
+	Logger::logf(Logger::Trace, "DB", "queryTripData(trip %d): loading sample points", tripId);
 
 	// SELECT * (rather than a curated column list) plus a name -> index map
 	// built from the statement's own column metadata so the query doesn't need
@@ -228,12 +233,14 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	}
 	if (rc != SQLITE_DONE)
 		Logger::logf(Logger::Warning, "DB", "queryTripData(trip %d): step failed: %s", tripId, sqlite3_errmsg(sql));
+	Logger::logf(Logger::Trace, "DB", "queryTripData(trip %d): loaded %d points", tripId, (int)dataset.points.size());
 	sqlite3_finalize(stmt);
 	return dataset;
 }
 
 std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 	std::vector<TouchdownPoint> touchdowns;
+	Logger::logf(Logger::Trace, "DB", "queryTouchdowns(trip %d): loading touchdown points", tripId);
 
 	// migrate_db() at app startup ensures all columns exist before any query runs.
 	const char* stmt_txt =
@@ -277,6 +284,7 @@ std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 	}
 	if (rc != SQLITE_DONE)
 		Logger::logf(Logger::Warning, "DB", "queryTouchdowns(trip %d): step failed: %s", tripId, sqlite3_errmsg(sql));
+	Logger::logf(Logger::Trace, "DB", "queryTouchdowns(trip %d): loaded %d touchdowns", tripId, (int)touchdowns.size());
 	sqlite3_finalize(stmt);
 	return touchdowns;
 }
@@ -289,6 +297,7 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 		"DELETE FROM trip_touchdowns WHERE trip = ?",
 		"DELETE FROM trips WHERE id = ?",
 	};
+	Logger::logf(Logger::Trace, "DB", "deleteTripData(trip %d): starting delete", tripId);
 	if (sqlite3_exec(sql, "BEGIN TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
 		Logger::logf(Logger::Warning, "DB", "deleteTripData(trip %d): BEGIN TRANSACTION failed: %s", tripId, sqlite3_errmsg(sql));
 		return false;
@@ -317,11 +326,13 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
 		return false;
 	}
+	Logger::logf(Logger::Trace, "DB", "deleteTripData(trip %d): delete committed", tripId);
 	return true;
 }
 
 std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId) {
 	std::vector<TripEvent> events;
+	Logger::logf(Logger::Trace, "DB", "queryEvents(trip %d): loading events", tripId);
 
 	// BRAKES fires continuously while brakes are applied (taxi/landing roll) and
 	// would swamp the map with noise -- excluded here rather than at recording
@@ -346,6 +357,7 @@ std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId) {
 	}
 	if (rc != SQLITE_DONE)
 		Logger::logf(Logger::Warning, "DB", "queryEvents(trip %d): step failed: %s", tripId, sqlite3_errmsg(sql));
+	Logger::logf(Logger::Trace, "DB", "queryEvents(trip %d): loaded %d events", tripId, (int)events.size());
 	sqlite3_finalize(stmt);
 	return events;
 }

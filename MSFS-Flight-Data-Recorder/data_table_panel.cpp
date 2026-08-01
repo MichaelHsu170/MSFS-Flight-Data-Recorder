@@ -1,6 +1,7 @@
 #include "data_table_panel.h"
 #include "app_settings.h"
 #include "trip_data_fields.h"
+#include "logger.h"
 
 #include <QCheckBox>
 #include <QDialog>
@@ -97,10 +98,13 @@ DataTablePanel::DataTablePanel(QWidget* parent) : QWidget(parent) {
 void DataTablePanel::setDataset(const TripDataset* dataset) {
 	dataset_ = dataset;
 	cursorIndex_ = -1;
-	if (dataset_ && !dataset_->points.empty())
+	if (dataset_ && !dataset_->points.empty()) {
+		Logger::logf(Logger::Trace, "DataTbl", "Dataset selected: %zu point(s); showing last sample", dataset_->points.size());
 		showPoint(dataset_->points.back());
-	else
+	} else {
+		Logger::log(Logger::Trace, "DataTbl", QStringLiteral("Dataset cleared or empty; showing blank table"));
 		showEmpty();
+	}
 }
 
 void DataTablePanel::setCursorIndex(int index) {
@@ -151,14 +155,17 @@ void DataTablePanel::openFieldsDialog() {
 	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 	dialogLayout->addWidget(buttons);
 
-	if (dialog.exec() != QDialog::Accepted)
+	if (dialog.exec() != QDialog::Accepted) {
+		Logger::log(Logger::Trace, "DataTbl", QStringLiteral("Visible Fields dialog cancelled; field visibility unchanged"));
 		return;
+	}
 
 	QStringList newHidden;
 	for (int row = 0; row < rowLabels_.size(); ++row) {
 		if (!boxes[row]->isChecked())
 			newHidden.append(rowLabels_[row]);
 	}
+	Logger::logf(Logger::Trace, "DataTbl", "Visible Fields dialog accepted: %d field(s) now hidden", (int)newHidden.size());
 	AppSettings::instance().setDataTableHiddenFields(newHidden);
 	applyHiddenFields();
 }

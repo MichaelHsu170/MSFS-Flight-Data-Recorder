@@ -150,6 +150,8 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 	events_ = dataset.events;
 	aircraftTitle_ = dataset.aircraftTitle;
 	if (pageReady_) {
+		Logger::logf(Logger::Trace, "Map", "setDataset: page ready, pushing dataset v%d immediately (%zu pts, %zu touchdowns, %zu events)",
+		             datasetVersion_, trajCoords_.size(), touchdowns_.size(), events_.size());
 		// Inject the aircraft title before pushing touchdowns so
 		// touchdownPopupHtml() sees the correct value when it runs setTouchdowns.
 		QJsonArray arr;
@@ -159,6 +161,7 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 		pushTrajectory();
 		pushTouchdownsAndEvents();
 	} else {
+		Logger::logf(Logger::Trace, "Map", "setDataset: page not ready yet; deferring push of dataset v%d until refreshProvider()", datasetVersion_);
 		// Page still loading; trajectory will be pushed in refreshProvider() when
 		// ready. Signal immediately so TrajectoryView's pending counter doesn't
 		// stall, but remember to swallow that deferred push's own emit (in
@@ -179,8 +182,10 @@ void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
 	touchdowns_.clear();
 	events_.clear();
 	Logger::logf(Logger::Profile, "Map", "showOverview: cleared vectors: %lld µs", t.nsecsElapsed() / 1000);
-	if (!pageReady_)
+	if (!pageReady_) {
+		Logger::log(Logger::Trace, "Map", QStringLiteral("showOverview: page not ready yet; overview will be pushed once the page loads"));
 		return;
+	}
 	QJsonArray segments;
 	for (const TripSummary& t2 : trips) {
 		QJsonObject seg;
@@ -253,9 +258,11 @@ void MapWidget::refreshProvider() {
 	liveUpdateTimer_->stop();
 	pendingLiveCoords_.clear();
 	runJs(QStringLiteral("initProvider();"));
-	if (inOverviewMode_)
+	if (inOverviewMode_) {
+		Logger::log(Logger::Trace, "Map", QStringLiteral("refreshProvider: overview mode active; re-pushing overview"));
 		showOverview(overviewTrips_);
-	else {
+	} else {
+		Logger::log(Logger::Trace, "Map", QStringLiteral("refreshProvider: detail mode active; re-pushing trajectory/touchdowns/events"));
 		pushTrajectory();
 		pushTouchdownsAndEvents();
 	}
@@ -278,7 +285,10 @@ void MapWidget::pushTrajectory() {
 	auto* watcher = new QFutureWatcher<QString>(this);
 	connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, ver]() {
 		watcher->deleteLater();
-		if (ver != datasetVersion_) return;  // showOverview() superseded this setDataset
+		if (ver != datasetVersion_) {  // showOverview() superseded this setDataset
+			Logger::logf(Logger::Trace, "Map", "pushTrajectory: dataset superseded (v%d -> v%d); discarding stale trajectory JS", ver, datasetVersion_);
+			return;
+		}
 		QElapsedTimer t; t.start();
 		runJs(watcher->result());
 		Logger::logf(Logger::Profile, "Map", "runJs trajectory: %lld µs  (async — JS render time not captured)", t.nsecsElapsed() / 1000);
@@ -292,6 +302,7 @@ void MapWidget::pushTrajectory() {
 		const int MAX_POINTS = 3000;
 		int n = (int)coords.size();
 		int stride = std::max(1, (n + MAX_POINTS - 1) / MAX_POINTS);
+		Logger::logf(Logger::Trace, "Map", "pushTrajectory: %d pts, decimating with stride %d (cap %d) to keep Leaflet polyline rendering fast", n, stride, MAX_POINTS);
 		// Parallel flat arrays are more compact JSON than [{lat,lng,idx},...]
 		// (no repeated field-name strings) and faster to iterate in JS.
 		QJsonArray lats, lngs, idxs;
@@ -320,7 +331,10 @@ void MapWidget::pushTouchdownsAndEvents() {
 	auto* touchdownWatcher = new QFutureWatcher<QString>(this);
 	connect(touchdownWatcher, &QFutureWatcher<QString>::finished, this, [this, touchdownWatcher, ver]() {
 		touchdownWatcher->deleteLater();
-		if (ver != datasetVersion_) return;
+		if (ver != datasetVersion_) {
+			Logger::logf(Logger::Trace, "Map", "pushTouchdownsAndEvents: dataset superseded (v%d -> v%d); discarding stale touchdowns JS", ver, datasetVersion_);
+			return;
+		}
 		QElapsedTimer t; t.start();
 		runJs(touchdownWatcher->result());
 		Logger::logf(Logger::Profile, "Map", "runJs touchdowns: %lld µs", t.nsecsElapsed() / 1000);
@@ -338,7 +352,10 @@ void MapWidget::pushTouchdownsAndEvents() {
 	auto* eventWatcher = new QFutureWatcher<QString>(this);
 	connect(eventWatcher, &QFutureWatcher<QString>::finished, this, [this, eventWatcher, ver]() {
 		eventWatcher->deleteLater();
-		if (ver != datasetVersion_) return;
+		if (ver != datasetVersion_) {
+			Logger::logf(Logger::Trace, "Map", "pushTouchdownsAndEvents: dataset superseded (v%d -> v%d); discarding stale events JS", ver, datasetVersion_);
+			return;
+		}
 		QElapsedTimer t; t.start();
 		runJs(eventWatcher->result());
 		Logger::logf(Logger::Profile, "Map", "runJs events: %lld µs", t.nsecsElapsed() / 1000);

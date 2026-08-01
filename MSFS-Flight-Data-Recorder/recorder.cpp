@@ -547,6 +547,8 @@ void add_client_events(HANDLE hSimConnect) {
 }
 
 void stop_recording(struct STATUS* status) {
+	gui_log_printf(status, GUI_LOG_TRACE, "stop_recording: trip=%d, last_sample=%s\n",
+		status->id_trip, status->last_sample != NULL ? "present" : "none");
 	status->recording = FALSE;
 	// Destination lat/lon was written at each touchdown; only the arrival time
 	// (engine shutdown) is set here — consistent with departure time being engine start.
@@ -628,6 +630,7 @@ static void request_next_touchdown_facility_lookup(struct STATUS* status) {
 	if (status->facility_lookup_pending)
 		return;
 	if (status->facility_lookup_departure_needed) {
+		gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up deferred departure lookup (trip %d)\n", status->id_trip);
 		status->facility_lookup_departure_needed = FALSE;
 		status->facility_lookup_pending = TRUE;
 		status->facility_lookup_trip_id = status->id_trip;
@@ -642,6 +645,7 @@ static void request_next_touchdown_facility_lookup(struct STATUS* status) {
 		next = next->next;
 	if (next == NULL)
 		return;
+	gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up queued touchdown lookup (trip %d)\n", status->id_trip);
 	status->facility_lookup_pending = TRUE;
 	status->facility_lookup_trip_id = status->id_trip;
 	status->facility_lookup_coordinate = next->flight_data.coordinate;
@@ -771,6 +775,10 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				std::string tz = status->data.time_zulu.format_date_time();
 				std::string tl = status->data.time_local.format_date_time();
 				db_insert_event(status, EVENT_ID_TXT[evt->uEventID], tz.c_str(), tl.c_str());
+			} else if (status->id_trip > 0) {
+				gui_log_printf(status, GUI_LOG_TRACE, "Event skipped (in skip_events list): %s\n", EVENT_ID_TXT[evt->uEventID]);
+			} else {
+				gui_log_printf(status, GUI_LOG_TRACE, "Event ignored (no active trip): %s\n", EVENT_ID_TXT[evt->uEventID]);
 			}
 			break;
 		default:
@@ -889,6 +897,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					status->facility_lookup_departure_coordinate = status->data.coordinate;
 					status->facility_lookup_departure_heading = status->data.heading;
 					if (!status->facility_lookup_pending) {
+						gui_log_printf(status, GUI_LOG_TRACE, "Takeoff detected (trip %d); requesting departure facility lookup\n", status->id_trip);
 						status->facility_lookup_pending = TRUE;
 						status->facility_lookup_trip_id = status->id_trip;
 						status->facility_lookup_coordinate = status->facility_lookup_departure_coordinate;
@@ -900,11 +909,13 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						// facility_lookup_departure_needed in types.h) -- this
 						// takeoff only fires once per trip, so if the request is
 						// skipped now it must be retried later rather than lost.
+						gui_log_printf(status, GUI_LOG_TRACE, "Takeoff detected (trip %d); deferring departure facility lookup (another lookup in flight)\n", status->id_trip);
 						status->facility_lookup_departure_needed = TRUE;
 					}
 				}
 				// Landing
 				if ((bool)tmp.sim_on_ground && status->airborne) {
+					gui_log_printf(status, GUI_LOG_TRACE, "Touchdown detected (trip %d)\n", status->id_trip);
 					struct TOUCHDOWN_DATA* tmp_touchdown = (struct TOUCHDOWN_DATA*)malloc(sizeof(struct TOUCHDOWN_DATA));
 					if (tmp_touchdown == NULL) {
 						gui_log_printf(status, GUI_LOG_WARNING, "Landing: malloc failed for touchdown record; this touchdown will not be recorded\n");
@@ -1294,6 +1305,8 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				candidates.push_back(candidate);
 			}
 		}
+		gui_log_printf(status, GUI_LOG_TRACE, "Runway match: %zu candidate(s) for %s slot\n",
+			candidates.size(), (rep == &status->departure) ? "departure" : "destination");
 		if (candidates.size() > 0) {
 			auto it = std::min_element(
 				candidates.begin(),

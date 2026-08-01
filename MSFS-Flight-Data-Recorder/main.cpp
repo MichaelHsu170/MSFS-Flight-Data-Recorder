@@ -60,13 +60,13 @@ static void logMessageHandler(QtMsgType type, const QMessageLogContext& ctx, con
         || msg.contains(QLatin1String("is not installed")))
         return;
 
-    Logger::Level level = Logger::Profile;
+    Logger::Level level = Logger::Trace;
     switch (type) {
     case QtInfoMsg:     level = Logger::Info;    break;
     case QtWarningMsg:  level = Logger::Warning; break;
     case QtCriticalMsg: level = Logger::Warning; break;
     case QtFatalMsg:    level = Logger::Fatal;   break;
-    default:            level = Logger::Profile; break;
+    default:            level = Logger::Trace;   break;
     }
 
     QString text = msg;
@@ -100,6 +100,8 @@ int main(int argc, char* argv[]) {
     SetUnhandledExceptionFilter(crashHandler);
     std::set_terminate(terminateHandler);
 
+    Logger::logf(Logger::Trace, "Qt", "Base directory resolved to %s", qUtf8Printable(baseDir));
+
     // Must be called before QApplication: QQC2 auto-detects the style from
     // the QWidget app's QStyle, which resolves to "Fusion" in a Widgets context
     // and triggers a warning when the Fusion QML module isn't deployed.
@@ -109,8 +111,10 @@ int main(int argc, char* argv[]) {
     QApplication::setAttribute(Qt::AA_ShareOpenGLContexts, true);
     QApplication app(argc, argv);
     app.setWindowIcon(QIcon(":/app_icon.ico"));
+    Logger::log(Logger::Trace, "Qt", QStringLiteral("QApplication constructed"));
 
     migrate_db();
+    Logger::log(Logger::Trace, "Qt", QStringLiteral("Database migration checked/applied"));
 
     RecorderBridge bridge;
     MainWindow window(bridge);
@@ -119,6 +123,7 @@ int main(int argc, char* argv[]) {
     window.resize(1320, 900);
     window.setMinimumSize(1000, 700);
     window.show();
+    Logger::log(Logger::Trace, "Qt", QStringLiteral("Main window shown"));
 
     return app.exec();
 }

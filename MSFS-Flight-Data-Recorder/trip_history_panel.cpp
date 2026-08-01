@@ -332,7 +332,9 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 
 	connect(manageGroupsButton_, &QPushButton::clicked, this, &TripHistoryPanel::openManageGroupsDialog);
 	connect(groupFilterCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
-		model_->setGroupFilter(groupFilterCombo_->itemData(index).toInt());
+		const int groupId = groupFilterCombo_->itemData(index).toInt();
+		Logger::logf(Logger::Trace, "DB", "group filter changed to groupId=%d; deselecting current trip", groupId);
+		model_->setGroupFilter(groupId);
 		// Switching the filter shows a different set of trips in the table --
 		// a previously selected trip may not even be in it anymore, so drop
 		// the selection and show the overview map for the newly filtered set
@@ -385,6 +387,7 @@ void TripHistoryPanel::reloadGroupFilterCombo() {
 	// every add/rename/delete in the Manage Groups dialog and most of those
 	// don't affect the current filter.
 	if (newData != previousData) {
+		Logger::logf(Logger::Trace, "DB", "reloadGroupFilterCombo: active filter changed externally (%d -> %d, e.g. selected group was deleted); deselecting current trip", previousData, newData);
 		selectedTripId_ = -1;
 		table_->clearSelection();
 		emit tripDeselected(model_->trips());
@@ -469,13 +472,18 @@ void TripHistoryPanel::showInitialOverview() {
 void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	// Block re-entrant loads: the table itself is disabled below for the same
 	// reason (belt and suspenders against a queued click slipping through).
-	if (loading_)
+	if (loading_) {
+		Logger::log(Logger::Trace, "DB", QStringLiteral("onRowActivated: ignoring click, a load is already in progress"));
 		return;
+	}
 
 	const TripSummary* trip = model_->tripAt(index.row());
-	if (trip == nullptr || trip->status == TripStatus::Live)
+	if (trip == nullptr || trip->status == TripStatus::Live) {
+		Logger::log(Logger::Trace, "DB", QStringLiteral("onRowActivated: ignoring click on invalid row or Live trip (not yet loadable)"));
 		return;
+	}
 
+	Logger::logf(Logger::Trace, "DB", "onRowActivated: trip %d selected; starting load", trip->id);
 	loading_ = true;
 	pendingTripId_ = trip->id;
 	table_->setEnabled(false);
@@ -598,8 +606,10 @@ bool TripHistoryPanel::eventFilter(QObject* obj, QEvent* event) {
 }
 
 void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
-	if (loading_)
+	if (loading_) {
+		Logger::log(Logger::Trace, "DB", QStringLiteral("onTableContextMenu: suppressed, a load is already in progress"));
 		return;
+	}
 
 	// Colours the "Delete Trip" item red by intercepting its CE_MenuItem paint
 	// call and substituting a red Text/ButtonText palette role. Uses QProxyStyle
@@ -723,6 +733,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		// would race the worker's still-pending trip_data inserts and orphan
 		// rows with no parent trip.
 		if (deleteId == bridge_.flushingTripId()) {
+			Logger::logf(Logger::Trace, "DB", "delete trip %d blocked: trip data is still flushing", deleteId);
 			QMessageBox::information(this, QStringLiteral("Trip Still Saving"),
 				QStringLiteral("This trip's data is still being saved. Please wait a moment and try again."));
 			return;
@@ -743,6 +754,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		// (or could have started, if this trip only just stopped recording)
 		// while the dialog was open.
 		if (deleteId == bridge_.flushingTripId()) {
+			Logger::logf(Logger::Trace, "DB", "delete trip %d blocked (re-check after dialog): trip data is still flushing", deleteId);
 			QMessageBox::information(this, QStringLiteral("Trip Still Saving"),
 				QStringLiteral("This trip's data is still being saved. Please wait a moment and try again."));
 			return;

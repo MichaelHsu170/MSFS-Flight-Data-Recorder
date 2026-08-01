@@ -36,6 +36,7 @@ const char* levelTag(Logger::Level level) {
     case Logger::Fatal:   return "FATAL";
     case Logger::Warning: return "WARN ";
     case Logger::Info:    return "INFO ";
+    case Logger::Trace:   return "TRACE";
     case Logger::Profile: return "PROF ";
     }
     return "?    ";
@@ -104,6 +105,7 @@ Level levelFromString(const QString& s) {
     if (u == QLatin1String("FATAL"))   return Fatal;
     if (u == QLatin1String("WARNING")) return Warning;
     if (u == QLatin1String("INFO"))    return Info;
+    if (u == QLatin1String("TRACE"))   return Trace;
     if (u == QLatin1String("PROFILE")) return Profile;
     return Info;
 }

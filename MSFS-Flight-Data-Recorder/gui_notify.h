@@ -13,7 +13,8 @@ typedef enum GuiLogLevel {
     GUI_LOG_FATAL   = 0,
     GUI_LOG_WARNING = 1,
     GUI_LOG_INFO    = 2,
-    GUI_LOG_PROFILE = 3
+    GUI_LOG_TRACE   = 3,
+    GUI_LOG_PROFILE = 4
 } GuiLogLevel;
 
 void gui_notify_log(struct STATUS* status, GuiLogLevel level, const char* text);
