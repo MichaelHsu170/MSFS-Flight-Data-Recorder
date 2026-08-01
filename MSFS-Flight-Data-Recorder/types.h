@@ -1,16 +1,18 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <iostream>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 #include <Windows.h>
 #include "sqlite3.h"
 
 #define APP_VERSION "2.1.0"
-#define Q_DB_LENGTH 200
 #define DATABASE_NAME "flight_data"
 #define V_PI 3.14159265358979323846
 #define M_2_FT 3.2808399
@@ -319,25 +321,85 @@ struct TOUCHDOWN_DATA {
 // Forward declaration — full definition in simconnect_defs.h
 struct FLIGHT_DATA_RECORD;
 
+// One entry in STATUS::sample_write_queue. A null `data` with `trip_id` set
+// marks the end of that trip's samples (a "barrier") so the DB-write worker
+// can log "Recording stopped" and notify the GUI at the right point in the
+// stream, without a new trip's samples racing ahead of the old trip's flush.
+struct SAMPLE_QUEUE_ITEM {
+	struct FLIGHT_DATA_RECORD* data;
+	int trip_id;
+};
+
+// Thread-safe queue feeding a single persistent DB-write worker thread
+// (db_write_worker in db.cpp). Every producer -- the SimConnect dispatch
+// callback appending samples, and stop_recording() pushing an end-of-trip
+// barrier -- just pushes onto this queue; only the worker thread ever touches
+// STATUS::sql for sample flushes. This removes the detached per-batch writer
+// threads that used to race each other and the queue-reset code that ran when
+// a new trip started while a previous trip's flush was still in flight.
+class SampleWriteQueue {
+public:
+	void push(struct FLIGHT_DATA_RECORD* data, int trip_id) {
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			queue_.push_back({ data, trip_id });
+		}
+		cv_.notify_one();
+	}
+
+	// Blocks until an item is available. Returns false once stop() has been
+	// called and the queue has fully drained -- the worker loop should exit.
+	bool pop(SAMPLE_QUEUE_ITEM& item) {
+		std::unique_lock<std::mutex> lock(mutex_);
+		cv_.wait(lock, [this] { return !queue_.empty() || stopping_; });
+		if (queue_.empty())
+			return false;
+		item = queue_.front();
+		queue_.pop_front();
+		return true;
+	}
+
+	// Tells the worker thread to exit once it has drained whatever is
+	// currently queued (does not discard pending samples).
+	void stop() {
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			stopping_ = true;
+		}
+		cv_.notify_one();
+	}
+
+	// Re-arms the queue for a fresh worker thread after reconnecting.
+	void reset() {
+		std::lock_guard<std::mutex> lock(mutex_);
+		stopping_ = false;
+	}
+
+private:
+	std::mutex mutex_;
+	std::condition_variable cv_;
+	std::deque<SAMPLE_QUEUE_ITEM> queue_;
+	bool stopping_ = false;
+};
+
 struct STATUS {
 	bool in_sim = FALSE;
 	bool sim_running = FALSE;
 	bool paused = FALSE;
 	bool recording = FALSE;
 	bool quit = FALSE;
-	struct FLIGHT_DATA_RECORD* q_data_db_start = NULL;
-	struct FLIGHT_DATA_RECORD* q_data_db_end = NULL;
-	struct FLIGHT_DATA_RECORD* q_data_end = NULL;
-	struct FLIGHT_DATA_RECORD* q_data_last = NULL;
-	int q_data_db_length = 0;
+	// Heap copy of the most recently produced sample, owned outside the
+	// queue so the dispatch callback can compute the next sample's delta_s
+	// without touching whatever the DB-write worker is doing.
+	struct FLIGHT_DATA_RECORD* last_sample = NULL;
 	HANDLE hSimConnect = NULL;
 	sqlite3* sql = NULL;
 	std::mutex mutex_db_commit;
-	// Number of detached threads currently flushing data through `sql`
-	// (see recorder.cpp's db_consume threads). Callers must wait for this to
-	// reach 0 before closing/nulling `sql` -- otherwise a still-running flush
-	// can use the connection after (or while) it's closed.
-	std::atomic<int> pending_db_writers{ 0 };
+	// Single-writer queue for periodic sample flushes -- see SampleWriteQueue
+	// above. db_writer_thread is the one persistent thread draining it,
+	// started in connect_db() and joined in wait_for_db_writers().
+	SampleWriteQueue sample_write_queue;
+	std::thread db_writer_thread;
 	int sample_interval_ms = 500;
 	int id_trip = -1;
 	bool airborne = FALSE;

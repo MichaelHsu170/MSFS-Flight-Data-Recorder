@@ -249,11 +249,10 @@ void db_insert_update_table(
 );
 
 // Immediately writes one event row to trip_events. Safe to call from the
-// SimConnect dispatch callback (main thread) while db_consume runs on a worker
-// thread — both paths serialize through STATUS::mutex_db_commit.
+// SimConnect dispatch callback (main thread) while the DB-write worker thread
+// drains STATUS::sample_write_queue — both paths serialize through
+// STATUS::mutex_db_commit.
 void db_insert_event(STATUS* status, const char* event, const char* time_zulu, const char* time_local);
-
-void db_consume(STATUS* status, int trip_id, bool is_final = false);
 
 // Creates the schema and migrates any missing columns on an ephemeral R/W
 // connection. Called at app startup so read-only queries always see the

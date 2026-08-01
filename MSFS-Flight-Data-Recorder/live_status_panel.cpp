@@ -142,10 +142,17 @@ void LiveStatusPanel::onConnectionChanged(bool connected) {
 }
 
 void LiveStatusPanel::onRecordingStateChanged(int tripId) {
+	recordingTripId_ = tripId;
 	setIndicator(recordingIcon_, true, QString("Recording (trip #%1)").arg(tripId));
 }
 
-void LiveStatusPanel::onTripEnded(int /*tripId*/) {
+void LiveStatusPanel::onTripEnded(int tripId) {
+	// The DB writer's queue can deliver this after a new trip has already
+	// started recording (it's only flushed once that trip's samples finish
+	// draining); ignore it then so the indicator doesn't go stale.
+	if (tripId != recordingTripId_)
+		return;
+	recordingTripId_ = -1;
 	setIndicator(recordingIcon_, false, "Not recording");
 }
 

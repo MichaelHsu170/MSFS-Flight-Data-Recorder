@@ -92,9 +92,9 @@ RecorderBridge::~RecorderBridge() {
 		if (status_.recording)
 			stop_recording(&status_);
 		SimConnect_Close(status_.hSimConnect);
-		// Must happen before closing sql: stop_recording's final flush runs on a
-		// detached thread, so sql would otherwise be closed/nulled while that
-		// thread is still writing to it.
+		// Must happen before closing sql: the persistent db_writer_thread may
+		// still be draining queued samples, so sql would otherwise be
+		// closed/nulled while that thread is still writing to it.
 		wait_for_db_writers(&status_);
 		if (status_.sql) {
 			sqlite3_close_v2(status_.sql);
@@ -171,11 +171,12 @@ void RecorderBridge::shutdown() {
 	if (status_.recording)
 		stop_recording(&status_);
 
-	// A detached db_consume thread may still be writing through status_.sql --
-	// either stop_recording's final flush just started above, or a mid-flight
-	// batch flush that was still running when the trip ended earlier (recording
-	// can already be false here, e.g. the plane landed a while before MSFS quit).
-	// Waiting can block for several seconds, so do it on a worker thread to keep
+	// The persistent db_writer_thread may still be draining queued samples
+	// through status_.sql -- either the end-of-trip barrier stop_recording()
+	// just pushed above, or samples from earlier in the trip that hadn't been
+	// flushed yet (recording can already be false here, e.g. the plane landed
+	// a while before MSFS quit). wait_for_db_writers() stops and joins that
+	// thread, which can block for a bit, so do it on a worker thread to keep
 	// the UI responsive; reconnect once the connection is closed.
 	stopFuture_ = QtConcurrent::run([this]() {
 		wait_for_db_writers(&status_);
