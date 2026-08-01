@@ -12,16 +12,20 @@ struct sqlite3;
 class RecorderBridge;
 class QTableView;
 class QProgressBar;
+class QComboBox;
+class QPushButton;
 
 // Read-only table model backing TripHistoryPanel's QTableView. One row per
-// trip; status (Completed/Open/Live) is conveyed entirely through the row's
-// BackgroundRole tint (see TripHistoryModel::data) rather than its own column.
+// (filtered) trip; status (Completed/Open/Live) is conveyed entirely through
+// the row's BackgroundRole tint (see TripHistoryModel::data) rather than its
+// own column.
 class TripHistoryModel : public QAbstractTableModel {
 	Q_OBJECT
 public:
 	enum Column {
 		TitleColumn,
 		FlightColumn,
+		GroupColumn,
 		DepartureRegionColumn,
 		DepartureColumn,
 		DepartureRwyColumn,
@@ -36,8 +40,11 @@ public:
 	explicit TripHistoryModel(QObject* parent = nullptr);
 
 	void setTrips(std::vector<TripSummary> trips);
+	// -1 = show all trips, 0 = ungrouped only, >0 = only trips in that group id.
+	void setGroupFilter(int groupId);
 	void setHoveredRow(int row);
 	const TripSummary* tripAt(int row) const;
+	// The currently filtered/displayed set (not necessarily all trips).
 	const std::vector<TripSummary>& trips() const { return trips_; }
 
 	int rowCount(const QModelIndex& parent = QModelIndex()) const override;
@@ -47,7 +54,11 @@ public:
 	Qt::ItemFlags flags(const QModelIndex& index) const override;
 
 private:
+	void applyFilter();
+
+	std::vector<TripSummary> allTrips_;
 	std::vector<TripSummary> trips_;
+	int groupFilter_ = -1;
 	int hoveredRow_ = -1;
 };
 
@@ -85,16 +96,26 @@ private slots:
 	void onRowActivated(const QModelIndex& index);
 	void tryFinishLoad();
 	void onTableContextMenu(const QPoint& pos);
+	void openManageGroupsDialog();
 
 private:
 	// Lazily (re)opens historySql_ if the database file didn't exist yet the
 	// last time this was called (e.g. app launched before any flight was ever
 	// recorded). Returns nullptr if it still can't be opened.
 	sqlite3* ensureHistoryConnection();
+	// Rebuilds the group filter combo's items from trip_groups, preserving
+	// the current selection where possible (e.g. across a refresh after the
+	// Manage Groups dialog closes).
+	void reloadGroupFilterCombo();
+	// Persists a trip's group assignment and refreshes the table. groupId=0
+	// ungroups the trip.
+	void setTripGroupFromUi(int tripId, int groupId);
 
 	RecorderBridge& bridge_;
 	QTableView* table_;
 	TripHistoryModel* model_;
+	QComboBox* groupFilterCombo_;
+	QPushButton* manageGroupsButton_;
 	QProgressBar* loadingBar_;
 	// One watcher per parallel query, all launched directly from the GUI
 	// thread and joined in tryFinishLoad() rather than via a wrapping

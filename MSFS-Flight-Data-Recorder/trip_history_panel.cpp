@@ -1,19 +1,27 @@
 #include "trip_history_panel.h"
 #include "recorder_bridge.h"
 #include "db_history.h"
+#include "db_groups.h"
+#include "manage_groups_dialog.h"
 #include "db.h"
 
 #include <memory>
 
 #include <QTableView>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QHeaderView>
+#include <QComboBox>
+#include <QLabel>
+#include <QPushButton>
 #include <QProgressBar>
 #include <QMenu>
 #include <QProxyStyle>
 #include <QStyleOption>
 #include <QPainter>
 #include <QMessageBox>
+#include <QMap>
+#include <QSignalBlocker>
 #include <QtConcurrent/QtConcurrent>
 #include <QBrush>
 #include <QColor>
@@ -46,9 +54,33 @@ TripHistoryModel::TripHistoryModel(QObject* parent) : QAbstractTableModel(parent
 
 void TripHistoryModel::setTrips(std::vector<TripSummary> trips) {
 	beginResetModel();
-	trips_ = std::move(trips);
+	allTrips_ = std::move(trips);
 	hoveredRow_ = -1;
+	applyFilter();
 	endResetModel();
+}
+
+void TripHistoryModel::setGroupFilter(int groupId) {
+	if (groupId == groupFilter_)
+		return;
+	beginResetModel();
+	groupFilter_ = groupId;
+	hoveredRow_ = -1;
+	applyFilter();
+	endResetModel();
+}
+
+void TripHistoryModel::applyFilter() {
+	if (groupFilter_ == -1) {
+		trips_ = allTrips_;
+		return;
+	}
+	trips_.clear();
+	trips_.reserve(allTrips_.size());
+	for (const TripSummary& trip : allTrips_) {
+		if (trip.groupId == groupFilter_)
+			trips_.push_back(trip);
+	}
 }
 
 void TripHistoryModel::setHoveredRow(int row) {
@@ -90,6 +122,7 @@ QVariant TripHistoryModel::data(const QModelIndex& index, int role) const {
 		switch (index.column()) {
 		case TitleColumn: return trip.title;
 		case FlightColumn: return trip.atcAirline + " " + trip.atcFlightNumber;
+		case GroupColumn: return trip.groupId == 0 ? QStringLiteral("-") : trip.groupName;
 		case DepartureRegionColumn: return trip.departureRegion;
 		case DepartureColumn: return trip.departureName.isEmpty() ? trip.departureIcao : trip.departureIcao + " [" + trip.departureName + "]";
 		case DepartureRwyColumn: return trip.departureRwy;
@@ -126,6 +159,7 @@ QVariant TripHistoryModel::headerData(int section, Qt::Orientation orientation, 
 	switch (section) {
 	case TitleColumn: return QStringLiteral("Aircraft");
 	case FlightColumn: return QStringLiteral("Flight");
+	case GroupColumn: return QStringLiteral("Group");
 	case DepartureRegionColumn: return QStringLiteral("Region");
 	case DepartureColumn: return QStringLiteral("From");
 	case DepartureRwyColumn: return QStringLiteral("Dep Rwy");
@@ -156,6 +190,8 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	// widest values) share whatever's left.
 	auto* header = table_->horizontalHeader();
 	header->setStretchLastSection(false);
+	header->setSectionResizeMode(TripHistoryModel::GroupColumn, QHeaderView::Interactive);
+	table_->setColumnWidth(TripHistoryModel::GroupColumn, 64);
 	header->setSectionResizeMode(TripHistoryModel::DepartureRegionColumn, QHeaderView::Interactive);
 	header->setSectionResizeMode(TripHistoryModel::DepartureColumn, QHeaderView::Stretch);
 	header->setSectionResizeMode(TripHistoryModel::DepartureRwyColumn, QHeaderView::Interactive);
@@ -196,11 +232,20 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	);
 	loadingBar_->setVisible(false);
 
+	groupFilterCombo_ = new QComboBox(this);
+	manageGroupsButton_ = new QPushButton(QStringLiteral("Manage Groups…"), this);
+	auto* filterRow = new QHBoxLayout();
+	filterRow->addWidget(new QLabel(QStringLiteral("Group:"), this));
+	filterRow->addWidget(groupFilterCombo_);
+	filterRow->addStretch();
+	filterRow->addWidget(manageGroupsButton_);
+
 	auto* layout = new QVBoxLayout(this);
 	// Default QVBoxLayout margins add visible padding on every side -- on the
 	// right edge that compounds with the splitter handle and Live Status's
 	// own left margin into a wide gap between the two panels.
 	layout->setContentsMargins(4, 4, 0, 4);
+	layout->addLayout(filterRow);
 	layout->addWidget(table_);
 	layout->addWidget(loadingBar_);
 
@@ -230,6 +275,12 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	table_->setContextMenuPolicy(Qt::CustomContextMenu);
 	connect(table_, &QTableView::customContextMenuRequested, this, &TripHistoryPanel::onTableContextMenu);
 
+	connect(manageGroupsButton_, &QPushButton::clicked, this, &TripHistoryPanel::openManageGroupsDialog);
+	connect(groupFilterCombo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+		model_->setGroupFilter(groupFilterCombo_->itemData(index).toInt());
+	});
+
+	reloadGroupFilterCombo();
 	refreshTrips();
 }
 
@@ -242,6 +293,56 @@ sqlite3* TripHistoryPanel::ensureHistoryConnection() {
 	if (historySql_ == nullptr)
 		historySql_ = connect_db_readonly();
 	return historySql_;
+}
+
+void TripHistoryPanel::reloadGroupFilterCombo() {
+	int previousData = groupFilterCombo_->count() > 0 ? groupFilterCombo_->currentData().toInt() : -1;
+
+	sqlite3* sql = ensureHistoryConnection();
+	std::vector<TripGroup> groups = sql ? queryAllGroups(sql) : std::vector<TripGroup>();
+
+	QSignalBlocker blocker(groupFilterCombo_);
+	groupFilterCombo_->clear();
+	groupFilterCombo_->addItem(QStringLiteral("All Trips"), -1);
+	groupFilterCombo_->addItem(QStringLiteral("Ungrouped"), 0);
+	for (const TripGroup& group : groups)
+		groupFilterCombo_->addItem(group.name, group.id);
+
+	int idx = groupFilterCombo_->findData(previousData);
+	groupFilterCombo_->setCurrentIndex(idx >= 0 ? idx : 0);
+	model_->setGroupFilter(groupFilterCombo_->currentData().toInt());
+}
+
+void TripHistoryPanel::setTripGroupFromUi(int tripId, int groupId) {
+	sqlite3* sql = connect_db_readwrite();
+	if (!sql) {
+		QMessageBox::critical(this, QStringLiteral("Error"),
+			QStringLiteral("Could not open the database for writing."));
+		return;
+	}
+	bool ok = setTripGroup(sql, tripId, groupId);
+	sqlite3_close(sql);
+	if (!ok) {
+		QMessageBox::critical(this, QStringLiteral("Error"),
+			QStringLiteral("Failed to update the trip's group."));
+		return;
+	}
+	refreshTrips();
+}
+
+void TripHistoryPanel::openManageGroupsDialog() {
+	ManageGroupsDialog dialog(this);
+	// Refresh live as each add/rename/delete commits, rather than only after
+	// the dialog closes -- a deleted group can't be undone, so the table
+	// behind the dialog shouldn't keep showing a trip's now-deleted group
+	// until the user closes the dialog.
+	connect(&dialog, &ManageGroupsDialog::groupsChanged, this, [this]() {
+		reloadGroupFilterCombo();
+		refreshTrips();
+	});
+	dialog.exec();
+	reloadGroupFilterCombo();
+	refreshTrips();
 }
 
 void TripHistoryPanel::refreshTrips() {
@@ -452,6 +553,34 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		deleteTo   = airportLabel(rightClickedTrip->destinationIcao, rightClickedTrip->destinationName);
 	}
 
+	// "Set Group" submenu, listing every group as a checkable action (checked
+	// = the right-clicked trip's current group) plus "Ungrouped" and a
+	// shortcut into the management dialog.
+	QAction* ungroupedAction = nullptr;
+	QAction* manageGroupsAction = nullptr;
+	QMap<QAction*, int> groupActionIds;
+	if (rightClickedTrip) {
+		if (!menu.isEmpty())
+			menu.addSeparator();
+		QMenu* groupMenu = menu.addMenu(QStringLiteral("Set Group"));
+		ungroupedAction = groupMenu->addAction(QStringLiteral("Ungrouped"));
+		ungroupedAction->setCheckable(true);
+		ungroupedAction->setChecked(rightClickedTrip->groupId == 0);
+
+		sqlite3* groupsSql = ensureHistoryConnection();
+		std::vector<TripGroup> groups = groupsSql ? queryAllGroups(groupsSql) : std::vector<TripGroup>();
+		if (!groups.empty())
+			groupMenu->addSeparator();
+		for (const TripGroup& group : groups) {
+			QAction* action = groupMenu->addAction(group.name);
+			action->setCheckable(true);
+			action->setChecked(rightClickedTrip->groupId == group.id);
+			groupActionIds.insert(action, group.id);
+		}
+		groupMenu->addSeparator();
+		manageGroupsAction = groupMenu->addAction(QStringLiteral("Manage Groups…"));
+	}
+
 	if (menu.isEmpty())
 		return;
 
@@ -459,7 +588,13 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	if (!chosen)
 		return;
 
-	if (chosen == deleteAction) {
+	if (chosen == ungroupedAction) {
+		setTripGroupFromUi(rightClickedTrip->id, 0);
+	} else if (chosen == manageGroupsAction) {
+		openManageGroupsDialog();
+	} else if (groupActionIds.contains(chosen)) {
+		setTripGroupFromUi(rightClickedTrip->id, groupActionIds.value(chosen));
+	} else if (chosen == deleteAction) {
 		QMessageBox confirm(this);
 		confirm.setWindowTitle(QStringLiteral("Delete Trip"));
 		confirm.setText(QStringLiteral("Delete the trip?"));

@@ -114,4 +114,16 @@ struct TripSummary {
 	double destinationLat = 0;
 	double destinationLng = 0;
 	TripStatus status = TripStatus::Completed;
+	// 0 = ungrouped (trips.group_id is NULL); sqlite3_column_int already
+	// reads NULL as 0, so this needs no separate "has group" flag.
+	int groupId = 0;
+	QString groupName;
+};
+
+// A user-defined label trips can be assigned to (trip_groups table). Managed
+// entirely via db_groups.h/.cpp and ManageGroupsDialog.
+struct TripGroup {
+	int id = 0;
+	QString name;
+	int tripCount = 0;
 };

@@ -780,6 +780,7 @@ void connect_db(struct STATUS* status) {
 		"CREATE INDEX IF NOT EXISTS idx_trip_data_trip ON trip_data(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_events_trip ON trip_events(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_touchdowns_trip ON trip_touchdowns(trip);",
+		"CREATE INDEX IF NOT EXISTS idx_trips_group ON trips(group_id);",
 	};
 	for (int i = 0; i < (int)(sizeof(index_stmts) / sizeof(char*)); i++) {
 		if (sqlite3_prepare_v2(status->sql, index_stmts[i], -1, &stmt, NULL) == SQLITE_OK)

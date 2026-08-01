@@ -6,7 +6,8 @@ static const char* DATABASE_TABLE_NAMES[] = {
 	"trips",
 	"trip_data",
 	"trip_events",
-	"trip_touchdowns"
+	"trip_touchdowns",
+	"trip_groups"
 };
 
 static const char* DATABASE_TABLE_FIELDS[] = {
@@ -32,7 +33,8 @@ static const char* DATABASE_TABLE_FIELDS[] = {
 	"destination_region VARCHAR(2),"
 	"destination_rwy VARCHAR(3),"
 	"destination_zulu_time VARCHAR(32),"
-	"destination_local_time VARCHAR(32)",
+	"destination_local_time VARCHAR(32),"
+	"group_id INTEGER",
 
 	"trip INTEGER NOT NULL,"
 	"bool_group_1 INTEGER NOT NULL,"
@@ -207,7 +209,10 @@ static const char* DATABASE_TABLE_FIELDS[] = {
 	"wind_velocity INTEGER,"
 	"time_zulu VARCHAR(32) NOT NULL,"
 	"time_local VARCHAR(32) NOT NULL,"
-	"analysis_report TEXT"
+	"analysis_report TEXT",
+
+	"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
+	"name VARCHAR(64) NOT NULL"
 };
 
 struct db_exception {
