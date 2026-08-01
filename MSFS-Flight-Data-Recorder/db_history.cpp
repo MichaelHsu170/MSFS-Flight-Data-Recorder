@@ -20,12 +20,16 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 	// departure_region/destination_region and departure_name/destination_name
 	// are progressive additions to trips. Try each query in order from newest
 	// to oldest schema, leaving missing fields blank on older databases rather
-	// than touching the schema from this read-only path.
+	// than touching the schema from this read-only path. group_id/trip_groups
+	// only need to be handled in the newest tier -- migrate_db() runs at app
+	// startup (before this connection ever opens) so any database old enough
+	// to miss departure_region/departure_name predates group_id too.
 	const char* stmt_txt_full =
-		"SELECT id, title, atc_airline, atc_flight_number, departure_icao, departure_name, departure_region, departure_rwy, "
-		"destination_icao, destination_name, destination_region, destination_rwy, departure_zulu_time, destination_zulu_time, "
-		"departure_latitude, departure_longitude, destination_latitude, destination_longitude "
-		"FROM trips ORDER BY id DESC";
+		"SELECT t.id, t.title, t.atc_airline, t.atc_flight_number, t.departure_icao, t.departure_name, t.departure_region, t.departure_rwy, "
+		"t.destination_icao, t.destination_name, t.destination_region, t.destination_rwy, t.departure_zulu_time, t.destination_zulu_time, "
+		"t.departure_latitude, t.departure_longitude, t.destination_latitude, t.destination_longitude, "
+		"t.group_id, g.name "
+		"FROM trips t LEFT JOIN trip_groups g ON g.id = t.group_id ORDER BY t.id DESC";
 	const char* stmt_txt_with_region =
 		"SELECT id, title, atc_airline, atc_flight_number, departure_icao, departure_region, departure_rwy, "
 		"destination_icao, destination_region, destination_rwy, departure_zulu_time, destination_zulu_time, "
@@ -69,6 +73,8 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 			trip.departureLng    = sqlite3_column_double(stmt, 15);
 			trip.destinationLat  = sqlite3_column_double(stmt, 16);
 			trip.destinationLng  = sqlite3_column_double(stmt, 17);
+			trip.groupId         = sqlite3_column_int(stmt, 18); // NULL reads as 0 (ungrouped)
+			trip.groupName       = columnTextOrEmpty(stmt, 19);
 		} else if (hasRegion) {
 			trip.departureRegion = columnTextOrEmpty(stmt, 5);
 			trip.departureRwy = columnTextOrEmpty(stmt, 6);

@@ -34,7 +34,9 @@ set(SOURCES
     ${SRC_DIR}/recorder_bridge.cpp
     ${SRC_DIR}/live_status_panel.cpp
     ${SRC_DIR}/db_history.cpp
+    ${SRC_DIR}/db_groups.cpp
     ${SRC_DIR}/trip_history_panel.cpp
+    ${SRC_DIR}/manage_groups_dialog.cpp
     ${SRC_DIR}/charts_panel.cpp
     ${SRC_DIR}/data_table_panel.cpp
     ${SRC_DIR}/map_bridge.cpp
