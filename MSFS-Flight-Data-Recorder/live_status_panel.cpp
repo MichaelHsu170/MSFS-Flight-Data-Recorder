@@ -76,7 +76,7 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 	// V/S ..." line with real values filled in -- without this, Qt would wrap
 	// it onto a second line and grow the row height instead of just clipping.
 	snapshotLabel_->setWordWrap(false);
-	snapshotLabel_->setText(snapshotText("—", "—", "—", "—"));
+	snapshotLabel_->setText(snapshotText("-", "-", "-", "-"));
 
 	historyList_ = new QListWidget(this);
 	historyList_->setAlternatingRowColors(true);

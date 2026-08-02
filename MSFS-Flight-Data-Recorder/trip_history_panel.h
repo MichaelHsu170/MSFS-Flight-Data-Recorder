@@ -14,6 +14,7 @@ class QTableView;
 class QProgressBar;
 class QComboBox;
 class QPushButton;
+class QLabel;
 
 // Read-only table model backing TripHistoryPanel's QTableView. One row per
 // (filtered) trip; status (Completed/Open/Live) is conveyed entirely through
@@ -34,6 +35,7 @@ public:
 		DestinationRwyColumn,
 		DepartureTimeColumn,
 		DestinationTimeColumn,
+		DurationColumn,
 		ColumnCount,
 	};
 	// Lets AppSettings key persisted column widths by enum member name
@@ -52,6 +54,10 @@ public:
 	const TripSummary* tripAt(int row) const;
 	// The currently filtered/displayed set (not necessarily all trips).
 	const std::vector<TripSummary>& trips() const { return trips_; }
+	// Sum of the Duration column over the currently filtered/displayed set,
+	// formatted the same way as a single row's cell ("-" if none of the
+	// filtered trips have a completed duration to sum).
+	QString totalDurationText() const;
 
 	int rowCount(const QModelIndex& parent = QModelIndex()) const override;
 	int columnCount(const QModelIndex& parent = QModelIndex()) const override;
@@ -121,6 +127,7 @@ private:
 	QTableView* table_;
 	TripHistoryModel* model_;
 	QComboBox* groupFilterCombo_;
+	QLabel* totalDurationLabel_;
 	QPushButton* manageGroupsButton_;
 	QProgressBar* loadingBar_;
 	// One watcher per parallel query, all launched directly from the GUI

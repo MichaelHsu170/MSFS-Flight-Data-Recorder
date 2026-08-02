@@ -7,6 +7,7 @@
 #include "app_settings.h"
 
 #include <memory>
+#include <optional>
 
 #include <QTableView>
 #include <QVBoxLayout>
@@ -27,6 +28,7 @@
 #include <QtConcurrent/QtConcurrent>
 #include <QBrush>
 #include <QColor>
+#include <QDateTime>
 #include "logger.h"
 #include <algorithm>
 
@@ -49,6 +51,57 @@ public:
         QStyledItemDelegate::paint(p, o, idx);
     }
 };
+
+// Parses a DATETIME::format_date_time() string (types.h), which is ISO8601
+// with milliseconds and a UTC offset, plus a non-standard trailing
+// "_<day-of-week>" suffix that QDateTime doesn't understand -- strip it
+// before handing the rest to Qt's ISO parser.
+QDateTime parseZuluTime(const QString& value) {
+    const QString isoPart = value.section('_', 0, 0);
+    return QDateTime::fromString(isoPart, Qt::ISODateWithMs);
+}
+
+// Destination - departure in seconds. Returns nullopt for open/incomplete
+// trips (empty destinationZuluTime) or any parse failure.
+std::optional<qint64> tripDurationSeconds(const QString& departureZuluTime, const QString& destinationZuluTime) {
+    if (departureZuluTime.isEmpty() || destinationZuluTime.isEmpty())
+        return std::nullopt;
+    const QDateTime departure = parseZuluTime(departureZuluTime);
+    const QDateTime destination = parseZuluTime(destinationZuluTime);
+    if (!departure.isValid() || !destination.isValid())
+        return std::nullopt;
+    const qint64 seconds = departure.secsTo(destination);
+    if (seconds < 0)
+        return std::nullopt;
+    return seconds;
+}
+
+// "Dd Hh MMm" once the span reaches a full day (relevant for the summed
+// Total label -- a single trip's own Duration cell never gets this long),
+// otherwise the plain "Hh MMm" used before. Days rather than months/years:
+// a calendar month has no fixed length, which would make a duration (as
+// opposed to a calendar span) imprecise.
+QString formatDurationSeconds(qint64 seconds) {
+    const qint64 days = seconds / 86400;
+    const qint64 hours = (seconds % 86400) / 3600;
+    const qint64 minutes = (seconds % 3600) / 60;
+    if (days > 0)
+        return QStringLiteral("%1d %2h %3m").arg(days).arg(hours).arg(minutes, 2, 10, QChar('0'));
+    return QStringLiteral("%1h %2m").arg(hours).arg(minutes, 2, 10, QChar('0'));
+}
+
+// Falls back to a dash for open/incomplete trips or any parse failure.
+QString formatDuration(const QString& departureZuluTime, const QString& destinationZuluTime) {
+    const auto seconds = tripDurationSeconds(departureZuluTime, destinationZuluTime);
+    return seconds ? formatDurationSeconds(*seconds) : QStringLiteral("-");
+}
+
+// A blank table cell reads as "still loading" -- an explicit dash tells the
+// user this field just has nothing to show (unresolved region, no ATC flight
+// number assigned, etc).
+QString dashIfEmpty(const QString& value) {
+    return value.trimmed().isEmpty() ? QStringLiteral("-") : value;
+}
 
 }
 
@@ -83,6 +136,18 @@ void TripHistoryModel::applyFilter() {
 		if (trip.groupId == groupFilter_)
 			trips_.push_back(trip);
 	}
+}
+
+QString TripHistoryModel::totalDurationText() const {
+	qint64 totalSeconds = 0;
+	bool any = false;
+	for (const TripSummary& trip : trips_) {
+		if (const auto seconds = tripDurationSeconds(trip.departureZuluTime, trip.destinationZuluTime)) {
+			totalSeconds += *seconds;
+			any = true;
+		}
+	}
+	return any ? formatDurationSeconds(totalSeconds) : QStringLiteral("-");
 }
 
 void TripHistoryModel::setHoveredRow(int row) {
@@ -122,17 +187,18 @@ QVariant TripHistoryModel::data(const QModelIndex& index, int role) const {
 
 	if (role == Qt::DisplayRole) {
 		switch (index.column()) {
-		case TitleColumn: return trip.title;
-		case FlightColumn: return trip.atcAirline + " " + trip.atcFlightNumber;
-		case GroupColumn: return trip.groupId == 0 ? QStringLiteral("-") : trip.groupName;
-		case DepartureRegionColumn: return trip.departureRegion;
-		case DepartureColumn: return trip.departureName.isEmpty() ? trip.departureIcao : trip.departureIcao + " [" + trip.departureName + "]";
-		case DepartureRwyColumn: return trip.departureRwy;
-		case DestinationRegionColumn: return trip.destinationRegion;
-		case DestinationColumn: return trip.destinationName.isEmpty() ? trip.destinationIcao : trip.destinationIcao + " [" + trip.destinationName + "]";
-		case DestinationRwyColumn: return trip.destinationRwy;
-		case DepartureTimeColumn: return trip.departureZuluTime;
-		case DestinationTimeColumn: return trip.destinationZuluTime.isEmpty() ? QStringLiteral("—") : trip.destinationZuluTime;
+		case TitleColumn: return dashIfEmpty(trip.title);
+		case FlightColumn: return dashIfEmpty((trip.atcAirline + " " + trip.atcFlightNumber).trimmed());
+		case GroupColumn: return trip.groupId == 0 ? QStringLiteral("-") : dashIfEmpty(trip.groupName);
+		case DepartureRegionColumn: return dashIfEmpty(trip.departureRegion);
+		case DepartureColumn: return dashIfEmpty(trip.departureName.isEmpty() ? trip.departureIcao : trip.departureIcao + " [" + trip.departureName + "]");
+		case DepartureRwyColumn: return dashIfEmpty(trip.departureRwy);
+		case DestinationRegionColumn: return dashIfEmpty(trip.destinationRegion);
+		case DestinationColumn: return dashIfEmpty(trip.destinationName.isEmpty() ? trip.destinationIcao : trip.destinationIcao + " [" + trip.destinationName + "]");
+		case DestinationRwyColumn: return dashIfEmpty(trip.destinationRwy);
+		case DepartureTimeColumn: return dashIfEmpty(trip.departureZuluTime);
+		case DestinationTimeColumn: return dashIfEmpty(trip.destinationZuluTime);
+		case DurationColumn: return formatDuration(trip.departureZuluTime, trip.destinationZuluTime);
 		}
 	} else if (role == Qt::BackgroundRole) {
 		switch (trip.status) {
@@ -170,6 +236,7 @@ QVariant TripHistoryModel::headerData(int section, Qt::Orientation orientation, 
 	case DestinationRwyColumn: return QStringLiteral("Dest Rwy");
 	case DepartureTimeColumn: return QStringLiteral("Departed (Z)");
 	case DestinationTimeColumn: return QStringLiteral("Arrived (Z)");
+	case DurationColumn: return QStringLiteral("Duration");
 	}
 	return QVariant();
 }
@@ -206,8 +273,10 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	table_->setColumnWidth(TripHistoryModel::DestinationRwyColumn, 60);
 	header->setSectionResizeMode(TripHistoryModel::DepartureTimeColumn, QHeaderView::Interactive);
 	header->setSectionResizeMode(TripHistoryModel::DestinationTimeColumn, QHeaderView::Interactive);
+	header->setSectionResizeMode(TripHistoryModel::DurationColumn, QHeaderView::Interactive);
 	table_->setColumnWidth(TripHistoryModel::DepartureTimeColumn, 175);
 	table_->setColumnWidth(TripHistoryModel::DestinationTimeColumn, 175);
+	table_->setColumnWidth(TripHistoryModel::DurationColumn, 80);
 
 	// Restore any widths the user dragged in a previous session, overriding
 	// the coded defaults set above. Must happen before the sectionResized
@@ -271,10 +340,12 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	loadingBar_->setVisible(false);
 
 	groupFilterCombo_ = new QComboBox(this);
+	totalDurationLabel_ = new QLabel(this);
 	manageGroupsButton_ = new QPushButton(QStringLiteral("Manage Groups…"), this);
 	auto* filterRow = new QHBoxLayout();
 	filterRow->addWidget(new QLabel(QStringLiteral("Group:"), this));
 	filterRow->addWidget(groupFilterCombo_);
+	filterRow->addWidget(totalDurationLabel_);
 	filterRow->addStretch();
 	filterRow->addWidget(manageGroupsButton_);
 
@@ -322,6 +393,18 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 		// keep showing the trip with no segment until it ends (tripEnded).
 		if (!loading_ && selectedTripId_ == -1)
 			emit tripDeselected(model_->trips());
+	});
+
+	// setTrips()/setGroupFilter() both go through begin/endResetModel(), which
+	// emits modelReset() -- hooking that one signal keeps the trip count and
+	// total in sync with every path that can change the filtered set, instead
+	// of repeating this call at each call site.
+	connect(model_, &QAbstractItemModel::modelReset, this, [this] {
+		const int count = (int)model_->trips().size();
+		totalDurationLabel_->setText(QStringLiteral("Total: %1 trip%2 | %3")
+			.arg(count)
+			.arg(count == 1 ? QString() : QStringLiteral("s"))
+			.arg(model_->totalDurationText()));
 	});
 
 	table_->viewport()->setMouseTracking(true);
@@ -690,7 +773,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 			? QStringLiteral("Trip #%1").arg(rightClickedTrip->id)
 			: rightClickedTrip->title;
 		auto airportLabel = [](const QString& icao, const QString& name) {
-			return icao.isEmpty() ? QStringLiteral("—")
+			return icao.isEmpty() ? QStringLiteral("-")
 			     : name.isEmpty() ? icao
 			     : QStringLiteral("%1 (%2)").arg(name, icao);
 		};

@@ -1226,9 +1226,17 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					status->data.time_local.format_date_time().c_str());
 				status->departure.runway_act.index = -2;
 			} else {
-				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s, %s",
+				// Found up front (rather than after the log line, as it used to be)
+				// so its own recorded touchdown time -- not "now" -- can be logged:
+				// this callback fires asynchronously once the facility lookup
+				// resolves, which can lag well behind the actual touchdown moment.
+				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
+				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
+					tmp = tmp->next;
+				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s, %s at %s",
 					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
-					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str());
+					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
+					tmp != NULL ? tmp->flight_data.time_local.format_date_time().c_str() : "unknown time");
 				db_insert_update_table(status->sql,
 					"UPDATE trips SET destination_icao=NULL,destination_rwy=NULL,destination_region=NULL WHERE id=?;",
 					NULL,
@@ -1238,9 +1246,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						db_bind(stmt, stmt_txt, 1, status->id_trip);
 					}
 				);
-				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
-				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-					tmp = tmp->next;
 				if (tmp != NULL) {
 					tmp->airport.runway_act.distances[0] = -2;
 						// trip_touchdowns row already has NULL airport fields from the immediate
@@ -1498,7 +1503,15 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				);
 				gui_notify_trip_updated(status);
 			} else {
-				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s (%s) runway %s", rep->name, rep->icao, strRunway.c_str());
+				// Found up front (rather than after the log line, as it used to be)
+				// so its own recorded touchdown time -- not "now" -- can be logged:
+				// this callback fires asynchronously once the facility lookup
+				// resolves, which can lag well behind the actual touchdown moment.
+				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
+				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
+					tmp = tmp->next;
+				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s (%s) runway %s at %s", rep->name, rep->icao, strRunway.c_str(),
+					tmp != NULL ? tmp->flight_data.time_local.format_date_time().c_str() : "unknown time");
 				db_insert_update_table(status->sql,
 					"UPDATE trips SET destination_icao=?,destination_rwy=?,destination_region=?,destination_name=? WHERE id=?;",
 					NULL,
@@ -1512,9 +1525,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						db_bind(stmt, stmt_txt, 5, status->id_trip);
 					}
 				);
-				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
-				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-					tmp = tmp->next;
 				if (tmp != NULL) {
 					tmp->airport.copy(rep);
 					if (tmp->db_id < 0) {
@@ -1590,11 +1600,19 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				);
 				gui_notify_trip_updated(status);
 			} else {
-				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s (%s) [%s, %s]",
+				// Found up front (rather than after the log line, as it used to be)
+				// so its own recorded touchdown time -- not "now" -- can be logged:
+				// this callback fires asynchronously once the facility lookup
+				// resolves, which can lag well behind the actual touchdown moment.
+				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
+				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
+					tmp = tmp->next;
+				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s (%s) [%s, %s] at %s",
 					rep->name,
 					rep->icao,
 					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
-					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str());
+					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
+					tmp != NULL ? tmp->flight_data.time_local.format_date_time().c_str() : "unknown time");
 				db_insert_update_table(status->sql,
 					"UPDATE trips SET destination_icao=?,destination_region=?,destination_name=?,destination_rwy=NULL WHERE id=?;",
 					NULL,
@@ -1607,9 +1625,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						db_bind(stmt, stmt_txt, 4, status->id_trip);
 					}
 				);
-				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
-				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-					tmp = tmp->next;
 				if (tmp != NULL) {
 					memcpy(tmp->airport.icao, rep->icao, sizeof(rep->icao));
 					memcpy(tmp->airport.name, rep->name, sizeof(rep->name));
