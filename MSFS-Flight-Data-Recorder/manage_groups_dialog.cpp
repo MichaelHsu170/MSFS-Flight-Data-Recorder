@@ -45,7 +45,9 @@ ManageGroupsDialog::ManageGroupsDialog(QWidget* parent) : QDialog(parent) {
 	reload();
 }
 
-void ManageGroupsDialog::reload() {
+void ManageGroupsDialog::reload(int selectGroupId) {
+	if (selectGroupId < 0 && list_->currentItem())
+		selectGroupId = list_->currentItem()->data(Qt::UserRole).toInt();
 	updating_ = true;
 	list_->clear();
 	sqlite3* sql = connect_db_readonly();
@@ -57,6 +59,8 @@ void ManageGroupsDialog::reload() {
 			item->setToolTip(group.tripCount == 1
 				? QStringLiteral("1 trip")
 				: QStringLiteral("%1 trips").arg(group.tripCount));
+			if (group.id == selectGroupId)
+				list_->setCurrentItem(item);
 		}
 		sqlite3_close(sql);
 	}
@@ -93,7 +97,7 @@ void ManageGroupsDialog::addGroup() {
 	}
 	sqlite3_close(sql);
 	Logger::logf(Logger::Trace, "Groups", "Group \"%s\" created (id=%d)", qUtf8Printable(name), newId);
-	reload();
+	reload(newId);
 	emit groupsChanged();
 }
 

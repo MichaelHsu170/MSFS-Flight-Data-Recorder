@@ -110,7 +110,7 @@ void RecorderBridge::tryConnect() {
 	HRESULT hr = SimConnect_Open(&status_.hSimConnect, "Flight Data Recorder", NULL, 0, 0, SIMCONNECT_OPEN_CONFIGINDEX_LOCAL);
 	if (FAILED(hr)) {
 		if (!connectFailureLogged_) {
-			Logger::logf(Logger::Warning, "Recorder", "SimConnect_Open failed (hr=0x%08lX); retrying every 2s", hr);
+			Logger::logf(Logger::Trace, "Recorder", "Waiting for Microsoft Flight Simulator to start (hr=0x%08lX); retrying every 2s", hr);
 			connectFailureLogged_ = true;
 		}
 		return;
@@ -139,12 +139,16 @@ void RecorderBridge::tryConnect() {
 	status_.facility_lookup_pending = false;
 	status_.facility_lookup_trip_id = -1;
 	status_.facility_lookup_departure_needed = false;
+	status_.departure_lookup_initiated = false;
+	status_.facility_lookup_departure_loc_dh.clear();
 	status_.facility_lookup_send_id = 0;
 	status_.facility_definition_runways_added = false;
 	status_.departure.clear();
 	status_.destination.clear();
 
 	status_.skip_events.clear();
+	status_.skip_events_logged.clear();
+	status_.no_trip_events_logged.clear();
 	for (const QString& entry : AppSettings::instance().skipEvents()) {
 		QString name = entry.trimmed().toUpper();
 		if (name.startsWith(QStringLiteral("EVENT_")))
@@ -199,18 +203,22 @@ void RecorderBridge::shutdown() {
 	// a while before MSFS quit). wait_for_db_writers() stops and joins that
 	// thread, which can block for a bit, so do it on a worker thread to keep
 	// the UI responsive; reconnect once the connection is closed.
-	stopFuture_ = QtConcurrent::run([this]() {
-		wait_for_db_writers(&status_);
-		sqlite3_close_v2(status_.sql);
-		status_.sql = nullptr;
-	});
+	// Connect before setFuture(): if the worker finishes fast (little/nothing
+	// queued to drain), setFuture()-then-connect() leaves a window where the
+	// finished signal fires before this handler is wired up, and the missed
+	// signal would leave connectTimer_ never restarted.
 	auto* watcher = new QFutureWatcher<void>(this);
-	watcher->setFuture(stopFuture_);
 	connect(watcher, &QFutureWatcher<void>::finished, this, [this, watcher]() {
 		watcher->deleteLater();
 		Logger::log(Logger::Trace, "Recorder", QStringLiteral("shutdown: db writers drained, sql closed; scheduling reconnect"));
 		connectTimer_->start(2000);
 	});
+	stopFuture_ = QtConcurrent::run([this]() {
+		wait_for_db_writers(&status_);
+		sqlite3_close_v2(status_.sql);
+		status_.sql = nullptr;
+	});
+	watcher->setFuture(stopFuture_);
 }
 
 void gui_notify_log(struct STATUS* status, GuiLogLevel level, const char* text) {

@@ -34,14 +34,39 @@ std::vector<TripGroup> queryAllGroups(sqlite3* sql) {
 // than excludeGroupId itself (pass 0 -- never a valid id -- for insertGroup's
 // "no exclusion" case).
 static bool groupNameExists(sqlite3* sql, const QString& name, int excludeGroupId) {
-	const char* stmt_txt = "SELECT COUNT(*) FROM trip_groups WHERE name = ? COLLATE NOCASE AND id != ?";
+	// Comparing in SQL via "COLLATE NOCASE" (as the UNIQUE index backing
+	// trip_groups.name in db.cpp also does) only case-folds ASCII A-Z/a-z --
+	// SQLite has no built-in Unicode-aware collation. That let e.g. "Café" and
+	// "café" (or "MÜNCHEN"/"münchen") both be inserted as distinct groups,
+	// each satisfying the NOCASE index despite being the same name to a user.
+	// Qt's QString::compare(..., Qt::CaseInsensitive) does full Unicode case
+	// folding, so pull every existing name and compare in C++ instead.
+	const char* stmt_txt = "SELECT id, name FROM trip_groups";
 	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
+	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
+		// Fails open (reports "no duplicate") on a prepare error, which is safe:
+		// the caller's subsequent INSERT/UPDATE will still hit the COLLATE
+		// NOCASE UNIQUE index and fail instead of succeeding wrongly, for any
+		// duplicate that index is able to catch. Just log it, since a prepare
+		// failure here is otherwise silent.
+		Logger::logf(Logger::Warning, "DB", "groupNameExists: prepare failed: %s", sqlite3_errmsg(sql));
 		return false;
-	QByteArray utf8 = name.toUtf8();
-	sqlite3_bind_text(stmt, 1, utf8.constData(), utf8.size(), SQLITE_TRANSIENT);
-	sqlite3_bind_int(stmt, 2, excludeGroupId);
-	bool exists = sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) > 0;
+	}
+	bool exists = false;
+	int rc;
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+		int id = sqlite3_column_int(stmt, 0);
+		if (id == excludeGroupId)
+			continue;
+		const unsigned char* text = sqlite3_column_text(stmt, 1);
+		QString existingName = text ? QString::fromUtf8(reinterpret_cast<const char*>(text)) : QString();
+		if (QString::compare(existingName, name, Qt::CaseInsensitive) == 0) {
+			exists = true;
+			break;
+		}
+	}
+	if (!exists && rc != SQLITE_DONE)
+		Logger::logf(Logger::Warning, "DB", "groupNameExists: step failed: %s", sqlite3_errmsg(sql));
 	sqlite3_finalize(stmt);
 	return exists;
 }

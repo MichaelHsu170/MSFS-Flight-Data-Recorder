@@ -90,4 +90,19 @@ private:
 	// loads and refreshProvider() catches up) doesn't emit trajectoryLoaded()
 	// a second time for the same dataset.
 	bool suppressNextTrajectoryLoaded_ = false;
+	// Last visibility requested via setEventsVisible(), applied to the page's JS
+	// state whenever it's (re)built -- both immediately if the page is already
+	// ready, and by refreshProvider() once it becomes ready or is reloaded,
+	// since the JS-side toggle would otherwise silently reset to its default.
+	bool eventsVisible_ = true;
+	// Index of the last marker position reported by a drag/click on the map
+	// (via MapBridge::cursorIndexChanged), or -1 if the cursor has never been
+	// pinned for the current dataset. setTrajectory() on the JS side always
+	// snaps the marker back to the first point, so without reapplying this
+	// after every rebuild of the JS-side map state (refreshProvider(), e.g. a
+	// provider switch or the WebEngine page reloading), a pinned cursor would
+	// silently jump back to the trip start. Reset to -1 by setDataset() and
+	// showOverview() -- a genuinely new dataset has no pinned cursor of its
+	// own to restore.
+	int lastCursorIndex_ = -1;
 };

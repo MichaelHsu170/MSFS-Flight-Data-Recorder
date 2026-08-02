@@ -111,6 +111,11 @@ void DataTablePanel::setCursorIndex(int index) {
 	cursorIndex_ = index;
 	if (dataset_ && index >= 0 && index < (int)dataset_->points.size())
 		showPoint(dataset_->points[index]);
+	else if (dataset_ && !dataset_->points.empty())
+		// index < 0 means the map/chart cursor was cleared -- per this class's
+		// documented contract, fall back to the trip's most recent point
+		// instead of leaving whatever was last shown stuck on screen.
+		showPoint(dataset_->points.back());
 }
 
 void DataTablePanel::appendLivePoint(const TripSamplePoint& point) {

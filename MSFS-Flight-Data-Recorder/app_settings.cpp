@@ -69,7 +69,19 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 		const QString t = lines[i].trimmed();
 		if (t.startsWith('[')) {
 			if (inSection) break;             // just left the target section
-			inSection = (t == sectionHeader);
+			// Ignore a trailing "; comment" or "# comment" on the header line
+			// itself (e.g. from manual editing) when matching -- comparing the
+			// raw line would fail to recognize an existing section and append
+			// a duplicate one at end-of-file instead of updating it. The
+			// comment text itself is never touched: only this comparison
+			// strips it, the stored line is written back unchanged.
+			QString header = t;
+			int semi = header.indexOf(';');
+			int hash = header.indexOf('#');
+			int commentIdx = (semi < 0) ? hash : (hash < 0 ? semi : qMin(semi, hash));
+			if (commentIdx >= 0)
+				header = header.left(commentIdx).trimmed();
+			inSection = (header == sectionHeader);
 			if (inSection) sectionHeaderLine = sectionLastLine = i;
 		} else if (inSection) {
 			sectionLastLine = i;
@@ -424,7 +436,8 @@ void AppSettings::setVerboseLevel(const QString& level) {
 		               "  FATAL    — unrecoverable errors only\n"
 		               "  WARNING  — unexpected conditions that don't abort the app\n"
 		               "  INFO     — operational events (connect, recording start/stop, takeoff, touchdown)\n"
-		               "  PROFILE  — performance timing for all subsystems (high-volume; for profiling only)\n"
+		               "  TRACE    — fine-grained diagnostic detail (high-volume; for deep debugging)\n"
+		               "  PROFILE  — performance timing for all subsystems (highest volume; for profiling only)\n"
 		               "Default: INFO")
 	);
 }

@@ -485,6 +485,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 
 	Logger::logf(Logger::Trace, "DB", "onRowActivated: trip %d selected; starting load", trip->id);
 	loading_ = true;
+	loadJoined_ = false;
 	pendingTripId_ = trip->id;
 	table_->setEnabled(false);
 	// Also block the filter/group controls: tryFinishLoad() applies
@@ -549,6 +550,13 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 void TripHistoryPanel::tryFinishLoad() {
 	if (!pointsWatcher_->isFinished() || !touchdownsWatcher_->isFinished() || !eventsWatcher_->isFinished())
 		return;
+	// All three watchers' finished signals are connected to this same slot; if
+	// two or three of them finish within the same event loop tick, each queued
+	// invocation would otherwise see every watcher as finished and re-run the
+	// join below. Only the first invocation for this load should proceed.
+	if (loadJoined_)
+		return;
+	loadJoined_ = true;
 
 	auto dataset = pointsWatcher_->result();
 	dataset->touchdowns = touchdownsWatcher_->result();
@@ -596,7 +604,19 @@ bool TripHistoryPanel::eventFilter(QObject* obj, QEvent* event) {
 		} else if (event->type() == QEvent::Leave) {
 			model_->setHoveredRow(-1);
 		} else if (event->type() == QEvent::MouseButtonPress) {
-			QPoint pos = static_cast<QMouseEvent*>(event)->pos();
+			auto* mouseEvent = static_cast<QMouseEvent*>(event);
+			// Right-click must never move the row selection highlight -- only a
+			// left click (via onRowActivated, connected to QTableView::clicked)
+			// actually loads a trip and updates selectedTripId_. Without this,
+			// right-clicking a different, non-Live, not-yet-selected row still
+			// fell through to Qt's default selection handling, which highlights
+			// the clicked row as "selected" without loading its data -- leaving
+			// the table's visual selection out of sync with selectedTripId_ (and
+			// the trajectory view still showing the previously loaded trip) until
+			// the user separately left-clicks a row.
+			if (mouseEvent->button() == Qt::RightButton)
+				return true; // consume: right-click only opens the context menu
+			QPoint pos = mouseEvent->pos();
 			const TripSummary* trip = model_->tripAt(table_->indexAt(pos).row());
 			if (trip && (trip->status == TripStatus::Live || trip->id == selectedTripId_))
 				return true; // consume: prevent selection model from processing this click
@@ -729,10 +749,10 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		// filter that built the menu): a trip that just stopped recording can
 		// still have samples draining onto the DB-write thread even though it
 		// no longer looks Live (id_trip is reset synchronously, before that
-		// flush completes -- see flushing_trip_id in types.h). Deleting now
+		// flush completes -- see flushing_trip_ids in types.h). Deleting now
 		// would race the worker's still-pending trip_data inserts and orphan
 		// rows with no parent trip.
-		if (deleteId == bridge_.flushingTripId()) {
+		if (bridge_.isTripFlushing(deleteId)) {
 			Logger::logf(Logger::Trace, "DB", "delete trip %d blocked: trip data is still flushing", deleteId);
 			QMessageBox::information(this, QStringLiteral("Trip Still Saving"),
 				QStringLiteral("This trip's data is still being saved. Please wait a moment and try again."));
@@ -753,7 +773,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		// before the actual delete, since the flush could still be draining
 		// (or could have started, if this trip only just stopped recording)
 		// while the dialog was open.
-		if (deleteId == bridge_.flushingTripId()) {
+		if (bridge_.isTripFlushing(deleteId)) {
 			Logger::logf(Logger::Trace, "DB", "delete trip %d blocked (re-check after dialog): trip data is still flushing", deleteId);
 			QMessageBox::information(this, QStringLiteral("Trip Still Saving"),
 				QStringLiteral("This trip's data is still being saved. Please wait a moment and try again."));

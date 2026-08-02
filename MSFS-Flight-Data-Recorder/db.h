@@ -227,17 +227,6 @@ void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, double value);
 void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, char* value);
 void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, const char* value);
 
-void db_query_table(
-	sqlite3* sql,
-	const char* stmt_txt,
-	void* data,
-	struct STATUS* status,
-	void* aux_in,
-	void* aux_out,
-	void (*func_set_stmt)(sqlite3_stmt*, const char*, void*, struct STATUS*, void*),
-	void (*func_retrieve_data)(sqlite3_stmt*, const char*, struct STATUS*, void*)
-);
-
 void db_insert_update_table(
 	sqlite3* sql,
 	const char* stmt_txt,
