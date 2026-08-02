@@ -136,6 +136,14 @@ private:
 	int pendingTripId_ = -1;
 	int selectedTripId_ = -1;
 	bool loading_ = false;
+	// tryFinishLoad() is connected to all three watchers' finished signals; a
+	// future's completion is visible via isFinished() before its queued signal
+	// is delivered, so if two or three watchers finish within the same event
+	// loop tick, each queued slot invocation would otherwise see all three as
+	// finished and re-run the join (and re-emit tripDatasetReady) once each.
+	// Set when the first invocation actually joins the results; reset when a
+	// new load starts.
+	bool loadJoined_ = false;
 	// Independent from RecorderBridge's STATUS::sql: that connection is opened
 	// with SQLITE_OPEN_NOMUTEX (single-thread-only) so it cannot be shared with
 	// this panel's main-thread refreshes or its QtConcurrent background loads.

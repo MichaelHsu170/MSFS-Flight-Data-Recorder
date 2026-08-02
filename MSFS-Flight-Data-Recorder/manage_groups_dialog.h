@@ -28,7 +28,15 @@ private slots:
 	void onItemChanged(QListWidgetItem* item);
 
 private:
-	void reload();
+	// Rebuilds list_ from the database. clear() wipes every item (and with it
+	// any selection), so without restoring one afterward, every reload() --
+	// including the one onItemChanged() itself triggers right after a rename
+	// commits -- left nothing selected, forcing the user to re-click the group
+	// they were just working with before they could delete or rename it again.
+	// selectGroupId, if >= 0, is the group to reselect after rebuilding
+	// (addGroup() passes the newly created group's id); otherwise the
+	// currently selected item's id (if any) is preserved automatically.
+	void reload(int selectGroupId = -1);
 
 	QListWidget* list_;
 	// Guards onItemChanged against the setText() calls reload() makes to

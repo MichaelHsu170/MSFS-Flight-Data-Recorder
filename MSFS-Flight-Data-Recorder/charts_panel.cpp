@@ -416,6 +416,26 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		if (data.axisHi <= data.axisLo)
 			data.axisHi = data.axisLo.addSecs(1);
 
+		// Sanitize NaN entries (malformed/corrupted zulu_time rows) now that the
+		// axis range above is already computed from the pre-sanitized values, so
+		// this can't skew it. Historical points can't simply be dropped the way
+		// appendLivePoint() drops a malformed live sample: MapWidget, ChartsPanel,
+		// and DataTablePanel are all cursor-synced by the same row index (see
+		// cursorIndexChanged), so removing a point here would desync it from the
+		// other two panels for the rest of the trip. Filling from the nearest
+		// preceding valid timestamp instead keeps every index aligned and gives
+		// every consumer (QLineSeries rendering, and valueAt()'s std::lower_bound,
+		// which requires a sorted, NaN-free range) a normal, in-order value.
+		{
+			double lastGood = (double)data.axisLo.toMSecsSinceEpoch();
+			for (double& ms : data.pointTimesMs) {
+				if (qIsNaN(ms))
+					ms = lastGood;
+				else
+					lastGood = ms;
+			}
+		}
+
 		auto fill = [&](QList<QPointF>& target, auto valueOf) {
 			target.reserve((int)points.size());
 			for (int i = 0; i < (int)points.size(); ++i)
@@ -481,15 +501,27 @@ void ChartsPanel::setCursorIndex(int index) {
 	root->setProperty("cursorTime", cursorTime);
 }
 
-void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
+bool ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
+	double t = epochMillisFor(point.zuluTime);
+	if (qIsNaN(t)) {
+		// Every series appended below is indexed by this point's X (time) value;
+		// casting a NaN t to qint64 below is undefined and previously corrupted
+		// the X axis range and pointTimesMs_ (used by setCursorIndex) with
+		// garbage. Historical loads already skip NaN entries when computing axis
+		// bounds (see the firstValid/lastValid scan above) -- do the same here
+		// by dropping the whole point rather than plotting it with a bogus time.
+		// Caller must drop it from MapWidget/DataTablePanel too -- see the
+		// bool return in charts_panel.h.
+		Logger::log(Logger::Warning, "Charts", QStringLiteral("appendLivePoint: skipping point with malformed zuluTime"));
+		return false;
+	}
 	full_.ready = false;  // live points are not in full_; disable zoom-slice path
 	if (!cache_.valid)
 		buildSeriesCache();
 	if (!cache_.valid)
-		return;
+		return false;
 
 	pointCount_++;
-	double t = epochMillisFor(point.zuluTime);
 	pointTimesMs_.push_back(t);
 
 	QDateTime hi = QDateTime::fromMSecsSinceEpoch((qint64)t);
@@ -580,6 +612,7 @@ void ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 	}
 	appendIf(cache_.pitch, point.pitchDegrees);
 	appendIf(cache_.bank, point.bankDegrees);
+	return true;
 }
 
 void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {

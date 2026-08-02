@@ -33,8 +33,12 @@ public:
 	// Live mode: append one point without rebuilding every series from
 	// scratch. Uses cached series pointers so there are no findChild
 	// traversals per sample. pointCount_ tracks the next sample index
-	// (reset by setDataset).
-	void appendLivePoint(const TripSamplePoint& point);
+	// (reset by setDataset). Returns false if the point was dropped
+	// (malformed zuluTime, or the QML series cache isn't ready yet) instead
+	// of appended -- callers that keep other, index-synced views (MapWidget,
+	// DataTablePanel) in lockstep with this one must skip the point there too
+	// on a false return, or their point counts desync from this panel's.
+	bool appendLivePoint(const TripSamplePoint& point);
 	// Zooms the shared X axis to [startIndex, endIndex] (translated to actual
 	// timestamps), or resets to the full trip span if startIndex < 0. Driven
 	// by MapWidget::visibleRangeChanged so the charts track the map's current

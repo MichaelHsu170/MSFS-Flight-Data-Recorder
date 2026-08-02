@@ -96,7 +96,10 @@ MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
 
 	channel_->registerObject(QStringLiteral("mapBridge"), bridge_);
 	view_->page()->setWebChannel(channel_);
-	connect(bridge_, &MapBridge::cursorIndexChanged, this, &MapWidget::cursorIndexChanged);
+	connect(bridge_, &MapBridge::cursorIndexChanged, this, [this](int index) {
+		lastCursorIndex_ = index;
+		emit cursorIndexChanged(index);
+	});
 	connect(bridge_, &MapBridge::visibleRangeChanged, this, &MapWidget::visibleRangeChanged);
 	connect(view_, &QWebEngineView::loadFinished, this, &MapWidget::onLoadFinished);
 
@@ -140,6 +143,7 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 	inOverviewMode_ = false;
 	liveUpdateTimer_->stop();
 	pendingLiveCoords_.clear();
+	lastCursorIndex_ = -1;
 	trajCoords_.clear();
 	trajCoords_.reserve(dataset.points.size());
 	QElapsedTimer copyTimer; copyTimer.start();
@@ -178,6 +182,7 @@ void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
 	overviewTrips_ = trips;
 	liveUpdateTimer_->stop();
 	pendingLiveCoords_.clear();
+	lastCursorIndex_ = -1;
 	trajCoords_.clear();
 	touchdowns_.clear();
 	events_.clear();
@@ -258,6 +263,10 @@ void MapWidget::refreshProvider() {
 	liveUpdateTimer_->stop();
 	pendingLiveCoords_.clear();
 	runJs(QStringLiteral("initProvider();"));
+	// initProvider() rebuilds the JS-side map state, which would otherwise
+	// silently reset event-marker visibility to its default -- re-apply
+	// whatever the toggle button last requested.
+	runJs(QStringLiteral("setEventsVisible(%1);").arg(eventsVisible_ ? QStringLiteral("true") : QStringLiteral("false")));
 	if (inOverviewMode_) {
 		Logger::log(Logger::Trace, "Map", QStringLiteral("refreshProvider: overview mode active; re-pushing overview"));
 		showOverview(overviewTrips_);
@@ -269,6 +278,7 @@ void MapWidget::refreshProvider() {
 }
 
 void MapWidget::setEventsVisible(bool visible) {
+	eventsVisible_ = visible;
 	if (!pageReady_)
 		return;
 	runJs(QStringLiteral("setEventsVisible(%1);").arg(visible ? QStringLiteral("true") : QStringLiteral("false")));
@@ -292,6 +302,13 @@ void MapWidget::pushTrajectory() {
 		QElapsedTimer t; t.start();
 		runJs(watcher->result());
 		Logger::logf(Logger::Profile, "Map", "runJs trajectory: %lld µs  (async — JS render time not captured)", t.nsecsElapsed() / 1000);
+		// setTrajectory() (just run above) always snaps the marker to the first
+		// point -- if a cursor was pinned before this rebuild (a refreshProvider()
+		// reload re-pushing the same dataset, not a genuinely new one; see
+		// lastCursorIndex_ in map_widget.h), restore it now instead of leaving
+		// the marker stuck at the trip start.
+		if (lastCursorIndex_ != -1)
+			runJs(QStringLiteral("setCursorIndex(%1);").arg(lastCursorIndex_));
 		if (suppressNextTrajectoryLoaded_)
 			suppressNextTrajectoryLoaded_ = false;
 		else

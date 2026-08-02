@@ -5,6 +5,7 @@
 #include <deque>
 #include <iostream>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -281,6 +282,14 @@ public:
 		memcpy(icao, src->icao, sizeof(src->icao));
 		memcpy(region, src->region, sizeof(src->region));
 		magvar = src->magvar;
+		// Free any buffer this AIRPORT already owns before reassigning --
+		// otherwise a copy() onto an already-populated AIRPORT (unlike this
+		// header's one current caller, which always copies onto a freshly
+		// clear()'d touchdown airport) would leak it.
+		if (runways != NULL) {
+			free(runways);
+			runways = NULL;
+		}
 		n_runways = src->n_runways;
 		if (src->runways != NULL) {
 			runways = (RUNWAY*)malloc(sizeof(RUNWAY) * n_runways);
@@ -318,6 +327,19 @@ struct TOUCHDOWN_DATA {
 	struct FLIGHT_DATA flight_data;
 	AIRPORT airport;
 	int db_id = -1;             // trip_touchdowns row ID, set after immediate INSERT
+	// Snapshot of STATUS::loc_dh taken the instant this touchdown is recorded
+	// (see recorder.cpp) rather than read live from STATUS::loc_dh when this
+	// touchdown's facility lookup eventually resolves. STATUS::loc_dh is a
+	// single shared scratch field that keeps getting overwritten by every
+	// subsequent low-altitude pass (e.g. a go-around's second approach) --
+	// only one facility lookup is in flight at a time, so a touchdown's own
+	// lookup can still be queued (see request_next_touchdown_facility_lookup)
+	// when a later approach's crossing overwrites it. Capturing it here at
+	// touchdown time is safe because a touchdown always passes through
+	// STATUS::loc_dh's 50-100ft trigger band during its own final approach,
+	// immediately beforehand -- so this field can never be stale for the
+	// touchdown that captures it, unlike the shared field read later.
+	COORDINATE loc_dh;
 	struct TOUCHDOWN_DATA* next = NULL;
 };
 
@@ -405,21 +427,27 @@ struct STATUS {
 	std::thread db_writer_thread;
 	int sample_interval_ms = 500;
 	int id_trip = -1;
-	// The id of a trip whose tail samples may still be draining through
+	// The ids of trips whose tail samples may still be draining through
 	// sample_write_queue after stop_recording() already reset id_trip to -1
-	// on this (dispatch) thread, or -1 if none. id_trip is reset synchronously
-	// so a new trip's event logging can never be mistaken for the old one's
-	// (see stop_recording()), but that also makes the ended trip look
-	// non-Live in the UI immediately -- before db_write_worker has actually
-	// finished flushing its samples on the DB-write thread. Without this,
+	// on this (dispatch) thread. id_trip is reset synchronously so a new
+	// trip's event logging can never be mistaken for the old one's (see
+	// stop_recording()), but that also makes the ended trip look non-Live in
+	// the UI immediately -- before db_write_worker has actually finished
+	// flushing its samples on the DB-write thread. Without this,
 	// TripHistoryPanel could let the user delete that trip's row while the
-	// worker is still inserting trip_data rows for it, orphaning them. Set by
+	// worker is still inserting trip_data rows for it, orphaning them. A set
+	// rather than a single id: a short trip can stop (and be pushed here)
+	// while a still-earlier trip's barrier hasn't reached the front of
+	// sample_write_queue yet, so more than one id can be draining at once --
+	// a single scalar would have the later stop_recording() call clobber the
+	// earlier trip's id, leaving it wrongly deletable. Inserted by
 	// stop_recording() right before it pushes the trip's end-of-trip barrier;
-	// cleared by db_write_worker (db.cpp) once that barrier is processed.
-	// Atomic because it's written on the dispatch thread and read from the
-	// GUI thread (RecorderBridge::flushingTripId()) and cleared on the
-	// DB-write worker thread.
-	std::atomic<int> flushing_trip_id{ -1 };
+	// erased by db_write_worker (db.cpp) once that barrier is processed.
+	// Guarded by flushing_trip_ids_mutex because it's written on the dispatch
+	// thread, read from the GUI thread (RecorderBridge::isTripFlushing()),
+	// and erased from the DB-write worker thread.
+	mutable std::mutex flushing_trip_ids_mutex;
+	std::set<int> flushing_trip_ids;
 	bool airborne = FALSE;
 	TOUCHDOWN_DATA* touchdown_data = NULL;
 	TOUCHDOWN_DATA* touchdown_data_end = NULL;
@@ -449,6 +477,23 @@ struct STATUS {
 	// trip that ends before its retry turn can't be mistakenly fired for
 	// whatever trip is active later.
 	bool facility_lookup_departure_needed = FALSE;
+	// Set the instant this trip's first takeoff is detected (recorder.cpp),
+	// whether or not the resulting lookup fires immediately or is deferred via
+	// facility_lookup_departure_needed above. A trip has exactly one departure
+	// airport -- wherever that first takeoff happened -- so this must stay
+	// TRUE for the rest of the trip, including through any number of later
+	// touch-and-goes or full-stop taxi-back-and-takeoffs, none of which are a
+	// new departure. Using departure.runway_act.index == -1 for this same
+	// purpose used to be racy: that field only flips once the async lookup
+	// actually *resolves*, so a takeoff occurring before a slow (e.g.
+	// multi-chunk AIRPORT_LIST) departure lookup resolves would still see -1
+	// and be mistaken for a fresh departure, overwriting the captured takeoff
+	// coordinate/heading and eventually misrouting that stale lookup's
+	// response into the destination slot once the real departure resolves.
+	// Reset only at true trip boundaries: trip start and RecorderBridge::
+	// tryConnect()'s carry-over reset (same places facility_lookup_departure_
+	// needed etc. are reset), never on landing.
+	bool departure_lookup_initiated = FALSE;
 	// SendID of the most recent SimConnect_RequestFacilitiesList_EX1/
 	// RequestFacilityData_EX1 call belonging to the in-flight lookup (see
 	// facility_lookup_pending above), captured via SimConnect_GetLastSentPacketID
@@ -498,6 +543,53 @@ struct STATUS {
 	// The aircraft's heading at the moment of takeoff -- see
 	// facility_lookup_departure_coordinate above, same reasoning.
 	int facility_lookup_departure_heading = 0;
+	// This trip's own frozen low-altitude snapshot for the departure runway
+	// match, analogous to TOUCHDOWN_DATA::loc_dh for a touchdown/destination
+	// match. loc_dh below is a single field shared across every 50-100ft
+	// AGL crossing of the whole trip (climb-outs and approaches alike), kept
+	// continuously overwritten right up to whatever crossing happens last --
+	// so if the departure lookup is deferred or queued behind another (see
+	// facility_lookup_departure_needed above) and doesn't resolve until after
+	// a later touchdown, touch-and-go climb-out, or go-around, loc_dh no
+	// longer holds the original departure's position by the time
+	// SIMCONNECT_RECV_ID_FACILITY_DATA_END reads it. Captured once, on the
+	// first 50-100ft AGL crossing after this trip's first takeoff is
+	// detected (departure_lookup_initiated above), and left untouched for
+	// the rest of the trip -- latitude stays the COORDINATE-default 360
+	// sentinel until that capture happens. Reset only at true trip
+	// boundaries, same as departure_lookup_initiated.
+	COORDINATE facility_lookup_departure_loc_dh;
+	// Running top-N nearest airports across every chunk of the current
+	// AIRPORT_LIST response. SimConnect splits a large facility list (e.g.
+	// every airport in loaded scenery, 1000+ entries) across multiple
+	// AIRPORT_LIST callbacks that share one request (see dwEntryNumber/
+	// dwOutOf in MyDispatchProc) -- deciding "nearest airport" from any
+	// single chunk in isolation is wrong, since a later chunk that happens
+	// to contain only distant airports would otherwise conclude "not found"
+	// and terminate/overwrite the lookup a second time while an earlier
+	// chunk's real match was still being resolved. Reset to all-distance-1e9
+	// when a fresh request's first chunk (dwEntryNumber == 0) arrives.
+	struct FACILITY_LIST_CANDIDATE {
+		double distance = 1e9;
+		char ident[9] = {};
+		char region[3] = {};
+	};
+	static const int FACILITY_LIST_TOP_N = 5;
+	FACILITY_LIST_CANDIDATE facility_lookup_top[FACILITY_LIST_TOP_N];
 	std::unordered_set<std::string> skip_events;
+	// Names already announced via the one-time "Event skipped" trace line (see
+	// the SIMCONNECT_RECV_ID_EVENT handler) -- some skip_events entries fire at
+	// very high frequency (that's exactly why they're skipped in the first
+	// place), so logging every occurrence would just move the log-bloat problem
+	// from trip_events to msfs_fdr_debug.log instead of fixing it.
+	std::unordered_set<std::string> skip_events_logged;
+	// Same one-time-per-quiet-period throttle as skip_events_logged, but for the
+	// "Event ignored (no active trip)" trace line -- SimConnect keeps delivering
+	// event notifications (e.g. AUTOPILOT_OFF/APU_OFF_SWITCH toggled repeatedly
+	// at the gate) even with no trip recording, and logging every one of those
+	// floods msfs_fdr_debug.log just as badly as the skip_events case did.
+	// Cleared whenever a trip starts or stops so each idle stretch gets its own
+	// fresh one-time notice per event name.
+	std::unordered_set<std::string> no_trip_events_logged;
 	void* gui_context = nullptr;
 };

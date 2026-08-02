@@ -42,50 +42,6 @@ void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, const char* va
 		db_error(stmt_txt, sql_ret, NULL);
 }
 
-void db_query_table(
-	sqlite3* sql,
-	const char* stmt_txt,
-	void* data,
-	struct STATUS* status,
-	void* aux_in,
-	void* aux_out,
-	void (*func_set_stmt)(sqlite3_stmt*, const char*, void*, struct STATUS*, void*),
-	void (*func_retrieve_data)(sqlite3_stmt*, const char*, struct STATUS*, void*)
-) {
-	// status->sql is opened NOMUTEX -- this connection has no thread-safety of its
-	// own, so every access (including reads) must go through mutex_db_commit, the
-	// same as db_insert_update_table.
-	status->mutex_db_commit.lock();
-	sqlite3_stmt* stmt = NULL;
-	int sql_ret = 0;
-	try {
-		sql_ret = sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, NULL);
-		if (sql_ret)
-			db_error(stmt_txt, sql_ret, NULL);
-		if (func_set_stmt != NULL)
-			func_set_stmt(stmt, stmt_txt, data, status, aux_in);
-		int step_ret;
-		while ((step_ret = sqlite3_step(stmt)) == SQLITE_ROW) {
-			if (func_retrieve_data != NULL)
-				func_retrieve_data(stmt, stmt_txt, status, aux_out);
-		}
-		if (step_ret != SQLITE_DONE)
-			db_error(stmt_txt, step_ret, NULL);
-		sqlite3_reset(stmt);
-		sqlite3_finalize(stmt);
-	}
-	catch (...) {
-		// Catch-all, not just db_exception -- func_set_stmt/func_retrieve_data are
-		// caller-supplied callbacks that could throw something else entirely, and
-		// mutex_db_commit must be released either way or every later call deadlocks.
-		if (stmt != NULL)
-			sqlite3_finalize(stmt);
-		status->mutex_db_commit.unlock();
-		throw;
-	}
-	status->mutex_db_commit.unlock();
-}
-
 void db_insert_update_table(
 	sqlite3* sql,
 	const char* stmt_txt,
@@ -166,16 +122,13 @@ static void db_write_worker(STATUS* status) {
 			// End-of-trip barrier pushed by stop_recording() -- every sample
 			// for this trip was pushed (and so flushed) ahead of it in the
 			// queue, so it's now safe to announce the trip as finished.
-			gui_log_printf(status, GUI_LOG_INFO, "Recording stopped\n");
+			gui_log_printf(status, GUI_LOG_INFO, "Recording stopped");
 			gui_notify_recording_changed(status, false, item.trip_id);
-			// This trip's data is now fully flushed -- safe to delete. Only
-			// clear if it's still this trip (guards against a pathological
-			// case where flushing_trip_id was already reused by a newer
-			// stop_recording() call before this barrier was reached, though
-			// that can't happen in practice since barriers are drained in the
-			// same strict order they're pushed).
-			int expected = item.trip_id;
-			status->flushing_trip_id.compare_exchange_strong(expected, -1, std::memory_order_acq_rel);
+			// This trip's data is now fully flushed -- safe to delete.
+			{
+				std::lock_guard<std::mutex> lock(status->flushing_trip_ids_mutex);
+				status->flushing_trip_ids.erase(item.trip_id);
+			}
 			continue;
 		}
 		struct FLIGHT_DATA_RECORD* pS = item.data;
@@ -592,14 +545,14 @@ static void db_write_worker(STATUS* status) {
 			// Drop just this one sample and keep draining the queue, rather
 			// than stalling every later sample (this trip's and any future
 			// trip's) behind one bad row.
-			gui_log_printf(status, GUI_LOG_WARNING, "db_write_worker: dropped one sample for trip %d: %s\n", item.trip_id, e.message.c_str());
+			gui_log_printf(status, GUI_LOG_WARNING, "db_write_worker: dropped one sample for trip %d: %s", item.trip_id, e.message.c_str());
 		}
 		catch (...) {
 			// db_insert_update_table's own catch is now catch(...) too (a bound
 			// callback could throw anything), so this must be as well -- otherwise
 			// a non-db_exception would escape the worker thread and terminate
 			// the app instead of just dropping one sample.
-			gui_log_printf(status, GUI_LOG_WARNING, "db_write_worker: dropped one sample for trip %d: unknown exception\n", item.trip_id);
+			gui_log_printf(status, GUI_LOG_WARNING, "db_write_worker: dropped one sample for trip %d: unknown exception", item.trip_id);
 		}
 		free(pS);
 	}
@@ -732,9 +685,12 @@ static void migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 
 					sqlite3_stmt* alter_stmt;
 					if (sqlite3_prepare_v2(sql, alter_sql, -1, &alter_stmt, nullptr) == SQLITE_OK) {
-						sqlite3_step(alter_stmt);
+						int step_ret = sqlite3_step(alter_stmt);
 						sqlite3_finalize(alter_stmt);
-						log_cf(2, "DB", "Schema migration: %s — added column %s", table_name, col_name);
+						if (step_ret == SQLITE_DONE)
+							log_cf(2, "DB", "Schema migration: %s — added column %s", table_name, col_name);
+						else
+							log_cf(0, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
 					} else {
 						log_cf(1, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
 					}
@@ -747,12 +703,52 @@ static void migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 	free(buf);
 }
 
+// Shared by connect_db() and migrate_db() so Trip History reads stay indexed
+// even when the schema was created/updated by migrate_db() alone (SimConnect
+// never connected this session -- see migrate_db()'s doc comment in db.h).
+// trip_data/trip_events/trip_touchdowns are all queried with "WHERE trip = ?"
+// (db_history.cpp) -- without an index that's a full table scan across every
+// sample ever recorded, for every trip load. trips itself has no such index
+// need: its only query is an unfiltered "ORDER BY id DESC" over the whole
+// table, and id is already the PRIMARY KEY. IF NOT EXISTS makes this safe to
+// run on every connect/migrate, same as the CREATE TABLE loop above; the
+// one-time build cost for an existing large database is paid back on every
+// load after. Failures are logged but never fatal -- a missing index only
+// degrades query performance (full table scan), it doesn't stop the app from
+// reading/writing trips.
+static void create_db_indexes(sqlite3* sql) {
+	static const char* index_stmts[] = {
+		"CREATE INDEX IF NOT EXISTS idx_trip_data_trip ON trip_data(trip);",
+		"CREATE INDEX IF NOT EXISTS idx_trip_events_trip ON trip_events(trip);",
+		"CREATE INDEX IF NOT EXISTS idx_trip_touchdowns_trip ON trip_touchdowns(trip);",
+		"CREATE INDEX IF NOT EXISTS idx_trips_group ON trips(group_id);",
+		// Enforced here (not just by db_groups.cpp's own pre-check) so that a
+		// duplicate (case-insensitive) group name can never be committed even
+		// if two writers race between the pre-check SELECT and the INSERT/
+		// UPDATE -- migrate_db() runs this at startup, ahead of any writer
+		// connection, so the constraint is always in place before
+		// insertGroup()/renameGroup() can run.
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_trip_groups_name ON trip_groups(name COLLATE NOCASE);",
+	};
+	for (int i = 0; i < (int)(sizeof(index_stmts) / sizeof(char*)); i++) {
+		sqlite3_stmt* stmt = nullptr;
+		if (sqlite3_prepare_v2(sql, index_stmts[i], -1, &stmt, nullptr) == SQLITE_OK) {
+			if (sqlite3_step(stmt) != SQLITE_DONE)
+				log_cf(0, "DB", "Failed to create index \"%s\": %s", index_stmts[i], sqlite3_errmsg(sql));
+		} else {
+			log_cf(0, "DB", "Failed to prepare index \"%s\": %s", index_stmts[i], sqlite3_errmsg(sql));
+		}
+		sqlite3_finalize(stmt);
+	}
+}
+
 void migrate_db() {
 	char fn_db[MAX_PATH];
 	resolve_db_path(fn_db, MAX_PATH);
 	log_cf(3, "DB", "migrate_db: checking schema for %s", fn_db);
 	sqlite3* sql = nullptr;
 	if (sqlite3_open_v2(fn_db, &sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
+		log_cf(0, "DB", "migrate_db: cannot open database %s: %s", fn_db, sql ? sqlite3_errmsg(sql) : "unknown error");
 		if (sql) sqlite3_close(sql);
 		return;
 	}
@@ -775,13 +771,19 @@ void migrate_db() {
 		memcpy(stmt_txt + len_start + len_name, stmt_txt_sep_1, len_sep_1);
 		memcpy(stmt_txt + len_start + len_name + len_sep_1, DATABASE_TABLE_FIELDS[i], len_fields);
 		memcpy(stmt_txt + len_start + len_name + len_sep_1 + len_fields, stmt_txt_sep_2, len_sep_2);
-		if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) == SQLITE_OK)
-			sqlite3_step(stmt);
+		if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) == SQLITE_OK) {
+			if (sqlite3_step(stmt) != SQLITE_DONE)
+				log_cf(0, "DB", "migrate_db: failed to create table %s: %s", DATABASE_TABLE_NAMES[i], sqlite3_errmsg(sql));
+		} else {
+			log_cf(0, "DB", "migrate_db: failed to prepare CREATE TABLE for %s: %s", DATABASE_TABLE_NAMES[i], sqlite3_errmsg(sql));
+		}
 		sqlite3_finalize(stmt);
 		free(stmt_txt);
 	}
 	for (int i = 0; i < (int)(sizeof(DATABASE_TABLE_NAMES) / sizeof(char*)); i++)
 		migrate_table_columns(sql, DATABASE_TABLE_NAMES[i], DATABASE_TABLE_FIELDS[i]);
+
+	create_db_indexes(sql);
 
 	log_cf(3, "DB", "migrate_db: schema check complete");
 	sqlite3_close(sql);
@@ -820,9 +822,12 @@ void connect_db(struct STATUS* status) {
 		memcpy(stmt_txt + len_start + len_name, stmt_txt_sep_1, len_sep_1);
 		memcpy(stmt_txt + len_start + len_name + len_sep_1, DATABASE_TABLE_FIELDS[i], len_fields);
 		memcpy(stmt_txt + len_start + len_name + len_sep_1 + len_fields, stmt_txt_sep_2, len_sep_2);
-		if (sqlite3_prepare_v2(status->sql, stmt_txt, -1, &stmt, NULL) == SQLITE_OK)
-			sqlite3_step(stmt);
-		else {
+		if (sqlite3_prepare_v2(status->sql, stmt_txt, -1, &stmt, NULL) == SQLITE_OK) {
+			if (sqlite3_step(stmt) != SQLITE_DONE) {
+				log_cf(0, "DB", "Failed to create table \"%s\": %s", DATABASE_TABLE_NAMES[i], sqlite3_errmsg(status->sql));
+				exit(2);
+			}
+		} else {
 			log_cf(0, "DB", "Incorrect db operation \"%s\"", stmt_txt);
 			exit(2);
 		}
@@ -835,28 +840,7 @@ void connect_db(struct STATUS* status) {
 	for (int i = 0; i < (int)(sizeof(DATABASE_TABLE_NAMES) / sizeof(char*)); i++)
 		migrate_table_columns(status->sql, DATABASE_TABLE_NAMES[i], DATABASE_TABLE_FIELDS[i]);
 
-	// trip_data/trip_events/trip_touchdowns are all queried with "WHERE trip = ?"
-	// (db_history.cpp) -- without an index that's a full table scan across every
-	// sample ever recorded, for every trip load. trips itself has no such index
-	// need: its only query is an unfiltered "ORDER BY id DESC" over the whole
-	// table, and id is already the PRIMARY KEY. IF NOT EXISTS makes this safe to
-	// run on every connect, same as the CREATE TABLE loop above; the one-time
-	// build cost for an existing large database is paid back on every load after.
-	static const char* index_stmts[] = {
-		"CREATE INDEX IF NOT EXISTS idx_trip_data_trip ON trip_data(trip);",
-		"CREATE INDEX IF NOT EXISTS idx_trip_events_trip ON trip_events(trip);",
-		"CREATE INDEX IF NOT EXISTS idx_trip_touchdowns_trip ON trip_touchdowns(trip);",
-		"CREATE INDEX IF NOT EXISTS idx_trips_group ON trips(group_id);",
-	};
-	for (int i = 0; i < (int)(sizeof(index_stmts) / sizeof(char*)); i++) {
-		if (sqlite3_prepare_v2(status->sql, index_stmts[i], -1, &stmt, NULL) == SQLITE_OK)
-			sqlite3_step(stmt);
-		else {
-			log_cf(0, "DB", "Incorrect db operation \"%s\"", index_stmts[i]);
-			exit(2);
-		}
-		sqlite3_finalize(stmt);
-	}
+	create_db_indexes(status->sql);
 
 	// Start the single persistent DB-write worker for this connection. Reset
 	// clears any stop() left over from a previous connection's shutdown, so

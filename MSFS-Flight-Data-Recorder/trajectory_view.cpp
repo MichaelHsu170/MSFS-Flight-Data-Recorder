@@ -70,14 +70,10 @@ void TrajectoryView::setDataset(std::shared_ptr<TripDataset> dataset) {
 		Logger::log(Logger::Warning, "TrajView", QStringLiteral("setDataset() called with a null dataset; ignoring"));
 		return;
 	}
-	// Move the old dataset out before assigning the new one, and destroy it off
-	// the main thread -- same reasoning as clearAndShowOverview() below: freeing
-	// 50k+ TripSamplePoints (each with a std::vector<double> rawNums) inline can
-	// visibly stall the UI on Windows.
+	// Move the old dataset out before assigning the new one; it's destroyed
+	// below, off the main thread, only after every panel has switched over.
 	auto oldDataset = std::move(dataset_);
 	dataset_ = std::move(dataset);
-	if (oldDataset)
-		QThreadPool::globalInstance()->start([d = std::move(oldDataset)]() mutable {});
 	currentTripId_ = dataset_ ? dataset_->tripId : -1;
 	pendingLivePoints_.clear();
 	pendingRenders_ = 2;  // chartsPanel_ worker + mapWidget_ trajectory worker
@@ -86,6 +82,14 @@ void TrajectoryView::setDataset(std::shared_ptr<TripDataset> dataset) {
 	chartsPanel_->setDataset(*dataset_);
 	mapWidget_->setDataset(*dataset_);
 	dataTablePanel_->setDataset(dataset_.get());
+	// Destroy the old dataset off the main thread -- freeing 50k+ TripSamplePoints
+	// (each with a std::vector<double> rawNums) inline can visibly stall the UI on
+	// Windows. Scheduled only now, after dataTablePanel_->setDataset() above: it
+	// holds a raw, non-owning pointer to dataset_, so starting this background
+	// deletion any earlier would leave that pointer referencing memory whose
+	// destruction may already be running concurrently on another thread.
+	if (oldDataset)
+		QThreadPool::globalInstance()->start([d = std::move(oldDataset)]() mutable {});
 }
 
 void TrajectoryView::onSubviewLoaded() {
@@ -139,8 +143,14 @@ void TrajectoryView::resetZoom() {
 
 void TrajectoryView::appendLivePoint(const TripSamplePoint& point) {
 	if (liveFollow_) {
+		// MapWidget/DataTablePanel/dataset_ are cursor-synced to ChartsPanel by
+		// row index (see cursorIndexChanged), so a point ChartsPanel silently
+		// drops (malformed zuluTime, or its QML series cache not ready yet --
+		// see ChartsPanel::appendLivePoint) must be skipped everywhere else too,
+		// or every later index would be permanently off by one against it.
+		if (!chartsPanel_->appendLivePoint(point))
+			return;
 		if (dataset_) dataset_->points.push_back(point);
-		chartsPanel_->appendLivePoint(point);
 		mapWidget_->appendLivePoint(point);
 		dataTablePanel_->appendLivePoint(point);
 	} else {
@@ -160,8 +170,10 @@ void TrajectoryView::setLiveFollow(bool follow) {
 	if (follow && !pendingLivePoints_.empty()) {
 		Logger::logf(Logger::Trace, "TrajView", "setLiveFollow(true): flushing %zu buffered live points into the views", pendingLivePoints_.size());
 		for (const TripSamplePoint& point : pendingLivePoints_) {
+			// See the identical guard in appendLivePoint() above.
+			if (!chartsPanel_->appendLivePoint(point))
+				continue;
 			if (dataset_) dataset_->points.push_back(point);
-			chartsPanel_->appendLivePoint(point);
 			mapWidget_->appendLivePoint(point);
 			dataTablePanel_->appendLivePoint(point);
 		}

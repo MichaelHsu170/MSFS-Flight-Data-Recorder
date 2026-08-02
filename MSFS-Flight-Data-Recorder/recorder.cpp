@@ -1,6 +1,7 @@
 #include "recorder.h"
 #include "db.h"
 #include "gui_notify.h"
+#include "logger.h"
 #include <chrono>
 #include <thread>
 
@@ -70,7 +71,7 @@ static const char* EVENT_ID_TXT[] = {
 	"AUTOPILOT_DISENGAGE_TOGGLE",
 	"AUTOPILOT_OFF",
 	"AUTOPILOT_ON",
-	"AUTOPILOT_PANEL_AIRSPEED_SET",
+	"AP_PANEL_SPEED_SET",
 	"FLIGHT_LEVEL_CHANGE",
 	"FLIGHT_LEVEL_CHANGE_OFF",
 	"FLIGHT_LEVEL_CHANGE_ON",
@@ -374,182 +375,202 @@ void add_flight_definition(HANDLE hSimConnect) {
 	SimConnect_RequestDataOnSimObject(hSimConnect, REQUEST_FLIGHT, DEFINITION_FLIGHT, SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_PERIOD_SIM_FRAME);
 }
 
-void add_client_events(HANDLE hSimConnect) {
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_AIRSPEED_HOLD, "AP_AIRSPEED_HOLD");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_AIRSPEED_OFF, "AP_AIRSPEED_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_AIRSPEED_ON, "AP_AIRSPEED_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_ALT_HOLD, "AP_ALT_HOLD");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_ALT_HOLD_OFF, "AP_ALT_HOLD_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_ALT_HOLD_ON, "AP_ALT_HOLD_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_APR_HOLD, "AP_APR_HOLD");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_APR_HOLD_OFF, "AP_APR_HOLD_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_APR_HOLD_ON, "AP_APR_HOLD_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_HDG_HOLD, "AP_HDG_HOLD");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_HDG_HOLD_OFF, "AP_HDG_HOLD_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_HDG_HOLD_ON, "AP_HDG_HOLD_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_MACH_HOLD, "AP_MACH_HOLD");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_MACH_OFF, "AP_MACH_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_MACH_ON, "AP_MACH_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_MASTER, "AP_MASTER");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_ALTITUDE_HOLD, "AP_PANEL_ALTITUDE_HOLD");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_ALTITUDE_OFF, "AP_PANEL_ALTITUDE_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_ALTITUDE_ON, "AP_PANEL_ALTITUDE_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_HEADING_HOLD, "AP_PANEL_HEADING_HOLD");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_HEADING_OFF, "AP_PANEL_HEADING_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_HEADING_ON, "AP_PANEL_HEADING_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_MACH_HOLD, "AP_PANEL_MACH_HOLD");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_MACH_OFF, "AP_PANEL_MACH_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_MACH_ON, "AP_PANEL_MACH_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_SPEED_HOLD, "AP_PANEL_SPEED_HOLD");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_SPEED_OFF, "AP_PANEL_SPEED_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_SPEED_ON, "AP_PANEL_SPEED_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_VS_OFF, "AP_PANEL_VS_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_VS_ON, "AP_PANEL_VS_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_VS_HOLD, "AP_PANEL_VS_HOLD");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_VS_HOLD, "AP_VS_HOLD");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_VS_OFF, "AP_VS_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_VS_ON, "AP_VS_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_SPEED_HOLD_TOGGLE, "AP_PANEL_SPEED_HOLD_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AP_PANEL_MACH_HOLD_TOGGLE, "AP_PANEL_MACH_HOLD_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOPILOT_DISENGAGE_TOGGLE, "AUTOPILOT_DISENGAGE_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOPILOT_OFF, "AUTOPILOT_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOPILOT_ON, "AUTOPILOT_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOPILOT_PANEL_AIRSPEED_SET, "AUTOPILOT_PANEL_AIRSPEED_SET");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE, "FLIGHT_LEVEL_CHANGE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE_OFF, "FLIGHT_LEVEL_CHANGE_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE_ON, "FLIGHT_LEVEL_CHANGE_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTO_THROTTLE_ARM, "AUTO_THROTTLE_ARM");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTO_THROTTLE_TO_GA, "AUTO_THROTTLE_TO_GA");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOBRAKE_DISARM, "AUTOBRAKE_DISARM");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOBRAKE_HI_SET, "AUTOBRAKE_HI_SET");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOBRAKE_LO_SET, "AUTOBRAKE_LO_SET");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_AUTOBRAKE_MED_SET, "AUTOBRAKE_MED_SET");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_GPWS_SWITCH_TOGGLE, "GPWS_SWITCH_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_TOGGLE_FLIGHT_DIRECTOR, "TOGGLE_FLIGHT_DIRECTOR");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_APU_BLEED_AIR_SOURCE_TOGGLE, "APU_BLEED_AIR_SOURCE_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_APU_GENERATOR_SWITCH_TOGGLE, "APU_GENERATOR_SWITCH_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_APU_OFF_SWITCH, "APU_OFF_SWITCH");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_APU_STARTER, "APU_STARTER");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_ANTI_ICE_ON, "ANTI_ICE_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_ANTI_ICE_OFF, "ANTI_ICE_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_ANTI_ICE_TOGGLE, "ANTI_ICE_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_ANTI_ICE_TOGGLE_ENG1, "ANTI_ICE_TOGGLE_ENG1");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_ANTI_ICE_TOGGLE_ENG2, "ANTI_ICE_TOGGLE_ENG2");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_THROTTLE_REVERSE_THRUST_TOGGLE, "THROTTLE_REVERSE_THRUST_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLAPS_DECR, "FLAPS_DECR");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLAPS_DOWN, "FLAPS_DOWN");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLAPS_INCR, "FLAPS_INCR");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_FLAPS_UP, "FLAPS_UP");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_ARM_OFF, "SPOILERS_ARM_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_ARM_ON, "SPOILERS_ARM_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_ARM_TOGGLE, "SPOILERS_ARM_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_OFF, "SPOILERS_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_ON, "SPOILERS_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_SPOILERS_TOGGLE, "SPOILERS_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_CROSS_FEED_TOGGLE, "CROSS_FEED_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_BRAKES, "BRAKES");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_GEAR_DOWN, "GEAR_DOWN");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_GEAR_EMERGENCY_HANDLE_TOGGLE, "GEAR_EMERGENCY_HANDLE_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_GEAR_TOGGLE, "GEAR_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_GEAR_UP, "GEAR_UP");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_PARKING_BRAKES, "PARKING_BRAKES");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE, "CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE, "CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_WINDSHIELD_DEICE_OFF, "WINDSHIELD_DEICE_OFF");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_WINDSHIELD_DEICE_ON, "WINDSHIELD_DEICE_ON");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_WINDSHIELD_DEICE_TOGGLE, "WINDSHIELD_DEICE_TOGGLE");
-	SimConnect_MapClientEventToSimEvent(hSimConnect, EVENT_TOGGLE_AVIONICS_MASTER, "TOGGLE_AVIONICS_MASTER");
+// Logs the dwSendID SimConnect actually assigned to this request, so a later
+// SIMCONNECT_RECV_ID_EXCEPTION's dwSendID can be matched back to a specific
+// event/name by reading the log instead of manually counting call order
+// (which is error-prone -- see the FLIGHT_LEVEL_CHANGE misdiagnosis this
+// replaced).
+static void map_client_event(HANDLE hSimConnect, EVENT_ID id, const char* name) {
+	SimConnect_MapClientEventToSimEvent(hSimConnect, id, name);
+	DWORD sendId = 0;
+	SimConnect_GetLastSentPacketID(hSimConnect, &sendId);
+	Logger::logf(Logger::Trace, "Recorder", "MapClientEventToSimEvent(%s) -> SendID=%lu", name, sendId);
+}
 
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_AIRSPEED_HOLD);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_AIRSPEED_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_AIRSPEED_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_ALT_HOLD);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_ALT_HOLD_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_ALT_HOLD_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_APR_HOLD);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_APR_HOLD_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_APR_HOLD_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_HDG_HOLD);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_HDG_HOLD_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_HDG_HOLD_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_MACH_HOLD);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_MACH_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_MACH_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_MASTER);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_ALTITUDE_HOLD);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_ALTITUDE_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_ALTITUDE_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_HEADING_HOLD);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_HEADING_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_HEADING_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_MACH_HOLD);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_MACH_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_MACH_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_SPEED_HOLD);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_SPEED_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_SPEED_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_VS_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_VS_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_VS_HOLD);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_VS_HOLD);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_VS_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_VS_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_SPEED_HOLD_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AP_PANEL_MACH_HOLD_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOPILOT_DISENGAGE_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOPILOT_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOPILOT_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOPILOT_PANEL_AIRSPEED_SET);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLIGHT_LEVEL_CHANGE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLIGHT_LEVEL_CHANGE_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLIGHT_LEVEL_CHANGE_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTO_THROTTLE_ARM);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTO_THROTTLE_TO_GA);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOBRAKE_DISARM);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOBRAKE_HI_SET);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOBRAKE_LO_SET);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_AUTOBRAKE_MED_SET);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_GPWS_SWITCH_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_TOGGLE_FLIGHT_DIRECTOR);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_BLEED_AIR_SOURCE_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_GENERATOR_SWITCH_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_OFF_SWITCH);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_APU_STARTER);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_ANTI_ICE_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_ANTI_ICE_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_ANTI_ICE_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_ANTI_ICE_TOGGLE_ENG1);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_ANTI_ICE_TOGGLE_ENG2);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_THROTTLE_REVERSE_THRUST_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLAPS_DECR);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLAPS_DOWN);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLAPS_INCR);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_FLAPS_UP);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_ARM_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_ARM_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_ARM_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_SPOILERS_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_CROSS_FEED_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_BRAKES);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_GEAR_DOWN);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_GEAR_EMERGENCY_HANDLE_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_GEAR_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_GEAR_UP);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_PARKING_BRAKES);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_WINDSHIELD_DEICE_OFF);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_WINDSHIELD_DEICE_ON);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_WINDSHIELD_DEICE_TOGGLE);
-	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, EVENT_TOGGLE_AVIONICS_MASTER);
+static void add_notification_event(HANDLE hSimConnect, EVENT_ID id) {
+	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, id);
+	DWORD sendId = 0;
+	SimConnect_GetLastSentPacketID(hSimConnect, &sendId);
+	Logger::logf(Logger::Trace, "Recorder", "AddClientEventToNotificationGroup(%s) -> SendID=%lu", EVENT_ID_TXT[id], sendId);
+}
+
+void add_client_events(HANDLE hSimConnect) {
+	map_client_event(hSimConnect, EVENT_AP_AIRSPEED_HOLD, "AP_AIRSPEED_HOLD");
+	map_client_event(hSimConnect, EVENT_AP_AIRSPEED_OFF, "AP_AIRSPEED_OFF");
+	map_client_event(hSimConnect, EVENT_AP_AIRSPEED_ON, "AP_AIRSPEED_ON");
+	map_client_event(hSimConnect, EVENT_AP_ALT_HOLD, "AP_ALT_HOLD");
+	map_client_event(hSimConnect, EVENT_AP_ALT_HOLD_OFF, "AP_ALT_HOLD_OFF");
+	map_client_event(hSimConnect, EVENT_AP_ALT_HOLD_ON, "AP_ALT_HOLD_ON");
+	map_client_event(hSimConnect, EVENT_AP_APR_HOLD, "AP_APR_HOLD");
+	map_client_event(hSimConnect, EVENT_AP_APR_HOLD_OFF, "AP_APR_HOLD_OFF");
+	map_client_event(hSimConnect, EVENT_AP_APR_HOLD_ON, "AP_APR_HOLD_ON");
+	map_client_event(hSimConnect, EVENT_AP_HDG_HOLD, "AP_HDG_HOLD");
+	map_client_event(hSimConnect, EVENT_AP_HDG_HOLD_OFF, "AP_HDG_HOLD_OFF");
+	map_client_event(hSimConnect, EVENT_AP_HDG_HOLD_ON, "AP_HDG_HOLD_ON");
+	map_client_event(hSimConnect, EVENT_AP_MACH_HOLD, "AP_MACH_HOLD");
+	map_client_event(hSimConnect, EVENT_AP_MACH_OFF, "AP_MACH_OFF");
+	map_client_event(hSimConnect, EVENT_AP_MACH_ON, "AP_MACH_ON");
+	map_client_event(hSimConnect, EVENT_AP_MASTER, "AP_MASTER");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_ALTITUDE_HOLD, "AP_PANEL_ALTITUDE_HOLD");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_ALTITUDE_OFF, "AP_PANEL_ALTITUDE_OFF");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_ALTITUDE_ON, "AP_PANEL_ALTITUDE_ON");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_HEADING_HOLD, "AP_PANEL_HEADING_HOLD");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_HEADING_OFF, "AP_PANEL_HEADING_OFF");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_HEADING_ON, "AP_PANEL_HEADING_ON");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_MACH_HOLD, "AP_PANEL_MACH_HOLD");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_MACH_OFF, "AP_PANEL_MACH_OFF");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_MACH_ON, "AP_PANEL_MACH_ON");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_SPEED_HOLD, "AP_PANEL_SPEED_HOLD");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_SPEED_OFF, "AP_PANEL_SPEED_OFF");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_SPEED_ON, "AP_PANEL_SPEED_ON");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_VS_OFF, "AP_PANEL_VS_OFF");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_VS_ON, "AP_PANEL_VS_ON");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_VS_HOLD, "AP_PANEL_VS_HOLD");
+	map_client_event(hSimConnect, EVENT_AP_VS_HOLD, "AP_VS_HOLD");
+	map_client_event(hSimConnect, EVENT_AP_VS_OFF, "AP_VS_OFF");
+	map_client_event(hSimConnect, EVENT_AP_VS_ON, "AP_VS_ON");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_SPEED_HOLD_TOGGLE, "AP_PANEL_SPEED_HOLD_TOGGLE");
+	map_client_event(hSimConnect, EVENT_AP_PANEL_MACH_HOLD_TOGGLE, "AP_PANEL_MACH_HOLD_TOGGLE");
+	map_client_event(hSimConnect, EVENT_AUTOPILOT_DISENGAGE_TOGGLE, "AUTOPILOT_DISENGAGE_TOGGLE");
+	map_client_event(hSimConnect, EVENT_AUTOPILOT_OFF, "AUTOPILOT_OFF");
+	map_client_event(hSimConnect, EVENT_AUTOPILOT_ON, "AUTOPILOT_ON");
+	map_client_event(hSimConnect, EVENT_AUTOPILOT_PANEL_AIRSPEED_SET, "AP_PANEL_SPEED_SET");
+	map_client_event(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE, "FLIGHT_LEVEL_CHANGE");
+	map_client_event(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE_OFF, "FLIGHT_LEVEL_CHANGE_OFF");
+	map_client_event(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE_ON, "FLIGHT_LEVEL_CHANGE_ON");
+	map_client_event(hSimConnect, EVENT_AUTO_THROTTLE_ARM, "AUTO_THROTTLE_ARM");
+	map_client_event(hSimConnect, EVENT_AUTO_THROTTLE_TO_GA, "AUTO_THROTTLE_TO_GA");
+	map_client_event(hSimConnect, EVENT_AUTOBRAKE_DISARM, "AUTOBRAKE_DISARM");
+	map_client_event(hSimConnect, EVENT_AUTOBRAKE_HI_SET, "AUTOBRAKE_HI_SET");
+	map_client_event(hSimConnect, EVENT_AUTOBRAKE_LO_SET, "AUTOBRAKE_LO_SET");
+	map_client_event(hSimConnect, EVENT_AUTOBRAKE_MED_SET, "AUTOBRAKE_MED_SET");
+	map_client_event(hSimConnect, EVENT_GPWS_SWITCH_TOGGLE, "GPWS_SWITCH_TOGGLE");
+	map_client_event(hSimConnect, EVENT_TOGGLE_FLIGHT_DIRECTOR, "TOGGLE_FLIGHT_DIRECTOR");
+	map_client_event(hSimConnect, EVENT_APU_BLEED_AIR_SOURCE_TOGGLE, "APU_BLEED_AIR_SOURCE_TOGGLE");
+	map_client_event(hSimConnect, EVENT_APU_GENERATOR_SWITCH_TOGGLE, "APU_GENERATOR_SWITCH_TOGGLE");
+	map_client_event(hSimConnect, EVENT_APU_OFF_SWITCH, "APU_OFF_SWITCH");
+	map_client_event(hSimConnect, EVENT_APU_STARTER, "APU_STARTER");
+	map_client_event(hSimConnect, EVENT_ANTI_ICE_ON, "ANTI_ICE_ON");
+	map_client_event(hSimConnect, EVENT_ANTI_ICE_OFF, "ANTI_ICE_OFF");
+	map_client_event(hSimConnect, EVENT_ANTI_ICE_TOGGLE, "ANTI_ICE_TOGGLE");
+	map_client_event(hSimConnect, EVENT_ANTI_ICE_TOGGLE_ENG1, "ANTI_ICE_TOGGLE_ENG1");
+	map_client_event(hSimConnect, EVENT_ANTI_ICE_TOGGLE_ENG2, "ANTI_ICE_TOGGLE_ENG2");
+	map_client_event(hSimConnect, EVENT_THROTTLE_REVERSE_THRUST_TOGGLE, "THROTTLE_REVERSE_THRUST_TOGGLE");
+	map_client_event(hSimConnect, EVENT_FLAPS_DECR, "FLAPS_DECR");
+	map_client_event(hSimConnect, EVENT_FLAPS_DOWN, "FLAPS_DOWN");
+	map_client_event(hSimConnect, EVENT_FLAPS_INCR, "FLAPS_INCR");
+	map_client_event(hSimConnect, EVENT_FLAPS_UP, "FLAPS_UP");
+	map_client_event(hSimConnect, EVENT_SPOILERS_ARM_OFF, "SPOILERS_ARM_OFF");
+	map_client_event(hSimConnect, EVENT_SPOILERS_ARM_ON, "SPOILERS_ARM_ON");
+	map_client_event(hSimConnect, EVENT_SPOILERS_ARM_TOGGLE, "SPOILERS_ARM_TOGGLE");
+	map_client_event(hSimConnect, EVENT_SPOILERS_OFF, "SPOILERS_OFF");
+	map_client_event(hSimConnect, EVENT_SPOILERS_ON, "SPOILERS_ON");
+	map_client_event(hSimConnect, EVENT_SPOILERS_TOGGLE, "SPOILERS_TOGGLE");
+	map_client_event(hSimConnect, EVENT_CROSS_FEED_TOGGLE, "CROSS_FEED_TOGGLE");
+	map_client_event(hSimConnect, EVENT_BRAKES, "BRAKES");
+	map_client_event(hSimConnect, EVENT_GEAR_DOWN, "GEAR_DOWN");
+	map_client_event(hSimConnect, EVENT_GEAR_EMERGENCY_HANDLE_TOGGLE, "GEAR_EMERGENCY_HANDLE_TOGGLE");
+	map_client_event(hSimConnect, EVENT_GEAR_TOGGLE, "GEAR_TOGGLE");
+	map_client_event(hSimConnect, EVENT_GEAR_UP, "GEAR_UP");
+	map_client_event(hSimConnect, EVENT_PARKING_BRAKES, "PARKING_BRAKES");
+	map_client_event(hSimConnect, EVENT_CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE, "CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE");
+	map_client_event(hSimConnect, EVENT_CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE, "CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE");
+	map_client_event(hSimConnect, EVENT_WINDSHIELD_DEICE_OFF, "WINDSHIELD_DEICE_OFF");
+	map_client_event(hSimConnect, EVENT_WINDSHIELD_DEICE_ON, "WINDSHIELD_DEICE_ON");
+	map_client_event(hSimConnect, EVENT_WINDSHIELD_DEICE_TOGGLE, "WINDSHIELD_DEICE_TOGGLE");
+	map_client_event(hSimConnect, EVENT_TOGGLE_AVIONICS_MASTER, "TOGGLE_AVIONICS_MASTER");
+
+	add_notification_event(hSimConnect, EVENT_AP_AIRSPEED_HOLD);
+	add_notification_event(hSimConnect, EVENT_AP_AIRSPEED_OFF);
+	add_notification_event(hSimConnect, EVENT_AP_AIRSPEED_ON);
+	add_notification_event(hSimConnect, EVENT_AP_ALT_HOLD);
+	add_notification_event(hSimConnect, EVENT_AP_ALT_HOLD_OFF);
+	add_notification_event(hSimConnect, EVENT_AP_ALT_HOLD_ON);
+	add_notification_event(hSimConnect, EVENT_AP_APR_HOLD);
+	add_notification_event(hSimConnect, EVENT_AP_APR_HOLD_OFF);
+	add_notification_event(hSimConnect, EVENT_AP_APR_HOLD_ON);
+	add_notification_event(hSimConnect, EVENT_AP_HDG_HOLD);
+	add_notification_event(hSimConnect, EVENT_AP_HDG_HOLD_OFF);
+	add_notification_event(hSimConnect, EVENT_AP_HDG_HOLD_ON);
+	add_notification_event(hSimConnect, EVENT_AP_MACH_HOLD);
+	add_notification_event(hSimConnect, EVENT_AP_MACH_OFF);
+	add_notification_event(hSimConnect, EVENT_AP_MACH_ON);
+	add_notification_event(hSimConnect, EVENT_AP_MASTER);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_ALTITUDE_HOLD);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_ALTITUDE_OFF);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_ALTITUDE_ON);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_HEADING_HOLD);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_HEADING_OFF);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_HEADING_ON);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_MACH_HOLD);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_MACH_OFF);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_MACH_ON);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_SPEED_HOLD);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_SPEED_OFF);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_SPEED_ON);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_VS_OFF);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_VS_ON);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_VS_HOLD);
+	add_notification_event(hSimConnect, EVENT_AP_VS_HOLD);
+	add_notification_event(hSimConnect, EVENT_AP_VS_OFF);
+	add_notification_event(hSimConnect, EVENT_AP_VS_ON);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_SPEED_HOLD_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_AP_PANEL_MACH_HOLD_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_AUTOPILOT_DISENGAGE_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_AUTOPILOT_OFF);
+	add_notification_event(hSimConnect, EVENT_AUTOPILOT_ON);
+	add_notification_event(hSimConnect, EVENT_AUTOPILOT_PANEL_AIRSPEED_SET);
+	add_notification_event(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE);
+	add_notification_event(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE_OFF);
+	add_notification_event(hSimConnect, EVENT_FLIGHT_LEVEL_CHANGE_ON);
+	add_notification_event(hSimConnect, EVENT_AUTO_THROTTLE_ARM);
+	add_notification_event(hSimConnect, EVENT_AUTO_THROTTLE_TO_GA);
+	add_notification_event(hSimConnect, EVENT_AUTOBRAKE_DISARM);
+	add_notification_event(hSimConnect, EVENT_AUTOBRAKE_HI_SET);
+	add_notification_event(hSimConnect, EVENT_AUTOBRAKE_LO_SET);
+	add_notification_event(hSimConnect, EVENT_AUTOBRAKE_MED_SET);
+	add_notification_event(hSimConnect, EVENT_GPWS_SWITCH_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_TOGGLE_FLIGHT_DIRECTOR);
+	add_notification_event(hSimConnect, EVENT_APU_BLEED_AIR_SOURCE_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_APU_GENERATOR_SWITCH_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_APU_OFF_SWITCH);
+	add_notification_event(hSimConnect, EVENT_APU_STARTER);
+	add_notification_event(hSimConnect, EVENT_ANTI_ICE_ON);
+	add_notification_event(hSimConnect, EVENT_ANTI_ICE_OFF);
+	add_notification_event(hSimConnect, EVENT_ANTI_ICE_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_ANTI_ICE_TOGGLE_ENG1);
+	add_notification_event(hSimConnect, EVENT_ANTI_ICE_TOGGLE_ENG2);
+	add_notification_event(hSimConnect, EVENT_THROTTLE_REVERSE_THRUST_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_FLAPS_DECR);
+	add_notification_event(hSimConnect, EVENT_FLAPS_DOWN);
+	add_notification_event(hSimConnect, EVENT_FLAPS_INCR);
+	add_notification_event(hSimConnect, EVENT_FLAPS_UP);
+	add_notification_event(hSimConnect, EVENT_SPOILERS_ARM_OFF);
+	add_notification_event(hSimConnect, EVENT_SPOILERS_ARM_ON);
+	add_notification_event(hSimConnect, EVENT_SPOILERS_ARM_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_SPOILERS_OFF);
+	add_notification_event(hSimConnect, EVENT_SPOILERS_ON);
+	add_notification_event(hSimConnect, EVENT_SPOILERS_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_CROSS_FEED_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_BRAKES);
+	add_notification_event(hSimConnect, EVENT_GEAR_DOWN);
+	add_notification_event(hSimConnect, EVENT_GEAR_EMERGENCY_HANDLE_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_GEAR_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_GEAR_UP);
+	add_notification_event(hSimConnect, EVENT_PARKING_BRAKES);
+	add_notification_event(hSimConnect, EVENT_CABIN_NO_SMOKING_ALERT_SWITCH_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_CABIN_SEATBELTS_ALERT_SWITCH_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_WINDSHIELD_DEICE_OFF);
+	add_notification_event(hSimConnect, EVENT_WINDSHIELD_DEICE_ON);
+	add_notification_event(hSimConnect, EVENT_WINDSHIELD_DEICE_TOGGLE);
+	add_notification_event(hSimConnect, EVENT_TOGGLE_AVIONICS_MASTER);
 }
 
 void stop_recording(struct STATUS* status) {
-	gui_log_printf(status, GUI_LOG_TRACE, "stop_recording: trip=%d, last_sample=%s\n",
+	gui_log_printf(status, GUI_LOG_TRACE, "stop_recording: trip=%d, last_sample=%s",
 		status->id_trip, status->last_sample != NULL ? "present" : "none");
 	status->recording = FALSE;
+	status->no_trip_events_logged.clear();
 	// Destination lat/lon was written at each touchdown; only the arrival time
 	// (engine shutdown) is set here — consistent with departure time being engine start.
 	// last_sample is NULL if the trip ended before a single sample was ever
@@ -557,19 +578,31 @@ void stop_recording(struct STATUS* status) {
 	// one sample interval) -- there's no flight data to source a destination
 	// time from, so leave those columns unset instead of dereferencing NULL.
 	if (status->last_sample != NULL) {
-		db_insert_update_table(
-			status->sql,
-			"UPDATE trips SET destination_zulu_time=?,destination_local_time=? WHERE id=?;",
-			status->last_sample,
-			status,
-			NULL,
-			[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-				struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
-				db_bind(stmt, stmt_txt, 1, pS->time_zulu.format_date_time().c_str());
-				db_bind(stmt, stmt_txt, 2, pS->time_local.format_date_time().c_str());
-				db_bind(stmt, stmt_txt, 3, status->id_trip);
-			}
-		);
+		// Caught, not left to propagate: everything below this point (freeing
+		// touchdown_data, resetting id_trip, pushing the end-of-trip barrier)
+		// must still run even if this UPDATE fails, or the next trip to start
+		// inherits this one's dangling touchdown list/id_trip. Two of this
+		// function's three callers (RecorderBridge destructor/shutdown()) have
+		// no try/catch of their own, so an uncaught db_exception here would
+		// otherwise crash the app on quit instead of just losing one UPDATE.
+		try {
+			db_insert_update_table(
+				status->sql,
+				"UPDATE trips SET destination_zulu_time=?,destination_local_time=? WHERE id=?;",
+				status->last_sample,
+				status,
+				NULL,
+				[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+					struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
+					db_bind(stmt, stmt_txt, 1, pS->time_zulu.format_date_time().c_str());
+					db_bind(stmt, stmt_txt, 2, pS->time_local.format_date_time().c_str());
+					db_bind(stmt, stmt_txt, 3, status->id_trip);
+				}
+			);
+		} catch (const db_exception& e) {
+			gui_log_printf(status, GUI_LOG_WARNING, "stop_recording: failed to write destination time (trip %d): %s",
+				status->id_trip, e.message.c_str());
+		}
 	}
 	// trip_touchdowns rows were already inserted at touchdown time; just free the list.
 	while (status->touchdown_data != NULL) {
@@ -590,8 +623,11 @@ void stop_recording(struct STATUS* status) {
 	// Marks this trip as still-draining until db_write_worker processes the
 	// barrier pushed below, so the UI can keep treating it as undeletable even
 	// though id_trip (reset next) will already say no trip is live -- see
-	// flushing_trip_id in types.h.
-	status->flushing_trip_id.store(ended_trip_id, std::memory_order_release);
+	// flushing_trip_ids in types.h.
+	{
+		std::lock_guard<std::mutex> lock(status->flushing_trip_ids_mutex);
+		status->flushing_trip_ids.insert(ended_trip_id);
+	}
 	// Reset id_trip synchronously (not from the worker thread) so a new trip
 	// starting right after this one can never have its dispatch-callback event
 	// logging (see the id_trip > 0 gate above) mistaken for the ended trip's.
@@ -630,7 +666,7 @@ static void request_next_touchdown_facility_lookup(struct STATUS* status) {
 	if (status->facility_lookup_pending)
 		return;
 	if (status->facility_lookup_departure_needed) {
-		gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up deferred departure lookup (trip %d)\n", status->id_trip);
+		gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up deferred departure lookup (trip %d)", status->id_trip);
 		status->facility_lookup_departure_needed = FALSE;
 		status->facility_lookup_pending = TRUE;
 		status->facility_lookup_trip_id = status->id_trip;
@@ -645,7 +681,7 @@ static void request_next_touchdown_facility_lookup(struct STATUS* status) {
 		next = next->next;
 	if (next == NULL)
 		return;
-	gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up queued touchdown lookup (trip %d)\n", status->id_trip);
+	gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up queued touchdown lookup (trip %d)", status->id_trip);
 	status->facility_lookup_pending = TRUE;
 	status->facility_lookup_trip_id = status->id_trip;
 	status->facility_lookup_coordinate = next->flight_data.coordinate;
@@ -659,11 +695,11 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 	try {
 	switch (pData->dwID) {
 	case SIMCONNECT_RECV_ID_OPEN:
-		gui_log_printf(status, GUI_LOG_INFO, "Connected to Microsoft Flight Simulator\n");
+		gui_log_printf(status, GUI_LOG_INFO, "Connected to Microsoft Flight Simulator");
 		gui_notify_connection_changed(status, true);
 		break;
 	case SIMCONNECT_RECV_ID_QUIT:
-		gui_log_printf(status, GUI_LOG_INFO, "Disconnected from Microsoft Flight Simulator\n");
+		gui_log_printf(status, GUI_LOG_INFO, "Disconnected from Microsoft Flight Simulator");
 		gui_notify_connection_changed(status, false);
 		status->quit = TRUE;
 		break;
@@ -684,7 +720,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			status->paused = (bool)evt->dwData;
 			break;
 		case EVENT_CRASHED:
-			gui_log_printf(status, GUI_LOG_WARNING, "Plane crashed!\n");
+			gui_log_printf(status, GUI_LOG_WARNING, "Plane crashed!");
 			break;
 		case EVENT_BRAKES:
 		case EVENT_AP_AIRSPEED_HOLD:
@@ -771,18 +807,22 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		case EVENT_WINDSHIELD_DEICE_TOGGLE:
 		case EVENT_TOGGLE_AVIONICS_MASTER:
 			if (status->id_trip > 0 && !is_skipped_event(status, EVENT_ID_TXT[evt->uEventID])) {
-				gui_log_printf(status, GUI_LOG_INFO, "Event: %s\n", EVENT_ID_TXT[evt->uEventID]);
+				gui_log_printf(status, GUI_LOG_INFO, "Event: %s", EVENT_ID_TXT[evt->uEventID]);
 				std::string tz = status->data.time_zulu.format_date_time();
 				std::string tl = status->data.time_local.format_date_time();
 				db_insert_event(status, EVENT_ID_TXT[evt->uEventID], tz.c_str(), tl.c_str());
 			} else if (status->id_trip > 0) {
-				gui_log_printf(status, GUI_LOG_TRACE, "Event skipped (in skip_events list): %s\n", EVENT_ID_TXT[evt->uEventID]);
+				if (status->skip_events_logged.insert(EVENT_ID_TXT[evt->uEventID]).second) {
+					gui_log_printf(status, GUI_LOG_TRACE, "Event skipped (in skip_events list): %s (further occurrences won't be logged)", EVENT_ID_TXT[evt->uEventID]);
+				}
 			} else {
-				gui_log_printf(status, GUI_LOG_TRACE, "Event ignored (no active trip): %s\n", EVENT_ID_TXT[evt->uEventID]);
+				if (status->no_trip_events_logged.insert(EVENT_ID_TXT[evt->uEventID]).second) {
+					gui_log_printf(status, GUI_LOG_TRACE, "Event ignored (no active trip): %s (further occurrences won't be logged)", EVENT_ID_TXT[evt->uEventID]);
+				}
 			}
 			break;
 		default:
-			gui_log_printf(status, GUI_LOG_WARNING, "Unknown event ID: %ld\n", evt->uEventID);
+			gui_log_printf(status, GUI_LOG_WARNING, "Unknown event ID: %ld", evt->uEventID);
 			break;
 		}
 	}
@@ -804,6 +844,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			tmp.plane_pitch_degrees = -tmp.plane_pitch_degrees;
 			tmp.plane_touchdown_pitch_degrees = -tmp.plane_touchdown_pitch_degrees;
 			tmp.plane_bank_degrees = -tmp.plane_bank_degrees;
+			tmp.plane_touchdown_bank_degrees = -tmp.plane_touchdown_bank_degrees;
 			status->data.altitude = (int)tmp.plane_altitude;
 			status->data.heading = (int)tmp.plane_heading_degrees_magnetic;
 			status->data.speed = (int)tmp.airspeed_indicated;
@@ -817,6 +858,14 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			if (tmp.radio_height > 50 && tmp.radio_height < 100) {
 				status->loc_dh.latitude = tmp.plane_coordinate.latitude;
 				status->loc_dh.longitude = tmp.plane_coordinate.longitude;
+				// First such crossing after this trip's takeoff freezes the
+				// departure's own snapshot -- see facility_lookup_departure_loc_dh
+				// in types.h for why status->loc_dh itself can't be trusted once
+				// this departure's lookup is deferred/queued.
+				if (status->departure_lookup_initiated && status->facility_lookup_departure_loc_dh.latitude == 360) {
+					status->facility_lookup_departure_loc_dh.latitude = tmp.plane_coordinate.latitude;
+					status->facility_lookup_departure_loc_dh.longitude = tmp.plane_coordinate.longitude;
+				}
 			}
 			if (status->sim_running && !status->paused && tmp.surface_type != 255) {
 				status->in_sim = TRUE;
@@ -824,7 +873,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					if ((bool)tmp.eng_combustion_1 || (bool)tmp.eng_combustion_2) {
 						if (!status->recording) {
 							status->recording = TRUE;
-							gui_log_printf(status, GUI_LOG_INFO, "Recording started\n");
+							gui_log_printf(status, GUI_LOG_INFO, "Recording started");
 
 							// No queue state to reset here -- sample_write_queue is shared
 							// across trips by design (see stop_recording()'s end-of-trip
@@ -838,6 +887,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 
 							status->departure.clear();
 							status->destination.clear();
+							status->departure_lookup_initiated = FALSE;
 							// A go-around or bounced landing from a previous trip can leave
 							// this set (only cleared when a facility lookup actually
 							// completes -- see FacilityLookupCleanup below) without ever
@@ -846,41 +896,54 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 							// samples would attribute this trip's departure runway bearing
 							// to the previous trip's stale position.
 							status->loc_dh.clear();
+							status->facility_lookup_departure_loc_dh.clear();
 							status->airborne = !(bool)tmp.sim_on_ground;
 
-							db_insert_update_table(
-								status->sql,
-								"INSERT INTO trips ("
-								"title,"
-								"atc_airline,"
-								"atc_flight_number,"
-								"atc_id,"
-								"atc_model,"
-								"atc_type,"
-								"departure_latitude,"
-								"departure_longitude,"
-								"departure_zulu_time,"
-								"departure_local_time"
-								") VALUES (?,?,?,?,?,?,?,?,?,?);",
-								&tmp,
-								status,
-								NULL,
-								[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-									struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
-									db_bind(stmt, stmt_txt, 1, pS->title);
-									db_bind(stmt, stmt_txt, 2, pS->atc_airline);
-									db_bind(stmt, stmt_txt, 3, pS->atc_flight_number);
-									db_bind(stmt, stmt_txt, 4, pS->atc_id);
-									db_bind(stmt, stmt_txt, 5, pS->atc_model);
-									db_bind(stmt, stmt_txt, 6, pS->atc_type);
-									db_bind(stmt, stmt_txt, 7, pS->plane_coordinate.latitude);
-									db_bind(stmt, stmt_txt, 8, pS->plane_coordinate.longitude);
-									db_bind(stmt, stmt_txt, 9, pS->time_zulu.format_date_time().c_str());
-									db_bind(stmt, stmt_txt, 10, pS->time_local.format_date_time().c_str());
-								},
-								&status->id_trip
-							);
-							gui_notify_recording_changed(status, true, status->id_trip);
+							// If this throws, status->id_trip is never assigned -- recording
+							// must not stay TRUE in that case, or every sample from here on
+							// gets tagged with whatever stale id_trip was left over (-1, or
+							// an already-ended previous trip) instead of a real one. Reverting
+							// to FALSE makes this same block retry on the next sample tick
+							// (engine/on-ground state is unchanged) rather than silently
+							// recording under the wrong trip for the rest of the flight.
+							try {
+								db_insert_update_table(
+									status->sql,
+									"INSERT INTO trips ("
+									"title,"
+									"atc_airline,"
+									"atc_flight_number,"
+									"atc_id,"
+									"atc_model,"
+									"atc_type,"
+									"departure_latitude,"
+									"departure_longitude,"
+									"departure_zulu_time,"
+									"departure_local_time"
+									") VALUES (?,?,?,?,?,?,?,?,?,?);",
+									&tmp,
+									status,
+									NULL,
+									[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+										struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
+										db_bind(stmt, stmt_txt, 1, pS->title);
+										db_bind(stmt, stmt_txt, 2, pS->atc_airline);
+										db_bind(stmt, stmt_txt, 3, pS->atc_flight_number);
+										db_bind(stmt, stmt_txt, 4, pS->atc_id);
+										db_bind(stmt, stmt_txt, 5, pS->atc_model);
+										db_bind(stmt, stmt_txt, 6, pS->atc_type);
+										db_bind(stmt, stmt_txt, 7, pS->plane_coordinate.latitude);
+										db_bind(stmt, stmt_txt, 8, pS->plane_coordinate.longitude);
+										db_bind(stmt, stmt_txt, 9, pS->time_zulu.format_date_time().c_str());
+										db_bind(stmt, stmt_txt, 10, pS->time_local.format_date_time().c_str());
+									},
+									&status->id_trip
+								);
+								gui_notify_recording_changed(status, true, status->id_trip);
+							} catch (const db_exception& e) {
+								status->recording = FALSE;
+								gui_log_printf(status, GUI_LOG_WARNING, "Recording start failed (trip insert): %s", e.message.c_str());
+							}
 						}
 					} else {
 						if (status->recording)
@@ -890,14 +953,24 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			}
 			if (status->recording && !status->paused) {
 				// Takeoff
-				if (!(bool)tmp.sim_on_ground && !status->airborne && status->departure.runway_act.index == -1) {
+				// Guarded by departure_lookup_initiated (set right below), not by
+				// departure.runway_act.index == -1 -- that field only flips once the
+				// departure lookup actually *resolves*, so a touch-and-go (or several
+				// full-stop taxi-back-and-takeoffs) occurring before a slow lookup
+				// resolves would otherwise still see -1 and be mistaken for a fresh
+				// departure. See departure_lookup_initiated in types.h.
+				if (!(bool)tmp.sim_on_ground && !status->airborne && !status->departure_lookup_initiated) {
+					status->departure_lookup_initiated = TRUE;
 					// Captured now (the actual takeoff moment) regardless of whether
 					// the lookup fires immediately below or is deferred -- see
 					// facility_lookup_departure_coordinate in types.h.
 					status->facility_lookup_departure_coordinate = status->data.coordinate;
 					status->facility_lookup_departure_heading = status->data.heading;
+					gui_log_printf(status, GUI_LOG_TRACE, "Takeoff detected (trip %d): lat=%.6f, lon=%.6f, heading=%.1f",
+						status->id_trip, status->facility_lookup_departure_coordinate.latitude,
+						status->facility_lookup_departure_coordinate.longitude, status->facility_lookup_departure_heading);
 					if (!status->facility_lookup_pending) {
-						gui_log_printf(status, GUI_LOG_TRACE, "Takeoff detected (trip %d); requesting departure facility lookup\n", status->id_trip);
+						gui_log_printf(status, GUI_LOG_TRACE, "Requesting departure facility lookup (trip %d)", status->id_trip);
 						status->facility_lookup_pending = TRUE;
 						status->facility_lookup_trip_id = status->id_trip;
 						status->facility_lookup_coordinate = status->facility_lookup_departure_coordinate;
@@ -909,16 +982,18 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						// facility_lookup_departure_needed in types.h) -- this
 						// takeoff only fires once per trip, so if the request is
 						// skipped now it must be retried later rather than lost.
-						gui_log_printf(status, GUI_LOG_TRACE, "Takeoff detected (trip %d); deferring departure facility lookup (another lookup in flight)\n", status->id_trip);
+						gui_log_printf(status, GUI_LOG_TRACE, "Deferring departure facility lookup (trip %d): another lookup in flight", status->id_trip);
 						status->facility_lookup_departure_needed = TRUE;
 					}
 				}
 				// Landing
 				if ((bool)tmp.sim_on_ground && status->airborne) {
-					gui_log_printf(status, GUI_LOG_TRACE, "Touchdown detected (trip %d)\n", status->id_trip);
+					gui_log_printf(status, GUI_LOG_TRACE, "Touchdown detected (trip %d): lat=%.6f, lon=%.6f, heading=%d",
+						status->id_trip, tmp.plane_coordinate.latitude, tmp.plane_coordinate.longitude,
+						(int)tmp.plane_heading_degrees_magnetic);
 					struct TOUCHDOWN_DATA* tmp_touchdown = (struct TOUCHDOWN_DATA*)malloc(sizeof(struct TOUCHDOWN_DATA));
 					if (tmp_touchdown == NULL) {
-						gui_log_printf(status, GUI_LOG_WARNING, "Landing: malloc failed for touchdown record; this touchdown will not be recorded\n");
+						gui_log_printf(status, GUI_LOG_WARNING, "Landing: malloc failed for touchdown record; this touchdown will not be recorded");
 						status->airborne = !(bool)tmp.sim_on_ground;
 						break;
 					}
@@ -952,6 +1027,10 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					status->touchdown_data_end->flight_data.coordinate.longitude = tmp.plane_coordinate.longitude;
 					status->touchdown_data_end->flight_data.time_zulu = tmp.time_zulu;
 					status->touchdown_data_end->flight_data.time_local = tmp.time_local;
+					// Freeze this touchdown's own low-altitude position now -- see
+					// TOUCHDOWN_DATA::loc_dh in types.h for why status->loc_dh itself
+					// can't be trusted once this touchdown's facility lookup is queued.
+					status->touchdown_data_end->loc_dh = status->loc_dh;
 					status->touchdown_data_end->airport.runway_act.distances[0] = -1;
 					// Insert immediately so the row survives a crash before stop_recording.
 					// Airport/runway fields are NULL until the facility callback resolves.
@@ -980,6 +1059,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						},
 						&status->touchdown_data_end->db_id
 					);
+					gui_log_printf(status, GUI_LOG_TRACE, "Touchdown trip_touchdowns row inserted: db_id=%d", status->touchdown_data_end->db_id);
 					// Update the destination position in trips to reflect this landing.
 					db_insert_update_table(status->sql,
 						"UPDATE trips SET destination_latitude=?,destination_longitude=? WHERE id=?;",
@@ -1008,7 +1088,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				if (delta_s >= status->sample_interval_ms / 1000.0) {
 					struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)malloc(sizeof(struct FLIGHT_DATA_RECORD));
 					if (pS == NULL) {
-						gui_log_printf(status, GUI_LOG_WARNING, "malloc failed for sample record; dropping this sample\n");
+						gui_log_printf(status, GUI_LOG_WARNING, "malloc failed for sample record; dropping this sample");
 						break;
 					}
 					memset(pS, 0, sizeof(struct FLIGHT_DATA_RECORD));
@@ -1025,14 +1105,14 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					if (status->last_sample != NULL)
 						memcpy(status->last_sample, pS, sizeof(struct FLIGHT_DATA_RECORD));
 					else
-						gui_log_printf(status, GUI_LOG_WARNING, "malloc failed for last_sample cache; next delta_s will use the default interval\n");
+						gui_log_printf(status, GUI_LOG_WARNING, "malloc failed for last_sample cache; next delta_s will use the default interval");
 					status->sample_write_queue.push(pS, status->id_trip);
 				}
 			}
 		}
 		break;
 		default:
-			gui_log_printf(status, GUI_LOG_WARNING, "SIMCONNECT_RECV_SIMOBJECT_DATA: %d\n", pObjData->dwRequestID);
+			gui_log_printf(status, GUI_LOG_WARNING, "SIMCONNECT_RECV_SIMOBJECT_DATA: %d", pObjData->dwRequestID);
 			break;
 		}
 	}
@@ -1042,41 +1122,76 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		// Drop responses for a lookup issued by a trip that has since ended --
 		// id_trip only ever changes on this same dispatch thread (stop_recording()/
 		// new-trip-start), so this comparison is race-free. Applying it now would
-		// write stale airport data into whatever trip is active today. Since no
-		// FACILITY_DATA_END will follow if we bail out here (that only fires after
-		// RequestFacilityData_EX1 below, which we're about to skip), this is the
-		// only place that needs to clear facility_lookup_pending for this path.
+		// write stale airport data into whatever trip is active today. A large
+		// facility list is split across multiple AIRPORT_LIST callbacks sharing
+		// one request (see dwEntryNumber/dwOutOf below) -- only run the
+		// pending-clear + next-lookup cleanup once, on the last chunk, so an
+		// earlier chunk's cleanup can't race a lookup it just started back into
+		// "not pending" while that new lookup is genuinely still in flight.
 		if (status->facility_lookup_trip_id != status->id_trip) {
-			status->facility_lookup_pending = FALSE;
-			// Same reason as every other terminal path below: a touchdown/departure
-			// lookup may have been queued behind this (now-stale) one and would
-			// otherwise sit stranded until some unrelated lookup happens to drain it.
-			request_next_touchdown_facility_lookup(status);
+			SIMCONNECT_RECV_AIRPORT_LIST* pStaleData = (SIMCONNECT_RECV_AIRPORT_LIST*)pData;
+			if (pStaleData->dwEntryNumber + 1 == pStaleData->dwOutOf) {
+				status->facility_lookup_pending = FALSE;
+				// Same reason as every other terminal path below: a touchdown/departure
+				// lookup may have been queued behind this (now-stale) one and would
+				// otherwise sit stranded until some unrelated lookup happens to drain it.
+				request_next_touchdown_facility_lookup(status);
+			}
 			break;
 		}
 		SIMCONNECT_RECV_AIRPORT_LIST* pWxData = (SIMCONNECT_RECV_AIRPORT_LIST*)pData;
-		int min_index = -1;
-		double min_distance = 100000;
+		// SimConnect splits a large facility list (e.g. every airport in loaded
+		// scenery, 1000+ entries) across multiple AIRPORT_LIST callbacks that
+		// share one request (dwEntryNumber counts 0..dwOutOf-1). Deciding
+		// "nearest airport" independently per chunk is wrong -- a later chunk
+		// that happens to contain only distant airports would conclude "not
+		// found" and terminate/overwrite the lookup a second time while the
+		// real match from an earlier chunk was still being resolved. Instead,
+		// accumulate the running top-N nearest across all chunks in status,
+		// and only act once the last chunk has been folded in.
+		if (pWxData->dwEntryNumber == 0) {
+			for (int k = 0; k < STATUS::FACILITY_LIST_TOP_N; k++) {
+				status->facility_lookup_top[k].distance = 1e9;
+				status->facility_lookup_top[k].ident[0] = '\0';
+				status->facility_lookup_top[k].region[0] = '\0';
+			}
+		}
 		for (int i = 0; i < (int)pWxData->dwArraySize; i++) {
 			struct SIMCONNECT_DATA_FACILITY_AIRPORT airport = pWxData->rgData[i];
 			COORDINATE airport_loc;
 			airport_loc.latitude = airport.Latitude;
 			airport_loc.longitude = airport.Longitude;
 			double distance = abs(status->facility_lookup_coordinate.distanceInKm2Coordinate(airport_loc));
-			if (distance <= min_distance) {
-				min_distance = distance;
-				min_index = i;
+			if (distance < status->facility_lookup_top[STATUS::FACILITY_LIST_TOP_N - 1].distance) {
+				int pos = STATUS::FACILITY_LIST_TOP_N - 1;
+				while (pos > 0 && status->facility_lookup_top[pos - 1].distance > distance) {
+					status->facility_lookup_top[pos] = status->facility_lookup_top[pos - 1];
+					pos--;
+				}
+				status->facility_lookup_top[pos].distance = distance;
+				strncpy(status->facility_lookup_top[pos].ident, airport.Ident, sizeof(status->facility_lookup_top[pos].ident) - 1);
+				status->facility_lookup_top[pos].ident[sizeof(status->facility_lookup_top[pos].ident) - 1] = '\0';
+				strncpy(status->facility_lookup_top[pos].region, airport.Region, sizeof(status->facility_lookup_top[pos].region) - 1);
+				status->facility_lookup_top[pos].region[sizeof(status->facility_lookup_top[pos].region) - 1] = '\0';
 			}
 		}
+		// Wait for the rest of the (possibly multi-chunk) list before deciding.
+		if (pWxData->dwEntryNumber + 1 < pWxData->dwOutOf)
+			break;
+		for (int k = 0; k < STATUS::FACILITY_LIST_TOP_N && status->facility_lookup_top[k].ident[0] != '\0'; k++) {
+			gui_log_printf(status, GUI_LOG_TRACE, "AIRPORT_LIST nearest #%d: %s (%s) at %.2f km",
+				k + 1, status->facility_lookup_top[k].ident, status->facility_lookup_top[k].region, status->facility_lookup_top[k].distance);
+		}
+		double min_distance = status->facility_lookup_top[0].distance;
 		if (min_distance < 5) {
-			char* ident = pWxData->rgData[min_index].Ident;
-			char* region = pWxData->rgData[min_index].Region;
+			char* ident = status->facility_lookup_top[0].ident;
+			char* region = status->facility_lookup_top[0].region;
 			AIRPORT* apt = (status->departure.runway_act.index == -1) ? &status->departure : &status->destination;
 			strncpy(apt->icao, ident, sizeof(apt->icao) - 1);
 			apt->icao[sizeof(apt->icao) - 1] = '\0';
 			strncpy(apt->region, region, sizeof(apt->region) - 1);
 			apt->region[sizeof(apt->region) - 1] = '\0';
-			gui_log_printf(status, GUI_LOG_INFO, "Requesting facility data for %s (%s) into %s slot\n",
+			gui_log_printf(status, GUI_LOG_TRACE, "Requesting facility data for %s (%s) into %s slot",
 				apt->icao, apt->region, (apt == &status->departure) ? "departure" : "destination");
 			// The definition's fields are server-side, per-connection state -- only
 			// need to be registered once per connection, not once per lookup (see
@@ -1103,14 +1218,15 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			SimConnect_RequestFacilityData_EX1(status->hSimConnect, DEFINITION_RUNWAYS, REQUEST_RUNWAYS, ident, region);
 			SimConnect_GetLastSentPacketID(status->hSimConnect, &status->facility_lookup_send_id);
 		} else {
+			gui_log_printf(status, GUI_LOG_TRACE, "AIRPORT_LIST: nearest airport %.2f km away exceeds 5km threshold; using coordinate-only fallback", min_distance);
 			if (status->departure.runway_act.index == -1) {
-				gui_log_printf(status, GUI_LOG_INFO, "Takeoff from %s, %s at %s\n",
+				gui_log_printf(status, GUI_LOG_INFO, "Takeoff from %s, %s at %s",
 					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
 					status->data.time_local.format_date_time().c_str());
 				status->departure.runway_act.index = -2;
 			} else {
-				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s, %s\n",
+				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s, %s",
 					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str());
 				db_insert_update_table(status->sql,
@@ -1153,7 +1269,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			AIRPORT* tmp = (status->departure.runway_act.index == -1) ? &status->departure : &status->destination;
 			memcpy(tmp, &pWxData->Data, sizeof(tmp->name) + sizeof(tmp->magvar) + sizeof(tmp->n_runways));
 			if (tmp->n_runways < 0) {
-				gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_AIRPORT: negative n_runways=%d from sim; treating as 0 runways\n", tmp->n_runways);
+				gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_AIRPORT: negative n_runways=%d from sim; treating as 0 runways", tmp->n_runways);
 				tmp->n_runways = 0;
 			}
 			// calloc, not malloc: any slot whose SIMCONNECT_FACILITY_DATA_RUNWAY
@@ -1163,10 +1279,10 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			// slots unconditionally.
 			tmp->runways = (RUNWAY*)calloc((size_t)tmp->n_runways, sizeof(RUNWAY));
 			if (tmp->runways == NULL) {
-				gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_AIRPORT: malloc failed for %d runways; treating as 0 runways\n", tmp->n_runways);
+				gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_AIRPORT: malloc failed for %d runways; treating as 0 runways", tmp->n_runways);
 				tmp->n_runways = 0;
 			}
-			gui_log_printf(status, GUI_LOG_INFO, "FACILITY_DATA_AIRPORT: %s slot, name=%s, n_runways=%d\n",
+			gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_AIRPORT: %s slot, name=%s, n_runways=%d",
 				(tmp == &status->departure) ? "departure" : "destination", tmp->name, tmp->n_runways);
 		}
 		break;
@@ -1175,14 +1291,14 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			bool is_departure = (status->departure.runway_act.index == -1);
 			AIRPORT* apt = is_departure ? &status->departure : &status->destination;
 			RUNWAY* rep = apt->runways;
-			gui_log_printf(status, GUI_LOG_INFO, "FACILITY_DATA_RUNWAY: %s slot, ItemIndex=%lu, n_runways=%d\n",
+			gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_RUNWAY: %s slot, ItemIndex=%lu, n_runways=%d",
 				is_departure ? "departure" : "destination", pWxData->ItemIndex, apt->n_runways);
 			// apt->n_runways is guaranteed >= 0 (clamped in FACILITY_DATA_AIRPORT
 			// above); ItemIndex is unsigned, so comparing it directly against a
 			// non-negative n_runways (rather than casting ItemIndex down to a
 			// possibly-negative int) can't be bypassed by an out-of-range ItemIndex.
 			if (rep == NULL || pWxData->ItemIndex >= (unsigned int)apt->n_runways) {
-				gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_RUNWAY: no runways buffer for ItemIndex=%lu; dropping\n", pWxData->ItemIndex);
+				gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_RUNWAY: no runways buffer for ItemIndex=%lu; dropping", pWxData->ItemIndex);
 				break;
 			}
 			memset(&rep[pWxData->ItemIndex], 0, sizeof(RUNWAY));
@@ -1206,12 +1322,21 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		struct FacilityLookupCleanup {
 			AIRPORT* rep;
 			struct STATUS* status;
+			// Set once this response is known to be a stale one (issued by a
+			// trip that has since ended). rep may already belong to a
+			// newly-started trip's departure/destination slot in that case, and
+			// so may status->loc_dh already hold that new trip's own
+			// legitimately captured low-altitude position -- clearing it here
+			// would silently discard it and degrade the new trip's own
+			// runway-bearing match.
+			bool stale = false;
 			~FacilityLookupCleanup() {
 				if (rep->runways != NULL) {
 					free(rep->runways);
 					rep->runways = NULL;
 				}
-				status->loc_dh.clear();
+				if (!stale)
+					status->loc_dh.clear();
 				status->facility_lookup_pending = FALSE;
 				// Pick up a touchdown that landed while this lookup was still in
 				// flight and had its own request skipped -- see
@@ -1225,20 +1350,46 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		// may already belong to a newly-started trip's (freshly cleared) departure/
 		// destination slot at this point, so nothing below may touch it.
 		if (status->facility_lookup_trip_id != status->id_trip) {
-			gui_log_printf(status, GUI_LOG_INFO, "Dropping stale facility lookup response for trip %d (current trip %d)\n",
+			gui_log_printf(status, GUI_LOG_TRACE, "Dropping stale facility lookup response for trip %d (current trip %d)",
 				status->facility_lookup_trip_id, status->id_trip);
+			cleanup_guard.stale = true;
 			break;
 		}
-		gui_log_printf(status, GUI_LOG_INFO, "FACILITY_DATA_END: %s slot, icao=%s, n_runways=%d\n",
+		gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_END: %s slot, icao=%s, n_runways=%d",
 			(rep == &status->departure) ? "departure" : "destination", rep->icao, rep->n_runways);
 		double bearing_tra = (double)status->facility_lookup_heading - rep->magvar;
 		if (bearing_tra <= 0)
 			bearing_tra += 360;
-		if (status->loc_dh.latitude != 360)
-			bearing_tra = status->loc_dh.bearing2Coordinate(status->facility_lookup_coordinate);
+		// For a destination/touchdown lookup, use that touchdown's own frozen
+		// loc_dh snapshot (see TOUCHDOWN_DATA::loc_dh in types.h); for a
+		// departure lookup, use this trip's own frozen departure snapshot (see
+		// facility_lookup_departure_loc_dh in types.h) -- either one instead of
+		// the shared, continuously-overwritten status->loc_dh, which a later
+		// crossing (a touch-and-go's climb-out, a go-around's second approach,
+		// this trip's own eventual landing) could otherwise have clobbered
+		// while this lookup was still queued behind an earlier one.
+		COORDINATE* loc_dh_source = &status->loc_dh;
+		if (rep == &status->destination) {
+			struct TOUCHDOWN_DATA* pending = status->touchdown_data;
+			while (pending != NULL && pending->airport.runway_act.distances[0] != -1)
+				pending = pending->next;
+			if (pending != NULL)
+				loc_dh_source = &pending->loc_dh;
+		} else {
+			loc_dh_source = &status->facility_lookup_departure_loc_dh;
+		}
+		if (loc_dh_source->latitude != 360)
+			bearing_tra = loc_dh_source->bearing2Coordinate(status->facility_lookup_coordinate);
+		gui_log_printf(status, GUI_LOG_TRACE, "Runway match: bearing_tra=%.1f (%s), evaluating %d runway(s) for %s slot",
+			bearing_tra, (loc_dh_source->latitude != 360) ? "loc_dh-based" : "heading-based",
+			rep->n_runways, (rep == &status->departure) ? "departure" : "destination");
 		std::vector<struct RUNWAY_OPERATION> candidates;
 		for (int i = 0; i < rep->n_runways; i++) {
 			RUNWAY* rwy = &rep->runways[i];
+			// Human-readable "06L/24R"-style id for trace output -- numbers[]/
+			// designators[] alone (e.g. 6/24) don't carry the leading zero or
+			// the L/R/C side letter that a pilot would recognize.
+			std::string rwy_id = rwy->runway_code_generator(true) + "/" + rwy->runway_code_generator(false);
 			double heading = rwy->heading;
 			rwy->start_points[1] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, heading);
 			heading -= 180;
@@ -1257,6 +1408,10 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				distance2 = rwy->length / cos(diff_bearing / 180 * V_PI);
 			else if (diff_bearing > angle && diff_bearing <= 90)
 				distance2 = rwy->width / 2 / sin(diff_bearing / 180 * V_PI);
+
+			gui_log_printf(status, GUI_LOG_TRACE, "Runway candidate %d/%d: %s (heading=%.1f, len=%.0f, width=%.0f): distance=%.1fm, distance2=%.1fm -> %s",
+				i + 1, rep->n_runways, rwy_id.c_str(), rwy->heading, rwy->length, rwy->width,
+				distance, distance2, (distance <= distance2) ? "pass" : "fail (outside runway footprint)");
 
 			if (distance <= distance2) {
 				RUNWAY_OPERATION candidate;
@@ -1295,17 +1450,22 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				// still the (360,360) invalid sentinel. Skip this runway rather than
 				// computing a distance against it, which would silently write a
 				// nonsensical distance_length/distance_width for this touchdown.
-				if (loc.latitude == 360)
+				if (loc.latitude == 360) {
+					gui_log_printf(status, GUI_LOG_TRACE, "Runway candidate %d/%d: %s passed footprint check but intersection calc failed (parallel/coincident bearings); skipping",
+						i + 1, rep->n_runways, rwy_id.c_str());
 					continue;
+				}
 				candidate.distances[0] = loc.distanceInKm2Coordinate(rwy->start_points[index]) * 1000 * M_2_FT;
 				candidate.distances[1] = loc.distanceInKm2Coordinate(status->facility_lookup_coordinate) * dir * 1000 * M_2_FT;
 				candidate.distances_percent[0] = candidate.distances[0] / rwy->length / M_2_FT;
 				candidate.distances_percent[1] = candidate.distances[1] / rwy->width * 2 / M_2_FT;
 
+				gui_log_printf(status, GUI_LOG_TRACE, "Runway candidate %d/%d: %s accepted, is_primary=%d, diff_bearing_tra=%.1f",
+					i + 1, rep->n_runways, rwy_id.c_str(), candidate.is_primary ? 1 : 0, candidate.diff_bearing_tra);
 				candidates.push_back(candidate);
 			}
 		}
-		gui_log_printf(status, GUI_LOG_TRACE, "Runway match: %zu candidate(s) for %s slot\n",
+		gui_log_printf(status, GUI_LOG_TRACE, "Runway match: %zu candidate(s) for %s slot",
 			candidates.size(), (rep == &status->departure) ? "departure" : "destination");
 		if (candidates.size() > 0) {
 			auto it = std::min_element(
@@ -1316,11 +1476,13 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				}
 			);
 			rep->runway_act = *it;
+			gui_log_printf(status, GUI_LOG_TRACE, "Runway match: selected runway index=%d (diff_bearing_tra=%.1f) for %s slot",
+				rep->runway_act.index, rep->runway_act.diff_bearing_tra, (rep == &status->departure) ? "departure" : "destination");
 		}
 		if (rep->runway_act.index != -1) {
 			std::string strRunway = rep->runway_code_generator();
 			if (rep == &status->departure) {
-				gui_log_printf(status, GUI_LOG_INFO, "Takeoff from %s (%s) runway %s at %s\n", rep->name, rep->icao, strRunway.c_str(), status->data.time_local.format_date_time().c_str());
+				gui_log_printf(status, GUI_LOG_INFO, "Takeoff from %s (%s) runway %s at %s", rep->name, rep->icao, strRunway.c_str(), status->data.time_local.format_date_time().c_str());
 				db_insert_update_table(status->sql,
 					"UPDATE trips SET departure_icao=?,departure_rwy=?,departure_region=?,departure_name=? WHERE id=?;",
 					NULL,
@@ -1336,7 +1498,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				);
 				gui_notify_trip_updated(status);
 			} else {
-				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s (%s) runway %s\n", rep->name, rep->icao, strRunway.c_str());
+				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s (%s) runway %s", rep->name, rep->icao, strRunway.c_str());
 				db_insert_update_table(status->sql,
 					"UPDATE trips SET destination_icao=?,destination_rwy=?,destination_region=?,destination_name=? WHERE id=?;",
 					NULL,
@@ -1360,7 +1522,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						// rowid (e.g. it hit SQLITE_BUSY and threw) -- "WHERE id=?"
 						// with an invalid id would just match zero rows and silently
 						// drop this resolution, so skip it and say why instead.
-						gui_log_printf(status, GUI_LOG_WARNING, "Touchdown at %s (%s) runway %s: trip_touchdowns row was never inserted; dropping this resolution\n", rep->name, rep->icao, strRunway.c_str());
+						gui_log_printf(status, GUI_LOG_WARNING, "Touchdown at %s (%s) runway %s: trip_touchdowns row was never inserted; dropping this resolution", rep->name, rep->icao, strRunway.c_str());
 					} else {
 						db_insert_update_table(status->sql,
 							"UPDATE trip_touchdowns SET icao=?,airport_name=?,runway=?,"
@@ -1407,7 +1569,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			}
 		} else {
 			if (rep == &status->departure) {
-				gui_log_printf(status, GUI_LOG_INFO, "Takeoff from %s (%s) [%s, %s] at %s\n",
+				gui_log_printf(status, GUI_LOG_INFO, "Takeoff from %s (%s) [%s, %s] at %s",
 					rep->name,
 					rep->icao,
 					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
@@ -1428,7 +1590,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				);
 				gui_notify_trip_updated(status);
 			} else {
-				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s (%s) [%s, %s]\n",
+				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s (%s) [%s, %s]",
 					rep->name,
 					rep->icao,
 					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
@@ -1458,7 +1620,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						// See the identical guard above: an invalid db_id means the
 						// immediate INSERT never completed, so there is no row for
 						// "WHERE id=?" to match -- skip it rather than silently no-op.
-						gui_log_printf(status, GUI_LOG_WARNING, "Touchdown at %s (%s): trip_touchdowns row was never inserted; dropping this resolution\n", rep->name, rep->icao);
+						gui_log_printf(status, GUI_LOG_WARNING, "Touchdown at %s (%s): trip_touchdowns row was never inserted; dropping this resolution", rep->name, rep->icao);
 					} else {
 						db_insert_update_table(status->sql,
 							"UPDATE trip_touchdowns SET icao=?,airport_name=? WHERE id=?;",
@@ -1488,7 +1650,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		// definition's field ordering with zero trace in the log.
 		SIMCONNECT_RECV_EXCEPTION* except = (SIMCONNECT_RECV_EXCEPTION*)pData;
 		gui_log_printf(status, GUI_LOG_WARNING,
-			"SimConnect exception SIMCONNECT_EXCEPTION_%s (%lu) (SendID=%lu, Index=%lu)\n",
+			"SimConnect exception SIMCONNECT_EXCEPTION_%s (%lu) (SendID=%lu, Index=%lu)",
 			simconnect_exception_txt(except->dwException), except->dwException,
 			except->dwSendID, except->dwIndex);
 		// If this exception corresponds to the currently outstanding facility-lookup
@@ -1522,16 +1684,16 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		break;
 	}
 	default:
-		gui_log_printf(status, GUI_LOG_WARNING, "SIMCONNECT_RECV: %d\n", pData->dwID);
+		gui_log_printf(status, GUI_LOG_WARNING, "SIMCONNECT_RECV: %d", pData->dwID);
 		break;
 	}
 	} catch (const db_exception& e) {
-		gui_log_printf(status, GUI_LOG_WARNING, "Database error in dispatch: %s\n", e.message.c_str());
+		gui_log_printf(status, GUI_LOG_WARNING, "Database error in dispatch: %s", e.message.c_str());
 	} catch (...) {
 		// Catch-all, not just db_exception -- this callback also does raw SimConnect
 		// data handling, malloc/free, and geodesic math, any of which could throw
 		// something else. Left uncaught, it would escape a Qt timer slot and likely
 		// terminate the app instead of just logging and continuing.
-		gui_log_printf(status, GUI_LOG_WARNING, "Unknown error in dispatch\n");
+		gui_log_printf(status, GUI_LOG_WARNING, "Unknown error in dispatch");
 	}
 }
