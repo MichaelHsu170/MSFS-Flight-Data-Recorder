@@ -709,7 +709,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	// signal delivered while the menu is open can reallocate the model's backing
 	// vector and dangle rightClickedTrip.
 	const int rightClickedTripId = rightClickedTrip ? rightClickedTrip->id : -1;
-	if (rightClickedTrip) {
+	if (rightClickedTrip && rightClickedTrip->status != TripStatus::Live) {
 		if (!menu.isEmpty())
 			menu.addSeparator();
 		QMenu* groupMenu = menu.addMenu(QStringLiteral("Set Group"));

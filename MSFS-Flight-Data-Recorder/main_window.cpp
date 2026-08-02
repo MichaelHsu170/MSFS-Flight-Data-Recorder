@@ -4,6 +4,7 @@
 #include "trajectory_view.h"
 #include "recorder_bridge.h"
 #include "app_settings.h"
+#include "splitter_utils.h"
 #include "logger.h"
 
 #include <QSplitter>
@@ -32,9 +33,13 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 	// thin the handle down since a 1px divider is plenty to show the split.
 	topSplitter->setHandleWidth(1);
 	connect(topSplitter, &QSplitter::splitterMoved, this, [topSplitter, this](int, int) {
-		int w = topSplitter->sizes().last();
-		AppSettings::instance().setRightPanelWidth(w);
-		trajectoryView_->setRightPanelWidth(w);
+		trajectoryView_->setRightPanelWidth(topSplitter->sizes().last());
+	});
+	// Persist to settings.ini only once the drag ends -- splitterMoved above
+	// fires continuously while dragging (once per pixel), which would
+	// otherwise rewrite the whole ini file that often.
+	connectSplitterHandleReleased(topSplitter, 1, [topSplitter]() {
+		AppSettings::instance().setRightPanelWidth(topSplitter->sizes().last());
 	});
 	connect(trajectoryView_, &TrajectoryView::rightPanelWidthChanged, this, [topSplitter](int w) {
 		auto sizes = topSplitter->sizes();

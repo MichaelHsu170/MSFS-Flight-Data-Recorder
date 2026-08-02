@@ -127,6 +127,11 @@
 // setTouchdowns(points), setEvents(points), setEventsVisible(visible).
 var currentProvider = null;
 var mapBridge = null;
+// The Leaflet map instance currentProvider's closures wrap, so it can be
+// torn down via map.remove() before initProvider() creates a new one --
+// clearing #map's innerHTML alone drops the DOM nodes but leaves Leaflet's
+// own window-level listeners (resize, etc.) and internal timers registered.
+var leafletMapInstance = null;
 
 // Keyed by the ID string assigned in touchdownPopupHtml; each value is the
 // raw touchdown object so analyzeTouchdown() can read it on demand.
@@ -557,6 +562,10 @@ function reportVisibleRange(trajectoryLatLngs, origIndices, bounds) {
 }
 
 function initProvider() {
+    if (leafletMapInstance) {
+        leafletMapInstance.remove();
+        leafletMapInstance = null;
+    }
     document.getElementById('map').innerHTML = '';
     currentProvider = null;
     initLeafletProvider();
@@ -568,6 +577,7 @@ function initLeafletProvider() {
     // 3000+ segments this avoids building a large SVG <path> string and
     // forces a repaint on each update -- Canvas is substantially faster.
     var map = L.map('map', { preferCanvas: true });
+    leafletMapInstance = map;
     // Leaflet never fetches a single tile until the map has a view (center +
     // zoom) -- setTrajectory()'s fitBounds() only runs once a trajectory with
     // points exists, so without this the map stays blank (zero tile
@@ -677,6 +687,12 @@ function initLeafletProvider() {
         setTouchdowns: function (points) {
             touchdownMarkers.forEach(function (m) { map.removeLayer(m); });
             touchdownMarkers = [];
+            // Every entry belonged to a marker/popup just removed above (and
+            // analyzeTouchdown() already no-ops once its popup's DOM is gone,
+            // via the missing-btn check), so nothing still needs them --
+            // without this, _touchdownStore accumulates one entry per
+            // touchdown ever shown, for the lifetime of the page.
+            _touchdownStore = {};
             points.forEach(function (t) {
                 var icon = L.divIcon({ className: 'touchdown-icon', html: '\u{1F6EC}', iconSize: [24, 24], iconAnchor: [12, 12] });
                 var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
