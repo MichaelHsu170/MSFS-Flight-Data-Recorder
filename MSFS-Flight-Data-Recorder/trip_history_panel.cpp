@@ -709,7 +709,13 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	// signal delivered while the menu is open can reallocate the model's backing
 	// vector and dangle rightClickedTrip.
 	const int rightClickedTripId = rightClickedTrip ? rightClickedTrip->id : -1;
-	if (rightClickedTrip && rightClickedTrip->status != TripStatus::Live) {
+	// Only guard "Set Group" against the right-clicked row when some other row
+	// is actually selected (guard against retargeting the selected trip's map/
+	// chart view via an unrelated row's context menu). With no selection at
+	// all, there's nothing to disambiguate from, so any non-Live row may set
+	// its own group.
+	if (rightClickedTrip && rightClickedTrip->status != TripStatus::Live
+	    && (selectedTripId_ == -1 || rightClickedTrip->id == selectedTripId_)) {
 		if (!menu.isEmpty())
 			menu.addSeparator();
 		QMenu* groupMenu = menu.addMenu(QStringLiteral("Set Group"));
