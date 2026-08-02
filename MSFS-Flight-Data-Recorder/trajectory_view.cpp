@@ -3,6 +3,7 @@
 #include "map_widget.h"
 #include "data_table_panel.h"
 #include "app_settings.h"
+#include "splitter_utils.h"
 
 #include "logger.h"
 #include <QSplitter>
@@ -30,9 +31,13 @@ TrajectoryView::TrajectoryView(QWidget* parent) : QWidget(parent) {
 	mapTableSplitter_->setCollapsible(0, false);
 	mapTableSplitter_->setCollapsible(1, false);
 	connect(mapTableSplitter_, &QSplitter::splitterMoved, this, [this]() {
-		int w = mapTableSplitter_->sizes().last();
-		AppSettings::instance().setRightPanelWidth(w);
-		emit rightPanelWidthChanged(w);
+		emit rightPanelWidthChanged(mapTableSplitter_->sizes().last());
+	});
+	// Persist to settings.ini only once the drag ends -- splitterMoved above
+	// fires continuously while dragging (once per pixel), which would
+	// otherwise rewrite the whole ini file that often.
+	connectSplitterHandleReleased(mapTableSplitter_, 1, [this]() {
+		AppSettings::instance().setRightPanelWidth(mapTableSplitter_->sizes().last());
 	});
 
 	// Both sections need a floor so neither can steal all the space from the
@@ -49,7 +54,9 @@ TrajectoryView::TrajectoryView(QWidget* parent) : QWidget(parent) {
 	mainSplitter->setSizes({ 400, AppSettings::instance().chartsPanelHeight() });
 	mainSplitter->setCollapsible(0, false);
 	mainSplitter->setCollapsible(1, false);
-	connect(mainSplitter, &QSplitter::splitterMoved, this, [mainSplitter]() {
+	// Persist to settings.ini only once the drag ends, not on every
+	// intermediate splitterMoved (once per pixel of movement).
+	connectSplitterHandleReleased(mainSplitter, 1, [mainSplitter]() {
 		AppSettings::instance().setChartsPanelHeight(mainSplitter->sizes().last());
 	});
 

@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.17)
-project(MSFS-Flight-Data-Recorder LANGUAGES CXX)
+# Single source of truth for the app version -- generated into version.h
+# below, consumed by types.h (C++, e.g. the Live Status "ver." label and the
+# debug log header) and app.rc (Windows exe file-version metadata).
+project(MSFS-Flight-Data-Recorder VERSION 2.0.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -27,6 +30,12 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Graphs GraphsWidg
 
 # Source
 set(SRC_DIR "${PROJECT_SOURCE_DIR}/MSFS-Flight-Data-Recorder")
+
+# Generate version.h from the project() VERSION above so types.h and app.rc
+# both pick up the same number without duplicating it.
+set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
+configure_file("${SRC_DIR}/version.h.in" "${GENERATED_DIR}/version.h" @ONLY)
+
 set(SOURCES
     ${SRC_DIR}/main.cpp
     ${SRC_DIR}/db.cpp
@@ -52,16 +61,17 @@ set(SOURCES
 )
 
 # rc.exe searches the directory of the .rc file itself, but passing the
-# include dir explicitly ensures it always finds app_icon.ico regardless of
-# how CMake invokes the resource compiler.
+# include dirs explicitly ensures it always finds app_icon.ico and the
+# generated version.h regardless of how CMake invokes the resource compiler.
 if(MSVC)
     set_source_files_properties(
         ${SRC_DIR}/resources/app.rc
-        PROPERTIES COMPILE_FLAGS "/I \"${SRC_DIR}/resources\""
+        PROPERTIES COMPILE_FLAGS "/I \"${SRC_DIR}/resources\" /I \"${GENERATED_DIR}\""
     )
 endif()
 
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES})
+target_include_directories(${PROJECT_NAME} PRIVATE ${GENERATED_DIR})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Graphs Qt${QT_VERSION_MAJOR}::GraphsWidgets Qt${QT_VERSION_MAJOR}::Concurrent Qt${QT_VERSION_MAJOR}::Quick Qt${QT_VERSION_MAJOR}::QuickWidgets Qt${QT_VERSION_MAJOR}::QuickControls2 Qt${QT_VERSION_MAJOR}::WebEngineWidgets Qt${QT_VERSION_MAJOR}::WebChannel)
 

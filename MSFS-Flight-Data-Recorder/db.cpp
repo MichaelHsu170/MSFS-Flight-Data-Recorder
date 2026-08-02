@@ -74,10 +74,15 @@ void db_insert_update_table(
 		sql_ret = sqlite3_exec(sql, "COMMIT TRANSACTION", NULL, NULL, &errmsg);
 		if (errmsg != NULL)
 			db_error(stmt_txt, 0, &errmsg);
+		// The transaction is durably committed at this point, so a finalize
+		// failure here is only a statement-cleanup error, not a write failure.
+		// It must not be reported as one via db_error/throw -- db_write_worker's
+		// catch block logs any exception from this function as "dropped one
+		// sample", which would misreport data that was in fact saved.
 		sql_ret = sqlite3_finalize(stmt);
 		stmt = NULL;
 		if (sql_ret)
-			db_error(stmt_txt, sql_ret, NULL);
+			log_cf(1, "DB", "db_insert_update_table: finalize failed after commit (data already saved): %s", sqlite3_errmsg(sql));
 	}
 	catch (...) {
 		// Catch-all, not just db_exception -- func is a caller-supplied callback
@@ -722,12 +727,18 @@ static void create_db_indexes(sqlite3* sql) {
 		"CREATE INDEX IF NOT EXISTS idx_trip_events_trip ON trip_events(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_touchdowns_trip ON trip_touchdowns(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trips_group ON trips(group_id);",
-		// Enforced here (not just by db_groups.cpp's own pre-check) so that a
-		// duplicate (case-insensitive) group name can never be committed even
-		// if two writers race between the pre-check SELECT and the INSERT/
-		// UPDATE -- migrate_db() runs this at startup, ahead of any writer
-		// connection, so the constraint is always in place before
-		// insertGroup()/renameGroup() can run.
+		// Enforced here (not just by db_groups.cpp's own pre-check) as a
+		// backstop against two writers racing between the pre-check SELECT and
+		// the INSERT/UPDATE -- migrate_db() runs this at startup, ahead of any
+		// writer connection, so the constraint is always in place before
+		// insertGroup()/renameGroup() can run. NOTE: SQLite's COLLATE NOCASE
+		// only case-folds ASCII A-Z/a-z, so this backstop -- unlike
+		// db_groups.cpp's groupNameExists(), which does full Unicode-aware
+		// comparison -- cannot catch a race between names that differ only in
+		// non-ASCII casing (e.g. "münchen" vs "MÜNCHEN"). In practice this is
+		// harmless: group creation/rename only ever runs on the single Qt GUI
+		// thread, so there is no concurrent writer for it to race in the first
+		// place.
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_trip_groups_name ON trip_groups(name COLLATE NOCASE);",
 	};
 	for (int i = 0; i < (int)(sizeof(index_stmts) / sizeof(char*)); i++) {
