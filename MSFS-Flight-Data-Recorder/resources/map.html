@@ -368,7 +368,7 @@ async function analyzeTouchdown(id) {
         // Incomplete — retry silently; on last attempt show message.
         if (attempt === MAX_ATTEMPTS - 1) {
             finalDiv.innerHTML = '<span style="color:#64748b">The AI didn\'t return a complete analysis. '
-                + 'This can happen occasionally — click <b>Analyze Landing</b> to try again.</span>';
+                + 'This can happen occasionally - click <b>Analyze Landing</b> to try again.</span>';
             thDet.style.display = 'none';
         }
     }
