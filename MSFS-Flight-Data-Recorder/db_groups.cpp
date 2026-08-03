@@ -9,7 +9,7 @@ std::vector<TripGroup> queryAllGroups(sqlite3* sql) {
 
 	const char* stmt_txt =
 		"SELECT g.id, g.name, (SELECT COUNT(*) FROM trips t WHERE t.group_id = g.id) "
-		"FROM trip_groups g ORDER BY g.name COLLATE NOCASE";
+		"FROM trip_groups g ORDER BY g.sort_order, g.name COLLATE NOCASE";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
 		return groups;
@@ -82,12 +82,23 @@ int insertGroup(sqlite3* sql, const QString& name) {
 		Logger::log(Logger::Trace, "DB", QStringLiteral("insertGroup: rejected (blank or duplicate name)"));
 		return 0;
 	}
-	const char* stmt_txt = "INSERT INTO trip_groups (name) VALUES (?)";
+	// New groups go after every existing one rather than at sort_order 0 (which
+	// would otherwise bury them at the top of an already-customized order).
+	int nextSortOrder = 0;
+	sqlite3_stmt* maxStmt = nullptr;
+	if (sqlite3_prepare_v2(sql, "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM trip_groups", -1, &maxStmt, nullptr) == SQLITE_OK) {
+		if (sqlite3_step(maxStmt) == SQLITE_ROW)
+			nextSortOrder = sqlite3_column_int(maxStmt, 0);
+		sqlite3_finalize(maxStmt);
+	}
+
+	const char* stmt_txt = "INSERT INTO trip_groups (name, sort_order) VALUES (?, ?)";
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
 		return 0;
 	QByteArray utf8 = trimmed.toUtf8();
 	sqlite3_bind_text(stmt, 1, utf8.constData(), utf8.size(), SQLITE_TRANSIENT);
+	sqlite3_bind_int(stmt, 2, nextSortOrder);
 	bool ok = sqlite3_step(stmt) == SQLITE_DONE;
 	sqlite3_finalize(stmt);
 	if (ok)
@@ -150,6 +161,39 @@ bool deleteGroup(sqlite3* sql, int groupId) {
 		return false;
 	}
 	Logger::logf(Logger::Trace, "DB", "deleteGroup(%d): delete committed", groupId);
+	return true;
+}
+
+bool reorderGroups(sqlite3* sql, const std::vector<int>& orderedGroupIds) {
+	Logger::logf(Logger::Trace, "DB", "reorderGroups: persisting order for %zu group(s)", orderedGroupIds.size());
+	if (sqlite3_exec(sql, "BEGIN TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
+		Logger::logf(Logger::Warning, "DB", "reorderGroups: BEGIN TRANSACTION failed: %s", sqlite3_errmsg(sql));
+		return false;
+	}
+	const char* stmt_txt = "UPDATE trip_groups SET sort_order = ? WHERE id = ?";
+	sqlite3_stmt* stmt = nullptr;
+	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
+		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
+		return false;
+	}
+	bool ok = true;
+	for (int i = 0; ok && i < (int)orderedGroupIds.size(); i++) {
+		sqlite3_bind_int(stmt, 1, i);
+		sqlite3_bind_int(stmt, 2, orderedGroupIds[i]);
+		ok = sqlite3_step(stmt) == SQLITE_DONE;
+		sqlite3_reset(stmt);
+	}
+	sqlite3_finalize(stmt);
+	if (!ok) {
+		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
+		return false;
+	}
+	if (sqlite3_exec(sql, "COMMIT TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
+		Logger::logf(Logger::Warning, "DB", "reorderGroups: COMMIT TRANSACTION failed: %s", sqlite3_errmsg(sql));
+		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
+		return false;
+	}
+	Logger::log(Logger::Trace, "DB", QStringLiteral("reorderGroups: order committed"));
 	return true;
 }
 
