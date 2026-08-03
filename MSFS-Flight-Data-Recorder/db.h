@@ -212,7 +212,8 @@ static const char* DATABASE_TABLE_FIELDS[] = {
 	"analysis_report TEXT",
 
 	"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
-	"name VARCHAR(64) NOT NULL"
+	"name VARCHAR(64) NOT NULL,"
+	"sort_order INTEGER NOT NULL DEFAULT 0"
 };
 
 struct db_exception {

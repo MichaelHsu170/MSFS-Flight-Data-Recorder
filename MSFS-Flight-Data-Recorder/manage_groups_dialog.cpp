@@ -4,23 +4,33 @@
 #include "logger.h"
 
 #include <QDialogButtonBox>
+#include <QDropEvent>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QVBoxLayout>
 
 #include "sqlite3.h"
 
+ReorderableListWidget::ReorderableListWidget(QWidget* parent) : QListWidget(parent) {
+	setDragDropMode(QAbstractItemView::InternalMove);
+}
+
+void ReorderableListWidget::dropEvent(QDropEvent* event) {
+	QListWidget::dropEvent(event);
+	emit reordered();
+}
+
 ManageGroupsDialog::ManageGroupsDialog(QWidget* parent) : QDialog(parent) {
 	setWindowTitle(QStringLiteral("Manage Trip Groups"));
 
-	list_ = new QListWidget(this);
+	list_ = new ReorderableListWidget(this);
 	list_->setSelectionMode(QAbstractItemView::SingleSelection);
 	connect(list_, &QListWidget::itemChanged, this, &ManageGroupsDialog::onItemChanged);
+	connect(list_, &ReorderableListWidget::reordered, this, &ManageGroupsDialog::onListReordered);
 
 	auto* addButton = new QPushButton(QStringLiteral("New Group…"), this);
 	auto* deleteButton = new QPushButton(QStringLiteral("Delete"), this);
@@ -36,7 +46,7 @@ ManageGroupsDialog::ManageGroupsDialog(QWidget* parent) : QDialog(parent) {
 	connect(buttons, &QDialogButtonBox::rejected, this, &ManageGroupsDialog::close);
 
 	auto* layout = new QVBoxLayout(this);
-	layout->addWidget(new QLabel(QStringLiteral("Double-click a group to rename it."), this));
+	layout->addWidget(new QLabel(QStringLiteral("Double-click a group to rename it. Drag to reorder."), this));
 	layout->addWidget(list_);
 	layout->addLayout(buttonRow);
 	layout->addWidget(buttons);
@@ -136,6 +146,39 @@ void ManageGroupsDialog::deleteSelectedGroup() {
 	Logger::logf(Logger::Trace, "Groups", "Group \"%s\" (id=%d) deleted", qUtf8Printable(name), groupId);
 	reload();
 	emit groupsChanged();
+}
+
+void ManageGroupsDialog::onListReordered() {
+	// reload()'s own clear()+re-populate never goes through
+	// ReorderableListWidget::dropEvent(), so this guard is only a defensive
+	// mirror of onItemChanged's -- kept for the same reason: cheap insurance
+	// against ever reacting to reload()'s own writes.
+	if (updating_)
+		return;
+
+	std::vector<int> orderedIds;
+	orderedIds.reserve(list_->count());
+	for (int i = 0; i < list_->count(); i++)
+		orderedIds.push_back(list_->item(i)->data(Qt::UserRole).toInt());
+
+	sqlite3* sql = connect_db_readwrite();
+	if (!sql) {
+		Logger::log(Logger::Trace, "Groups", QStringLiteral("Cannot reorder groups: failed to open database for writing"));
+		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Could not open the database for writing."));
+		reload();
+		return;
+	}
+	bool ok = reorderGroups(sql, orderedIds);
+	sqlite3_close(sql);
+	if (!ok) {
+		Logger::log(Logger::Trace, "Groups", QStringLiteral("Failed to persist the new group order"));
+		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to save the new group order."));
+	} else {
+		Logger::log(Logger::Trace, "Groups", QStringLiteral("Group order updated"));
+	}
+	reload();
+	if (ok)
+		emit groupsChanged();
 }
 
 void ManageGroupsDialog::onItemChanged(QListWidgetItem* item) {

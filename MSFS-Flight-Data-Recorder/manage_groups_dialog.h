@@ -1,9 +1,33 @@
 #pragma once
 
 #include <QDialog>
+#include <QListWidget>
 
-class QListWidget;
-class QListWidgetItem;
+class QDropEvent;
+
+// Plain QListWidget with QAbstractItemView::InternalMove doesn't emit any
+// reliable signal when the user finishes a drag-reorder: rowsMoved is never
+// fired for it (Qt implements InternalMove as a remove+insert through
+// QAbstractItemModel::dropMimeData, not moveRows/beginMoveRows/endMoveRows --
+// a long-standing, documented Qt limitation), and rowsInserted/rowsRemoved
+// fire mid-gesture in an order that isn't safe to rebuild the list from
+// (Qt's own drop handling is still running further down the call stack).
+// Overriding dropEvent() to let the base class finish the move and then
+// emit our own signal is the standard, safe workaround.
+class ReorderableListWidget : public QListWidget {
+	Q_OBJECT
+public:
+	explicit ReorderableListWidget(QWidget* parent = nullptr);
+
+signals:
+	// Emitted after a completed internal drag-reorder, once the base class's
+	// dropEvent() has fully applied it -- list_'s item order is final and
+	// safe to read at this point.
+	void reordered();
+
+protected:
+	void dropEvent(QDropEvent* event) override;
+};
 
 // Modal CRUD dialog for trip_groups: add/rename/delete groups. Each action
 // commits immediately (no Ok/Cancel staging), same convention as the
@@ -26,6 +50,10 @@ private slots:
 	void addGroup();
 	void deleteSelectedGroup();
 	void onItemChanged(QListWidgetItem* item);
+	// Fires once list_'s ReorderableListWidget::reordered() signal reports a
+	// completed drag-reorder. Persists the list's new visual order as each
+	// group's sort_order.
+	void onListReordered();
 
 private:
 	// Rebuilds list_ from the database. clear() wipes every item (and with it
@@ -38,8 +66,9 @@ private:
 	// currently selected item's id (if any) is preserved automatically.
 	void reload(int selectGroupId = -1);
 
-	QListWidget* list_;
-	// Guards onItemChanged against the setText() calls reload() makes to
-	// populate the list, which would otherwise be misread as user renames.
+	ReorderableListWidget* list_;
+	// Guards onItemChanged/onListReordered against the setText()/addItem()
+	// calls reload() makes to populate the list, which would otherwise be
+	// misread as user edits.
 	bool updating_ = false;
 };
