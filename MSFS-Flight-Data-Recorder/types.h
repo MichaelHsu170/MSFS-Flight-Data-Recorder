@@ -323,6 +323,31 @@ struct FLIGHT_DATA {
 	DATETIME time_local;
 };
 
+// Every actual takeoff/liftoff of this trip as a marker occurrence
+// (touch-and-goes included), independent of the trip's single, permanent
+// "departure" record (STATUS::departure / departure_db_id), which always
+// stays locked to the first takeoff only. See recorder.cpp's
+// takeoff-detection block.
+struct TAKEOFF_DATA {
+	struct FLIGHT_DATA flight_data;
+	AIRPORT airport;
+	int db_id = -1;              // trip_takeoffs row ID, set after immediate INSERT
+	// Snapshot of STATUS::loc_dh taken the first time it re-arms (latitude==360)
+	// after this takeoff is recorded -- unlike a touchdown's final-approach
+	// crossing, a takeoff's climb-out AGL crossing happens AFTER detection, so
+	// it can't be captured at detection time and is instead captured by the
+	// deferred, sentinel-gated logic in the SIMOBJECT_DATA handler (mirrors the
+	// existing STATUS::facility_lookup_departure_loc_dh one-shot capture).
+	COORDINATE loc_dh;
+	// Monotonically increasing across both takeoff_data and touchdown_data
+	// (STATUS::next_facility_lookup_seq), so request_next_touchdown_facility_lookup
+	// can pick whichever of the two lists holds the chronologically earliest
+	// unresolved lookup instead of always preferring one list over the other.
+	int seq = 0;
+	struct TAKEOFF_DATA* next = NULL;
+};
+
+// Mirrors TAKEOFF_DATA, but for touchdowns.
 struct TOUCHDOWN_DATA {
 	struct FLIGHT_DATA flight_data;
 	AIRPORT airport;
@@ -340,6 +365,7 @@ struct TOUCHDOWN_DATA {
 	// immediately beforehand -- so this field can never be stale for the
 	// touchdown that captures it, unlike the shared field read later.
 	COORDINATE loc_dh;
+	int seq = 0;
 	struct TOUCHDOWN_DATA* next = NULL;
 };
 
@@ -449,11 +475,37 @@ struct STATUS {
 	mutable std::mutex flushing_trip_ids_mutex;
 	std::set<int> flushing_trip_ids;
 	bool airborne = FALSE;
+	// Every actual takeoff/liftoff of this trip as a marker occurrence
+	// (touch-and-goes included), independent of the trip's single permanent
+	// departure_db_id/departure below -- see TAKEOFF_DATA. NOT populated for
+	// the trip's first takeoff, which only ever updates departure_db_id/
+	// departure (see MyDispatchProc's takeoff-detection block).
+	TAKEOFF_DATA* takeoff_data = NULL;
+	TAKEOFF_DATA* takeoff_data_end = NULL;
 	TOUCHDOWN_DATA* touchdown_data = NULL;
 	TOUCHDOWN_DATA* touchdown_data_end = NULL;
+	// Shared seq counter for TAKEOFF_DATA::seq/TOUCHDOWN_DATA::seq, so
+	// request_next_touchdown_facility_lookup() can pick whichever of the two
+	// lists holds the chronologically earliest unresolved lookup. Reset only
+	// at true trip boundaries, same as departure_lookup_initiated.
+	int next_facility_lookup_seq = 0;
+	// trip_takeoffs row ID for this trip's single departure, set after the
+	// immediate INSERT at takeoff time (see MyDispatchProc's takeoff-detection
+	// block) and consumed later by FACILITY_DATA_END's departure UPDATE, same
+	// db_id pattern as TOUCHDOWN_DATA::db_id but for the one-per-trip takeoff.
+	// Reset to -1 at trip start (recording-start block in recorder.cpp).
+	int departure_db_id = -1;
 	FLIGHT_DATA data;
 	COORDINATE loc_dh;
 	AIRPORT departure;
+	// Scratch AIRPORT used while a takeoff-marker (not the departure) lookup
+	// is in flight -- mirrors how touchdown_data_end->airport is filled in
+	// place during a touchdown lookup, but a TAKEOFF_DATA node's own airport
+	// field is used directly for that instead (see FACILITY_DATA_END), so
+	// this scratch is only needed for the in-progress AIRPORT_LIST candidate
+	// search before a specific node is known to be the match. Unused/ignored
+	// once departure_lookup_initiated's first-takeoff path is taken.
+	AIRPORT takeoff_scratch;
 	AIRPORT destination;
 	// Set right before SimConnect_RequestFacilitiesList_EX1() is called (on
 	// takeoff or touchdown) and cleared once the async facility lookup it
@@ -467,6 +519,15 @@ struct STATUS {
 	// lands.
 	bool facility_lookup_pending = FALSE;
 	int facility_lookup_trip_id = -1;
+	// Set alongside facility_lookup_pending whenever the in-flight lookup is
+	// for a takeoff *marker* (touch-and-go) rather than the trip's departure
+	// or a touchdown -- departure.runway_act.index==-1 still distinguishes
+	// "departure vs. not" on its own (see departure_lookup_initiated below),
+	// but can no longer alone tell a takeoff-marker lookup apart from a
+	// touchdown lookup within the "not departure" case. Read throughout
+	// MyDispatchProc's AIRPORT_LIST/FACILITY_DATA/FACILITY_DATA_END/EXCEPTION
+	// handlers and set by request_next_touchdown_facility_lookup().
+	bool facility_lookup_is_takeoff = FALSE;
 	// Set when a takeoff's own facility lookup was skipped because
 	// facility_lookup_pending was already true (a previous trip's lookup was
 	// still draining when this trip took off). request_next_touchdown_facility_lookup()

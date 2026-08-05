@@ -10,7 +10,22 @@
         onerror="console.error('qwebchannel.js FAILED to load')"></script>
 <style>
   html, body, #map { height: 100%; margin: 0; padding: 0; }
-  .touchdown-icon, .event-icon { font-size: 18px; line-height: 1; text-align: center; }
+  .event-icon { font-size: 18px; line-height: 1; text-align: center; }
+  .takeoff-icon, .touchdown-icon {
+    font-size: 12px; line-height: 20px; text-align: center;
+    width: 20px; height: 20px; border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+  }
+  .takeoff-icon { background: #86efac; border: 1.5px solid #16a34a; }
+  .touchdown-icon { background: #fdba74; border: 1.5px solid #ea580c; }
+  .marker-index-badge {
+    position: absolute; top: -6px; right: -6px;
+    background: #fff; color: #111;
+    border: 1px solid rgba(0,0,0,0.45); border-radius: 50%;
+    min-width: 13px; height: 13px; padding: 0 1px;
+    font-size: 9px; line-height: 13px; text-align: center;
+    font-weight: bold; font-family: sans-serif;
+  }
 
   @keyframes td-spin { to { transform: rotate(360deg); } }
   .td-spinner {
@@ -124,7 +139,7 @@
 <script>
 // OSM/Leaflet map. currentProvider exposes: setTrajectory(points),
 // appendPoints(pts), setCursorIndex(index),
-// setTouchdowns(points), setEvents(points), setEventsVisible(visible).
+// setTakeoffs(points), setTouchdowns(points), setEvents(points), setEventsVisible(visible).
 var currentProvider = null;
 var mapBridge = null;
 // The Leaflet map instance currentProvider's closures wrap, so it can be
@@ -133,12 +148,54 @@ var mapBridge = null;
 // own window-level listeners (resize, etc.) and internal timers registered.
 var leafletMapInstance = null;
 
-// Keyed by the ID string assigned in touchdownPopupHtml; each value is the
-// raw touchdown object so analyzeTouchdown() can read it on demand.
+// Keyed by the ID string assigned in takeoffPopupHtml/touchdownPopupHtml;
+// each value is the raw takeoff/touchdown object so analyzeTakeoff()/
+// analyzeTouchdown() can read it on demand.
+var _takeoffStore = {};
+var _toIdx = 0;
 var _touchdownStore = {};
 var _tdIdx = 0;
 
 // ── Gemini analysis helpers ──────────────────────────────────────────────────
+
+function buildTakeoffPrompt(t) {
+    var aircraft = window._aircraftTitle || '';
+    var lines = [];
+
+    lines.push('You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 takeoff.');
+    lines.push('Respond using exactly this structure — no preamble, no extra sections:');
+    lines.push('');
+    lines.push('Grade: [A+/A/A−/B+/B/B−/C+/C/C−/D/F]');
+    lines.push('');
+    lines.push('Summary: [1–2 sentences overall]');
+    lines.push('');
+    lines.push('Strengths:');
+    lines.push('• [one brief point per bullet]');
+    lines.push('');
+    lines.push('Areas to improve:');
+    lines.push('• [one brief point per bullet]');
+    lines.push('');
+    lines.push('---');
+    lines.push('Takeoff data:');
+    if (aircraft) lines.push('  Aircraft: ' + aircraft);
+    if (t.icao) {
+        var airport = t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
+        lines.push('  Airport: ' + airport);
+    }
+    if (t.runway) lines.push('  Runway: ' + t.runway);
+    lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
+    lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
+    lines.push('  Heading: ' + t.headingDegrees + '°');
+    lines.push('  Wind: ' + t.windDirection + '° at ' + t.windVelocity + ' kt');
+    if (t.distanceLength != null && t.distanceLength >= 0) {
+        lines.push('  Distance from threshold at liftoff: ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of runway)');
+        var side = t.distanceWidth >= 0 ? 'right' : 'left';
+        lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
+    }
+    lines.push('');
+    lines.push('Consider: rotation pitch rate and initial climb attitude, crosswind component (calculate from wind direction vs runway heading), centerline tracking during the takeoff roll, use of available runway length' + (aircraft ? ', aircraft-type-specific handling' : '') + '.');
+    return lines.join('\n');
+}
 
 function buildTouchdownPrompt(t) {
     var aircraft = window._aircraftTitle || '';
@@ -232,8 +289,19 @@ function toggleThinkLabel(det, arrId, lblId) {
     document.getElementById(lblId).textContent = det.open ? 'Hide thinking' : 'Show thinking';
 }
 
+async function analyzeTakeoff(id) {
+    return runAiAnalysis(id, _takeoffStore[id], buildTakeoffPrompt, function(rowId, report) {
+        if (mapBridge) mapBridge.saveTakeoffAnalysisReport(rowId, report);
+    }, 'Analyze Takeoff');
+}
+
 async function analyzeTouchdown(id) {
-    var t = _touchdownStore[id];
+    return runAiAnalysis(id, _touchdownStore[id], buildTouchdownPrompt, function(rowId, report) {
+        if (mapBridge) mapBridge.saveTouchdownAnalysisReport(rowId, report);
+    }, 'Analyze Landing');
+}
+
+async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
     var btn     = document.getElementById('td-btn-'    + id);
     var spinner = document.getElementById('td-spin-'   + id);
     var result  = document.getElementById('td-result-' + id);
@@ -312,7 +380,7 @@ async function analyzeTouchdown(id) {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        contents: [{ role: 'user', parts: [{ text: buildTouchdownPrompt(t) }] }]
+                        contents: [{ role: 'user', parts: [{ text: buildPrompt(t) }] }]
                     })
                 }
             );
@@ -358,9 +426,9 @@ async function analyzeTouchdown(id) {
 
         // Success: both thinking and final response arrived.
         if (sawThinking && finalDiv.textContent.trim()) {
-            if (t.rowId && mapBridge) {
+            if (t.rowId) {
                 var stored = '<thinking>' + thinkingText + '</thinking>' + finalText;
-                mapBridge.saveAnalysisReport(t.rowId, stored);
+                saveReport(t.rowId, stored);
             }
             break;
         }
@@ -368,7 +436,7 @@ async function analyzeTouchdown(id) {
         // Incomplete — retry silently; on last attempt show message.
         if (attempt === MAX_ATTEMPTS - 1) {
             finalDiv.innerHTML = '<span style="color:#64748b">The AI didn\'t return a complete analysis. '
-                + 'This can happen occasionally - click <b>Analyze Landing</b> to try again.</span>';
+                + 'This can happen occasionally - click <b>' + retryLabel + '</b> to try again.</span>';
             thDet.style.display = 'none';
         }
     }
@@ -410,6 +478,76 @@ function renderStoredReport(id, report) {
         result.innerHTML = '<div id="td-th-final-' + id + '"></div>';
         appendHtml(document.getElementById('td-th-final-' + id), report);
     }
+}
+
+function takeoffPopupHtml(t) {
+    var id = 'to' + (++_toIdx);
+    _takeoffStore[id] = t;
+
+    function row(key, val) {
+        return '<div class="td-row"><span class="td-key">' + key + '</span><span class="td-val">' + val + '</span></div>';
+    }
+    var div = '<div class="td-divider"></div>';
+
+    // Left column: grouped key-value layout
+    var leftHtml = '<div style="width:260px;flex-shrink:0">'
+        + '<div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:8px">Takeoff</div>';
+
+    if (t.icao) {
+        var airportLabel = t.icao + (t.airportName ? ' – ' + t.airportName : '');
+        leftHtml += row('Airport', airportLabel);
+    }
+    if (t.runway) leftHtml += row('Runway', t.runway);
+
+    leftHtml += div;
+    leftHtml += row('Airspeed', t.airspeed + ' kt');
+    leftHtml += row('V/S', t.verticalSpeed + ' ft/min');
+    leftHtml += row('Pitch', Number(t.pitchDegrees).toFixed(1) + '°');
+    leftHtml += row('Bank', Number(t.bankDegrees).toFixed(1) + '°');
+    leftHtml += row('Heading', t.headingDegrees + '°');
+
+    if (t.distanceLength != null && t.distanceLength >= 0) {
+        leftHtml += div;
+        leftHtml += row('Threshold', Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '%)');
+        var cSide = t.distanceWidth >= 0 ? 'R' : 'L';
+        leftHtml += row('Centerline', Math.round(Math.abs(t.distanceWidth)) + ' ft ' + cSide + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '%)');
+    }
+
+    leftHtml += div;
+    leftHtml += row('Wind', t.windDirection + '° / ' + t.windVelocity + ' kt');
+    leftHtml += row('Zulu', t.zuluTime);
+    if (t.localTime) leftHtml += row('Local', t.localTime);
+
+    leftHtml += '</div>';
+    var left = leftHtml;
+
+    // Right column: analyze button + result area (pre-filled from DB if available)
+    var hasKey = !!(window._geminiApiKey && window._geminiApiKey.trim().length > 0);
+    var disabledAttr = hasKey ? '' : ' disabled title="Set gemini_api_key in settings.ini to enable"';
+    var clickAttr = hasKey ? ' onclick="analyzeTakeoff(\'' + id + '\')"' : '';
+    var initialResult = hasKey ? '' :
+        '<span style="color:#aaa;font-size:11px;line-height:1.6">To enable AI analysis,<br>'
+        + 'add your Gemini API key in settings.ini:<br>'
+        + '<code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;color:#555">[ai]<br>gemini_api_key=YOUR_KEY</code><br>'
+        + 'then restart the app.</span>';
+    var right = [
+        '<div style="border-left:1px solid #e5e7eb;padding-left:14px;min-width:360px">',
+        '  <div class="td-analyze-label">✦ AI Analysis</div>',
+        '  <div>',
+        '    <button class="td-analyze-btn" id="td-btn-' + id + '"' + disabledAttr + clickAttr + '>',
+        '      ✦ Analyze Takeoff',
+        '    </button>',
+        '    <span id="td-spin-' + id + '" class="td-spinner" style="display:none">↻</span>',
+        '  </div>',
+        '  <div id="td-result-' + id + '"',
+        '       style="margin-top:9px;font-size:11px;line-height:1.6;height:260px;overflow-y:auto;color:#374151">',
+        initialResult,
+        '  </div>',
+        '</div>'
+    ].join('');
+
+    var html = '<div style="display:flex;gap:14px;align-items:flex-start;width:650px">' + left + right + '</div>';
+    return { html: html, id: id };
 }
 
 function touchdownPopupHtml(t) {
@@ -606,6 +744,7 @@ function initLeafletProvider() {
 
     var polyline = L.polyline([], { color: 'blue' }).addTo(map);
     var marker = null;
+    var takeoffMarkers = [];
     var touchdownMarkers = [];
     var eventMarkers = [];
     var overviewLines = [];
@@ -684,17 +823,37 @@ function initLeafletProvider() {
             }
             marker.setLatLng(trajectoryLatLngs[best]);
         },
+        setTakeoffs: function (points) {
+            takeoffMarkers.forEach(function (m) { map.removeLayer(m); });
+            takeoffMarkers = [];
+            // Every entry belonged to a marker/popup just removed above (and
+            // analyzeTakeoff() already no-ops once its popup's DOM is gone,
+            // via the missing-btn check), so nothing still needs them --
+            // without this, _takeoffStore accumulates one entry per
+            // takeoff ever shown, for the lifetime of the page.
+            _takeoffStore = {};
+            points.forEach(function (t, idx) {
+                var html = '<div style="position:relative;width:100%;height:100%">\u{1F6EB}<span class="marker-index-badge">' + (idx + 1) + '</span></div>';
+                var icon = L.divIcon({ className: 'takeoff-icon', html: html, iconSize: [20, 20], iconAnchor: [10, 10] });
+                var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
+                var popup = takeoffPopupHtml(t);
+                m.bindPopup(popup.html, { maxWidth: 700 });
+                if (t.analysisReport) {
+                    (function(capturedId, capturedReport) {
+                        m.on('popupopen', function() { renderStoredReport(capturedId, capturedReport); });
+                    })(popup.id, t.analysisReport);
+                }
+                takeoffMarkers.push(m);
+            });
+        },
         setTouchdowns: function (points) {
             touchdownMarkers.forEach(function (m) { map.removeLayer(m); });
             touchdownMarkers = [];
-            // Every entry belonged to a marker/popup just removed above (and
-            // analyzeTouchdown() already no-ops once its popup's DOM is gone,
-            // via the missing-btn check), so nothing still needs them --
-            // without this, _touchdownStore accumulates one entry per
-            // touchdown ever shown, for the lifetime of the page.
+            // Same store-reset rationale as setTakeoffs() above.
             _touchdownStore = {};
-            points.forEach(function (t) {
-                var icon = L.divIcon({ className: 'touchdown-icon', html: '\u{1F6EC}', iconSize: [24, 24], iconAnchor: [12, 12] });
+            points.forEach(function (t, idx) {
+                var html = '<div style="position:relative;width:100%;height:100%">\u{1F6EC}<span class="marker-index-badge">' + (idx + 1) + '</span></div>';
+                var icon = L.divIcon({ className: 'touchdown-icon', html: html, iconSize: [20, 20], iconAnchor: [10, 10] });
                 var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
                 var popup = touchdownPopupHtml(t);
                 m.bindPopup(popup.html, { maxWidth: 700 });
@@ -755,6 +914,8 @@ function initLeafletProvider() {
             origIndices = [];
             polyline.setLatLngs([]);
             if (marker !== null) { map.removeLayer(marker); marker = null; }
+            takeoffMarkers.forEach(function(m) { map.removeLayer(m); });
+            takeoffMarkers = [];
             touchdownMarkers.forEach(function(m) { map.removeLayer(m); });
             touchdownMarkers = [];
             eventMarkers.forEach(function(m) { map.removeLayer(m); });
@@ -816,6 +977,11 @@ function appendPoints(pts) {
 function setCursorIndex(index) {
     if (currentProvider)
         currentProvider.setCursorIndex(index);
+}
+
+function setTakeoffs(points) {
+    if (currentProvider)
+        currentProvider.setTakeoffs(points);
 }
 
 function setTouchdowns(points) {

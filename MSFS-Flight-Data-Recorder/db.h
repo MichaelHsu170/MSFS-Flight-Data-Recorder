@@ -6,6 +6,7 @@ static const char* DATABASE_TABLE_NAMES[] = {
 	"trips",
 	"trip_data",
 	"trip_events",
+	"trip_takeoffs",
 	"trip_touchdowns",
 	"trip_groups"
 };
@@ -187,6 +188,28 @@ static const char* DATABASE_TABLE_FIELDS[] = {
 	"event VARCHAR(32) NOT NULL,"
 	"time_zulu VARCHAR(32) NOT NULL,"
 	"time_local VARCHAR(32) NOT NULL",
+
+	"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
+	"trip INTEGER NOT NULL,"
+	"airspeed_indicated INTEGER NOT NULL,"
+	"vertical_speed INTEGER NOT NULL,"
+	"plane_pitch_degrees REAL NOT NULL,"
+	"plane_bank_degrees REAL NOT NULL,"
+	"heading_indicator INTEGER NOT NULL,"
+	"plane_latitude REAL NOT NULL,"
+	"plane_longitude REAL NOT NULL,"
+	"icao VARCHAR(4),"
+	"airport_name VARCHAR(64),"
+	"runway VARCHAR(3),"
+	"distance_length REAL,"
+	"distance_width REAL,"
+	"distance_length_percent REAL,"
+	"distance_width_percent REAL,"
+	"wind_direction INTEGER,"
+	"wind_velocity INTEGER,"
+	"time_zulu VARCHAR(32) NOT NULL,"
+	"time_local VARCHAR(32) NOT NULL,"
+	"analysis_report TEXT",
 
 	"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
 	"trip INTEGER NOT NULL,"

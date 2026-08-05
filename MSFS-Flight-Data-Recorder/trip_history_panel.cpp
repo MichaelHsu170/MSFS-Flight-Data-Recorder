@@ -359,9 +359,11 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	layout->addWidget(loadingBar_);
 
 	pointsWatcher_ = new QFutureWatcher<std::shared_ptr<TripDataset>>(this);
+	takeoffsWatcher_ = new QFutureWatcher<std::vector<TakeoffPoint>>(this);
 	touchdownsWatcher_ = new QFutureWatcher<std::vector<TouchdownPoint>>(this);
 	eventsWatcher_ = new QFutureWatcher<std::vector<TripEvent>>(this);
 	connect(pointsWatcher_, &QFutureWatcher<std::shared_ptr<TripDataset>>::finished, this, &TripHistoryPanel::tryFinishLoad);
+	connect(takeoffsWatcher_, &QFutureWatcher<std::vector<TakeoffPoint>>::finished, this, &TripHistoryPanel::tryFinishLoad);
 	connect(touchdownsWatcher_, &QFutureWatcher<std::vector<TouchdownPoint>>::finished, this, &TripHistoryPanel::tryFinishLoad);
 	connect(eventsWatcher_, &QFutureWatcher<std::vector<TripEvent>>::finished, this, &TripHistoryPanel::tryFinishLoad);
 
@@ -606,6 +608,17 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 		Logger::logf(Logger::Profile, "DB", "queryTripData: %lld ms  (%zu pts)", t.nsecsElapsed() / 1000000, dataset->points.size());
 		return dataset;
 	}));
+	takeoffsWatcher_->setFuture(QtConcurrent::run([tripId]() {
+		QElapsedTimer t; t.start();
+		sqlite3* sql = connect_db_readonly();
+		if (!sql)
+			Logger::logf(Logger::Warning, "DB", "queryTakeoffs(trip %d): failed to open read-only connection", tripId);
+		std::vector<TakeoffPoint> takeoffs = sql ? queryTakeoffs(sql, tripId) : std::vector<TakeoffPoint>();
+		if (sql)
+			sqlite3_close(sql);
+		Logger::logf(Logger::Profile, "DB", "queryTakeoffs: %lld ms  (%zu takeoffs)", t.nsecsElapsed() / 1000000, takeoffs.size());
+		return takeoffs;
+	}));
 	touchdownsWatcher_->setFuture(QtConcurrent::run([tripId]() {
 		QElapsedTimer t; t.start();
 		sqlite3* sql = connect_db_readonly();
@@ -631,10 +644,10 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 }
 
 void TripHistoryPanel::tryFinishLoad() {
-	if (!pointsWatcher_->isFinished() || !touchdownsWatcher_->isFinished() || !eventsWatcher_->isFinished())
+	if (!pointsWatcher_->isFinished() || !takeoffsWatcher_->isFinished() || !touchdownsWatcher_->isFinished() || !eventsWatcher_->isFinished())
 		return;
-	// All three watchers' finished signals are connected to this same slot; if
-	// two or three of them finish within the same event loop tick, each queued
+	// All four watchers' finished signals are connected to this same slot; if
+	// several of them finish within the same event loop tick, each queued
 	// invocation would otherwise see every watcher as finished and re-run the
 	// join below. Only the first invocation for this load should proceed.
 	if (loadJoined_)
@@ -642,6 +655,7 @@ void TripHistoryPanel::tryFinishLoad() {
 	loadJoined_ = true;
 
 	auto dataset = pointsWatcher_->result();
+	dataset->takeoffs = takeoffsWatcher_->result();
 	dataset->touchdowns = touchdownsWatcher_->result();
 	dataset->events = eventsWatcher_->result();
 	Logger::logf(Logger::Profile, "DB", "all joined: %lld ms wall time from click", loadTimer_.nsecsElapsed() / 1000000);

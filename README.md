@@ -1,6 +1,6 @@
 # MSFS Flight Data Recorder
 
-A Qt desktop application for Microsoft Flight Simulator 2024 that records telemetry, cockpit events, and landing data to a local SQLite database and visualises them on an interactive map with synchronised timeline charts. When no trip is selected the map shows all recorded routes as blue departure-to-destination line segments. Hovering over any chart shows a tooltip with the values of all curves in that chart at the cursor's time position.
+A Qt desktop application for Microsoft Flight Simulator 2024 that records telemetry, cockpit events, and takeoff/landing data to a local SQLite database and visualises them on an interactive map with synchronised timeline charts. When no trip is selected the map shows all recorded routes as blue departure-to-destination line segments. Hovering over any chart shows a tooltip with the values of all curves in that chart at the cursor's time position.
 
 ![Overview map — three recorded routes (Toulouse → Reykjavik → Edinburgh → London Heathrow) shown as blue departure-to-destination line segments on a zoomed-out world map when no trip is selected](imgs/Screenshot%202026-07-06%20062215.png)
 
@@ -80,7 +80,7 @@ The file is a standard Windows INI edited automatically by the app as the user r
 
 ```ini
 [ai]
-; Gemini API key for the AI touchdown analysis feature.
+; Gemini API key for the AI takeoff/landing analysis feature.
 ; Obtain a free key from Google AI Studio (aistudio.google.com), then paste it
 ; here and restart the app. The app never writes this value.
 ; Without a key the Analyze Landing button is disabled.
@@ -142,6 +142,7 @@ hidden_fields=
 | `trips` | One row per flight session: departure/destination airport ICAO, runway, times, ATC callsign |
 | `trip_data` | Telemetry sampled at a configurable interval (default 0.5 s) while recording: position, altitude, airspeed, engine N1/N2, gear/flaps/spoilers, fuel, autopilot state, and ~60 other variables |
 | `trip_events` | Discrete cockpit events (gear up/down, flaps, spoilers, parking brake, anti-ice, etc.) with zulu and local timestamps |
+| `trip_takeoffs` | One row per takeoff (the trip's departure, plus any touch-and-go): airport, runway, airspeed, vertical speed, pitch/bank/heading, wind direction/speed, and lateral/longitudinal distance from the runway threshold and centreline |
 | `trip_touchdowns` | One row per touchdown: airport, runway, airspeed, vertical speed, g-force, pitch/bank/heading, wind direction/speed, and lateral/longitudinal distance from the runway threshold and centreline |
 
 Recording starts automatically when an engine is running on the ground and stops when all engines shut down. A trip that ends abnormally (simulator crash or process kill before engine shutdown) is marked as **Open** in the UI.
@@ -152,12 +153,12 @@ The app connects to MSFS 2024 via SimConnect and retries every 2 seconds until t
 
 Both Debug and Release link dynamically against `SimConnect.dll`. The DLL is copied next to the exe by the CMake post-build step and must be present at runtime for the live recording feature to work.
 
-## AI Touchdown Analysis
+## AI Takeoff & Landing Analysis
 
-Clicking a touchdown marker on the map opens a popup with two panels:
+Clicking a takeoff or touchdown marker on the map opens a popup with two panels:
 
-- **Left** — raw telemetry for that landing: airport, runway, airspeed, vertical speed, G-force, pitch/bank, heading, wind, threshold distance, and centreline offset.
-- **Right** — an **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API).
+- **Left** — raw telemetry for that takeoff or landing: airport, runway, airspeed, vertical speed, G-force (landings only), pitch/bank, heading, wind, threshold distance, and centreline offset.
+- **Right** — an **Analyze Takeoff** / **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API).
 
 The analysis is returned in a fixed structure:
 
@@ -175,7 +176,7 @@ While the model is reasoning the toggle label reads **Thinking…** and is non-i
 1. Get a free API key at [aistudio.google.com](https://aistudio.google.com).
 2. Open `settings.ini` in a text editor while the app is not running.
 3. Set `gemini_api_key=YOUR_KEY` under `[ai]`.
-4. Restart the app — the button becomes active on the next touchdown popup.
+4. Restart the app — the button becomes active on the next takeoff or touchdown popup.
 
 ## Project Structure
 
@@ -189,7 +190,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── recorder_bridge.h / .cpp  Qt wrapper: QTimer-driven dispatch, connection retry, Qt signals
 │   ├── gui_notify.h              Free functions called by recorder.cpp to report state changes
 │   ├── db.h / .cpp               SQLite write path: schema creation, buffered telemetry flush
-│   ├── db_history.h / .cpp       Read-only queries: trip list, telemetry, events, touchdowns
+│   ├── db_history.h / .cpp       Read-only queries: trip list, telemetry, events, takeoffs, touchdowns
 │   ├── logger.h / .cpp           Unified logger: level-filtered (Fatal/Warning/Info/Profile), module-tagged output to msfs_fdr_debug.log
 │   ├── logger_c.h                C-compatible shim (log_c / log_cf) for Qt-free translation units (db.cpp)
 │   ├── app_settings.h / .cpp     QSettings wrapper for settings.ini
@@ -205,7 +206,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── data_table_panel.h / .cpp Per-sample field/value table with hide-field dialog
 │   └── resources/
 │       ├── charts_panel.qml      QML layout for stacked timeline charts (N1/N2, speed, altitude, gear, etc.)
-│       └── map.html              Leaflet map: trajectory polyline, touchdown markers with AI analysis popup, event markers
+│       └── map.html              Leaflet map: trajectory polyline, takeoff/touchdown markers with AI analysis popup, event markers
 ├── third_party/sqlite3/          Bundled SQLite3 (sqlite3.h, sqlite3.lib, sqlite3.dll)
 ├── .vscode/
 │   ├── tasks.json                Configure, Build, Clean tasks

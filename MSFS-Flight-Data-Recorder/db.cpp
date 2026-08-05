@@ -725,6 +725,7 @@ static void create_db_indexes(sqlite3* sql) {
 	static const char* index_stmts[] = {
 		"CREATE INDEX IF NOT EXISTS idx_trip_data_trip ON trip_data(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_events_trip ON trip_events(trip);",
+		"CREATE INDEX IF NOT EXISTS idx_trip_takeoffs_trip ON trip_takeoffs(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_touchdowns_trip ON trip_touchdowns(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trips_group ON trips(group_id);",
 		// Enforced here (not just by db_groups.cpp's own pre-check) as a

@@ -235,7 +235,58 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 		Logger::logf(Logger::Warning, "DB", "queryTripData(trip %d): step failed: %s", tripId, sqlite3_errmsg(sql));
 	Logger::logf(Logger::Trace, "DB", "queryTripData(trip %d): loaded %d points", tripId, (int)dataset.points.size());
 	sqlite3_finalize(stmt);
+
 	return dataset;
+}
+
+std::vector<TakeoffPoint> queryTakeoffs(sqlite3* sql, int tripId) {
+	std::vector<TakeoffPoint> takeoffs;
+	Logger::logf(Logger::Trace, "DB", "queryTakeoffs(trip %d): loading takeoff points", tripId);
+
+	// migrate_db() at app startup ensures all columns exist before any query runs.
+	const char* stmt_txt =
+		"SELECT id, plane_latitude, plane_longitude, icao, airport_name, runway, airspeed_indicated, "
+		"vertical_speed, plane_pitch_degrees, plane_bank_degrees, heading_indicator, "
+		"distance_length, distance_width, distance_length_percent, distance_width_percent, "
+		"wind_direction, wind_velocity, time_zulu, time_local, analysis_report "
+		"FROM trip_takeoffs WHERE trip = ? ORDER BY id";
+	sqlite3_stmt* stmt = nullptr;
+	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
+		Logger::logf(Logger::Warning, "DB", "queryTakeoffs(trip %d): prepare failed: %s", tripId, sqlite3_errmsg(sql));
+		return takeoffs;
+	}
+	sqlite3_bind_int(stmt, 1, tripId);
+
+	int rc;
+	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+		TakeoffPoint point;
+		point.rowId              = sqlite3_column_int(stmt, 0);
+		point.latitude           = sqlite3_column_double(stmt, 1);
+		point.longitude          = sqlite3_column_double(stmt, 2);
+		point.icao               = columnTextOrEmpty(stmt, 3);
+		point.airportName        = columnTextOrEmpty(stmt, 4);
+		point.runway              = columnTextOrEmpty(stmt, 5);
+		point.airspeed           = sqlite3_column_int(stmt, 6);
+		point.verticalSpeed      = sqlite3_column_int(stmt, 7);
+		point.pitchDegrees       = sqlite3_column_double(stmt, 8);
+		point.bankDegrees        = sqlite3_column_double(stmt, 9);
+		point.headingDegrees     = sqlite3_column_int(stmt, 10);
+		point.distanceLength     = sqlite3_column_double(stmt, 11);
+		point.distanceWidth      = sqlite3_column_double(stmt, 12);
+		point.distanceLengthPercent = sqlite3_column_double(stmt, 13);
+		point.distanceWidthPercent  = sqlite3_column_double(stmt, 14);
+		point.windDirection      = sqlite3_column_int(stmt, 15);
+		point.windVelocity       = sqlite3_column_int(stmt, 16);
+		point.zuluTime           = columnTextOrEmpty(stmt, 17);
+		point.localTime          = columnTextOrEmpty(stmt, 18);
+		point.analysisReport     = columnTextOrEmpty(stmt, 19);
+		takeoffs.push_back(point);
+	}
+	if (rc != SQLITE_DONE)
+		Logger::logf(Logger::Warning, "DB", "queryTakeoffs(trip %d): step failed: %s", tripId, sqlite3_errmsg(sql));
+	Logger::logf(Logger::Trace, "DB", "queryTakeoffs(trip %d): loaded %d takeoffs", tripId, (int)takeoffs.size());
+	sqlite3_finalize(stmt);
+	return takeoffs;
 }
 
 std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
@@ -294,6 +345,7 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 	const char* stmts[] = {
 		"DELETE FROM trip_data WHERE trip = ?",
 		"DELETE FROM trip_events WHERE trip = ?",
+		"DELETE FROM trip_takeoffs WHERE trip = ?",
 		"DELETE FROM trip_touchdowns WHERE trip = ?",
 		"DELETE FROM trips WHERE id = ?",
 	};

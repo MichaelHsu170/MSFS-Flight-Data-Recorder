@@ -41,6 +41,33 @@ struct TripSamplePoint {
 	uint32_t boolGroup3 = 0;
 };
 
+// One takeoff logged during the trip (trip_takeoffs), shown as a marker on
+// the map: the trip's departure plus any subsequent touch-and-go takeoffs.
+// No gForce field: unlike a landing, there's no meaningful "how hard" to a
+// takeoff.
+struct TakeoffPoint {
+	double latitude = 0;
+	double longitude = 0;
+	QString icao;
+	QString runway;
+	int airspeed = 0;
+	int verticalSpeed = 0;
+	double pitchDegrees = 0;
+	double bankDegrees = 0;
+	int headingDegrees = 0;
+	QString airportName;
+	double distanceLength = -1;   // feet from threshold, -1 = unknown
+	double distanceWidth = 0;     // feet from centerline (+right/-left)
+	double distanceLengthPercent = -1;  // 0-1 fraction of runway length
+	double distanceWidthPercent = 0;    // 0-1 fraction of runway half-width
+	int windDirection = 0;   // degrees true, 0 if unknown
+	int windVelocity = 0;    // knots
+	QString zuluTime;
+	QString localTime;
+	int rowId = 0;           // trip_takeoffs.id, used to UPDATE analysis_report
+	QString analysisReport;  // stored AI analysis text, empty if never analyzed
+};
+
 // One landing logged during the trip (trip_touchdowns), shown as a marker on
 // the map. A trip can have more than one touchdown (go-arounds, bounces).
 struct TouchdownPoint {
@@ -84,6 +111,7 @@ struct TripDataset {
 	int tripId = -1;
 	QString aircraftTitle;  // trips.title — human-readable name like "Airbus A320neo FlyByWire"
 	std::vector<TripSamplePoint> points;
+	std::vector<TakeoffPoint> takeoffs;
 	std::vector<TouchdownPoint> touchdowns;
 	std::vector<TripEvent> events;
 };
