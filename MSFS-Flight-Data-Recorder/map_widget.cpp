@@ -30,6 +30,31 @@ QJsonObject pointToJson(double lat, double lng) {
 	return obj;
 }
 
+QJsonObject takeoffToJson(const TakeoffPoint& t) {
+	QJsonObject obj;
+	obj["lat"] = t.latitude;
+	obj["lng"] = t.longitude;
+	obj["icao"] = t.icao;
+	obj["airportName"] = t.airportName;
+	obj["runway"] = t.runway;
+	obj["airspeed"] = t.airspeed;
+	obj["verticalSpeed"] = t.verticalSpeed;
+	obj["pitchDegrees"] = t.pitchDegrees;
+	obj["bankDegrees"] = t.bankDegrees;
+	obj["headingDegrees"] = t.headingDegrees;
+	obj["distanceLength"] = t.distanceLength;
+	obj["distanceWidth"] = t.distanceWidth;
+	obj["distanceLengthPercent"] = t.distanceLengthPercent;
+	obj["distanceWidthPercent"] = t.distanceWidthPercent;
+	obj["windDirection"] = t.windDirection;
+	obj["windVelocity"] = t.windVelocity;
+	obj["zuluTime"] = t.zuluTime;
+	obj["localTime"] = t.localTime;
+	obj["rowId"] = t.rowId;
+	obj["analysisReport"] = t.analysisReport;
+	return obj;
+}
+
 QJsonObject touchdownToJson(const TouchdownPoint& t) {
 	QJsonObject obj;
 	obj["lat"] = t.latitude;
@@ -150,19 +175,22 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 	for (const TripSamplePoint& p : dataset.points)
 		trajCoords_.emplace_back(p.latitude, p.longitude);
 	Logger::logf(Logger::Profile, "Map", "coord copy: %lld µs  (%zu pts)", copyTimer.nsecsElapsed() / 1000, trajCoords_.size());
+	takeoffs_ = dataset.takeoffs;
 	touchdowns_ = dataset.touchdowns;
 	events_ = dataset.events;
 	aircraftTitle_ = dataset.aircraftTitle;
 	if (pageReady_) {
 		Logger::logf(Logger::Trace, "Map", "setDataset: page ready, pushing dataset v%d immediately (%zu pts, %zu touchdowns, %zu events)",
 		             datasetVersion_, trajCoords_.size(), touchdowns_.size(), events_.size());
-		// Inject the aircraft title before pushing touchdowns so
-		// touchdownPopupHtml() sees the correct value when it runs setTouchdowns.
+		// Inject the aircraft title before pushing takeoffs/touchdowns so
+		// takeoffPopupHtml()/touchdownPopupHtml() see the correct value when they
+		// run setTakeoffs/setTouchdowns.
 		QJsonArray arr;
 		arr.append(QJsonValue(aircraftTitle_));
 		QString encoded = QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
 		runJs(QStringLiteral("window._aircraftTitle=%1[0];").arg(encoded));
 		pushTrajectory();
+		pushTakeoffs();
 		pushTouchdownsAndEvents();
 	} else {
 		Logger::logf(Logger::Trace, "Map", "setDataset: page not ready yet; deferring push of dataset v%d until refreshProvider()", datasetVersion_);
@@ -184,6 +212,7 @@ void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
 	pendingLiveCoords_.clear();
 	lastCursorIndex_ = -1;
 	trajCoords_.clear();
+	takeoffs_.clear();
 	touchdowns_.clear();
 	events_.clear();
 	Logger::logf(Logger::Profile, "Map", "showOverview: cleared vectors: %lld µs", t.nsecsElapsed() / 1000);
@@ -271,8 +300,9 @@ void MapWidget::refreshProvider() {
 		Logger::log(Logger::Trace, "Map", QStringLiteral("refreshProvider: overview mode active; re-pushing overview"));
 		showOverview(overviewTrips_);
 	} else {
-		Logger::log(Logger::Trace, "Map", QStringLiteral("refreshProvider: detail mode active; re-pushing trajectory/touchdowns/events"));
+		Logger::log(Logger::Trace, "Map", QStringLiteral("refreshProvider: detail mode active; re-pushing trajectory/takeoffs/touchdowns/events"));
 		pushTrajectory();
+		pushTakeoffs();
 		pushTouchdownsAndEvents();
 	}
 }
@@ -340,6 +370,30 @@ void MapWidget::pushTrajectory() {
 		QJsonDocument doc(data);
 		Logger::logf(Logger::Profile, "Map", "JSON build (bg): %lld ms  (%d → %d pts decimated)", t.nsecsElapsed() / 1000000, n, (int)lats.size());
 		return QStringLiteral("setTrajectory(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
+	}));
+}
+
+void MapWidget::pushTakeoffs() {
+	int ver = datasetVersion_;
+	auto* watcher = new QFutureWatcher<QString>(this);
+	connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, ver]() {
+		watcher->deleteLater();
+		if (ver != datasetVersion_) {
+			Logger::logf(Logger::Trace, "Map", "pushTakeoffs: dataset superseded (v%d -> v%d); discarding stale takeoffs JS", ver, datasetVersion_);
+			return;
+		}
+		QElapsedTimer t; t.start();
+		runJs(watcher->result());
+		Logger::logf(Logger::Profile, "Map", "runJs takeoffs: %lld µs", t.nsecsElapsed() / 1000);
+	});
+	watcher->setFuture(QtConcurrent::run([takeoffs = takeoffs_]() {
+		QElapsedTimer t; t.start();
+		QJsonArray arr;
+		for (const TakeoffPoint& to : takeoffs)
+			arr.append(takeoffToJson(to));
+		QJsonDocument doc(arr);
+		Logger::logf(Logger::Profile, "Map", "takeoffs JSON (bg): %lld µs  (%d takeoffs)", t.nsecsElapsed() / 1000, (int)arr.size());
+		return QStringLiteral("setTakeoffs(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
 	}));
 }
 

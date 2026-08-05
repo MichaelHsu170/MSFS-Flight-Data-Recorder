@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.17)
 # Single source of truth for the app version -- generated into version.h
 # below, consumed by types.h (C++, e.g. the Live Status "ver." label and the
 # debug log header) and app.rc (Windows exe file-version metadata).
-project(MSFS-Flight-Data-Recorder VERSION 2.0.2 LANGUAGES CXX)
+project(MSFS-Flight-Data-Recorder VERSION 2.0.3 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

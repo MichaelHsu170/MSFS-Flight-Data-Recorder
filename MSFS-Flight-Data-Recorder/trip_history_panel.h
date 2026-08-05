@@ -134,19 +134,20 @@ private:
 	// thread and joined in tryFinishLoad() rather than via a wrapping
 	// QtConcurrent::run that blocks on their .result() -- that
 	// nested-blocking pattern can starve QThreadPool's limited thread count
-	// and deadlock (1 outer task occupying a pool thread while waiting on 3
+	// and deadlock (1 outer task occupying a pool thread while waiting on 4
 	// more pool threads that may never become free).
 	QFutureWatcher<std::shared_ptr<TripDataset>>* pointsWatcher_;
+	QFutureWatcher<std::vector<TakeoffPoint>>* takeoffsWatcher_;
 	QFutureWatcher<std::vector<TouchdownPoint>>* touchdownsWatcher_;
 	QFutureWatcher<std::vector<TripEvent>>* eventsWatcher_;
 	QElapsedTimer loadTimer_;
 	int pendingTripId_ = -1;
 	int selectedTripId_ = -1;
 	bool loading_ = false;
-	// tryFinishLoad() is connected to all three watchers' finished signals; a
+	// tryFinishLoad() is connected to all four watchers' finished signals; a
 	// future's completion is visible via isFinished() before its queued signal
-	// is delivered, so if two or three watchers finish within the same event
-	// loop tick, each queued slot invocation would otherwise see all three as
+	// is delivered, so if several watchers finish within the same event loop
+	// tick, each queued slot invocation would otherwise see all four as
 	// finished and re-run the join (and re-emit tripDatasetReady) once each.
 	// Set when the first invocation actually joins the results; reset when a
 	// new load starts.
