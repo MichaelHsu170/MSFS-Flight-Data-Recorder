@@ -879,24 +879,27 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			status->data.coordinate = tmp.plane_coordinate;
 			status->data.time_zulu = tmp.time_zulu;
 			status->data.time_local = tmp.time_local;
+			// Only touchdown/destination runway-end matching uses this -- see
+			// the bearing_tra computation in FACILITY_DATA_END below for why
+			// departure/takeoff never can (their only candidate crossing of
+			// this band happens during climb-out, after liftoff, not before).
 			if (tmp.radio_height > 50 && tmp.radio_height < 100) {
 				status->loc_dh.latitude = tmp.plane_coordinate.latitude;
 				status->loc_dh.longitude = tmp.plane_coordinate.longitude;
-				// First such crossing after this trip's takeoff freezes the
-				// departure's own snapshot -- see facility_lookup_departure_loc_dh
-				// in types.h for why status->loc_dh itself can't be trusted once
-				// this departure's lookup is deferred/queued.
-				if (status->departure_lookup_initiated && status->facility_lookup_departure_loc_dh.latitude == 360) {
-					status->facility_lookup_departure_loc_dh.latitude = tmp.plane_coordinate.latitude;
-					status->facility_lookup_departure_loc_dh.longitude = tmp.plane_coordinate.longitude;
-				}
-				// Same one-shot capture, but for the most recent takeoff *marker*
-				// (touch-and-go), whose own climb-out crossing likewise happens
-				// after detection -- see TAKEOFF_DATA::loc_dh in types.h.
-				if (status->takeoff_data_end != NULL && status->takeoff_data_end->loc_dh.latitude == 360) {
-					status->takeoff_data_end->loc_dh.latitude = tmp.plane_coordinate.latitude;
-					status->takeoff_data_end->loc_dh.longitude = tmp.plane_coordinate.longitude;
-				}
+			} else if (tmp.radio_height >= 100 && status->loc_dh.latitude != 360) {
+				// Invalidate once the aircraft climbs clear of the capture band above,
+				// so a touchdown can never reuse a position frozen on a different,
+				// earlier low pass (e.g. an earlier circuit/go-around in the same
+				// trip). This runs every sim frame (SIMCONNECT_PERIOD_SIM_FRAME,
+				// registered once at connect time via SimConnect_RequestDataOnSimObject),
+				// so the latitude != 360 guard clears it exactly
+				// once per climb-out rather than every frame for the rest of the time
+				// spent above 100ft -- most of the flight. If this trip's next descent
+				// happens to skip resampling inside the 50-100ft band (a sim-frame
+				// hitch/stall), FACILITY_DATA_END's loc_dh_source->latitude != 360
+				// check below then falls back to heading-based bearing instead of
+				// silently reusing this now-cleared, stale position.
+				status->loc_dh.clear();
 			}
 			if (status->sim_running && !status->paused && tmp.surface_type != 255) {
 				status->in_sim = TRUE;
@@ -921,14 +924,14 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 							status->departure_lookup_initiated = FALSE;
 							status->departure_db_id = -1;
 							// A go-around or bounced landing from a previous trip can leave
-							// this set (only cleared when a facility lookup actually
-							// completes -- see FacilityLookupCleanup below) without ever
-							// resolving; without clearing it here, a fast climbout on this
-							// new trip that skips back through the 50-100ft band between
-							// samples would attribute this trip's departure runway bearing
-							// to the previous trip's stale position.
+							// this set -- between trips (engines off, on the ground) radio_height
+							// stays well under 100ft, so neither of the two automatic resets above
+							// (a fresh 50-100ft crossing, or climbing back above 100ft -- see the
+							// SIMOBJECT_DATA handler above) reliably fires during that window.
+							// Without clearing it here, a fast climbout on this new trip that skips
+							// back through the 50-100ft band between samples would attribute this
+							// trip's departure runway bearing to the previous trip's stale position.
 							status->loc_dh.clear();
-							status->facility_lookup_departure_loc_dh.clear();
 							status->next_facility_lookup_seq = 0;
 							status->airborne = !(bool)tmp.sim_on_ground;
 
@@ -1066,7 +1069,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						// Same reasoning as TOUCHDOWN_DATA::db_id above: memset zeroed
 						// this to 0, not the declared default of -1.
 						tmp_takeoff->db_id = -1;
-						tmp_takeoff->loc_dh.clear();
 						tmp_takeoff->seq = status->next_facility_lookup_seq++;
 						if (status->takeoff_data == NULL) {
 							status->takeoff_data = tmp_takeoff;
@@ -1486,21 +1488,11 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		struct FacilityLookupCleanup {
 			AIRPORT* rep;
 			struct STATUS* status;
-			// Set once this response is known to be a stale one (issued by a
-			// trip that has since ended). rep may already belong to a
-			// newly-started trip's departure/destination slot in that case, and
-			// so may status->loc_dh already hold that new trip's own
-			// legitimately captured low-altitude position -- clearing it here
-			// would silently discard it and degrade the new trip's own
-			// runway-bearing match.
-			bool stale = false;
 			~FacilityLookupCleanup() {
 				if (rep->runways != NULL) {
 					free(rep->runways);
 					rep->runways = NULL;
 				}
-				if (!stale)
-					status->loc_dh.clear();
 				status->facility_lookup_pending = FALSE;
 				// Pick up a touchdown that landed while this lookup was still in
 				// flight and had its own request skipped -- see
@@ -1516,7 +1508,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		if (status->facility_lookup_trip_id != status->id_trip) {
 			gui_log_printf(status, GUI_LOG_TRACE, "Dropping stale facility lookup response for trip %d (current trip %d)",
 				status->facility_lookup_trip_id, status->id_trip);
-			cleanup_guard.stale = true;
 			break;
 		}
 		gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_END: %s slot, icao=%s, n_runways=%d",
@@ -1524,34 +1515,32 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		double bearing_tra = (double)status->facility_lookup_heading - rep->magvar;
 		if (bearing_tra <= 0)
 			bearing_tra += 360;
-		// For a destination/touchdown lookup, use that touchdown's own frozen
-		// loc_dh snapshot (see TOUCHDOWN_DATA::loc_dh in types.h); for a
-		// departure lookup, use this trip's own frozen departure snapshot (see
-		// facility_lookup_departure_loc_dh in types.h) -- either one instead of
-		// the shared, continuously-overwritten status->loc_dh, which a later
-		// crossing (a touch-and-go's climb-out, a go-around's second approach,
-		// this trip's own eventual landing) could otherwise have clobbered
-		// while this lookup was still queued behind an earlier one.
+		// Ground-track refinement only applies to a touchdown/destination
+		// lookup: the aircraft can still be crabbed into wind right up to the
+		// moment of touchdown, so the bearing from that touchdown's own frozen
+		// final-approach loc_dh snapshot (see TOUCHDOWN_DATA::loc_dh in
+		// types.h) to the touchdown point is a better estimate of the
+		// direction of travel than instantaneous heading. Departure/takeoff
+		// have no such crossing available beforehand -- the aircraft is still
+		// on the ground before liftoff, so the only 50-100ft AGL crossing it
+		// could ever have is during climb-out, *after* the event -- and using
+		// that would describe the reverse of the actual departure direction.
+		// The aircraft is also mechanically tracking the runway during the
+		// ground roll (no crab yet), so its own heading is already correct
+		// for departure/takeoff; it's used unrefined for both.
+		bool is_touchdown = (rep != &status->departure) && !status->facility_lookup_is_takeoff;
 		COORDINATE* loc_dh_source = &status->loc_dh;
-		if (rep == &status->departure) {
-			loc_dh_source = &status->facility_lookup_departure_loc_dh;
-		} else if (status->facility_lookup_is_takeoff) {
-			struct TAKEOFF_DATA* pending = status->takeoff_data;
-			while (pending != NULL && pending->airport.runway_act.distances[0] != -1)
-				pending = pending->next;
-			if (pending != NULL)
-				loc_dh_source = &pending->loc_dh;
-		} else {
+		if (is_touchdown) {
 			struct TOUCHDOWN_DATA* pending = status->touchdown_data;
 			while (pending != NULL && pending->airport.runway_act.distances[0] != -1)
 				pending = pending->next;
 			if (pending != NULL)
 				loc_dh_source = &pending->loc_dh;
+			if (loc_dh_source->latitude != 360)
+				bearing_tra = loc_dh_source->bearing2Coordinate(status->facility_lookup_coordinate);
 		}
-		if (loc_dh_source->latitude != 360)
-			bearing_tra = loc_dh_source->bearing2Coordinate(status->facility_lookup_coordinate);
 		gui_log_printf(status, GUI_LOG_TRACE, "Runway match: bearing_tra=%.1f (%s), evaluating %d runway(s) for %s slot",
-			bearing_tra, (loc_dh_source->latitude != 360) ? "loc_dh-based" : "heading-based",
+			bearing_tra, (is_touchdown && loc_dh_source->latitude != 360) ? "loc_dh-based" : "heading-based",
 			rep->n_runways, (rep == &status->departure) ? "departure" : status->facility_lookup_is_takeoff ? "takeoff" : "destination");
 		std::vector<struct RUNWAY_OPERATION> candidates;
 		for (int i = 0; i < rep->n_runways; i++) {
@@ -1940,8 +1929,23 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				}
 			}
 		}
-		// runways free + loc_dh.clear() + facility_lookup_pending reset all happen
-		// in cleanup_guard's destructor above, regardless of which branch was taken.
+		// runways free + facility_lookup_pending reset happen in cleanup_guard's
+		// destructor above, regardless of which branch was taken. status->loc_dh
+		// is deliberately left untouched here -- it's reset by three things only:
+		// a fresh 50-100ft AGL crossing (overwrites with new data), climbing back
+		// above 100ft (clears to sentinel -- see the SIMOBJECT_DATA handler above),
+		// or trip start. This lets repeated touchdowns from the same low bounce/
+		// touch-and-go sequence (which never climbs above 100ft) keep reusing the
+		// one real approach ground track instead of falling back to heading-based.
+		// Safe to leave unreset here: a genuinely distinct later landing climbing
+		// above 100ft is a real-world flying assumption, not something this code
+		// enforces -- status->airborne (set purely from sim_on_ground, with no
+		// altitude term) can't tell a low bounce apart from a full circuit. A
+		// genuine later landing either gets fresh data on the way back down, or
+		// -- if that descent doesn't happen to resample the 50-100ft band --
+		// finds loc_dh already cleared to the sentinel and falls back to
+		// heading-based bearing, so a stale cross-approach position can never
+		// reach a later touchdown either way.
 	}
 	break;
 	case SIMCONNECT_RECV_ID_EXCEPTION: {
