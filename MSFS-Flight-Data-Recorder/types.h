@@ -332,13 +332,6 @@ struct TAKEOFF_DATA {
 	struct FLIGHT_DATA flight_data;
 	AIRPORT airport;
 	int db_id = -1;              // trip_takeoffs row ID, set after immediate INSERT
-	// Snapshot of STATUS::loc_dh taken the first time it re-arms (latitude==360)
-	// after this takeoff is recorded -- unlike a touchdown's final-approach
-	// crossing, a takeoff's climb-out AGL crossing happens AFTER detection, so
-	// it can't be captured at detection time and is instead captured by the
-	// deferred, sentinel-gated logic in the SIMOBJECT_DATA handler (mirrors the
-	// existing STATUS::facility_lookup_departure_loc_dh one-shot capture).
-	COORDINATE loc_dh;
 	// Monotonically increasing across both takeoff_data and touchdown_data
 	// (STATUS::next_facility_lookup_seq), so request_next_touchdown_facility_lookup
 	// can pick whichever of the two lists holds the chronologically earliest
@@ -604,22 +597,6 @@ struct STATUS {
 	// The aircraft's heading at the moment of takeoff -- see
 	// facility_lookup_departure_coordinate above, same reasoning.
 	int facility_lookup_departure_heading = 0;
-	// This trip's own frozen low-altitude snapshot for the departure runway
-	// match, analogous to TOUCHDOWN_DATA::loc_dh for a touchdown/destination
-	// match. loc_dh below is a single field shared across every 50-100ft
-	// AGL crossing of the whole trip (climb-outs and approaches alike), kept
-	// continuously overwritten right up to whatever crossing happens last --
-	// so if the departure lookup is deferred or queued behind another (see
-	// facility_lookup_departure_needed above) and doesn't resolve until after
-	// a later touchdown, touch-and-go climb-out, or go-around, loc_dh no
-	// longer holds the original departure's position by the time
-	// SIMCONNECT_RECV_ID_FACILITY_DATA_END reads it. Captured once, on the
-	// first 50-100ft AGL crossing after this trip's first takeoff is
-	// detected (departure_lookup_initiated above), and left untouched for
-	// the rest of the trip -- latitude stays the COORDINATE-default 360
-	// sentinel until that capture happens. Reset only at true trip
-	// boundaries, same as departure_lookup_initiated.
-	COORDINATE facility_lookup_departure_loc_dh;
 	// Running top-N nearest airports across every chunk of the current
 	// AIRPORT_LIST response. SimConnect splits a large facility list (e.g.
 	// every airport in loaded scenery, 1000+ entries) across multiple
