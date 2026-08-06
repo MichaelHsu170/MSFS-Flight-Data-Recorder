@@ -184,6 +184,11 @@ function buildTakeoffPrompt(t) {
     }
     if (t.runway) lines.push('  Runway: ' + t.runway);
     lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
+    // Deliberately no vertical-speed line here, unlike buildTouchdownPrompt()
+    // below -- at the moment of liftoff vertical speed is just starting to
+    // leave zero and doesn't meaningfully inform takeoff quality the way it
+    // does for a landing's touchdown rate, so it's omitted rather than
+    // included as a mostly-meaningless number the model would still comment on.
     lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     lines.push('  Heading: ' + t.headingDegrees + '°');
     lines.push('  Wind: ' + t.windDirection + '° at ' + t.windVelocity + ' kt');
@@ -916,6 +921,12 @@ function initLeafletProvider() {
             if (marker !== null) { map.removeLayer(marker); marker = null; }
             takeoffMarkers.forEach(function(m) { map.removeLayer(m); });
             takeoffMarkers = [];
+            // Same store-reset rationale as setTakeoffs()/setTouchdowns() above --
+            // every entry belonged to a marker just removed above, so nothing still
+            // needs them, and skipping this leaks one entry per takeoff/touchdown
+            // ever shown for the lifetime of the page.
+            _takeoffStore = {};
+            _touchdownStore = {};
             touchdownMarkers.forEach(function(m) { map.removeLayer(m); });
             touchdownMarkers = [];
             eventMarkers.forEach(function(m) { map.removeLayer(m); });

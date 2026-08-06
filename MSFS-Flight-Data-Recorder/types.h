@@ -284,8 +284,10 @@ public:
 		magvar = src->magvar;
 		// Free any buffer this AIRPORT already owns before reassigning --
 		// otherwise a copy() onto an already-populated AIRPORT (unlike this
-		// header's one current caller, which always copies onto a freshly
-		// clear()'d touchdown airport) would leak it.
+		// header's two current callers, which both copy onto a freshly
+		// clear()'d TAKEOFF_DATA/TOUCHDOWN_DATA node airport -- see
+		// FACILITY_DATA_END's takeoff-marker and touchdown branches) would
+		// leak it.
 		if (runways != NULL) {
 			free(runways);
 			runways = NULL;
@@ -491,15 +493,30 @@ struct STATUS {
 	FLIGHT_DATA data;
 	COORDINATE loc_dh;
 	AIRPORT departure;
-	// Scratch AIRPORT used while a takeoff-marker (not the departure) lookup
-	// is in flight -- mirrors how touchdown_data_end->airport is filled in
-	// place during a touchdown lookup, but a TAKEOFF_DATA node's own airport
-	// field is used directly for that instead (see FACILITY_DATA_END), so
-	// this scratch is only needed for the in-progress AIRPORT_LIST candidate
-	// search before a specific node is known to be the match. Unused/ignored
-	// once departure_lookup_initiated's first-takeoff path is taken.
-	AIRPORT takeoff_scratch;
+	// The trip's destination airport, filled in once a touchdown's facility
+	// lookup resolves (copied from here into the matching TOUCHDOWN_DATA
+	// node -- see FACILITY_DATA_END). Also doubles as scratch space for that
+	// same lookup while it's still in flight (the in-progress AIRPORT_LIST
+	// candidate search, before a specific runway is known to be the match),
+	// which is safe because only one facility lookup is ever in flight at a
+	// time (facility_lookup_pending below) and every read of this object
+	// happens synchronously within the same FACILITY_DATA_END/AIRPORT_LIST
+	// callback that just populated it.
 	AIRPORT destination;
+	// Scratch space for an in-flight takeoff-marker (touch-and-go, not the
+	// trip's one departure) lookup -- mirrors destination's scratch role
+	// above for a touchdown lookup, but kept as its own field rather than
+	// sharing destination: even though the two are never populated
+	// concurrently (same single-flight guarantee as above), they mean
+	// different things -- destination is the trip's actual destination
+	// airport, this is a transient candidate for whichever takeoff marker is
+	// currently being resolved -- and collapsing them into one field would
+	// make status->destination silently hold takeoff-marker data during that
+	// window, a landmine for any future code that reads it assuming it's
+	// always the trip's destination. The lookup-handling logic these two
+	// share is reused via facility_lookup_target()/facility_lookup_target_label()
+	// in recorder.cpp (code reuse), not by reusing this storage.
+	AIRPORT takeoff_scratch;
 	// Set right before SimConnect_RequestFacilitiesList_EX1() is called (on
 	// takeoff or touchdown) and cleared once the async facility lookup it
 	// starts (AIRPORT_LIST -> optional FACILITY_DATA(s) -> FACILITY_DATA_END)
@@ -514,13 +531,30 @@ struct STATUS {
 	int facility_lookup_trip_id = -1;
 	// Set alongside facility_lookup_pending whenever the in-flight lookup is
 	// for a takeoff *marker* (touch-and-go) rather than the trip's departure
-	// or a touchdown -- departure.runway_act.index==-1 still distinguishes
-	// "departure vs. not" on its own (see departure_lookup_initiated below),
-	// but can no longer alone tell a takeoff-marker lookup apart from a
-	// touchdown lookup within the "not departure" case. Read throughout
-	// MyDispatchProc's AIRPORT_LIST/FACILITY_DATA/FACILITY_DATA_END/EXCEPTION
-	// handlers and set by request_next_touchdown_facility_lookup().
+	// or a touchdown -- facility_lookup_is_departure below still distinguishes
+	// "departure vs. not" on its own, but can no longer alone tell a
+	// takeoff-marker lookup apart from a touchdown lookup within the "not
+	// departure" case. Read throughout MyDispatchProc's AIRPORT_LIST/
+	// FACILITY_DATA/FACILITY_DATA_END/EXCEPTION handlers (always via the
+	// facility_lookup_target()/facility_lookup_target_label() helpers, not
+	// re-derived) and set by request_next_touchdown_facility_lookup().
 	bool facility_lookup_is_takeoff = FALSE;
+	// Set alongside facility_lookup_pending/facility_lookup_is_takeoff above,
+	// at each of the same three call sites, to whether the in-flight lookup
+	// is for the trip's one departure. This used to be re-derived at each
+	// async callback as "departure.runway_act.index == -1", which is exactly
+	// the kind of live/mutable check departure_lookup_initiated's own comment
+	// below already warns against for a different reason (a fast touch-and-go
+	// racing a slow lookup) -- it has a second failure mode across a trip
+	// boundary: if a takeoff-marker or destination lookup is still in flight
+	// when its trip ends, the new trip's status->departure.clear() resets
+	// runway_act.index back to -1 out from under it, so the stale response
+	// gets misattributed to &status->departure instead of its real target,
+	// permanently leaking that target's runways buffer (freed on the wrong
+	// object by FacilityLookupCleanup in FACILITY_DATA_END). Capturing this
+	// once at request time, like facility_lookup_is_takeoff already does,
+	// makes slot selection depend only on state fixed at request time.
+	bool facility_lookup_is_departure = FALSE;
 	// Set when a takeoff's own facility lookup was skipped because
 	// facility_lookup_pending was already true (a previous trip's lookup was
 	// still draining when this trip took off). request_next_touchdown_facility_lookup()

@@ -140,6 +140,7 @@ void RecorderBridge::tryConnect() {
 	status_.facility_lookup_trip_id = -1;
 	status_.facility_lookup_departure_needed = false;
 	status_.facility_lookup_is_takeoff = false;
+	status_.facility_lookup_is_departure = false;
 	status_.departure_lookup_initiated = false;
 	status_.facility_lookup_send_id = 0;
 	status_.facility_definition_runways_added = false;
