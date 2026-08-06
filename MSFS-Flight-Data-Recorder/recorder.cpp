@@ -680,6 +680,7 @@ static void request_next_touchdown_facility_lookup(struct STATUS* status) {
 		gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up deferred departure lookup (trip %d)", status->id_trip);
 		status->facility_lookup_departure_needed = FALSE;
 		status->facility_lookup_is_takeoff = FALSE;
+		status->facility_lookup_is_departure = TRUE;
 		status->facility_lookup_pending = TRUE;
 		status->facility_lookup_trip_id = status->id_trip;
 		status->facility_lookup_coordinate = status->facility_lookup_departure_coordinate;
@@ -704,6 +705,7 @@ static void request_next_touchdown_facility_lookup(struct STATUS* status) {
 	// in-order-resolution assumption still holds across the combined stream.
 	bool pick_takeoff = next_td == NULL || (next_to != NULL && next_to->seq < next_td->seq);
 	status->facility_lookup_is_takeoff = pick_takeoff;
+	status->facility_lookup_is_departure = FALSE;
 	gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up queued %s lookup (trip %d)",
 		pick_takeoff ? "takeoff" : "touchdown", status->id_trip);
 	status->facility_lookup_pending = TRUE;
@@ -712,6 +714,35 @@ static void request_next_touchdown_facility_lookup(struct STATUS* status) {
 	status->facility_lookup_heading = pick_takeoff ? next_to->flight_data.heading : next_td->flight_data.heading;
 	SimConnect_RequestFacilitiesList_EX1(status->hSimConnect, SIMCONNECT_FACILITY_LIST_TYPE_AIRPORT, REQUEST_AIRPORTS);
 	SimConnect_GetLastSentPacketID(status->hSimConnect, &status->facility_lookup_send_id);
+}
+
+// Resolves which AIRPORT slot the in-flight facility lookup (AIRPORT_LIST /
+// FACILITY_DATA / FACILITY_DATA_END / EXCEPTION) targets. Deliberately reads
+// only facility_lookup_is_departure/facility_lookup_is_takeoff -- both
+// captured once, at the same three call sites that start a lookup (the
+// deferred-departure and immediate-departure branches above, and the
+// queued-pickup branch in request_next_touchdown_facility_lookup()) -- rather
+// than any live/mutable state such as status->departure.runway_act.index.
+// That field used to be used for this instead, but it can be reset to -1 by
+// a *later* trip's status->departure.clear() while an older trip's takeoff-
+// marker or destination lookup is still in flight, which would misattribute
+// the stale response to &status->departure. See facility_lookup_is_departure
+// in types.h for the full history.
+static AIRPORT* facility_lookup_target(struct STATUS* status) {
+	if (status->facility_lookup_is_departure)
+		return &status->departure;
+	// Takeoff-marker and touchdown/destination lookups use separate scratch
+	// objects (status->takeoff_scratch vs. status->destination) even though
+	// they're never in flight at the same time -- see destination's/
+	// takeoff_scratch's declarations in types.h for why they're kept apart
+	// instead of sharing one field.
+	return status->facility_lookup_is_takeoff ? &status->takeoff_scratch : &status->destination;
+}
+
+// Human-readable label for gui_log_printf tracing, matching whichever slot
+// facility_lookup_target() returned for this same in-flight lookup.
+static const char* facility_lookup_target_label(struct STATUS* status, AIRPORT* apt) {
+	return (apt == &status->departure) ? "departure" : status->facility_lookup_is_takeoff ? "takeoff" : "destination";
 }
 
 void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContext) {
@@ -921,7 +952,26 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 
 							status->departure.clear();
 							status->destination.clear();
+							// Also cleared here (unlike departure/destination above, this
+							// wasn't previously): if a takeoff-marker lookup targeting this
+							// object is still in flight when this trip ends, the flag reset
+							// below makes facility_lookup_target() resolve that lookup's late
+							// response to &status->destination instead once it arrives,
+							// leaking this object's runways buffer since nothing then frees
+							// it. Unconditionally free+null-ing it here up front, the same as
+							// departure/destination, closes that regardless of which slot the
+							// stale response ends up misattributed to.
+							status->takeoff_scratch.clear();
 							status->departure_lookup_initiated = FALSE;
+							// Not a fix for an observed bug on its own -- every call site that
+							// starts a lookup already sets both of these fresh before use (see
+							// facility_lookup_is_departure in types.h) -- but a lookup still in
+							// flight when this trip boundary is crossed reads them again when
+							// its (possibly stale) response arrives later; see the
+							// takeoff_scratch.clear() above for why that case needs its target
+							// AIRPORT cleared here too, not just these flags.
+							status->facility_lookup_is_takeoff = FALSE;
+							status->facility_lookup_is_departure = FALSE;
 							status->departure_db_id = -1;
 							// A go-around or bounced landing from a previous trip can leave
 							// this set -- between trips (engines off, on the ground) radio_height
@@ -1037,6 +1087,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					if (!status->facility_lookup_pending) {
 						gui_log_printf(status, GUI_LOG_TRACE, "Requesting departure facility lookup (trip %d)", status->id_trip);
 						status->facility_lookup_is_takeoff = FALSE;
+						status->facility_lookup_is_departure = TRUE;
 						status->facility_lookup_pending = TRUE;
 						status->facility_lookup_trip_id = status->id_trip;
 						status->facility_lookup_coordinate = status->facility_lookup_departure_coordinate;
@@ -1131,91 +1182,97 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						(int)tmp.plane_heading_degrees_magnetic);
 					struct TOUCHDOWN_DATA* tmp_touchdown = (struct TOUCHDOWN_DATA*)malloc(sizeof(struct TOUCHDOWN_DATA));
 					if (tmp_touchdown == NULL) {
+						// Same handling as the takeoff-marker malloc failure above: log
+						// and move on rather than aborting the rest of this tick (this
+						// case used to duplicate status->airborne's update and break
+						// out here instead, silently dropping the regular flight-data
+						// sample below too -- a separate, unrelated allocation -- for
+						// no stated reason). status->airborne is still updated
+						// unconditionally right after this "Landing" block either way.
 						gui_log_printf(status, GUI_LOG_WARNING, "Landing: malloc failed for touchdown record; this touchdown will not be recorded");
-						status->airborne = !(bool)tmp.sim_on_ground;
-						break;
-					}
-					memset(tmp_touchdown, 0, sizeof(struct TOUCHDOWN_DATA));
-					tmp_touchdown->airport.clear();
-					// memset zeroed this to 0, not TOUCHDOWN_DATA::db_id's declared
-					// default of -1 (malloc+memset never runs the member initializer).
-					// db_id is only overwritten with the real rowid if the immediate
-					// INSERT below succeeds; if it throws, db_id must stay -1 (an
-					// invalid rowid) rather than 0, which would make a later
-					// "UPDATE trip_touchdowns ... WHERE id = 0" resolve to no rows
-					// and silently drop the touchdown's icao/runway match instead of
-					// visibly failing.
-					tmp_touchdown->db_id = -1;
-					tmp_touchdown->seq = status->next_facility_lookup_seq++;
-					if (status->touchdown_data == NULL) {
-						status->touchdown_data = tmp_touchdown;
-						status->touchdown_data_end = tmp_touchdown;
 					} else {
-						status->touchdown_data_end->next = tmp_touchdown;
-						status->touchdown_data_end = tmp_touchdown;
-					}
-					status->touchdown_data_end->flight_data.heading = (int)tmp.plane_heading_degrees_magnetic;
-					status->touchdown_data_end->flight_data.pitch = tmp.plane_pitch_degrees;
-					status->touchdown_data_end->flight_data.bank = tmp.plane_bank_degrees;
-					status->touchdown_data_end->flight_data.speed = (int)tmp.airspeed_indicated;
-					status->touchdown_data_end->flight_data.vertical_speed = (int)tmp.vertical_speed;
-					status->touchdown_data_end->flight_data.g_force = tmp.g_force;
-					status->touchdown_data_end->flight_data.wind_direction = (int)tmp.ambient_wind_direction;
-					status->touchdown_data_end->flight_data.wind_velocity = (int)tmp.ambient_wind_velocity;
-					status->touchdown_data_end->flight_data.coordinate.latitude = tmp.plane_coordinate.latitude;
-					status->touchdown_data_end->flight_data.coordinate.longitude = tmp.plane_coordinate.longitude;
-					status->touchdown_data_end->flight_data.time_zulu = tmp.time_zulu;
-					status->touchdown_data_end->flight_data.time_local = tmp.time_local;
-					// Freeze this touchdown's own low-altitude position now -- see
-					// TOUCHDOWN_DATA::loc_dh in types.h for why status->loc_dh itself
-					// can't be trusted once this touchdown's facility lookup is queued.
-					status->touchdown_data_end->loc_dh = status->loc_dh;
-					status->touchdown_data_end->airport.runway_act.distances[0] = -1;
-					// Insert immediately so the row survives a crash before stop_recording.
-					// Airport/runway fields are NULL until the facility callback resolves.
-					db_insert_update_table(status->sql,
-						"INSERT INTO trip_touchdowns ("
-						"trip,airspeed_indicated,vertical_speed,g_force,plane_pitch_degrees,"
-						"plane_bank_degrees,heading_indicator,plane_latitude,plane_longitude,"
-						"wind_direction,wind_velocity,time_zulu,time_local"
-						") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);",
-						status->touchdown_data_end, status, NULL,
-						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-							struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
-							db_bind(stmt, stmt_txt, 1, status->id_trip);
-							db_bind(stmt, stmt_txt, 2, pS->flight_data.speed);
-							db_bind(stmt, stmt_txt, 3, pS->flight_data.vertical_speed);
-							db_bind(stmt, stmt_txt, 4, pS->flight_data.g_force);
-							db_bind(stmt, stmt_txt, 5, pS->flight_data.pitch);
-							db_bind(stmt, stmt_txt, 6, pS->flight_data.bank);
-							db_bind(stmt, stmt_txt, 7, pS->flight_data.heading);
-							db_bind(stmt, stmt_txt, 8, pS->flight_data.coordinate.latitude);
-							db_bind(stmt, stmt_txt, 9, pS->flight_data.coordinate.longitude);
-							db_bind(stmt, stmt_txt, 10, pS->flight_data.wind_direction);
-							db_bind(stmt, stmt_txt, 11, pS->flight_data.wind_velocity);
-							db_bind(stmt, stmt_txt, 12, pS->flight_data.time_zulu.format_date_time().c_str());
-							db_bind(stmt, stmt_txt, 13, pS->flight_data.time_local.format_date_time().c_str());
-						},
-						&status->touchdown_data_end->db_id
-					);
-					gui_log_printf(status, GUI_LOG_TRACE, "Touchdown trip_touchdowns row inserted: db_id=%d", status->touchdown_data_end->db_id);
-					// Update the destination position in trips to reflect this landing.
-					db_insert_update_table(status->sql,
-						"UPDATE trips SET destination_latitude=?,destination_longitude=? WHERE id=?;",
-						status->touchdown_data_end, status, NULL,
-						[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-							struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
-							db_bind(stmt, stmt_txt, 1, pS->flight_data.coordinate.latitude);
-							db_bind(stmt, stmt_txt, 2, pS->flight_data.coordinate.longitude);
-							db_bind(stmt, stmt_txt, 3, status->id_trip);
+						memset(tmp_touchdown, 0, sizeof(struct TOUCHDOWN_DATA));
+						tmp_touchdown->airport.clear();
+						// memset zeroed this to 0, not TOUCHDOWN_DATA::db_id's declared
+						// default of -1 (malloc+memset never runs the member initializer).
+						// db_id is only overwritten with the real rowid if the immediate
+						// INSERT below succeeds; if it throws, db_id must stay -1 (an
+						// invalid rowid) rather than 0, which would make a later
+						// "UPDATE trip_touchdowns ... WHERE id = 0" resolve to no rows
+						// and silently drop the touchdown's icao/runway match instead of
+						// visibly failing.
+						tmp_touchdown->db_id = -1;
+						tmp_touchdown->seq = status->next_facility_lookup_seq++;
+						if (status->touchdown_data == NULL) {
+							status->touchdown_data = tmp_touchdown;
+							status->touchdown_data_end = tmp_touchdown;
+						} else {
+							status->touchdown_data_end->next = tmp_touchdown;
+							status->touchdown_data_end = tmp_touchdown;
 						}
-					);
-					gui_notify_trip_updated(status);
-					// No-op if a previous lookup (this trip's departure, or an earlier
-					// touchdown from a bounce/go-around) is still resolving -- this
-					// touchdown's lookup will be picked up automatically once that one
-					// completes, via request_next_touchdown_facility_lookup().
-					request_next_touchdown_facility_lookup(status);
+						status->touchdown_data_end->flight_data.heading = (int)tmp.plane_heading_degrees_magnetic;
+						status->touchdown_data_end->flight_data.pitch = tmp.plane_pitch_degrees;
+						status->touchdown_data_end->flight_data.bank = tmp.plane_bank_degrees;
+						status->touchdown_data_end->flight_data.speed = (int)tmp.airspeed_indicated;
+						status->touchdown_data_end->flight_data.vertical_speed = (int)tmp.vertical_speed;
+						status->touchdown_data_end->flight_data.g_force = tmp.g_force;
+						status->touchdown_data_end->flight_data.wind_direction = (int)tmp.ambient_wind_direction;
+						status->touchdown_data_end->flight_data.wind_velocity = (int)tmp.ambient_wind_velocity;
+						status->touchdown_data_end->flight_data.coordinate.latitude = tmp.plane_coordinate.latitude;
+						status->touchdown_data_end->flight_data.coordinate.longitude = tmp.plane_coordinate.longitude;
+						status->touchdown_data_end->flight_data.time_zulu = tmp.time_zulu;
+						status->touchdown_data_end->flight_data.time_local = tmp.time_local;
+						// Freeze this touchdown's own low-altitude position now -- see
+						// TOUCHDOWN_DATA::loc_dh in types.h for why status->loc_dh itself
+						// can't be trusted once this touchdown's facility lookup is queued.
+						status->touchdown_data_end->loc_dh = status->loc_dh;
+						status->touchdown_data_end->airport.runway_act.distances[0] = -1;
+						// Insert immediately so the row survives a crash before stop_recording.
+						// Airport/runway fields are NULL until the facility callback resolves.
+						db_insert_update_table(status->sql,
+							"INSERT INTO trip_touchdowns ("
+							"trip,airspeed_indicated,vertical_speed,g_force,plane_pitch_degrees,"
+							"plane_bank_degrees,heading_indicator,plane_latitude,plane_longitude,"
+							"wind_direction,wind_velocity,time_zulu,time_local"
+							") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);",
+							status->touchdown_data_end, status, NULL,
+							[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+								struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
+								db_bind(stmt, stmt_txt, 1, status->id_trip);
+								db_bind(stmt, stmt_txt, 2, pS->flight_data.speed);
+								db_bind(stmt, stmt_txt, 3, pS->flight_data.vertical_speed);
+								db_bind(stmt, stmt_txt, 4, pS->flight_data.g_force);
+								db_bind(stmt, stmt_txt, 5, pS->flight_data.pitch);
+								db_bind(stmt, stmt_txt, 6, pS->flight_data.bank);
+								db_bind(stmt, stmt_txt, 7, pS->flight_data.heading);
+								db_bind(stmt, stmt_txt, 8, pS->flight_data.coordinate.latitude);
+								db_bind(stmt, stmt_txt, 9, pS->flight_data.coordinate.longitude);
+								db_bind(stmt, stmt_txt, 10, pS->flight_data.wind_direction);
+								db_bind(stmt, stmt_txt, 11, pS->flight_data.wind_velocity);
+								db_bind(stmt, stmt_txt, 12, pS->flight_data.time_zulu.format_date_time().c_str());
+								db_bind(stmt, stmt_txt, 13, pS->flight_data.time_local.format_date_time().c_str());
+							},
+							&status->touchdown_data_end->db_id
+						);
+						gui_log_printf(status, GUI_LOG_TRACE, "Touchdown trip_touchdowns row inserted: db_id=%d", status->touchdown_data_end->db_id);
+						// Update the destination position in trips to reflect this landing.
+						db_insert_update_table(status->sql,
+							"UPDATE trips SET destination_latitude=?,destination_longitude=? WHERE id=?;",
+							status->touchdown_data_end, status, NULL,
+							[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+								struct TOUCHDOWN_DATA* pS = (struct TOUCHDOWN_DATA*)data;
+								db_bind(stmt, stmt_txt, 1, pS->flight_data.coordinate.latitude);
+								db_bind(stmt, stmt_txt, 2, pS->flight_data.coordinate.longitude);
+								db_bind(stmt, stmt_txt, 3, status->id_trip);
+							}
+						);
+						gui_notify_trip_updated(status);
+						// No-op if a previous lookup (this trip's departure, or an earlier
+						// touchdown from a bounce/go-around) is still resolving -- this
+						// touchdown's lookup will be picked up automatically once that one
+						// completes, via request_next_touchdown_facility_lookup().
+						request_next_touchdown_facility_lookup(status);
+					}
 				}
 				status->airborne = !(bool)tmp.sim_on_ground;
 
@@ -1325,14 +1382,13 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		if (min_distance < 5) {
 			char* ident = status->facility_lookup_top[0].ident;
 			char* region = status->facility_lookup_top[0].region;
-			AIRPORT* apt = (status->departure.runway_act.index == -1) ? &status->departure
-				: status->facility_lookup_is_takeoff ? &status->takeoff_scratch : &status->destination;
+			AIRPORT* apt = facility_lookup_target(status);
 			strncpy(apt->icao, ident, sizeof(apt->icao) - 1);
 			apt->icao[sizeof(apt->icao) - 1] = '\0';
 			strncpy(apt->region, region, sizeof(apt->region) - 1);
 			apt->region[sizeof(apt->region) - 1] = '\0';
 			gui_log_printf(status, GUI_LOG_TRACE, "Requesting facility data for %s (%s) into %s slot",
-				apt->icao, apt->region, (apt == &status->departure) ? "departure" : status->facility_lookup_is_takeoff ? "takeoff" : "destination");
+				apt->icao, apt->region, facility_lookup_target_label(status, apt));
 			// The definition's fields are server-side, per-connection state -- only
 			// need to be registered once per connection, not once per lookup (see
 			// facility_definition_runways_added in types.h).
@@ -1359,7 +1415,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			SimConnect_GetLastSentPacketID(status->hSimConnect, &status->facility_lookup_send_id);
 		} else {
 			gui_log_printf(status, GUI_LOG_TRACE, "AIRPORT_LIST: nearest airport %.2f km away exceeds 5km threshold; using coordinate-only fallback", min_distance);
-			if (status->departure.runway_act.index == -1) {
+			if (status->facility_lookup_is_departure) {
 				gui_log_printf(status, GUI_LOG_INFO, "Takeoff from %s, %s at %s",
 					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
@@ -1429,8 +1485,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		switch (pWxData->Type) {
 		case SIMCONNECT_FACILITY_DATA_AIRPORT:
 		{
-			AIRPORT* tmp = (status->departure.runway_act.index == -1) ? &status->departure
-				: status->facility_lookup_is_takeoff ? &status->takeoff_scratch : &status->destination;
+			AIRPORT* tmp = facility_lookup_target(status);
 			memcpy(tmp, &pWxData->Data, sizeof(tmp->name) + sizeof(tmp->magvar) + sizeof(tmp->n_runways));
 			if (tmp->n_runways < 0) {
 				gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_AIRPORT: negative n_runways=%d from sim; treating as 0 runways", tmp->n_runways);
@@ -1447,17 +1502,15 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				tmp->n_runways = 0;
 			}
 			gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_AIRPORT: %s slot, name=%s, n_runways=%d",
-				(tmp == &status->departure) ? "departure" : status->facility_lookup_is_takeoff ? "takeoff" : "destination", tmp->name, tmp->n_runways);
+				facility_lookup_target_label(status, tmp), tmp->name, tmp->n_runways);
 		}
 		break;
 		case SIMCONNECT_FACILITY_DATA_RUNWAY:
 		{
-			bool is_departure = (status->departure.runway_act.index == -1);
-			AIRPORT* apt = is_departure ? &status->departure
-				: status->facility_lookup_is_takeoff ? &status->takeoff_scratch : &status->destination;
+			AIRPORT* apt = facility_lookup_target(status);
 			RUNWAY* rep = apt->runways;
 			gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_RUNWAY: %s slot, ItemIndex=%lu, n_runways=%d",
-				is_departure ? "departure" : (status->facility_lookup_is_takeoff ? "takeoff" : "destination"), pWxData->ItemIndex, apt->n_runways);
+				facility_lookup_target_label(status, apt), pWxData->ItemIndex, apt->n_runways);
 			// apt->n_runways is guaranteed >= 0 (clamped in FACILITY_DATA_AIRPORT
 			// above); ItemIndex is unsigned, so comparing it directly against a
 			// non-negative n_runways (rather than casting ItemIndex down to a
@@ -1477,8 +1530,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 	break;
 	case SIMCONNECT_RECV_ID_FACILITY_DATA_END:
 	{
-		AIRPORT* rep = (status->departure.runway_act.index == -1) ? &status->departure
-			: status->facility_lookup_is_takeoff ? &status->takeoff_scratch : &status->destination;
+		AIRPORT* rep = facility_lookup_target(status);
 		// RAII guard: frees rep->runways and clears facility_lookup_pending no
 		// matter how this case block exits -- including a db_exception thrown by
 		// one of the db_insert_update_table calls below, which previously unwound
@@ -1511,7 +1563,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			break;
 		}
 		gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_END: %s slot, icao=%s, n_runways=%d",
-			(rep == &status->departure) ? "departure" : status->facility_lookup_is_takeoff ? "takeoff" : "destination", rep->icao, rep->n_runways);
+			facility_lookup_target_label(status, rep), rep->icao, rep->n_runways);
 		double bearing_tra = (double)status->facility_lookup_heading - rep->magvar;
 		if (bearing_tra <= 0)
 			bearing_tra += 360;
@@ -1541,7 +1593,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		}
 		gui_log_printf(status, GUI_LOG_TRACE, "Runway match: bearing_tra=%.1f (%s), evaluating %d runway(s) for %s slot",
 			bearing_tra, (is_touchdown && loc_dh_source->latitude != 360) ? "loc_dh-based" : "heading-based",
-			rep->n_runways, (rep == &status->departure) ? "departure" : status->facility_lookup_is_takeoff ? "takeoff" : "destination");
+			rep->n_runways, facility_lookup_target_label(status, rep));
 		std::vector<struct RUNWAY_OPERATION> candidates;
 		for (int i = 0; i < rep->n_runways; i++) {
 			RUNWAY* rwy = &rep->runways[i];
@@ -1625,7 +1677,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			}
 		}
 		gui_log_printf(status, GUI_LOG_TRACE, "Runway match: %zu candidate(s) for %s slot",
-			candidates.size(), (rep == &status->departure) ? "departure" : status->facility_lookup_is_takeoff ? "takeoff" : "destination");
+			candidates.size(), facility_lookup_target_label(status, rep));
 		if (candidates.size() > 0) {
 			auto it = std::min_element(
 				candidates.begin(),
@@ -1636,7 +1688,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			);
 			rep->runway_act = *it;
 			gui_log_printf(status, GUI_LOG_TRACE, "Runway match: selected runway index=%d (diff_bearing_tra=%.1f) for %s slot",
-				rep->runway_act.index, rep->runway_act.diff_bearing_tra, (rep == &status->departure) ? "departure" : status->facility_lookup_is_takeoff ? "takeoff" : "destination");
+				rep->runway_act.index, rep->runway_act.diff_bearing_tra, facility_lookup_target_label(status, rep));
 		}
 		if (rep->runway_act.index != -1) {
 			std::string strRunway = rep->runway_code_generator();
@@ -1723,7 +1775,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				}
 				// FACILITY_DATA_AIRPORT does not carry icao -- only AIRPORT_LIST does.
 				// Same preservation-across-clear() reasoning as the touchdown branch
-				// below, for the shared takeoff_scratch buffer.
+				// below, for the takeoff_scratch scratch object instead of destination.
 				{
 					TAKEOFF_DATA* next = status->takeoff_data;
 					while (next && next->airport.runway_act.distances[0] != -1)
@@ -1968,8 +2020,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		// destination airport-runway resolution for the rest of the app session.
 		if (status->facility_lookup_pending && except->dwSendID == status->facility_lookup_send_id) {
 			if (status->facility_lookup_trip_id == status->id_trip) {
-				AIRPORT* rep = (status->departure.runway_act.index == -1) ? &status->departure
-					: status->facility_lookup_is_takeoff ? &status->takeoff_scratch : &status->destination;
+				AIRPORT* rep = facility_lookup_target(status);
 				if (rep == &status->departure) {
 					rep->runway_act.index = -2;
 				} else if (status->facility_lookup_is_takeoff) {
