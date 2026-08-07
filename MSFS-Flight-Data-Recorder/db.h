@@ -187,7 +187,14 @@ static const char* DATABASE_TABLE_FIELDS[] = {
 	"trip INTEGER NOT NULL,"
 	"event VARCHAR(32) NOT NULL,"
 	"time_zulu VARCHAR(32) NOT NULL,"
-	"time_local VARCHAR(32) NOT NULL",
+	"time_local VARCHAR(32) NOT NULL,"
+	// Tier 2 flood-detection retraction key -- see EVENT_TIER2_STATE (types.h)
+	// and db_delete_events() below. Not NOT NULL/UNIQUE: rows written by
+	// builds older than this column's introduction migrate in with NULL here
+	// (migrate_table_columns() strips NOT NULL from the ALTER path anyway),
+	// and NULL rows are simply never matched by a "WHERE event_seq IN (...)"
+	// delete, which is the correct behavior for them (nothing to retract).
+	"event_seq INTEGER",
 
 	"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
 	"trip INTEGER NOT NULL,"
@@ -247,6 +254,7 @@ struct db_exception {
 void db_error(const char* stmt_txt, int sql_ret, char** errmsg);
 
 void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, int value);
+void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, long long value);
 void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, double value);
 void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, char* value);
 void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, const char* value);
@@ -261,11 +269,25 @@ void db_insert_update_table(
 	int* out_rowid = nullptr
 );
 
-// Immediately writes one event row to trip_events. Safe to call from the
-// SimConnect dispatch callback (main thread) while the DB-write worker thread
-// drains STATUS::sample_write_queue — both paths serialize through
-// STATUS::mutex_db_commit.
-void db_insert_event(STATUS* status, const char* event, const char* time_zulu, const char* time_local);
+// Writes one event row to trip_events for trip_id (captured by the caller at
+// enqueue time, not read from status->id_trip here -- see
+// EVENT_QUEUE_ITEM::trip_id). event_seq is EVENT_QUEUE_ITEM::seq, stored so a
+// later db_delete_events() can retract this exact row -- see
+// STATUS::next_event_seq (types.h). Called only from event_write_worker, on
+// the event-write worker thread; serializes with the DB-write worker thread
+// (draining STATUS::sample_write_queue) through STATUS::mutex_db_commit.
+void db_insert_event(STATUS* status, int trip_id, const char* event, const char* time_zulu, const char* time_local, unsigned long long event_seq);
+
+// Retracts previously-inserted trip_events rows by event_seq -- the DB side of
+// tier 2 flood confirmation (see EVENT_TIER2_STATE in types.h and
+// tier2_gate() in recorder.cpp). Matches on event_seq rather than
+// name/timestamp specifically so it can never delete an unrelated row that
+// happens to share the same event name or timestamp string (time_zulu/
+// time_local are read from a periodically-refreshed snapshot, not captured
+// per-event, so two distinct occurrences can share an identical timestamp).
+// No-op if seqs is empty. Called only from event_write_worker, same threading
+// contract as db_insert_event above.
+void db_delete_events(STATUS* status, const std::vector<unsigned long long>& seqs);
 
 // Creates the schema and migrates any missing columns on an ephemeral R/W
 // connection. Called at app startup so read-only queries always see the

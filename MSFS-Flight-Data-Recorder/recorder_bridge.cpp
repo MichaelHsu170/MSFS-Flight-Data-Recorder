@@ -148,19 +148,10 @@ void RecorderBridge::tryConnect() {
 	status_.destination.clear();
 	status_.takeoff_scratch.clear();
 
-	status_.skip_events.clear();
-	status_.skip_events_logged.clear();
 	status_.no_trip_events_logged.clear();
-	for (const QString& entry : AppSettings::instance().skipEvents()) {
-		QString name = entry.trimmed().toUpper();
-		if (name.startsWith(QStringLiteral("EVENT_")))
-			name = name.mid(6);
-		if (!name.isEmpty())
-			status_.skip_events.insert(name.toStdString());
-	}
 
-	Logger::logf(Logger::Trace, "Recorder", "SimConnect connected: sample_interval_ms=%d, skip_events=%zu",
-		status_.sample_interval_ms, status_.skip_events.size());
+	Logger::logf(Logger::Trace, "Recorder", "SimConnect connected: sample_interval_ms=%d",
+		status_.sample_interval_ms);
 
 	connected_ = true;
 	dispatchTimer_->start(15);
@@ -278,5 +269,33 @@ void gui_notify_sample(struct STATUS* status, const struct FLIGHT_DATA_RECORD* s
 	emit bridge->sampleUpdated();
 	if (sample != nullptr)
 		emit bridge->liveDataPoint(toSamplePoint(*sample));
+}
+
+void gui_notify_event_committed(struct STATUS* status, int tripId, unsigned long long seq, const char* name) {
+	char buf[300];
+	snprintf(buf, sizeof(buf), "Event: %s", name);
+	// Logged directly (not via gui_notify_log) so msfs_fdr_debug.log still
+	// gets this line even when gui_context is null (console/headless), same
+	// as every other event previously logged through commit_event().
+	Logger::log(Logger::Info, "Recorder", QString::fromUtf8(buf));
+	if (!status || !status->gui_context)
+		return;
+	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
+	// Deliberately its own signal rather than logMessage: LiveStatusPanel
+	// needs to record seq -> QListWidgetItem atomically with adding the line,
+	// which a generic text-only logMessage plus a separately-ordered seq
+	// notification can't guarantee as cleanly.
+	emit bridge->eventCommitted(tripId, static_cast<quint64>(seq), QString::fromUtf8(buf));
+}
+
+void gui_notify_events_retracted(struct STATUS* status, const unsigned long long* seqs, size_t count) {
+	if (!status || !status->gui_context)
+		return;
+	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
+	QList<quint64> list;
+	list.reserve((int)count);
+	for (size_t i = 0; i < count; i++)
+		list.append(static_cast<quint64>(seqs[i]));
+	emit bridge->eventsRetracted(list);
 }
 

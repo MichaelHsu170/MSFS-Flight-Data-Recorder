@@ -5,8 +5,302 @@
 #include <chrono>
 #include <thread>
 
-static bool is_skipped_event(struct STATUS* status, const char* eventName) {
-	return status->skip_events.count(eventName) > 0;
+// Events known to legitimately fire in rapid, human-driven bursts -- e.g.
+// holding a flap key/lever produces many FLAPS_INCR/FLAPS_DECR notifications
+// well under EVENT_TIER1_WINDOW apart. These bypass BOTH flood-detection
+// tiers entirely (straight to commit_event()) and are always recorded
+// immediately. Every other event handled by the shared case block in
+// MyDispatchProc is assumed to fire at most once per discrete user action, so
+// rapid repetition indicates a stuck/oscillating simulator-side system rather
+// than real input (see record_event()/tier2_gate() below).
+static const std::unordered_set<std::string> EVENT_FLOOD_WHITELIST = {
+	"FLAPS_INCR", "FLAPS_DECR",
+};
+
+// Tier 1 (fast-burst, blocking) -- see record_event() below and EVENT_STREAK
+// in types.h.
+static const std::chrono::milliseconds EVENT_TIER1_WINDOW(500);
+// 3, not 2: requires two consecutive sub-500ms repeats (not just one) before
+// suppressing, so a single accidental double-fire (switch bounce, a fast
+// double-click) on a non-whitelisted event doesn't silence it. A real flood
+// (observed ~126ms between repeats) still trips this within ~250ms.
+static const size_t EVENT_TIER1_THRESHOLD = 3;
+
+// Tier 2 (slow-drip, non-blocking-until-confirmed) -- see tier2_gate() below
+// and EVENT_TIER2_STATE in types.h. A much longer window than tier 1's: tier
+// 2 exists specifically to catch a flood too slow to ever trip tier 1 (e.g.
+// one spurious occurrence every 1-2s) but still meaningless noise over time.
+static const std::chrono::milliseconds EVENT_TIER2_WINDOW(5000);
+// Same occurrence count as tier 1's threshold, but over tier 2's much longer
+// window -- 3 occurrences of a genuinely slow-repeating event within 5s is
+// still well outside normal human/discrete-action timing for any of the
+// event names this pipeline handles.
+static const size_t EVENT_TIER2_THRESHOLD = 3;
+
+// Level 2 gate: the point where a single event occurrence that has already
+// passed (or bypassed, via EVENT_FLOOD_WHITELIST) both flood-detection tiers
+// either gets recorded or discarded, based on whether a trip actually exists
+// to attach it to, or whether this event name was already flagged as
+// unexpected during a no-trip period. trip_id is captured per-occurrence at
+// the time each one happened (not re-read from status->id_trip here), since
+// by the time a buffered/tier-2-delayed occurrence reaches this point a new
+// trip may already be live. seq is this occurrence's assigned
+// STATUS::next_event_seq value, stored in the DB row (if one is written) so
+// tier 2 can retract it precisely later -- see db_delete_events() in db.cpp.
+// Returns true if the occurrence was actually written to trip_events and
+// shown in the Live Status list, false if it was silently dropped --
+// tier2_gate() uses this to avoid tracking/ever retracting an occurrence that
+// was never visible in the first place.
+static bool commit_event(struct STATUS* status, const std::string& name, int trip_id, const std::string& time_zulu, const std::string& time_local, unsigned long long seq) {
+	if (status->no_trip_events_logged.count(name)) {
+		// Already flagged as unexpected during a no-trip period -- silenced
+		// for the rest of that idle stretch AND every trip after it, not just
+		// while idle (see STATUS::no_trip_events_logged's doc comment in
+		// types.h). Checked before the trip_id branch below specifically so
+		// this precedence applies regardless of whether a trip is active.
+		return false;
+	}
+	if (trip_id > 0) {
+		gui_notify_event_committed(status, trip_id, seq, name.c_str());
+		status->event_write_queue.push(trip_id, name, time_zulu, time_local, seq);
+		return true;
+	}
+	if (status->no_trip_events_logged.insert(name).second)
+		gui_log_printf(status, GUI_LOG_TRACE, "Event ignored (no active trip): %s (further occurrences won't be logged, including during any later trip)", name.c_str());
+	return false;
+}
+
+// Tier 2 gate: sits between tier 1 (record_event()/EVENT_STREAK below)
+// deciding an occurrence is legitimate and commit_event() actually writing
+// it. Unlike tier 1, tier 2 does not hold occurrences back -- each one is
+// committed immediately, up to and including the one that crosses the
+// threshold -- but it watches how many of a name's occurrences land within
+// EVENT_TIER2_WINDOW of each other. This catches a *slow* flood (e.g. one
+// spurious occurrence every 1-2s) that never bursts fast enough to trip tier
+// 1's much shorter EVENT_TIER1_WINDOW, but is still meaningless noise over a
+// longer stretch. The moment EVENT_TIER2_THRESHOLD occurrences land within
+// the window, the flood is "confirmed": those occurrences (the only ones
+// ever shown for this episode, by construction) are retracted from both the
+// DB and the UI, and further occurrences are dropped silently -- no commit,
+// no retraction bookkeeping, nothing shown -- until a quiet gap of
+// EVENT_TIER2_WINDOW passes, at which point it self-heals exactly like tier 1
+// (see EVENT_TIER2_STATE in types.h for the full state-machine writeup).
+// Never called for whitelisted events (EVENT_FLOOD_WHITELIST bypasses both
+// tiers, straight to commit_event()) or for an occurrence tier 1 itself
+// suppressed (those never reach here at all).
+static void tier2_gate(struct STATUS* status, const std::string& name, int trip_id, const std::string& time_zulu, const std::string& time_local) {
+	auto now = std::chrono::steady_clock::now();
+	EVENT_TIER2_STATE* streak = &status->tier2_state[name];
+
+	if (streak->suppressing) {
+		if (now - streak->last_time < EVENT_TIER2_WINDOW) {
+			streak->last_time = now;
+			streak->suppressed_count++;
+			return;
+		}
+		// Quiet period elapsed while suppressing -- the flood is over; forget
+		// it completely and fall through to treat this occurrence as the
+		// start of a brand new tier-2 window rather than more of the same one.
+		// Logged directly via Logger::logf, deliberately NOT gui_log_printf:
+		// every other message in this file picks UI-eligibility purely by
+		// level (TRACE/PROFILE stay log-only, WARNING/INFO/FATAL reach the
+		// Live Status panel -- see gui_notify_log() in recorder_bridge.cpp).
+		// This message needs to keep its real INFO/WARNING severity in
+		// msfs_fdr_debug.log while never reaching the panel regardless of
+		// level -- a combination that filter can't express -- so it bypasses
+		// gui_log_printf entirely instead. Same reasoning applies to every
+		// "Event flood ..." log call in this file (tier2_gate(),
+		// flush_stale_event_streaks(), record_event()).
+		Logger::logf(Logger::Info, "Recorder", "Event flood ended: %s (suppressed %zu occurrences)",
+			name.c_str(), streak->suppressed_count);
+		status->tier2_state.erase(name);
+		streak = &status->tier2_state[name];
+	}
+
+	while (!streak->recent.empty() && now - streak->recent.front().time >= EVENT_TIER2_WINDOW)
+		streak->recent.pop_front();
+	streak->last_time = now;
+
+	unsigned long long seq = ++status->next_event_seq;
+	if (!commit_event(status, name, trip_id, time_zulu, time_local, seq))
+		return;
+
+	streak->recent.push_back({ seq, now });
+	if (streak->recent.size() >= EVENT_TIER2_THRESHOLD) {
+		std::vector<unsigned long long> seqs;
+		seqs.reserve(streak->recent.size());
+		for (const EVENT_TIER2_STATE::COMMIT& c : streak->recent)
+			seqs.push_back(c.seq);
+		// Bypasses gui_log_printf -- see the "flood ended" comment above.
+		Logger::logf(Logger::Warning, "Recorder",
+			"Event flood detected: %s repeated %zu times in under %lldms; retracting and suppressing further occurrences until it settles",
+			name.c_str(), seqs.size(), (long long)EVENT_TIER2_WINDOW.count());
+		// Delete is pushed onto the same single-threaded write queue as the
+		// inserts that created these rows, so it can never be executed before
+		// they land -- see EventWriteQueue in types.h.
+		status->event_write_queue.push_delete(seqs);
+		gui_notify_events_retracted(status, seqs.data(), seqs.size());
+		streak->suppressing = true;
+		streak->suppressed_count = streak->recent.size();
+		streak->recent.clear();
+	}
+}
+
+// Commits every occurrence buffered in a streak that turned out NOT to be a
+// tier-1 flood (its quiet period elapsed before it reached
+// EVENT_TIER1_THRESHOLD) -- each is a legitimate, separate occurrence,
+// individually passed on to tier2_gate() using its own original timestamp and
+// captured trip_id.
+static void flush_event_streak(struct STATUS* status, const std::string& name, std::vector<EVENT_STREAK_OCCURRENCE>& pending) {
+	for (const EVENT_STREAK_OCCURRENCE& occ : pending)
+		tier2_gate(status, name, occ.trip_id, occ.time_zulu, occ.time_local);
+	pending.clear();
+}
+
+// Sweeps every event name with live tier 1 or tier 2 state and clears any
+// whose quiet period has elapsed without a new occurrence resetting it --
+// called from the periodic flight-data sample tick so a streak/state with
+// nothing after it (e.g. a single flap press, or a flood that simply stops)
+// still gets resolved even though no next occurrence of that same event ever
+// arrives to trigger the check inside record_event()/tier2_gate() itself.
+static void flush_stale_event_streaks(struct STATUS* status) {
+	auto now = std::chrono::steady_clock::now();
+	for (auto it = status->event_streaks.begin(); it != status->event_streaks.end(); ) {
+		if (now - it->second.last_time >= EVENT_TIER1_WINDOW) {
+			if (it->second.suppressing) {
+				// Bypasses gui_log_printf -- see tier2_gate()'s "flood ended" comment above.
+				Logger::logf(Logger::Info, "Recorder", "Event flood ended: %s (suppressed %zu occurrences)",
+					it->first.c_str(), it->second.suppressed_count);
+			} else {
+				flush_event_streak(status, it->first, it->second.pending);
+			}
+			it = status->event_streaks.erase(it);
+		} else {
+			++it;
+		}
+	}
+	// Tier 2 has no "pending" to flush -- every occurrence it forwards is
+	// committed immediately (see tier2_gate()) -- so a stale entry here is
+	// just erased once its quiet period elapses; a still-suppressing entry
+	// gets the same "flood ended" notice tier 1's does, above.
+	for (auto it = status->tier2_state.begin(); it != status->tier2_state.end(); ) {
+		if (now - it->second.last_time >= EVENT_TIER2_WINDOW) {
+			if (it->second.suppressing) {
+				// Bypasses gui_log_printf -- see tier2_gate()'s "flood ended" comment above.
+				Logger::logf(Logger::Info, "Recorder", "Event flood ended: %s (suppressed %zu occurrences)",
+					it->first.c_str(), it->second.suppressed_count);
+			}
+			it = status->tier2_state.erase(it);
+		} else {
+			++it;
+		}
+	}
+}
+
+// Unconditionally flushes and clears all tier 1/tier 2 flood-detection state
+// -- called once from wait_for_db_writers() below, specifically because that
+// function runs right before status->event_write_queue is stopped/joined and
+// status->sql is closed (see its callers: RecorderBridge::shutdown() /
+// ~RecorderBridge()). Unlike flush_stale_event_streaks() above, this does NOT
+// wait for each entry's own quiet-period timeout: once dispatch stops after
+// this point, nothing will ever call flush_stale_event_streaks() again for
+// this session, so any occurrence still sitting in `pending` here would
+// otherwise be lost forever (silently dropped, never written to trip_events)
+// instead of merely delayed. Each flushed occurrence still carries its own
+// captured trip_id (see EVENT_STREAK_OCCURRENCE), so it lands in the trip it
+// actually happened in even though that trip (and possibly the whole
+// SimConnect session) has already ended by the time this runs -- and an
+// occurrence that was never attached to any trip in the first place is
+// already a safe no-op through commit_event()'s existing trip_id>0 gate. A
+// streak that was already `suppressing` had its buffered occurrences
+// discarded the moment suppression engaged, same as always -- there is
+// nothing left in `pending` for those to flush. Deliberately silent about any
+// streak/state still `suppressing` at this point (no "flood ended" log, unlike
+// every other place that message is emitted): this is a forced teardown, not
+// the quiet-period resolution that message describes, and logging it here
+// would misreport a flood that may still have been actively arriving as
+// having settled on its own.
+static void flush_all_event_streaks(struct STATUS* status) {
+	for (auto it = status->event_streaks.begin(); it != status->event_streaks.end(); ++it) {
+		if (!it->second.suppressing)
+			flush_event_streak(status, it->first, it->second.pending);
+	}
+	status->event_streaks.clear();
+	status->tier2_state.clear();
+}
+
+// Records one SimConnect notification event, protecting the DB and live UI
+// feed against a simulator-side flood (e.g. a stuck autopilot mode
+// oscillating on/off many times a second) that would otherwise hit both once
+// per occurrence -- thousands of times a minute -- with no way to know in
+// advance which event name might do this; see EVENT_FLOOD_WHITELIST above for
+// the (rare) event names known to legitimately repeat quickly on their own.
+// Runs unconditionally for every event regardless of whether a trip is
+// active -- level 2 (commit_event() above) is what decides whether an
+// individual occurrence actually gets written anywhere. This is tier 1 of
+// two independent flood-detection tiers; see tier2_gate() above for tier 2,
+// which every occurrence tier 1 forwards passes through next.
+//
+// Non-whitelisted events are buffered per-name (STATUS::event_streaks): if
+// EVENT_TIER1_THRESHOLD occurrences arrive back to back with less than
+// EVENT_TIER1_WINDOW between each, the streak enters `suppressing` mode and
+// every occurrence arriving within EVENT_TIER1_WINDOW of the previous one is
+// dropped silently -- no per-occurrence log, nothing written, nothing ever
+// reaches tier 2. This is intentionally NOT a lasting ban on the event name:
+// the moment a gap of EVENT_TIER1_WINDOW or more elapses with nothing
+// arriving, flush_stale_event_streaks() erases the streak entirely and the
+// next occurrence of that name is treated as a brand new, ordinary event. A
+// name that flooded once is fully eligible to be recorded normally again as
+// soon as the burst that caused it stops -- there is no way to tell a
+// genuinely repeating flood apart from a one-off legitimate event sharing
+// that name except by watching its timing, so this never stops watching.
+static void record_event(struct STATUS* status, const char* eventNameC) {
+	std::string name = eventNameC;
+	std::string zulu = status->data.time_zulu.format_date_time();
+	std::string local = status->data.time_local.format_date_time();
+
+	if (EVENT_FLOOD_WHITELIST.count(name)) {
+		commit_event(status, name, status->id_trip, zulu, local, ++status->next_event_seq);
+		return;
+	}
+
+	auto now = std::chrono::steady_clock::now();
+	EVENT_STREAK& streak = status->event_streaks[name];
+
+	if (streak.suppressing) {
+		if (now - streak.last_time >= EVENT_TIER1_WINDOW) {
+			// Quiet period elapsed while suppressing -- the flood is over;
+			// forget it completely and treat this occurrence as the start of
+			// a brand new streak rather than more of the same burst.
+			// Bypasses gui_log_printf -- see tier2_gate()'s "flood ended" comment above.
+			Logger::logf(Logger::Info, "Recorder", "Event flood ended: %s (suppressed %zu occurrences)",
+				eventNameC, streak.suppressed_count);
+			status->event_streaks.erase(name);
+			EVENT_STREAK& fresh = status->event_streaks[name];
+			fresh.last_time = now;
+			fresh.pending.push_back({ status->id_trip, zulu, local });
+			return;
+		}
+		streak.last_time = now;
+		streak.suppressed_count++;
+		return;
+	}
+
+	if (!streak.pending.empty() && now - streak.last_time >= EVENT_TIER1_WINDOW)
+		flush_event_streak(status, name, streak.pending);
+
+	streak.last_time = now;
+	streak.pending.push_back({ status->id_trip, zulu, local });
+
+	if (streak.pending.size() >= EVENT_TIER1_THRESHOLD) {
+		// Bypasses gui_log_printf -- see tier2_gate()'s "flood ended" comment above.
+		Logger::logf(Logger::Warning, "Recorder",
+			"Event flood detected: %s repeated %zu times in under %lldms; suppressing further occurrences until it settles",
+			eventNameC, streak.pending.size(), (long long)EVENT_TIER1_WINDOW.count());
+		streak.suppressing = true;
+		streak.suppressed_count = streak.pending.size();
+		streak.pending.clear();
+	}
 }
 
 static const char* simconnect_exception_txt(DWORD exception) {
@@ -656,9 +950,19 @@ void stop_recording(struct STATUS* status) {
 // Signals the DB-write worker to drain and exit, then joins it. Callers must
 // call this before closing/nulling status->sql.
 void wait_for_db_writers(struct STATUS* status) {
+	// Must run before event_write_queue.stop() below: this is the last chance
+	// for any occurrence still buffered in event_streaks/tier2_state to reach
+	// the queue at all -- once the worker thread is stopped and joined, and
+	// status->sql is closed by the caller right after this function returns,
+	// nothing will ever flush them again for this session. See
+	// flush_all_event_streaks()'s doc comment above for the full reasoning.
+	flush_all_event_streaks(status);
 	status->sample_write_queue.stop();
 	if (status->db_writer_thread.joinable())
 		status->db_writer_thread.join();
+	status->event_write_queue.stop();
+	if (status->event_writer_thread.joinable())
+		status->event_writer_thread.join();
 }
 
 // Called whenever the shared facility-lookup slot becomes free (from the tail
@@ -861,20 +1165,11 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		case EVENT_WINDSHIELD_DEICE_ON:
 		case EVENT_WINDSHIELD_DEICE_TOGGLE:
 		case EVENT_TOGGLE_AVIONICS_MASTER:
-			if (status->id_trip > 0 && !is_skipped_event(status, EVENT_ID_TXT[evt->uEventID])) {
-				gui_log_printf(status, GUI_LOG_INFO, "Event: %s", EVENT_ID_TXT[evt->uEventID]);
-				std::string tz = status->data.time_zulu.format_date_time();
-				std::string tl = status->data.time_local.format_date_time();
-				db_insert_event(status, EVENT_ID_TXT[evt->uEventID], tz.c_str(), tl.c_str());
-			} else if (status->id_trip > 0) {
-				if (status->skip_events_logged.insert(EVENT_ID_TXT[evt->uEventID]).second) {
-					gui_log_printf(status, GUI_LOG_TRACE, "Event skipped (in skip_events list): %s (further occurrences won't be logged)", EVENT_ID_TXT[evt->uEventID]);
-				}
-			} else {
-				if (status->no_trip_events_logged.insert(EVENT_ID_TXT[evt->uEventID]).second) {
-					gui_log_printf(status, GUI_LOG_TRACE, "Event ignored (no active trip): %s (further occurrences won't be logged)", EVENT_ID_TXT[evt->uEventID]);
-				}
-			}
+			// Flood detection runs regardless of trip state -- see
+			// record_event()'s doc comment. Whether a trip actually exists to
+			// attach this occurrence to is decided per-occurrence inside it
+			// (commit_event()), not here.
+			record_event(status, EVENT_ID_TXT[evt->uEventID]);
 			break;
 		default:
 			gui_log_printf(status, GUI_LOG_WARNING, "Unknown event ID: %ld", evt->uEventID);
@@ -888,6 +1183,10 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		switch (pObjData->dwRequestID) {
 		case REQUEST_FLIGHT:
 		{
+			// Piggybacks on this periodic (~sample_interval_ms) tick to flush any
+			// event streak whose quiet period has elapsed -- see
+			// flush_stale_event_streaks() for why a dedicated timer isn't needed.
+			flush_stale_event_streaks(status);
 			struct FLIGHT_DATA_RECORD tmp;
 			memset(&tmp, 0, sizeof(struct FLIGHT_DATA_RECORD));
 			memcpy(&tmp, &pObjData->dwData, sizeof(struct FLIGHT_DATA_RECORD) - sizeof(double) - sizeof(struct FLIGHT_DATA_RECORD*));
@@ -962,6 +1261,10 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 							// departure/destination, closes that regardless of which slot the
 							// stale response ends up misattributed to.
 							status->takeoff_scratch.clear();
+							// Flood-detection state (status->event_streaks) is deliberately
+							// NOT reset here -- it isn't trip-scoped. Each streak's own
+							// quiet-period timeout resolves it regardless of trip
+							// boundaries; see EVENT_STREAK's doc comment in types.h.
 							status->departure_lookup_initiated = FALSE;
 							// Not a fix for an observed bug on its own -- every call site that
 							// starts a lookup already sets both of these fresh before use (see

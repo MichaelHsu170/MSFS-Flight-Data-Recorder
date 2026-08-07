@@ -94,18 +94,6 @@ gemini_api_key=
 ; at subsonic speeds; go lower only for supersonic recording needs).
 sample_interval_ms=500
 
-; Comma-separated list of SimConnect event names to suppress from trip_events.
-; Not all aircraft emit events in the same pattern. Some third-party or WASM-based
-; aircraft fire certain events at extremely high frequency as internal signals that
-; carry no meaningful flight data — logging them bloats trip_events and makes
-; recordings hard to read. If you notice an event appearing excessively in a
-; recording, add its name here and restart the app to silence it.
-;
-; Each entry can be written either as the value stored in the database
-; (e.g. APU_STARTER) or with the EVENT_ prefix (e.g. EVENT_APU_STARTER).
-; Names are case-insensitive.
-skip_events=APU_STARTER,BRAKES,AP_VS_ON,AUTOPILOT_OFF,APU_OFF_SWITCH
-
 [logging]
 ; Maximum log level written to msfs_fdr_debug.log.
 ; Levels (inclusive — each includes all levels above it):

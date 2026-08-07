@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QFuture>
+#include <QList>
 #include <QString>
 
 #include "types.h"
@@ -48,6 +49,15 @@ signals:
 	// into the shared TripSamplePoint shape so live and historical data look
 	// identical to TrajectoryView/ChartsPanel/MapWidget.
 	void liveDataPoint(const TripSamplePoint& point);
+	// One event occurrence committed to trip_events, carrying its event_seq
+	// and the trip it was committed under (which can already be stale by the
+	// time this fires) -- see gui_notify_event_committed() in gui_notify.h.
+	void eventCommitted(int tripId, quint64 seq, const QString& text);
+	// A tier-2-confirmed flood's already-shown occurrences, or a single
+	// occurrence whose DB write later failed, retracted from the DB (or never
+	// written at all) and due to be pulled back out of the Live Status list --
+	// see gui_notify_events_retracted() in gui_notify.h.
+	void eventsRetracted(QList<quint64> seqs);
 
 private slots:
 	void pollDispatch();
