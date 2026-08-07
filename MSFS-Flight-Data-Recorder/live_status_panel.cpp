@@ -121,6 +121,8 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 	connect(&bridge_, &RecorderBridge::recordingStateChanged, this, &LiveStatusPanel::onRecordingStateChanged);
 	connect(&bridge_, &RecorderBridge::tripEnded, this, &LiveStatusPanel::onTripEnded);
 	connect(&bridge_, &RecorderBridge::sampleUpdated, this, &LiveStatusPanel::onSampleUpdated);
+	connect(&bridge_, &RecorderBridge::eventCommitted, this, &LiveStatusPanel::onEventCommitted);
+	connect(&bridge_, &RecorderBridge::eventsRetracted, this, &LiveStatusPanel::onEventsRetracted);
 }
 
 void LiveStatusPanel::setIndicator(QLabel* icon, bool active, const QString& tooltip) {
@@ -128,18 +130,62 @@ void LiveStatusPanel::setIndicator(QLabel* icon, bool active, const QString& too
 	icon->setToolTip(tooltip);
 }
 
+QListWidgetItem* LiveStatusPanel::appendHistoryItem(const QString& text) {
+	QDateTime now = QDateTime::currentDateTime();
+	historyList_->addItem(QString("[%1] %2").arg(now.toString("yyyy-MM-dd hh:mm:ss"), text));
+	QListWidgetItem* item = historyList_->item(historyList_->count() - 1);
+	// Cap so an extremely long recording session doesn't grow this list (and its
+	// underlying widget items) without bound.
+	constexpr int kMaxHistoryItems = 500;
+	while (historyList_->count() > kMaxHistoryItems) {
+		QListWidgetItem* pruned = historyList_->takeItem(0);
+		// Keep eventItems_ from ever holding a dangling pointer once its line
+		// scrolls out of the capped history -- a late retraction for it then
+		// becomes a harmless no-op lookup miss in onEventsRetracted instead of
+		// touching freed memory. eventItems_ is expected to stay small (only
+		// recently-committed, not-yet-retracted/not-yet-pruned events), so
+		// this linear scan is cheap and only runs when the cap is actually hit.
+		for (auto it = eventItems_.begin(); it != eventItems_.end(); ++it) {
+			if (it.value() == pruned) {
+				eventItems_.erase(it);
+				break;
+			}
+		}
+		delete pruned;
+	}
+	historyList_->scrollToBottom();
+	return item;
+}
+
 void LiveStatusPanel::onLogMessage(const QString& text) {
 	const QString trimmed = text.trimmed();
 	if (trimmed.isEmpty())
 		return;
-	QDateTime now = QDateTime::currentDateTime();
-	historyList_->addItem(QString("[%1] %2").arg(now.toString("hh:mm:ss"), trimmed));
-	// Cap so an extremely long recording session doesn't grow this list (and its
-	// underlying widget items) without bound.
-	constexpr int kMaxHistoryItems = 500;
-	while (historyList_->count() > kMaxHistoryItems)
-		delete historyList_->takeItem(0);
-	historyList_->scrollToBottom();
+	appendHistoryItem(trimmed);
+}
+
+void LiveStatusPanel::onEventCommitted(int tripId, quint64 seq, const QString& text) {
+	if (tripId != recordingTripId_) {
+		Logger::logf(Logger::Trace, "LiveStat", "eventCommitted(seq=%llu, trip=%d) ignored: current recording trip is #%d", seq, tripId, recordingTripId_);
+		return;
+	}
+	const QString trimmed = text.trimmed();
+	if (trimmed.isEmpty())
+		return;
+	eventItems_.insert(seq, appendHistoryItem(trimmed));
+}
+
+void LiveStatusPanel::onEventsRetracted(const QList<quint64>& seqs) {
+	for (quint64 seq : seqs) {
+		auto it = eventItems_.find(seq);
+		if (it == eventItems_.end())
+			continue;
+		QListWidgetItem* item = it.value();
+		eventItems_.erase(it);
+		int row = historyList_->row(item);
+		if (row >= 0)
+			delete historyList_->takeItem(row);
+	}
 }
 
 void LiveStatusPanel::onConnectionChanged(bool connected) {

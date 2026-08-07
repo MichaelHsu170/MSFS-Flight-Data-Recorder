@@ -24,6 +24,12 @@ void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, int value) {
 		db_error(stmt_txt, sql_ret, NULL);
 }
 
+void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, long long value) {
+	int sql_ret = sqlite3_bind_int64(stmt, index, value);
+	if (sql_ret)
+		db_error(stmt_txt, sql_ret, NULL);
+}
+
 void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, double value) {
 	int sql_ret = sqlite3_bind_double(stmt, index, value);
 	if (sql_ret)
@@ -98,19 +104,77 @@ void db_insert_update_table(
 	status->mutex_db_commit.unlock();
 }
 
-void db_insert_event(STATUS* status, const char* event, const char* time_zulu, const char* time_local) {
-	const char* args[3] = { event, time_zulu, time_local };
+void db_insert_event(STATUS* status, int trip_id, const char* event, const char* time_zulu, const char* time_local, unsigned long long event_seq) {
+	struct EventInsertArgs { int trip_id; const char* event; const char* time_zulu; const char* time_local; long long event_seq; };
+	EventInsertArgs args{ trip_id, event, time_zulu, time_local, (long long)event_seq };
 	db_insert_update_table(status->sql,
-		"INSERT INTO trip_events (trip,event,time_zulu,time_local) VALUES (?,?,?,?);",
-		(void*)args, status, NULL,
+		"INSERT INTO trip_events (trip,event,time_zulu,time_local,event_seq) VALUES (?,?,?,?,?);",
+		(void*)&args, status, NULL,
 		[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-			const char** a = (const char**)data;
-			db_bind(stmt, stmt_txt, 1, status->id_trip);
-			db_bind(stmt, stmt_txt, 2, a[0]);
-			db_bind(stmt, stmt_txt, 3, a[1]);
-			db_bind(stmt, stmt_txt, 4, a[2]);
+			EventInsertArgs* a = (EventInsertArgs*)data;
+			db_bind(stmt, stmt_txt, 1, a->trip_id);
+			db_bind(stmt, stmt_txt, 2, a->event);
+			db_bind(stmt, stmt_txt, 3, a->time_zulu);
+			db_bind(stmt, stmt_txt, 4, a->time_local);
+			db_bind(stmt, stmt_txt, 5, a->event_seq);
 		}
 	);
+}
+
+void db_delete_events(STATUS* status, const std::vector<unsigned long long>& seqs) {
+	if (seqs.empty())
+		return;
+	std::string placeholders;
+	for (size_t i = 0; i < seqs.size(); i++)
+		placeholders += (i == 0) ? "?" : ",?";
+	std::string stmt_txt = "DELETE FROM trip_events WHERE event_seq IN (" + placeholders + ");";
+	db_insert_update_table(status->sql,
+		stmt_txt.c_str(),
+		(void*)&seqs, status, NULL,
+		[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+			const std::vector<unsigned long long>* seqs = (const std::vector<unsigned long long>*)data;
+			for (size_t i = 0; i < seqs->size(); i++)
+				db_bind(stmt, stmt_txt, (int)(i + 1), (long long)(*seqs)[i]);
+		}
+	);
+}
+
+// Runs on the single persistent event-write worker thread (started in
+// connect_db(), joined in wait_for_db_writers()) draining
+// STATUS::event_write_queue. Moves db_insert_event's/db_delete_events'
+// synchronous transaction (including its fsync on commit) off the SimConnect
+// dispatch thread -- see EVENT_QUEUE_ITEM/EventWriteQueue in types.h. Insert
+// and Delete items share this one queue/worker specifically so a tier-2
+// retraction can never be dequeued and executed ahead of the inserts that
+// created the rows it's retracting.
+static void event_write_worker(STATUS* status) {
+	log_cf(3, "DB", "event_write_worker: thread started");
+	EVENT_QUEUE_ITEM item;
+	while (status->event_write_queue.pop(item)) {
+		try {
+			if (item.kind == EVENT_QUEUE_ITEM::Kind::Insert)
+				db_insert_event(status, item.trip_id, item.event.c_str(), item.time_zulu.c_str(), item.time_local.c_str(), item.seq);
+			else
+				db_delete_events(status, item.delete_seqs);
+		}
+		catch (const db_exception& e) {
+			gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: dropped one event for trip %d: %s", item.trip_id, e.message.c_str());
+			// A dropped Insert was already shown in the Live Status list (see
+			// commit_event() in recorder.cpp, which notifies the UI before this
+			// write is even queued) -- pull it back out so the panel doesn't
+			// keep showing an occurrence that never made it into trip_events.
+			// Not needed for a dropped Delete: nothing was ever added to the UI
+			// for a retraction, only removed, so there's nothing to undo.
+			if (item.kind == EVENT_QUEUE_ITEM::Kind::Insert)
+				gui_notify_events_retracted(status, &item.seq, 1);
+		}
+		catch (...) {
+			gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: dropped one event for trip %d: unknown exception", item.trip_id);
+			if (item.kind == EVENT_QUEUE_ITEM::Kind::Insert)
+				gui_notify_events_retracted(status, &item.seq, 1);
+		}
+	}
+	log_cf(3, "DB", "event_write_worker: queue stopped; thread exiting");
 }
 
 // Runs on the single persistent DB-write worker thread (started in
@@ -725,6 +789,10 @@ static void create_db_indexes(sqlite3* sql) {
 	static const char* index_stmts[] = {
 		"CREATE INDEX IF NOT EXISTS idx_trip_data_trip ON trip_data(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_events_trip ON trip_events(trip);",
+		// Backs db_delete_events()'s "WHERE event_seq IN (...)" retraction --
+		// without it, tier 2 confirming a flood (see EVENT_TIER2_STATE in
+		// types.h) would force a full table scan of trip_events every time.
+		"CREATE INDEX IF NOT EXISTS idx_trip_events_event_seq ON trip_events(event_seq);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_takeoffs_trip ON trip_takeoffs(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_touchdowns_trip ON trip_touchdowns(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trips_group ON trips(group_id);",
@@ -860,4 +928,8 @@ void connect_db(struct STATUS* status) {
 	status->sample_write_queue.reset();
 	log_cf(3, "DB", "connect_db: schema ready; starting db_write_worker");
 	status->db_writer_thread = std::thread(db_write_worker, status);
+
+	status->event_write_queue.reset();
+	log_cf(3, "DB", "connect_db: schema ready; starting event_write_worker");
+	status->event_writer_thread = std::thread(event_write_worker, status);
 }

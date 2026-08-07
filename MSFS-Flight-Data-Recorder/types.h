@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <iostream>
@@ -8,6 +9,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include <Windows.h>
@@ -428,6 +430,174 @@ private:
 	bool stopping_ = false;
 };
 
+// One entry in STATUS::event_write_queue -- either an Insert (one new
+// trip_events row) or a Delete (retract previously-inserted rows by
+// event_seq, e.g. tier 2 confirming a flood after already forwarding up to
+// EVENT_TIER2_THRESHOLD occurrences -- see tier2_gate() in recorder.cpp).
+// Both kinds share one queue/worker so a Delete for seqs N..N+2 can never be
+// dequeued and executed ahead of the Inserts that created those same rows --
+// see EventWriteQueue below.
+struct EVENT_QUEUE_ITEM {
+	enum class Kind { Insert, Delete };
+	Kind kind = Kind::Insert;
+
+	// Insert fields. trip_id is captured explicitly at enqueue time (same
+	// reasoning as SAMPLE_QUEUE_ITEM::trip_id above) rather than read from
+	// status->id_trip by the worker thread, since a new trip can already be
+	// live by the time this item is actually dequeued and written. seq is
+	// this occurrence's STATUS::next_event_seq value, stored alongside it in
+	// trip_events so a later Delete can target it precisely.
+	int trip_id = -1;
+	std::string event;
+	std::string time_zulu;
+	std::string time_local;
+	unsigned long long seq = 0;
+
+	// Delete fields -- only meaningful when kind == Kind::Delete. Never more
+	// than EVENT_TIER2_THRESHOLD entries in practice, but not capped here.
+	std::vector<unsigned long long> delete_seqs;
+};
+
+// Thread-safe queue feeding a single persistent event-write worker thread
+// (event_write_worker in db.cpp), mirroring SampleWriteQueue above. Moves
+// db_insert_event's synchronous BEGIN/INSERT/COMMIT (including its fsync) off
+// the SimConnect dispatch thread, which otherwise blocks the UI directly --
+// see EVENT_STREAK below for why that mattered in practice.
+class EventWriteQueue {
+public:
+	void push(int trip_id, const std::string& event, const std::string& time_zulu, const std::string& time_local, unsigned long long seq) {
+		EVENT_QUEUE_ITEM item;
+		item.kind = EVENT_QUEUE_ITEM::Kind::Insert;
+		item.trip_id = trip_id;
+		item.event = event;
+		item.time_zulu = time_zulu;
+		item.time_local = time_local;
+		item.seq = seq;
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			queue_.push_back(std::move(item));
+		}
+		cv_.notify_one();
+	}
+
+	// Enqueues a retraction of previously-inserted rows by event_seq -- see
+	// EVENT_QUEUE_ITEM::Kind::Delete above.
+	void push_delete(std::vector<unsigned long long> seqs) {
+		EVENT_QUEUE_ITEM item;
+		item.kind = EVENT_QUEUE_ITEM::Kind::Delete;
+		item.delete_seqs = std::move(seqs);
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			queue_.push_back(std::move(item));
+		}
+		cv_.notify_one();
+	}
+
+	bool pop(EVENT_QUEUE_ITEM& item) {
+		std::unique_lock<std::mutex> lock(mutex_);
+		cv_.wait(lock, [this] { return !queue_.empty() || stopping_; });
+		if (queue_.empty())
+			return false;
+		item = queue_.front();
+		queue_.pop_front();
+		return true;
+	}
+
+	void stop() {
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			stopping_ = true;
+		}
+		cv_.notify_one();
+	}
+
+	void reset() {
+		std::lock_guard<std::mutex> lock(mutex_);
+		stopping_ = false;
+	}
+
+private:
+	std::mutex mutex_;
+	std::condition_variable cv_;
+	std::deque<EVENT_QUEUE_ITEM> queue_;
+	bool stopping_ = false;
+};
+
+// One buffered, not-yet-decided occurrence of a repeated event name -- see
+// EVENT_STREAK. trip_id is captured per-occurrence (not read from
+// status->id_trip at flush time) so a streak still pending across a trip
+// boundary still attributes each occurrence to the trip it actually happened
+// in once flushed.
+struct EVENT_STREAK_OCCURRENCE {
+	int trip_id;
+	std::string time_zulu;
+	std::string time_local;
+};
+
+// Tier 1 (fast-burst, blocking) per-event-name flood-detection state -- see
+// record_event() in recorder.cpp. This is the FIRST of two independent flood
+// gates an occurrence passes through before it can ever reach commit_event();
+// see EVENT_TIER2_STATE below for the second. Occurrences of a
+// non-whitelisted event are held here, not yet logged/recorded, until either
+// EVENT_TIER1_WINDOW passes with no new occurrence (flushed as legitimate --
+// each one then proceeds to tier 2) or EVENT_TIER1_THRESHOLD consecutive
+// occurrences arrive less than EVENT_TIER1_WINDOW apart, at which point
+// `suppressing` flips true: further occurrences are dropped silently (not
+// buffered, not logged individually, never reaching tier 2 at all) for as
+// long as they keep arriving within EVENT_TIER1_WINDOW of each other. The
+// instant a gap of EVENT_TIER1_WINDOW or more elapses -- whether still
+// accumulating `pending` or already `suppressing` -- the whole entry is
+// erased and forgotten; the next occurrence of that name starts a brand new
+// streak from scratch. There is deliberately no longer-lived memory of "this
+// name floods" beyond that: a name that flooded once is fully eligible to be
+// treated as legitimate again the moment the burst that triggered it stops
+// (see record_event() in recorder.cpp).
+struct EVENT_STREAK {
+	std::chrono::steady_clock::time_point last_time;
+	std::vector<EVENT_STREAK_OCCURRENCE> pending;
+	bool suppressing = false;
+	size_t suppressed_count = 0;
+};
+
+// Tier 2 (slow-drip, non-blocking-until-confirmed) per-event-name
+// flood-detection state -- see tier2_gate() in recorder.cpp. Every occurrence
+// tier 1 (EVENT_STREAK above) forwards as legitimate passes through here
+// next. Unlike tier 1, tier 2 does NOT hold occurrences back: each one is
+// committed (written to trip_events, shown in the Live Status list)
+// immediately, and only remembered afterwards in `recent` so tier 2 can tell
+// whether EVENT_TIER2_THRESHOLD of them land within EVENT_TIER2_WINDOW of
+// each other. The moment that count is reached, the flood is "confirmed":
+// every commit still in `recent` (there are exactly EVENT_TIER2_THRESHOLD of
+// them, by construction) is retracted -- deleted from trip_events and pulled
+// back out of the Live Status list via their seq -- since a confirmed-flooding
+// event's already-shown occurrences carry no useful information once the
+// pattern is known, and `suppressing` flips true so further occurrences are
+// dropped with no commit, no retraction bookkeeping, and no UI line at all.
+// Exactly like tier 1, this is self-healing purely from timing: the instant a
+// gap of EVENT_TIER2_WINDOW passes with nothing arriving, the whole entry is
+// erased and the next occurrence starts a brand new tier-2 window from
+// scratch -- there is no longer-lived "this name floods" memory here either.
+struct EVENT_TIER2_STATE {
+	// One already-committed-and-still-in-window occurrence, identified by its
+	// STATUS::next_event_seq value so it can be retracted precisely -- see
+	// EVENT_QUEUE_ITEM::Kind::Delete. Cleared out (not merely aged off) the
+	// moment `suppressing` engages, since those commits have just been
+	// retracted and no longer need tracking.
+	struct COMMIT {
+		unsigned long long seq;
+		std::chrono::steady_clock::time_point time;
+	};
+	std::deque<COMMIT> recent;
+	// Last occurrence of any kind (committed into `recent`, or silently
+	// suppressed) -- distinct from the timestamps inside `recent`, which only
+	// covers commits and is fully cleared on suppression. This is what lets
+	// self-healing detect a quiet gap while `suppressing` is true, when
+	// `recent` itself is already empty.
+	std::chrono::steady_clock::time_point last_time;
+	bool suppressing = false;
+	size_t suppressed_count = 0;
+};
+
 struct STATUS {
 	bool in_sim = FALSE;
 	bool sim_running = FALSE;
@@ -446,6 +616,11 @@ struct STATUS {
 	// started in connect_db() and joined in wait_for_db_writers().
 	SampleWriteQueue sample_write_queue;
 	std::thread db_writer_thread;
+	// Same pattern as sample_write_queue/db_writer_thread above, for
+	// trip_events rows instead of trip_data samples. Started in connect_db()
+	// and joined in wait_for_db_writers().
+	EventWriteQueue event_write_queue;
+	std::thread event_writer_thread;
 	int sample_interval_ms = 500;
 	int id_trip = -1;
 	// The ids of trips whose tail samples may still be draining through
@@ -648,20 +823,40 @@ struct STATUS {
 	};
 	static const int FACILITY_LIST_TOP_N = 5;
 	FACILITY_LIST_CANDIDATE facility_lookup_top[FACILITY_LIST_TOP_N];
-	std::unordered_set<std::string> skip_events;
-	// Names already announced via the one-time "Event skipped" trace line (see
-	// the SIMCONNECT_RECV_ID_EVENT handler) -- some skip_events entries fire at
-	// very high frequency (that's exactly why they're skipped in the first
-	// place), so logging every occurrence would just move the log-bloat problem
-	// from trip_events to msfs_fdr_debug.log instead of fixing it.
-	std::unordered_set<std::string> skip_events_logged;
-	// Same one-time-per-quiet-period throttle as skip_events_logged, but for the
-	// "Event ignored (no active trip)" trace line -- SimConnect keeps delivering
-	// event notifications (e.g. AUTOPILOT_OFF/APU_OFF_SWITCH toggled repeatedly
-	// at the gate) even with no trip recording, and logging every one of those
-	// floods msfs_fdr_debug.log just as badly as the skip_events case did.
-	// Cleared whenever a trip starts or stops so each idle stretch gets its own
-	// fresh one-time notice per event name.
+	// Per-event-name tier 1 flood-detection buffers -- see EVENT_STREAK and
+	// record_event() in recorder.cpp. Runs continuously for the life of the
+	// app (not scoped to a trip or reset when one starts/ends): each entry's
+	// own quiet-period timeout is what clears it, so there's nothing here
+	// that needs a trip boundary to reset.
+	std::unordered_map<std::string, EVENT_STREAK> event_streaks;
+	// Per-event-name tier 2 flood-detection state -- see EVENT_TIER2_STATE and
+	// tier2_gate() in recorder.cpp. Same "no trip boundary reset" reasoning as
+	// event_streaks above.
+	std::unordered_map<std::string, EVENT_TIER2_STATE> tier2_state;
+	// Assigns each occurrence committed by commit_event() a unique, monotonic,
+	// never-reused id, stored as trip_events.event_seq. Needed because
+	// time_zulu/time_local (status->data.time_zulu/time_local) are read from a
+	// periodically-refreshed snapshot, not captured per-event -- two distinct
+	// occurrences can share an identical timestamp string, which would make
+	// tier 2's retraction (EVENT_QUEUE_ITEM::Kind::Delete) unsafe if it
+	// matched on timestamp instead. Only ever incremented, never reset --
+	// including across reconnects -- so a seq is always unambiguous even if
+	// two occurrences happen to be assigned across a reconnect boundary.
+	unsigned long long next_event_seq = 0;
+	// One-time-per-throttle-period notice for the "Event ignored (no active
+	// trip)" trace line -- SimConnect keeps delivering event notifications
+	// (e.g. AUTOPILOT_OFF/APU_OFF_SWITCH toggled repeatedly at the gate) even
+	// with no trip recording, and logging every one of those would flood
+	// msfs_fdr_debug.log the same way an unthrottled in-trip flood would. A
+	// name inserted here stays silenced not just for the rest of the current
+	// idle stretch but through every trip after it too (commit_event() checks
+	// this set before even looking at trip_id) -- these are, in practice,
+	// always the same slow-flooding events tier 2 also eventually catches, so
+	// extending the silence into the trip is deliberate rather than an
+	// oversight. NOT cleared at trip start/end (despite the also-applying-
+	// during-trips behavior above) -- only stop_recording() and
+	// RecorderBridge::tryConnect() clear it, so protection persists across
+	// any number of trips until one of those two points resets it.
 	std::unordered_set<std::string> no_trip_events_logged;
 	void* gui_context = nullptr;
 };
