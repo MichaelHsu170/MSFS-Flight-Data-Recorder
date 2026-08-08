@@ -41,6 +41,8 @@ Produce a single markdown report with two parts: a summary of changes, then the 
 
 Before the findings, give a short, abstract, high-level description of what the diff does — a few sentences or a short bulleted list, grouped by theme (e.g. "renames X to Y across the schema/backend/frontend", "fixes wording in log messages", "adds a new field to track Z"). This is a plain-language orientation for the reader, not a file-by-file changelog and not a restatement of the diff — skip implementation detail, specific line numbers, and code snippets here; those belong in the findings section if relevant to a defect.
 
+When the scope spans multiple commits (a ref diff, not just uncommitted changes), describe only the net result of all of them together — what the code does now versus at the ref — not a commit-by-commit narration of how it got there. Don't structure this section around individual commits or cite commit hashes/messages; treat the whole range as one diff.
+
 ### Findings
 
 Findings ordered most severe first. For each finding:

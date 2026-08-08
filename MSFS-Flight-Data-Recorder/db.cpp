@@ -72,14 +72,17 @@ void db_insert_update_table(
 		sql_ret = sqlite3_step(stmt);
 		if (sql_ret != SQLITE_DONE)
 			db_error(stmt_txt, sql_ret, NULL);
-		if (out_rowid)
-			*out_rowid = (int)sqlite3_last_insert_rowid(sql);
 		sql_ret = sqlite3_reset(stmt);
 		if (sql_ret)
 			db_error(stmt_txt, sql_ret, NULL);
 		sql_ret = sqlite3_exec(sql, "COMMIT TRANSACTION", NULL, NULL, &errmsg);
 		if (errmsg != NULL)
 			db_error(stmt_txt, 0, &errmsg);
+		// Only capture the rowid once the transaction is durably committed --
+		// reading it right after sqlite3_step() would give the caller a rowid
+		// for a row that a later reset/commit failure could still roll back.
+		if (out_rowid)
+			*out_rowid = (int)sqlite3_last_insert_rowid(sql);
 		// The transaction is durably committed at this point, so a finalize
 		// failure here is only a statement-cleanup error, not a write failure.
 		// It must not be reported as one via db_error/throw -- db_write_worker's
@@ -107,8 +110,18 @@ void db_insert_update_table(
 void db_insert_event(STATUS* status, int trip_id, const char* event, const char* time_zulu, const char* time_local, unsigned long long event_seq) {
 	struct EventInsertArgs { int trip_id; const char* event; const char* time_zulu; const char* time_local; long long event_seq; };
 	EventInsertArgs args{ trip_id, event, time_zulu, time_local, (long long)event_seq };
+	// The flood-detection buffers this is drained from (STATUS::event_streaks/
+	// tier2_state, see recorder.cpp) can hold an occurrence for up to
+	// EVENT_TIER2_WINDOW after the trip it belongs to already ended, so by the
+	// time this runs the trip may have already been deleted from the UI. The
+	// WHERE EXISTS guard, evaluated inside this same transaction, makes that a
+	// silent no-op instead of an orphaned row: if the trip's gone by the time
+	// this commits, 0 rows are affected; if it isn't gone yet, deleteTripData's
+	// own "DELETE FROM trip_events WHERE trip = ?" sweeps this row up normally
+	// either way, so there's no race to lose either way it lands.
 	db_insert_update_table(status->sql,
-		"INSERT INTO trip_events (trip,event,time_zulu,time_local,event_seq) VALUES (?,?,?,?,?);",
+		"INSERT INTO trip_events (trip,event,time_zulu,time_local,event_seq) "
+		"SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM trips WHERE id = ?);",
 		(void*)&args, status, NULL,
 		[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
 			EventInsertArgs* a = (EventInsertArgs*)data;
@@ -117,6 +130,7 @@ void db_insert_event(STATUS* status, int trip_id, const char* event, const char*
 			db_bind(stmt, stmt_txt, 3, a->time_zulu);
 			db_bind(stmt, stmt_txt, 4, a->time_local);
 			db_bind(stmt, stmt_txt, 5, a->event_seq);
+			db_bind(stmt, stmt_txt, 6, a->trip_id);
 		}
 	);
 }
@@ -158,7 +172,13 @@ static void event_write_worker(STATUS* status) {
 				db_delete_events(status, item.delete_seqs);
 		}
 		catch (const db_exception& e) {
-			gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: dropped one event for trip %d: %s", item.trip_id, e.message.c_str());
+			// item.trip_id is only ever set for Insert items (see
+			// EVENT_QUEUE_ITEM::trip_id in types.h) and a Delete can retract more
+			// than one row at once, so the two kinds need distinct messages here.
+			if (item.kind == EVENT_QUEUE_ITEM::Kind::Insert)
+				gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: dropped one event for trip %d: %s", item.trip_id, e.message.c_str());
+			else
+				gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: failed to retract %zu event(s): %s", item.delete_seqs.size(), e.message.c_str());
 			// A dropped Insert was already shown in the Live Status list (see
 			// commit_event() in recorder.cpp, which notifies the UI before this
 			// write is even queued) -- pull it back out so the panel doesn't
@@ -169,7 +189,10 @@ static void event_write_worker(STATUS* status) {
 				gui_notify_events_retracted(status, &item.seq, 1);
 		}
 		catch (...) {
-			gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: dropped one event for trip %d: unknown exception", item.trip_id);
+			if (item.kind == EVENT_QUEUE_ITEM::Kind::Insert)
+				gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: dropped one event for trip %d: unknown exception", item.trip_id);
+			else
+				gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: failed to retract %zu event(s): unknown exception", item.delete_seqs.size());
 			if (item.kind == EVENT_QUEUE_ITEM::Kind::Insert)
 				gui_notify_events_retracted(status, &item.seq, 1);
 		}

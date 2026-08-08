@@ -83,7 +83,7 @@ The file is a standard Windows INI edited automatically by the app as the user r
 ; Gemini API key for the AI liftoff/landing analysis feature.
 ; Obtain a free key from Google AI Studio (aistudio.google.com), then paste it
 ; here and restart the app. The app never writes this value.
-; Without a key the Analyze Landing button is disabled.
+; Without a key the Analyze Liftoff and Analyze Landing buttons are disabled.
 gemini_api_key=
 
 [recording]
