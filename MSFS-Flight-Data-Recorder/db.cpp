@@ -793,7 +793,7 @@ static void create_db_indexes(sqlite3* sql) {
 		// without it, tier 2 confirming a flood (see EVENT_TIER2_STATE in
 		// types.h) would force a full table scan of trip_events every time.
 		"CREATE INDEX IF NOT EXISTS idx_trip_events_event_seq ON trip_events(event_seq);",
-		"CREATE INDEX IF NOT EXISTS idx_trip_takeoffs_trip ON trip_takeoffs(trip);",
+		"CREATE INDEX IF NOT EXISTS idx_trip_liftoffs_trip ON trip_liftoffs(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_touchdowns_trip ON trip_touchdowns(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trips_group ON trips(group_id);",
 		// Enforced here (not just by db_groups.cpp's own pre-check) as a

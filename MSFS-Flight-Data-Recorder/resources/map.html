@@ -11,12 +11,12 @@
 <style>
   html, body, #map { height: 100%; margin: 0; padding: 0; }
   .event-icon { font-size: 18px; line-height: 1; text-align: center; }
-  .takeoff-icon, .touchdown-icon {
+  .liftoff-icon, .touchdown-icon {
     font-size: 12px; line-height: 20px; text-align: center;
     width: 20px; height: 20px; border-radius: 50%;
     box-shadow: 0 1px 3px rgba(0,0,0,0.5);
   }
-  .takeoff-icon { background: #86efac; border: 1.5px solid #16a34a; }
+  .liftoff-icon { background: #86efac; border: 1.5px solid #16a34a; }
   .touchdown-icon { background: #fdba74; border: 1.5px solid #ea580c; }
   .marker-index-badge {
     position: absolute; top: -6px; right: -6px;
@@ -139,7 +139,7 @@
 <script>
 // OSM/Leaflet map. currentProvider exposes: setTrajectory(points),
 // appendPoints(pts), setCursorIndex(index),
-// setTakeoffs(points), setTouchdowns(points), setEvents(points), setEventsVisible(visible).
+// setLiftoffs(points), setTouchdowns(points), setEvents(points), setEventsVisible(visible).
 var currentProvider = null;
 var mapBridge = null;
 // The Leaflet map instance currentProvider's closures wrap, so it can be
@@ -148,21 +148,21 @@ var mapBridge = null;
 // own window-level listeners (resize, etc.) and internal timers registered.
 var leafletMapInstance = null;
 
-// Keyed by the ID string assigned in takeoffPopupHtml/touchdownPopupHtml;
-// each value is the raw takeoff/touchdown object so analyzeTakeoff()/
+// Keyed by the ID string assigned in liftoffPopupHtml/touchdownPopupHtml;
+// each value is the raw liftoff/touchdown object so analyzeLiftoff()/
 // analyzeTouchdown() can read it on demand.
-var _takeoffStore = {};
-var _toIdx = 0;
+var _liftoffStore = {};
+var _loIdx = 0;
 var _touchdownStore = {};
 var _tdIdx = 0;
 
 // ── Gemini analysis helpers ──────────────────────────────────────────────────
 
-function buildTakeoffPrompt(t) {
+function buildLiftoffPrompt(t) {
     var aircraft = window._aircraftTitle || '';
     var lines = [];
 
-    lines.push('You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 takeoff.');
+    lines.push('You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.');
     lines.push('Respond using exactly this structure — no preamble, no extra sections:');
     lines.push('');
     lines.push('Grade: [A+/A/A−/B+/B/B−/C+/C/C−/D/F]');
@@ -176,7 +176,7 @@ function buildTakeoffPrompt(t) {
     lines.push('• [one brief point per bullet]');
     lines.push('');
     lines.push('---');
-    lines.push('Takeoff data:');
+    lines.push('Liftoff data:');
     if (aircraft) lines.push('  Aircraft: ' + aircraft);
     if (t.icao) {
         var airport = t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
@@ -186,7 +186,7 @@ function buildTakeoffPrompt(t) {
     lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
     // Deliberately no vertical-speed line here, unlike buildTouchdownPrompt()
     // below -- at the moment of liftoff vertical speed is just starting to
-    // leave zero and doesn't meaningfully inform takeoff quality the way it
+    // leave zero and doesn't meaningfully inform liftoff quality the way it
     // does for a landing's touchdown rate, so it's omitted rather than
     // included as a mostly-meaningless number the model would still comment on.
     lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
@@ -294,10 +294,10 @@ function toggleThinkLabel(det, arrId, lblId) {
     document.getElementById(lblId).textContent = det.open ? 'Hide thinking' : 'Show thinking';
 }
 
-async function analyzeTakeoff(id) {
-    return runAiAnalysis(id, _takeoffStore[id], buildTakeoffPrompt, function(rowId, report) {
-        if (mapBridge) mapBridge.saveTakeoffAnalysisReport(rowId, report);
-    }, 'Analyze Takeoff');
+async function analyzeLiftoff(id) {
+    return runAiAnalysis(id, _liftoffStore[id], buildLiftoffPrompt, function(rowId, report) {
+        if (mapBridge) mapBridge.saveLiftoffAnalysisReport(rowId, report);
+    }, 'Analyze Liftoff');
 }
 
 async function analyzeTouchdown(id) {
@@ -485,9 +485,9 @@ function renderStoredReport(id, report) {
     }
 }
 
-function takeoffPopupHtml(t) {
-    var id = 'to' + (++_toIdx);
-    _takeoffStore[id] = t;
+function liftoffPopupHtml(t) {
+    var id = 'lo' + (++_loIdx);
+    _liftoffStore[id] = t;
 
     function row(key, val) {
         return '<div class="td-row"><span class="td-key">' + key + '</span><span class="td-val">' + val + '</span></div>';
@@ -496,7 +496,7 @@ function takeoffPopupHtml(t) {
 
     // Left column: grouped key-value layout
     var leftHtml = '<div style="width:260px;flex-shrink:0">'
-        + '<div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:8px">Takeoff</div>';
+        + '<div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:8px">Liftoff</div>';
 
     if (t.icao) {
         var airportLabel = t.icao + (t.airportName ? ' – ' + t.airportName : '');
@@ -529,7 +529,7 @@ function takeoffPopupHtml(t) {
     // Right column: analyze button + result area (pre-filled from DB if available)
     var hasKey = !!(window._geminiApiKey && window._geminiApiKey.trim().length > 0);
     var disabledAttr = hasKey ? '' : ' disabled title="Set gemini_api_key in settings.ini to enable"';
-    var clickAttr = hasKey ? ' onclick="analyzeTakeoff(\'' + id + '\')"' : '';
+    var clickAttr = hasKey ? ' onclick="analyzeLiftoff(\'' + id + '\')"' : '';
     var initialResult = hasKey ? '' :
         '<span style="color:#aaa;font-size:11px;line-height:1.6">To enable AI analysis,<br>'
         + 'add your Gemini API key in settings.ini:<br>'
@@ -540,7 +540,7 @@ function takeoffPopupHtml(t) {
         '  <div class="td-analyze-label">✦ AI Analysis</div>',
         '  <div>',
         '    <button class="td-analyze-btn" id="td-btn-' + id + '"' + disabledAttr + clickAttr + '>',
-        '      ✦ Analyze Takeoff',
+        '      ✦ Analyze Liftoff',
         '    </button>',
         '    <span id="td-spin-' + id + '" class="td-spinner" style="display:none">↻</span>',
         '  </div>',
@@ -749,7 +749,7 @@ function initLeafletProvider() {
 
     var polyline = L.polyline([], { color: 'blue' }).addTo(map);
     var marker = null;
-    var takeoffMarkers = [];
+    var liftoffMarkers = [];
     var touchdownMarkers = [];
     var eventMarkers = [];
     var overviewLines = [];
@@ -828,33 +828,33 @@ function initLeafletProvider() {
             }
             marker.setLatLng(trajectoryLatLngs[best]);
         },
-        setTakeoffs: function (points) {
-            takeoffMarkers.forEach(function (m) { map.removeLayer(m); });
-            takeoffMarkers = [];
+        setLiftoffs: function (points) {
+            liftoffMarkers.forEach(function (m) { map.removeLayer(m); });
+            liftoffMarkers = [];
             // Every entry belonged to a marker/popup just removed above (and
-            // analyzeTakeoff() already no-ops once its popup's DOM is gone,
+            // analyzeLiftoff() already no-ops once its popup's DOM is gone,
             // via the missing-btn check), so nothing still needs them --
-            // without this, _takeoffStore accumulates one entry per
-            // takeoff ever shown, for the lifetime of the page.
-            _takeoffStore = {};
+            // without this, _liftoffStore accumulates one entry per
+            // liftoff marker ever shown, for the lifetime of the page.
+            _liftoffStore = {};
             points.forEach(function (t, idx) {
                 var html = '<div style="position:relative;width:100%;height:100%">\u{1F6EB}<span class="marker-index-badge">' + (idx + 1) + '</span></div>';
-                var icon = L.divIcon({ className: 'takeoff-icon', html: html, iconSize: [20, 20], iconAnchor: [10, 10] });
+                var icon = L.divIcon({ className: 'liftoff-icon', html: html, iconSize: [20, 20], iconAnchor: [10, 10] });
                 var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
-                var popup = takeoffPopupHtml(t);
+                var popup = liftoffPopupHtml(t);
                 m.bindPopup(popup.html, { maxWidth: 700 });
                 if (t.analysisReport) {
                     (function(capturedId, capturedReport) {
                         m.on('popupopen', function() { renderStoredReport(capturedId, capturedReport); });
                     })(popup.id, t.analysisReport);
                 }
-                takeoffMarkers.push(m);
+                liftoffMarkers.push(m);
             });
         },
         setTouchdowns: function (points) {
             touchdownMarkers.forEach(function (m) { map.removeLayer(m); });
             touchdownMarkers = [];
-            // Same store-reset rationale as setTakeoffs() above.
+            // Same store-reset rationale as setLiftoffs() above.
             _touchdownStore = {};
             points.forEach(function (t, idx) {
                 var html = '<div style="position:relative;width:100%;height:100%">\u{1F6EC}<span class="marker-index-badge">' + (idx + 1) + '</span></div>';
@@ -919,13 +919,13 @@ function initLeafletProvider() {
             origIndices = [];
             polyline.setLatLngs([]);
             if (marker !== null) { map.removeLayer(marker); marker = null; }
-            takeoffMarkers.forEach(function(m) { map.removeLayer(m); });
-            takeoffMarkers = [];
-            // Same store-reset rationale as setTakeoffs()/setTouchdowns() above --
+            liftoffMarkers.forEach(function(m) { map.removeLayer(m); });
+            liftoffMarkers = [];
+            // Same store-reset rationale as setLiftoffs()/setTouchdowns() above --
             // every entry belonged to a marker just removed above, so nothing still
-            // needs them, and skipping this leaks one entry per takeoff/touchdown
+            // needs them, and skipping this leaks one entry per liftoff/touchdown
             // ever shown for the lifetime of the page.
-            _takeoffStore = {};
+            _liftoffStore = {};
             _touchdownStore = {};
             touchdownMarkers.forEach(function(m) { map.removeLayer(m); });
             touchdownMarkers = [];
@@ -990,9 +990,9 @@ function setCursorIndex(index) {
         currentProvider.setCursorIndex(index);
 }
 
-function setTakeoffs(points) {
+function setLiftoffs(points) {
     if (currentProvider)
-        currentProvider.setTakeoffs(points);
+        currentProvider.setLiftoffs(points);
 }
 
 function setTouchdowns(points) {

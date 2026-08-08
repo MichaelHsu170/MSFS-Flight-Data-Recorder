@@ -9,7 +9,7 @@
 // Levels (ordered lowest → highest verbosity):
 //   Fatal   – unrecoverable errors that halt the app
 //   Warning – unexpected/unhandled conditions that don't stop execution
-//   Info    – user-visible events (connect, record, takeoff, touchdown, …)
+//   Info    – user-visible events (connect, record, liftoff, touchdown, …)
 //   Trace   – fine-grained diagnostic detail (e.g. raw Qt debug output) that's
 //             too noisy for Info but isn't a timing measurement.
 //   Profile – elapsed-time/performance measurements ONLY (ms/µs durations).

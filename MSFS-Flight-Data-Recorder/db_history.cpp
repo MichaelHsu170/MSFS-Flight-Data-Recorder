@@ -14,16 +14,16 @@ QString columnTextOrEmpty(sqlite3_stmt* stmt, int column) {
 	return text ? QString::fromUtf8(reinterpret_cast<const char*>(text)) : QString();
 }
 
-// Shared prepare/bind(trip)/step/finalize skeleton for queryTakeoffs() and
+// Shared prepare/bind(trip)/step/finalize skeleton for queryLiftoffs() and
 // queryTouchdowns() below -- the two used to duplicate this in full and only
 // actually differ in table/column layout (touchdowns adds a g_force column,
 // shifting every later column index by 1) and the target struct type.
 // extractRow runs once per SQLITE_ROW to build one T from the current row.
 // callerName/itemWord/itemWordPlural exist only to keep each caller's log
 // text byte-for-byte identical to what it logged before this was shared
-// (e.g. "queryTakeoffs(trip %d): loading takeoff points" / "... loaded %d
-// takeoffs"), since callers of this code may already filter logs on those
-// exact strings.
+// (e.g. "queryLiftoffs(trip %d): loading liftoff points" / "... loaded %d
+// liftoff points"), since callers of this code may already filter logs on
+// those exact strings.
 template <typename T>
 std::vector<T> queryFacilityPoints(sqlite3* sql, int tripId, const char* stmtText,
 	const char* callerName, const char* itemWord, const char* itemWordPlural,
@@ -274,17 +274,17 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	return dataset;
 }
 
-std::vector<TakeoffPoint> queryTakeoffs(sqlite3* sql, int tripId) {
+std::vector<LiftoffPoint> queryLiftoffs(sqlite3* sql, int tripId) {
 	// migrate_db() at app startup ensures all columns exist before any query runs.
 	const char* stmt_txt =
 		"SELECT id, plane_latitude, plane_longitude, icao, airport_name, runway, airspeed_indicated, "
 		"vertical_speed, plane_pitch_degrees, plane_bank_degrees, heading_indicator, "
 		"distance_length, distance_width, distance_length_percent, distance_width_percent, "
 		"wind_direction, wind_velocity, time_zulu, time_local, analysis_report "
-		"FROM trip_takeoffs WHERE trip = ? ORDER BY id";
-	return queryFacilityPoints<TakeoffPoint>(sql, tripId, stmt_txt, "queryTakeoffs", "takeoff", "takeoffs",
+		"FROM trip_liftoffs WHERE trip = ? ORDER BY id";
+	return queryFacilityPoints<LiftoffPoint>(sql, tripId, stmt_txt, "queryLiftoffs", "liftoff", "liftoff points",
 		[](sqlite3_stmt* stmt) {
-			TakeoffPoint point;
+			LiftoffPoint point;
 			point.rowId              = sqlite3_column_int(stmt, 0);
 			point.latitude           = sqlite3_column_double(stmt, 1);
 			point.longitude          = sqlite3_column_double(stmt, 2);
@@ -350,7 +350,7 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 	const char* stmts[] = {
 		"DELETE FROM trip_data WHERE trip = ?",
 		"DELETE FROM trip_events WHERE trip = ?",
-		"DELETE FROM trip_takeoffs WHERE trip = ?",
+		"DELETE FROM trip_liftoffs WHERE trip = ?",
 		"DELETE FROM trip_touchdowns WHERE trip = ?",
 		"DELETE FROM trips WHERE id = ?",
 	};

@@ -198,7 +198,7 @@ void ensureSettingsFileExists() {
 		"; Levels (inclusive — each includes all levels above it):\n"
 		";   FATAL    — unrecoverable errors only\n"
 		";   WARNING  — unexpected conditions that don't abort the app\n"
-		";   INFO     — operational events (connect, recording start/stop, takeoff, touchdown)\n"
+		";   INFO     — operational events (connect, recording start/stop, liftoff, touchdown)\n"
 		";   TRACE    — fine-grained diagnostic detail, e.g. raw Qt debug output (high-volume)\n"
 		";   PROFILE  — performance timing for all subsystems (highest volume; for profiling only)\n"
 		"; Default: INFO\n"
@@ -413,7 +413,7 @@ void AppSettings::setVerboseLevel(const QString& level) {
 		               "Levels (inclusive — each includes all levels above it):\n"
 		               "  FATAL    — unrecoverable errors only\n"
 		               "  WARNING  — unexpected conditions that don't abort the app\n"
-		               "  INFO     — operational events (connect, recording start/stop, takeoff, touchdown)\n"
+		               "  INFO     — operational events (connect, recording start/stop, liftoff, touchdown)\n"
 		               "  TRACE    — fine-grained diagnostic detail (high-volume; for deep debugging)\n"
 		               "  PROFILE  — performance timing for all subsystems (highest volume; for profiling only)\n"
 		               "Default: INFO")

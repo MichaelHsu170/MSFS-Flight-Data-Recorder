@@ -35,7 +35,7 @@ public:
 	// Called internally from onLoadFinished.
 	void refreshProvider();
 	// Shows/hides the cockpit-event markers pushed by setDataset() -- the
-	// takeoff/touchdown markers are always shown regardless of this setting.
+	// liftoff/touchdown markers are always shown regardless of this setting.
 	// Wired internally to the floating events-toggle icon button.
 	void setEventsVisible(bool visible);
 
@@ -56,7 +56,7 @@ private slots:
 
 private:
 	void pushTrajectory();
-	void pushTakeoffs();
+	void pushLiftoffs();
 	void pushTouchdownsAndEvents();
 	void runJs(const QString& script);
 	void resizeEvent(QResizeEvent* event) override;
@@ -70,7 +70,7 @@ private:
 	// (rawNums, boolGroups, etc.), so we copy only coordinates into trajCoords_
 	// rather than storing the whole TripDataset.
 	std::vector<std::pair<double, double>> trajCoords_;
-	std::vector<TakeoffPoint> takeoffs_;
+	std::vector<LiftoffPoint> liftoffPoints_;
 	std::vector<TouchdownPoint> touchdowns_;
 	std::vector<TripEvent> events_;
 	// Buffered lat/lng pairs waiting for the next liveUpdateTimer_ flush.

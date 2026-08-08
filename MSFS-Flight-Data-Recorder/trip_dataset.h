@@ -41,11 +41,11 @@ struct TripSamplePoint {
 	uint32_t boolGroup3 = 0;
 };
 
-// One takeoff logged during the trip (trip_takeoffs), shown as a marker on
-// the map: the trip's departure plus any subsequent touch-and-go takeoffs.
-// No gForce field: unlike a landing, there's no meaningful "how hard" to a
-// takeoff.
-struct TakeoffPoint {
+// One moment the aircraft became airborne during the trip (trip_liftoffs),
+// shown as a marker on the map: the trip's departure plus any subsequent
+// touch-and-go liftoffs. No gForce field: unlike a landing, there's no
+// meaningful "how hard" to becoming airborne.
+struct LiftoffPoint {
 	double latitude = 0;
 	double longitude = 0;
 	QString icao;
@@ -64,7 +64,7 @@ struct TakeoffPoint {
 	int windVelocity = 0;    // knots
 	QString zuluTime;
 	QString localTime;
-	int rowId = 0;           // trip_takeoffs.id, used to UPDATE analysis_report
+	int rowId = 0;           // trip_liftoffs.id, used to UPDATE analysis_report
 	QString analysisReport;  // stored AI analysis text, empty if never analyzed
 };
 
@@ -111,7 +111,7 @@ struct TripDataset {
 	int tripId = -1;
 	QString aircraftTitle;  // trips.title — human-readable name like "Airbus A320neo FlyByWire"
 	std::vector<TripSamplePoint> points;
-	std::vector<TakeoffPoint> takeoffs;
+	std::vector<LiftoffPoint> liftoffPoints;
 	std::vector<TouchdownPoint> touchdowns;
 	std::vector<TripEvent> events;
 };

@@ -11,7 +11,7 @@ class QListWidgetItem;
 class RecorderBridge;
 
 // Mirrors what the console build used to printf(): connection state, recording
-// start/stop, takeoff/touchdown/crash messages, and a live flight-data snapshot.
+// start/stop, liftoff/touchdown/crash messages, and a live flight-data snapshot.
 // Connection/recording are shown as small painted dots (black = true, grey =
 // false -- painted rather than drawn from a Unicode glyph, since glyphs like
 // the power/record symbols get rendered by Windows' color emoji font and

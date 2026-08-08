@@ -139,14 +139,14 @@ void RecorderBridge::tryConnect() {
 	status_.facility_lookup_pending = false;
 	status_.facility_lookup_trip_id = -1;
 	status_.facility_lookup_departure_needed = false;
-	status_.facility_lookup_is_takeoff = false;
+	status_.facility_lookup_is_liftoff = false;
 	status_.facility_lookup_is_departure = false;
 	status_.departure_lookup_initiated = false;
 	status_.facility_lookup_send_id = 0;
 	status_.facility_definition_runways_added = false;
 	status_.departure.clear();
 	status_.destination.clear();
-	status_.takeoff_scratch.clear();
+	status_.liftoff_scratch.clear();
 
 	Logger::logf(Logger::Trace, "Recorder", "SimConnect connected: sample_interval_ms=%d",
 		status_.sample_interval_ms);

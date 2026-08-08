@@ -11,11 +11,11 @@ struct sqlite3;
 // Trip History panel (e.g. from a future CLI or test).
 std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId);
 TripDataset queryTripData(sqlite3* sql, int tripId);
-std::vector<TakeoffPoint> queryTakeoffs(sqlite3* sql, int tripId);
+std::vector<LiftoffPoint> queryLiftoffs(sqlite3* sql, int tripId);
 std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId);
 std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId);
 
-// Deletes all rows in trip_data, trip_events, trip_takeoffs, trip_touchdowns,
+// Deletes all rows in trip_data, trip_events, trip_liftoffs, trip_touchdowns,
 // and trips for the given trip id. Caller opens and closes the (readwrite) connection.
 // Returns true on success.
 bool deleteTripData(sqlite3* sql, int tripId);

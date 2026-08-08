@@ -6,7 +6,7 @@ static const char* DATABASE_TABLE_NAMES[] = {
 	"trips",
 	"trip_data",
 	"trip_events",
-	"trip_takeoffs",
+	"trip_liftoffs",
 	"trip_touchdowns",
 	"trip_groups"
 };
