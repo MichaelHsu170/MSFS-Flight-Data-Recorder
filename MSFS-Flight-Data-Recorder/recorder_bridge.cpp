@@ -148,8 +148,6 @@ void RecorderBridge::tryConnect() {
 	status_.destination.clear();
 	status_.takeoff_scratch.clear();
 
-	status_.no_trip_events_logged.clear();
-
 	Logger::logf(Logger::Trace, "Recorder", "SimConnect connected: sample_interval_ms=%d",
 		status_.sample_interval_ms);
 

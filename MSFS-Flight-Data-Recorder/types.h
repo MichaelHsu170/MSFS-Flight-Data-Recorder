@@ -10,7 +10,6 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 #include <Windows.h>
 #include "sqlite3.h"
@@ -563,36 +562,41 @@ struct EVENT_STREAK {
 // flood-detection state -- see tier2_gate() in recorder.cpp. Every occurrence
 // tier 1 (EVENT_STREAK above) forwards as legitimate passes through here
 // next. Unlike tier 1, tier 2 does NOT hold occurrences back: each one is
-// committed (written to trip_events, shown in the Live Status list)
-// immediately, and only remembered afterwards in `recent` so tier 2 can tell
-// whether EVENT_TIER2_THRESHOLD of them land within EVENT_TIER2_WINDOW of
-// each other. The moment that count is reached, the flood is "confirmed":
-// every commit still in `recent` (there are exactly EVENT_TIER2_THRESHOLD of
-// them, by construction) is retracted -- deleted from trip_events and pulled
-// back out of the Live Status list via their seq -- since a confirmed-flooding
-// event's already-shown occurrences carry no useful information once the
-// pattern is known, and `suppressing` flips true so further occurrences are
-// dropped with no commit, no retraction bookkeeping, and no UI line at all.
-// Exactly like tier 1, this is self-healing purely from timing: the instant a
-// gap of EVENT_TIER2_WINDOW passes with nothing arriving, the whole entry is
+// passed to commit_event() immediately and tracked in `recent` regardless of
+// whether that call actually wrote anything (commit_event() drops it silently
+// if no trip is active -- see its comment in recorder.cpp), so tier 2 can
+// tell whether EVENT_TIER2_THRESHOLD of them land within EVENT_TIER2_WINDOW
+// of each other even across a no-trip stretch. The moment that count is
+// reached, the flood is "confirmed": every occurrence still in `recent`
+// (there are exactly EVENT_TIER2_THRESHOLD of them, by construction) is
+// retracted -- deleted from trip_events and pulled back out of the Live
+// Status list via their seq, harmlessly a no-op for any that were never
+// actually written/shown in the first place -- since a confirmed-flooding
+// event's occurrences carry no useful information once the pattern is known,
+// and `suppressing` flips true so further occurrences are dropped with no
+// commit, no retraction bookkeeping, and no UI line at all. Exactly like
+// tier 1, this is self-healing purely from timing: the instant a gap of
+// EVENT_TIER2_WINDOW passes with nothing arriving, the whole entry is
 // erased and the next occurrence starts a brand new tier-2 window from
 // scratch -- there is no longer-lived "this name floods" memory here either.
 struct EVENT_TIER2_STATE {
-	// One already-committed-and-still-in-window occurrence, identified by its
-	// STATUS::next_event_seq value so it can be retracted precisely -- see
-	// EVENT_QUEUE_ITEM::Kind::Delete. Cleared out (not merely aged off) the
-	// moment `suppressing` engages, since those commits have just been
-	// retracted and no longer need tracking.
+	// One still-in-window occurrence that has passed through commit_event()
+	// (which may or may not have actually written it, depending on trip
+	// state -- see commit_event()'s comment in recorder.cpp), identified by
+	// its STATUS::next_event_seq value so it can be retracted precisely --
+	// see EVENT_QUEUE_ITEM::Kind::Delete. Cleared out (not merely aged off)
+	// the moment `suppressing` engages, since these have just been retracted
+	// (or were never written) and no longer need tracking.
 	struct COMMIT {
 		unsigned long long seq;
 		std::chrono::steady_clock::time_point time;
 	};
 	std::deque<COMMIT> recent;
-	// Last occurrence of any kind (committed into `recent`, or silently
+	// Last occurrence of any kind (tracked into `recent`, or silently
 	// suppressed) -- distinct from the timestamps inside `recent`, which only
-	// covers commits and is fully cleared on suppression. This is what lets
-	// self-healing detect a quiet gap while `suppressing` is true, when
-	// `recent` itself is already empty.
+	// covers tracked occurrences and is fully cleared on suppression. This is
+	// what lets self-healing detect a quiet gap while `suppressing` is true,
+	// when `recent` itself is already empty.
 	std::chrono::steady_clock::time_point last_time;
 	bool suppressing = false;
 	size_t suppressed_count = 0;
@@ -843,20 +847,12 @@ struct STATUS {
 	// including across reconnects -- so a seq is always unambiguous even if
 	// two occurrences happen to be assigned across a reconnect boundary.
 	unsigned long long next_event_seq = 0;
-	// One-time-per-throttle-period notice for the "Event ignored (no active
-	// trip)" trace line -- SimConnect keeps delivering event notifications
-	// (e.g. AUTOPILOT_OFF/APU_OFF_SWITCH toggled repeatedly at the gate) even
-	// with no trip recording, and logging every one of those would flood
-	// msfs_fdr_debug.log the same way an unthrottled in-trip flood would. A
-	// name inserted here stays silenced not just for the rest of the current
-	// idle stretch but through every trip after it too (commit_event() checks
-	// this set before even looking at trip_id) -- these are, in practice,
-	// always the same slow-flooding events tier 2 also eventually catches, so
-	// extending the silence into the trip is deliberate rather than an
-	// oversight. NOT cleared at trip start/end (despite the also-applying-
-	// during-trips behavior above) -- only stop_recording() and
-	// RecorderBridge::tryConnect() clear it, so protection persists across
-	// any number of trips until one of those two points resets it.
-	std::unordered_set<std::string> no_trip_events_logged;
+	// Per-event-name last-logged time for the "Event ignored (no active
+	// trip)" TRACE line -- see EVENT_NO_TRIP_LOG_COOLDOWN and commit_event()
+	// in recorder.cpp. Purely a log rate-limit, not a suppression: unlike the
+	// no_trip_events_logged blacklist this replaces, an entry never blocks an
+	// occurrence from committing and needs no trip-boundary reset -- it just
+	// ages out naturally once EVENT_NO_TRIP_LOG_COOLDOWN elapses.
+	std::unordered_map<std::string, std::chrono::steady_clock::time_point> no_trip_log_throttle;
 	void* gui_context = nullptr;
 };

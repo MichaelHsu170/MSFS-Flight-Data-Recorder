@@ -4,15 +4,22 @@
 #include "logger.h"
 #include <chrono>
 #include <thread>
+#include <unordered_set>
 
 // Events known to legitimately fire in rapid, human-driven bursts -- e.g.
 // holding a flap key/lever produces many FLAPS_INCR/FLAPS_DECR notifications
 // well under EVENT_TIER1_WINDOW apart. These bypass BOTH flood-detection
 // tiers entirely (straight to commit_event()) and are always recorded
-// immediately. Every other event handled by the shared case block in
-// MyDispatchProc is assumed to fire at most once per discrete user action, so
-// rapid repetition indicates a stuck/oscillating simulator-side system rather
-// than real input (see record_event()/tier2_gate() below).
+// immediately -- deliberately, even though that means a burst of these with
+// no active trip logs its own (rate-limited, see EVENT_NO_TRIP_LOG_COOLDOWN
+// below) TRACE line per occurrence instead of being caught upstream like
+// everything else: subjecting these two names to tier 1/tier 2 to avoid that
+// would just as easily misclassify a real held-lever burst as a flood and
+// suppress/retract genuine flap-position data during an actual trip, which is
+// the worse failure mode. Every other event handled by the shared case block
+// in MyDispatchProc is assumed to fire at most once per discrete user action,
+// so rapid repetition indicates a stuck/oscillating simulator-side system
+// rather than real input (see record_event()/tier2_gate() below).
 static const std::unordered_set<std::string> EVENT_FLOOD_WHITELIST = {
 	"FLAPS_INCR", "FLAPS_DECR",
 };
@@ -37,37 +44,48 @@ static const std::chrono::milliseconds EVENT_TIER2_WINDOW(5000);
 // event names this pipeline handles.
 static const size_t EVENT_TIER2_THRESHOLD = 3;
 
+// Rate-limits the "Event ignored (no active trip)" TRACE line in
+// commit_event() below -- independent of both flood-detection tiers, and not
+// a lasting suppression like the old (removed) no_trip_events_logged
+// blacklist: entries just age out on their own as time passes, so this only
+// throttles how often the line is printed and never affects whether an
+// occurrence commits. Exists specifically for EVENT_FLOOD_WHITELIST names
+// (FLAPS_INCR/FLAPS_DECR): they bypass both tiers entirely, so without this,
+// a flap lever held with no trip active would print one line per occurrence,
+// completely unbounded. Same window as tier 2's, chosen for consistency
+// rather than because the two mechanisms interact.
+static const std::chrono::milliseconds EVENT_NO_TRIP_LOG_COOLDOWN(5000);
+
 // Level 2 gate: the point where a single event occurrence that has already
 // passed (or bypassed, via EVENT_FLOOD_WHITELIST) both flood-detection tiers
-// either gets recorded or discarded, based on whether a trip actually exists
-// to attach it to, or whether this event name was already flagged as
-// unexpected during a no-trip period. trip_id is captured per-occurrence at
-// the time each one happened (not re-read from status->id_trip here), since
-// by the time a buffered/tier-2-delayed occurrence reaches this point a new
-// trip may already be live. seq is this occurrence's assigned
-// STATUS::next_event_seq value, stored in the DB row (if one is written) so
-// tier 2 can retract it precisely later -- see db_delete_events() in db.cpp.
-// Returns true if the occurrence was actually written to trip_events and
-// shown in the Live Status list, false if it was silently dropped --
-// tier2_gate() uses this to avoid tracking/ever retracting an occurrence that
-// was never visible in the first place.
+// either gets recorded or discarded, based purely on whether a trip actually
+// exists to attach it to. Has no memory of its own governing *whether* an
+// occurrence commits -- flood-shaped repetition, active-trip or not, is tier
+// 1/tier 2's job entirely (both run unconditionally regardless of trip
+// state; see record_event()/tier2_gate() above); the only state this
+// function keeps (STATUS::no_trip_log_throttle) exists purely to rate-limit
+// its own TRACE line, see EVENT_NO_TRIP_LOG_COOLDOWN above. trip_id is
+// captured per-occurrence at the time each one happened (not re-read from
+// status->id_trip here), since by the time a buffered/tier-2-delayed
+// occurrence reaches this point a new trip may already be live. seq is this
+// occurrence's assigned STATUS::next_event_seq value, stored in the DB row
+// (if one is written) so tier 2 can retract it precisely later -- see
+// db_delete_events() in db.cpp. Returns true if the occurrence was actually
+// written to trip_events and shown in the Live Status list, false if it was
+// silently dropped.
 static bool commit_event(struct STATUS* status, const std::string& name, int trip_id, const std::string& time_zulu, const std::string& time_local, unsigned long long seq) {
-	if (status->no_trip_events_logged.count(name)) {
-		// Already flagged as unexpected during a no-trip period -- silenced
-		// for the rest of that idle stretch AND every trip after it, not just
-		// while idle (see STATUS::no_trip_events_logged's doc comment in
-		// types.h). Checked before the trip_id branch below specifically so
-		// this precedence applies regardless of whether a trip is active.
+	if (trip_id <= 0) {
+		auto now = std::chrono::steady_clock::now();
+		auto& last_logged = status->no_trip_log_throttle[name];
+		if (now - last_logged >= EVENT_NO_TRIP_LOG_COOLDOWN) {
+			gui_log_printf(status, GUI_LOG_TRACE, "Event ignored (no active trip): %s", name.c_str());
+			last_logged = now;
+		}
 		return false;
 	}
-	if (trip_id > 0) {
-		gui_notify_event_committed(status, trip_id, seq, name.c_str());
-		status->event_write_queue.push(trip_id, name, time_zulu, time_local, seq);
-		return true;
-	}
-	if (status->no_trip_events_logged.insert(name).second)
-		gui_log_printf(status, GUI_LOG_TRACE, "Event ignored (no active trip): %s (further occurrences won't be logged, including during any later trip)", name.c_str());
-	return false;
+	gui_notify_event_committed(status, trip_id, seq, name.c_str());
+	status->event_write_queue.push(trip_id, name, time_zulu, time_local, seq);
+	return true;
 }
 
 // Tier 2 gate: sits between tier 1 (record_event()/EVENT_STREAK below)
@@ -78,16 +96,27 @@ static bool commit_event(struct STATUS* status, const std::string& name, int tri
 // EVENT_TIER2_WINDOW of each other. This catches a *slow* flood (e.g. one
 // spurious occurrence every 1-2s) that never bursts fast enough to trip tier
 // 1's much shorter EVENT_TIER1_WINDOW, but is still meaningless noise over a
-// longer stretch. The moment EVENT_TIER2_THRESHOLD occurrences land within
-// the window, the flood is "confirmed": those occurrences (the only ones
-// ever shown for this episode, by construction) are retracted from both the
-// DB and the UI, and further occurrences are dropped silently -- no commit,
-// no retraction bookkeeping, nothing shown -- until a quiet gap of
-// EVENT_TIER2_WINDOW passes, at which point it self-heals exactly like tier 1
-// (see EVENT_TIER2_STATE in types.h for the full state-machine writeup).
-// Never called for whitelisted events (EVENT_FLOOD_WHITELIST bypasses both
-// tiers, straight to commit_event()) or for an occurrence tier 1 itself
-// suppressed (those never reach here at all).
+// longer stretch. Runs unconditionally regardless of trip state, same as
+// tier 1 -- the window/threshold tracking below (streak->recent) is updated
+// BEFORE commit_event() is even called and does not look at whether that call
+// actually wrote anything, so a slow flood with no active trip is caught
+// exactly the same way one during a trip is: commit_event() alone has no
+// flood memory of its own (see its comment above), so without
+// EVENT_NO_TRIP_LOG_COOLDOWN (see below) this would be the only layer
+// standing between a no-trip event and an unbounded per-occurrence log line
+// -- that cooldown covers the one case this doesn't: EVENT_FLOOD_WHITELIST
+// names, which bypass tier 2 (and tier 1) entirely and never reach here.
+// The moment EVENT_TIER2_THRESHOLD occurrences land within the window, the
+// flood is "confirmed": those occurrences (the only ones ever shown for this
+// episode, by construction) are retracted from both the DB and the UI --
+// harmlessly a no-op for any that commit_event() never actually wrote (see
+// LiveStatusPanel::onEventsRetracted) -- and further occurrences are dropped
+// silently -- no commit, no retraction bookkeeping, nothing shown -- until a
+// quiet gap of EVENT_TIER2_WINDOW passes, at which point it self-heals
+// exactly like tier 1 (see EVENT_TIER2_STATE in types.h for the full
+// state-machine writeup). Never called for whitelisted events
+// (EVENT_FLOOD_WHITELIST bypasses both tiers, straight to commit_event()) or
+// for an occurrence tier 1 itself suppressed (those never reach here at all).
 static void tier2_gate(struct STATUS* status, const std::string& name, int trip_id, const std::string& time_zulu, const std::string& time_local) {
 	auto now = std::chrono::steady_clock::now();
 	EVENT_TIER2_STATE* streak = &status->tier2_state[name];
@@ -122,10 +151,9 @@ static void tier2_gate(struct STATUS* status, const std::string& name, int trip_
 	streak->last_time = now;
 
 	unsigned long long seq = ++status->next_event_seq;
-	if (!commit_event(status, name, trip_id, time_zulu, time_local, seq))
-		return;
-
 	streak->recent.push_back({ seq, now });
+	commit_event(status, name, trip_id, time_zulu, time_local, seq);
+
 	if (streak->recent.size() >= EVENT_TIER2_THRESHOLD) {
 		std::vector<unsigned long long> seqs;
 		seqs.reserve(streak->recent.size());
@@ -864,7 +892,6 @@ void stop_recording(struct STATUS* status) {
 	gui_log_printf(status, GUI_LOG_TRACE, "stop_recording: trip=%d, last_sample=%s",
 		status->id_trip, status->last_sample != NULL ? "present" : "none");
 	status->recording = FALSE;
-	status->no_trip_events_logged.clear();
 	// Destination lat/lon was written at each touchdown; only the arrival time
 	// (engine shutdown) is set here — consistent with departure time being engine start.
 	// last_sample is NULL if the trip ended before a single sample was ever
