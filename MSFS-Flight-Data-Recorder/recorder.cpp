@@ -1733,6 +1733,12 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		}
 		for (int i = 0; i < (int)pWxData->dwArraySize; i++) {
 			struct SIMCONNECT_DATA_FACILITY_AIRPORT airport = pWxData->rgData[i];
+			// Real-world ICAO airport codes are always exactly 4 letters. Idents
+			// longer than that (e.g. "VOLC2") identify vertiports/heliports/other
+			// non-airport facilities, which are not valid touchdown/liftoff targets --
+			// exclude them from nearest-airport consideration entirely.
+			if (strlen(airport.Ident) != 4)
+				continue;
 			COORDINATE airport_loc;
 			airport_loc.latitude = airport.Latitude;
 			airport_loc.longitude = airport.Longitude;
