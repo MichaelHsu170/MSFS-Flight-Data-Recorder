@@ -359,10 +359,10 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	layout->addWidget(loadingBar_);
 
 	pointsWatcher_ = new QFutureWatcher<std::shared_ptr<TripDataset>>(this);
-	takeoffsTouchdownsWatcher_ = new QFutureWatcher<std::pair<std::vector<TakeoffPoint>, std::vector<TouchdownPoint>>>(this);
+	liftoffTouchdownsWatcher_ = new QFutureWatcher<std::pair<std::vector<LiftoffPoint>, std::vector<TouchdownPoint>>>(this);
 	eventsWatcher_ = new QFutureWatcher<std::vector<TripEvent>>(this);
 	connect(pointsWatcher_, &QFutureWatcher<std::shared_ptr<TripDataset>>::finished, this, &TripHistoryPanel::tryFinishLoad);
-	connect(takeoffsTouchdownsWatcher_, &QFutureWatcher<std::pair<std::vector<TakeoffPoint>, std::vector<TouchdownPoint>>>::finished, this, &TripHistoryPanel::tryFinishLoad);
+	connect(liftoffTouchdownsWatcher_, &QFutureWatcher<std::pair<std::vector<LiftoffPoint>, std::vector<TouchdownPoint>>>::finished, this, &TripHistoryPanel::tryFinishLoad);
 	connect(eventsWatcher_, &QFutureWatcher<std::vector<TripEvent>>::finished, this, &TripHistoryPanel::tryFinishLoad);
 
 	// A single click selects a trip and loads its data -- the previous
@@ -606,23 +606,23 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 		Logger::logf(Logger::Profile, "DB", "queryTripData: %lld ms  (%zu pts)", t.nsecsElapsed() / 1000000, dataset->points.size());
 		return dataset;
 	}));
-	// Takeoffs and touchdowns share one connection/one task: both are trivial
-	// single-table "WHERE trip = ?" lookups (unlike trip_data above), so there's
-	// no meaningful parallelism gained from a second connection, only its
-	// overhead -- see the member comment on takeoffsTouchdownsWatcher_ in the
-	// header.
-	takeoffsTouchdownsWatcher_->setFuture(QtConcurrent::run([tripId]() {
+	// Liftoff points and touchdowns share one connection/one task: both are
+	// trivial single-table "WHERE trip = ?" lookups (unlike trip_data above),
+	// so there's no meaningful parallelism gained from a second connection,
+	// only its overhead -- see the member comment on liftoffTouchdownsWatcher_
+	// in the header.
+	liftoffTouchdownsWatcher_->setFuture(QtConcurrent::run([tripId]() {
 		QElapsedTimer t; t.start();
 		sqlite3* sql = connect_db_readonly();
 		if (!sql)
-			Logger::logf(Logger::Warning, "DB", "queryTakeoffs/queryTouchdowns(trip %d): failed to open read-only connection", tripId);
-		std::vector<TakeoffPoint> takeoffs = sql ? queryTakeoffs(sql, tripId) : std::vector<TakeoffPoint>();
+			Logger::logf(Logger::Warning, "DB", "queryLiftoffs/queryTouchdowns(trip %d): failed to open read-only connection", tripId);
+		std::vector<LiftoffPoint> liftoffPoints = sql ? queryLiftoffs(sql, tripId) : std::vector<LiftoffPoint>();
 		std::vector<TouchdownPoint> touchdowns = sql ? queryTouchdowns(sql, tripId) : std::vector<TouchdownPoint>();
 		if (sql)
 			sqlite3_close(sql);
-		Logger::logf(Logger::Profile, "DB", "queryTakeoffs+queryTouchdowns: %lld ms  (%zu takeoffs, %zu touchdowns)",
-			t.nsecsElapsed() / 1000000, takeoffs.size(), touchdowns.size());
-		return std::make_pair(takeoffs, touchdowns);
+		Logger::logf(Logger::Profile, "DB", "queryLiftoffs+queryTouchdowns: %lld ms  (%zu liftoffs, %zu touchdowns)",
+			t.nsecsElapsed() / 1000000, liftoffPoints.size(), touchdowns.size());
+		return std::make_pair(liftoffPoints, touchdowns);
 	}));
 	eventsWatcher_->setFuture(QtConcurrent::run([tripId]() {
 		QElapsedTimer t; t.start();
@@ -638,7 +638,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 }
 
 void TripHistoryPanel::tryFinishLoad() {
-	if (!pointsWatcher_->isFinished() || !takeoffsTouchdownsWatcher_->isFinished() || !eventsWatcher_->isFinished())
+	if (!pointsWatcher_->isFinished() || !liftoffTouchdownsWatcher_->isFinished() || !eventsWatcher_->isFinished())
 		return;
 	// All three watchers' finished signals are connected to this same slot; if
 	// several of them finish within the same event loop tick, each queued
@@ -649,9 +649,9 @@ void TripHistoryPanel::tryFinishLoad() {
 	loadJoined_ = true;
 
 	auto dataset = pointsWatcher_->result();
-	auto takeoffsTouchdowns = takeoffsTouchdownsWatcher_->result();
-	dataset->takeoffs = takeoffsTouchdowns.first;
-	dataset->touchdowns = takeoffsTouchdowns.second;
+	auto liftoffTouchdowns = liftoffTouchdownsWatcher_->result();
+	dataset->liftoffPoints = liftoffTouchdowns.first;
+	dataset->touchdowns = liftoffTouchdowns.second;
 	dataset->events = eventsWatcher_->result();
 	Logger::logf(Logger::Profile, "DB", "all joined: %lld ms wall time from click", loadTimer_.nsecsElapsed() / 1000000);
 

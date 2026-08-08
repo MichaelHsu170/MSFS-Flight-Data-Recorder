@@ -30,7 +30,7 @@ QJsonObject pointToJson(double lat, double lng) {
 	return obj;
 }
 
-QJsonObject takeoffToJson(const TakeoffPoint& t) {
+QJsonObject liftoffToJson(const LiftoffPoint& t) {
 	QJsonObject obj;
 	obj["lat"] = t.latitude;
 	obj["lng"] = t.longitude;
@@ -175,22 +175,22 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 	for (const TripSamplePoint& p : dataset.points)
 		trajCoords_.emplace_back(p.latitude, p.longitude);
 	Logger::logf(Logger::Profile, "Map", "coord copy: %lld µs  (%zu pts)", copyTimer.nsecsElapsed() / 1000, trajCoords_.size());
-	takeoffs_ = dataset.takeoffs;
+	liftoffPoints_ = dataset.liftoffPoints;
 	touchdowns_ = dataset.touchdowns;
 	events_ = dataset.events;
 	aircraftTitle_ = dataset.aircraftTitle;
 	if (pageReady_) {
 		Logger::logf(Logger::Trace, "Map", "setDataset: page ready, pushing dataset v%d immediately (%zu pts, %zu touchdowns, %zu events)",
 		             datasetVersion_, trajCoords_.size(), touchdowns_.size(), events_.size());
-		// Inject the aircraft title before pushing takeoffs/touchdowns so
-		// takeoffPopupHtml()/touchdownPopupHtml() see the correct value when they
-		// run setTakeoffs/setTouchdowns.
+		// Inject the aircraft title before pushing liftoff points/touchdowns so
+		// liftoffPopupHtml()/touchdownPopupHtml() see the correct value when they
+		// run setLiftoffs/setTouchdowns.
 		QJsonArray arr;
 		arr.append(QJsonValue(aircraftTitle_));
 		QString encoded = QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
 		runJs(QStringLiteral("window._aircraftTitle=%1[0];").arg(encoded));
 		pushTrajectory();
-		pushTakeoffs();
+		pushLiftoffs();
 		pushTouchdownsAndEvents();
 	} else {
 		Logger::logf(Logger::Trace, "Map", "setDataset: page not ready yet; deferring push of dataset v%d until refreshProvider()", datasetVersion_);
@@ -212,7 +212,7 @@ void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
 	pendingLiveCoords_.clear();
 	lastCursorIndex_ = -1;
 	trajCoords_.clear();
-	takeoffs_.clear();
+	liftoffPoints_.clear();
 	touchdowns_.clear();
 	events_.clear();
 	Logger::logf(Logger::Profile, "Map", "showOverview: cleared vectors: %lld µs", t.nsecsElapsed() / 1000);
@@ -300,9 +300,9 @@ void MapWidget::refreshProvider() {
 		Logger::log(Logger::Trace, "Map", QStringLiteral("refreshProvider: overview mode active; re-pushing overview"));
 		showOverview(overviewTrips_);
 	} else {
-		Logger::log(Logger::Trace, "Map", QStringLiteral("refreshProvider: detail mode active; re-pushing trajectory/takeoffs/touchdowns/events"));
+		Logger::log(Logger::Trace, "Map", QStringLiteral("refreshProvider: detail mode active; re-pushing trajectory/liftoff points/touchdowns/events"));
 		pushTrajectory();
-		pushTakeoffs();
+		pushLiftoffs();
 		pushTouchdownsAndEvents();
 	}
 }
@@ -373,27 +373,27 @@ void MapWidget::pushTrajectory() {
 	}));
 }
 
-void MapWidget::pushTakeoffs() {
+void MapWidget::pushLiftoffs() {
 	int ver = datasetVersion_;
 	auto* watcher = new QFutureWatcher<QString>(this);
 	connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, ver]() {
 		watcher->deleteLater();
 		if (ver != datasetVersion_) {
-			Logger::logf(Logger::Trace, "Map", "pushTakeoffs: dataset superseded (v%d -> v%d); discarding stale takeoffs JS", ver, datasetVersion_);
+			Logger::logf(Logger::Trace, "Map", "pushLiftoffs: dataset superseded (v%d -> v%d); discarding stale liftoff JS", ver, datasetVersion_);
 			return;
 		}
 		QElapsedTimer t; t.start();
 		runJs(watcher->result());
-		Logger::logf(Logger::Profile, "Map", "runJs takeoffs: %lld µs", t.nsecsElapsed() / 1000);
+		Logger::logf(Logger::Profile, "Map", "runJs liftoff: %lld µs", t.nsecsElapsed() / 1000);
 	});
-	watcher->setFuture(QtConcurrent::run([takeoffs = takeoffs_]() {
+	watcher->setFuture(QtConcurrent::run([liftoffPoints = liftoffPoints_]() {
 		QElapsedTimer t; t.start();
 		QJsonArray arr;
-		for (const TakeoffPoint& to : takeoffs)
-			arr.append(takeoffToJson(to));
+		for (const LiftoffPoint& ap : liftoffPoints)
+			arr.append(liftoffToJson(ap));
 		QJsonDocument doc(arr);
-		Logger::logf(Logger::Profile, "Map", "takeoffs JSON (bg): %lld µs  (%d takeoffs)", t.nsecsElapsed() / 1000, (int)arr.size());
-		return QStringLiteral("setTakeoffs(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
+		Logger::logf(Logger::Profile, "Map", "liftoff JSON (bg): %lld µs  (%d points)", t.nsecsElapsed() / 1000, (int)arr.size());
+		return QStringLiteral("setLiftoffs(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
 	}));
 }
 

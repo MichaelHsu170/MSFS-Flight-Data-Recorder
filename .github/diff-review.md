@@ -29,13 +29,21 @@ If the review process needs to change, edit only this file — the other two are
   - Comments in and around the changed code must describe the *new* behavior, not the old one — search the repo for other comments, or `.md` docs (README, etc.), that still reference a name, field, or behavior this diff removed or changed, and flag any left stale.
   - If the change introduces a nontrivial new invariant, assumption, or design decision whose correctness isn't obvious from the code alone, and nothing in the repo explains it, flag that as a documentation gap (per the zero-known-context rule above — the next reader won't have this conversation to fall back on either).
   - This is about comments/docs actually touched or made stale by the diff, not a general documentation audit of unrelated code.
-- Look for a parallel/sibling code path that mirrors the changed logic elsewhere (e.g. a twin branch for a related case — takeoff/touchdown, departure/destination, and similar paired paths are common in this codebase) and may need the same fix or update but didn't get it. Search for it explicitly rather than relying on having noticed it while reading the diff.
+- Look for a parallel/sibling code path that mirrors the changed logic elsewhere (e.g. a twin branch for a related case — liftoff/touchdown, departure/destination, and similar paired paths are common in this codebase) and may need the same fix or update but didn't get it. Search for it explicitly rather than relying on having noticed it while reading the diff.
 - If the change removes or renames a field, function, type, or flag, grep the whole repository (not just the changed files) for every remaining reference to the old name. A reference left behind is either a compile error or, worse, silently-dead code still reading/writing something nothing else maintains — treat any hit as a finding, not just a note.
 - Look for dead code left behind by the change: a variable, parameter, field, branch, or helper function that the diff (or the state it leaves the code in) makes unreachable or unused, but that wasn't removed. This is distinct from the point above — it's not a broken reference to something deleted, it's code that still compiles and still runs but no longer does anything anyone can reach or that no longer serves the purpose its own comment claims. Flag it so it can be deleted rather than left to confuse the next reader.
 
 ## 3. Report format
 
-Produce a single markdown report, findings ordered most severe first. For each finding:
+Produce a single markdown report with two parts: a summary of changes, then the findings.
+
+### Summary of changes
+
+Before the findings, give a short, abstract, high-level description of what the diff does — a few sentences or a short bulleted list, grouped by theme (e.g. "renames X to Y across the schema/backend/frontend", "fixes wording in log messages", "adds a new field to track Z"). This is a plain-language orientation for the reader, not a file-by-file changelog and not a restatement of the diff — skip implementation detail, specific line numbers, and code snippets here; those belong in the findings section if relevant to a defect.
+
+### Findings
+
+Findings ordered most severe first. For each finding:
 
 - **File / line**
 - **Summary** — one sentence stating the defect

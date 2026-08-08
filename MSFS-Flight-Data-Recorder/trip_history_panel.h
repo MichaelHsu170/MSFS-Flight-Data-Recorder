@@ -136,14 +136,14 @@ private:
 	// QtConcurrent::run that blocks on their .result() -- that
 	// nested-blocking pattern can starve QThreadPool's limited thread count
 	// and deadlock (1 outer task occupying a pool thread while waiting on 3
-	// more pool threads that may never become free). Takeoffs and touchdowns
-	// are merged into one watcher/one connection below: both are trivial
-	// single-table "WHERE trip = ?" lookups (see queryTakeoffs/queryTouchdowns
-	// in db_history.cpp), so splitting them across two connections just for
-	// parallelism isn't worth a second DB connection's overhead the way the
-	// much larger trip_data query is.
+	// more pool threads that may never become free). Liftoff points and
+	// touchdowns are merged into one watcher/one connection below: both are
+	// trivial single-table "WHERE trip = ?" lookups (see queryLiftoffs/
+	// queryTouchdowns in db_history.cpp), so splitting them across two
+	// connections just for parallelism isn't worth a second DB connection's
+	// overhead the way the much larger trip_data query is.
 	QFutureWatcher<std::shared_ptr<TripDataset>>* pointsWatcher_;
-	QFutureWatcher<std::pair<std::vector<TakeoffPoint>, std::vector<TouchdownPoint>>>* takeoffsTouchdownsWatcher_;
+	QFutureWatcher<std::pair<std::vector<LiftoffPoint>, std::vector<TouchdownPoint>>>* liftoffTouchdownsWatcher_;
 	QFutureWatcher<std::vector<TripEvent>>* eventsWatcher_;
 	QElapsedTimer loadTimer_;
 	int pendingTripId_ = -1;

@@ -9,10 +9,10 @@
 // cursorIndexChanged() for TrajectoryView to relay to ChartsPanel. JS calls
 // rangeChanged() after the map's viewport settles (zoom/pan), re-emitted as
 // visibleRangeChanged() so ChartsPanel can zoom its X axis to match.
-// JS calls saveTakeoffAnalysisReport() after a successful AI takeoff analysis
-// to persist the report text into the trip_takeoffs.analysis_report column.
-// saveTouchdownAnalysisReport() is the same idea for a landing analysis, into
-// trip_touchdowns.analysis_report.
+// JS calls saveLiftoffAnalysisReport() after a successful AI liftoff
+// analysis to persist the report text into the trip_liftoffs.analysis_report
+// column. saveTouchdownAnalysisReport() is the same idea for a landing
+// analysis, into trip_touchdowns.analysis_report.
 class MapBridge : public QObject {
 	Q_OBJECT
 public:
@@ -21,7 +21,7 @@ public:
 public slots:
 	void markerMoved(int index);
 	void rangeChanged(int startIndex, int endIndex);
-	void saveTakeoffAnalysisReport(int rowId, const QString& report);
+	void saveLiftoffAnalysisReport(int rowId, const QString& report);
 	void saveTouchdownAnalysisReport(int rowId, const QString& report);
 
 signals:
