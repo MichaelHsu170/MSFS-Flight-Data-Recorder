@@ -179,10 +179,10 @@ void ensureSettingsFileExists() {
 		"; Edit while the app is not running. All values are human-readable.\n"
 		"\n"
 		"[ai]\n"
-		"; Gemini API key for the AI touchdown analysis feature.\n"
+		"; Gemini API key for the AI liftoff/landing analysis feature.\n"
 		"; Obtain a free key from Google AI Studio (aistudio.google.com), then paste it\n"
 		"; here and restart the app. The app never writes this value.\n"
-		"; Without a key the Analyze Landing button is disabled.\n"
+		"; Without a key the Analyze Liftoff and Analyze Landing buttons are disabled.\n"
 		"gemini_api_key=\n"
 		"\n"
 		"[recording]\n"
@@ -377,11 +377,11 @@ void AppSettings::setGeminiApiKey(const QString& key) {
 		QStringLiteral("ai"),
 		QStringLiteral("gemini_api_key"),
 		key,
-		QStringLiteral("AI touchdown analysis settings."),
-		QStringLiteral("Gemini API key for the AI touchdown analysis feature.\n"
+		QStringLiteral("AI liftoff/landing analysis settings."),
+		QStringLiteral("Gemini API key for the AI liftoff/landing analysis feature.\n"
 		               "Obtain a free key from Google AI Studio (aistudio.google.com), then paste it\n"
 		               "here and restart the app. The app never writes this value.\n"
-		               "Without a key the Analyze Landing button is disabled.")
+		               "Without a key the Analyze Liftoff and Analyze Landing buttons are disabled.")
 	);
 }
 

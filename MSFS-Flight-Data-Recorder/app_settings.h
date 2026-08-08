@@ -41,7 +41,7 @@ public:
 	QMap<QString, int> tripHistoryColumnWidths() const;
 	void setTripHistoryColumnWidths(const QMap<QString, int>& widths);
 
-	// Gemini API key used by the touchdown analysis feature in the map popup.
+	// Gemini API key used by the liftoff/landing analysis feature in the map popup.
 	// Set manually under [ai] gemini_api_key in settings.ini.
 	QString geminiApiKey() const;
 	void setGeminiApiKey(const QString& key);
