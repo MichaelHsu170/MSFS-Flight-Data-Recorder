@@ -44,13 +44,14 @@ void gui_notify_trip_updated(struct STATUS* status);
 // already uses for the analogous late-tripEnded() race.
 void gui_notify_event_committed(struct STATUS* status, int tripId, unsigned long long seq, const char* name);
 // Fired from tier2_gate() (recorder.cpp) when a flood is confirmed, to pull
-// the up-to-EVENT_TIER2_THRESHOLD already-shown occurrences back out of the
-// Live Status list by the same event_seq values just deleted from trip_events
-// via db_delete_events() -- see EVENT_TIER2_STATE in types.h. Also fired from
-// event_write_worker() (db.cpp) when a queued Insert's DB write fails, to
-// pull that one occurrence back out since it never actually made it into
-// trip_events. Unlike every other gui_notify_*() function, that second
-// caller runs on the event-write worker thread, not the SimConnect dispatch
-// thread -- safe only because this ends in a Qt signal emit, which
+// the up-to-EVENT_TIER2_THRESHOLD occurrences back out of the Live Status
+// list (a no-op for any that were never shown in the first place -- e.g. a
+// no-active-trip occurrence) by the same event_seq values just deleted from
+// trip_events via db_delete_events() -- see EVENT_TIER2_STATE in types.h.
+// Also fired from event_write_worker() (db.cpp) when a queued Insert's DB
+// write fails, to pull that one occurrence back out since it never actually
+// made it into trip_events. Unlike every other gui_notify_*() function, that
+// second caller runs on the event-write worker thread, not the SimConnect
+// dispatch thread -- safe only because this ends in a Qt signal emit, which
 // auto-queues across threads.
 void gui_notify_events_retracted(struct STATUS* status, const unsigned long long* seqs, size_t count);
