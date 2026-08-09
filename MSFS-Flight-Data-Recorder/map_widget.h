@@ -49,6 +49,10 @@ signals:
 	// Emitted once the trajectory polyline has been pushed to the Leaflet page.
 	// TrajectoryView uses this to know the map is visually complete.
 	void trajectoryLoaded();
+	// Forwarded from MapBridge when the user clicks a trip's segment on the
+	// overview map. TrajectoryView forwards this up to MainWindow, which wires
+	// it to TripHistoryPanel to select and load that trip.
+	void overviewTripClicked(int tripId);
 
 private slots:
 	void onLoadFinished(bool ok);

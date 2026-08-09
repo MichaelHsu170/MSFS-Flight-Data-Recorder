@@ -13,6 +13,11 @@
 // analysis to persist the report text into the trip_liftoffs.analysis_report
 // column. saveTouchdownAnalysisReport() is the same idea for a landing
 // analysis, into trip_touchdowns.analysis_report.
+// JS calls overviewSegmentClicked() when the user clicks a trip's
+// departure-destination line on the overview map, re-emitted as
+// overviewTripClicked() so MapWidget/TrajectoryView can forward it up to
+// TripHistoryPanel to select and load that trip, the same as clicking its
+// row in the table.
 class MapBridge : public QObject {
 	Q_OBJECT
 public:
@@ -23,8 +28,10 @@ public slots:
 	void rangeChanged(int startIndex, int endIndex);
 	void saveLiftoffAnalysisReport(int rowId, const QString& report);
 	void saveTouchdownAnalysisReport(int rowId, const QString& report);
+	void overviewSegmentClicked(int tripId);
 
 signals:
 	void cursorIndexChanged(int index);
 	void visibleRangeChanged(int startIndex, int endIndex);
+	void overviewTripClicked(int tripId);
 };

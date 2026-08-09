@@ -13,6 +13,10 @@ void MapBridge::rangeChanged(int startIndex, int endIndex) {
 	emit visibleRangeChanged(startIndex, endIndex);
 }
 
+void MapBridge::overviewSegmentClicked(int tripId) {
+	emit overviewTripClicked(tripId);
+}
+
 void MapBridge::saveLiftoffAnalysisReport(int rowId, const QString& report) {
 	if (rowId <= 0) {
 		Logger::logf(Logger::Trace, "DB", "saveLiftoffAnalysisReport: ignoring invalid liftoff id %d", rowId);

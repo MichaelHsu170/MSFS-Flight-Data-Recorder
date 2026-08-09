@@ -1188,12 +1188,25 @@ function initLeafletProvider() {
                         { color: style.color, weight: 3, opacity: 0.7 }
                     ).addTo(map);
                     line.groupId = style.groupId;
-                    // Group name is user-supplied free text (trip_groups.name) --
-                    // bind a built DOM element rather than an HTML string so it can
-                    // never be interpreted as markup.
-                    var tooltipEl = document.createElement('span');
-                    tooltipEl.textContent = legendGroups[style.groupId].name;
+                    // Group name (row 1) is user-supplied free text (trip_groups.name)
+                    // -- built as DOM elements rather than an HTML string so it can
+                    // never be interpreted as markup. ICAO codes (row 2) are always
+                    // short alphanumeric strings from the airport database, but built
+                    // the same way for consistency.
+                    var tooltipEl = document.createElement('div');
+                    var tooltipNameRow = document.createElement('div');
+                    tooltipNameRow.textContent = legendGroups[style.groupId].name;
+                    var tooltipIcaoRow = document.createElement('div');
+                    tooltipIcaoRow.textContent = (s.fromIcao || '-') + ' → ' + (s.toIcao || '-');
+                    tooltipEl.appendChild(tooltipNameRow);
+                    tooltipEl.appendChild(tooltipIcaoRow);
                     line.bindTooltip(tooltipEl);
+                    // Clicking a segment selects that trip in the history table, the
+                    // same as clicking its row there -- lets the map double as a
+                    // picker once trips are visually told apart by group color/shape.
+                    line.on('click', function() {
+                        if (mapBridge) mapBridge.overviewSegmentClicked(s.tripId);
+                    });
                     overviewLines.push(line);
                     overviewLines.push(endpointMarker(s.toLat, s.toLng, style));
                     bounds.push([s.toLat, s.toLng]);

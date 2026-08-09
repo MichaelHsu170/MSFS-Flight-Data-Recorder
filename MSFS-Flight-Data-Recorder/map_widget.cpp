@@ -126,6 +126,7 @@ MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
 		emit cursorIndexChanged(index);
 	});
 	connect(bridge_, &MapBridge::visibleRangeChanged, this, &MapWidget::visibleRangeChanged);
+	connect(bridge_, &MapBridge::overviewTripClicked, this, &MapWidget::overviewTripClicked);
 	connect(view_, &QWebEngineView::loadFinished, this, &MapWidget::onLoadFinished);
 
 	auto* layout = new QVBoxLayout(this);
@@ -230,6 +231,9 @@ void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
 		seg[QStringLiteral("groupId")]   = t2.groupId;
 		seg[QStringLiteral("groupName")] = t2.groupId != 0 ? t2.groupName : QStringLiteral("Ungrouped");
 		seg[QStringLiteral("groupRank")] = t2.groupRank;
+		seg[QStringLiteral("tripId")]  = t2.id;
+		seg[QStringLiteral("fromIcao")] = t2.departureIcao;
+		seg[QStringLiteral("toIcao")]   = t2.destinationIcao;
 		segments.append(seg);
 	}
 	Logger::logf(Logger::Profile, "Map", "showOverview: JSON built: %lld µs", t.nsecsElapsed() / 1000);

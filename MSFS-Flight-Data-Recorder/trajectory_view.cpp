@@ -70,6 +70,7 @@ TrajectoryView::TrajectoryView(QWidget* parent) : QWidget(parent) {
 
 	connect(chartsPanel_, &ChartsPanel::seriesLoaded,   this, &TrajectoryView::onSubviewLoaded);
 	connect(mapWidget_,   &MapWidget::trajectoryLoaded, this, &TrajectoryView::onSubviewLoaded);
+	connect(mapWidget_, &MapWidget::overviewTripClicked, this, &TrajectoryView::overviewTripClicked);
 }
 
 void TrajectoryView::setDataset(std::shared_ptr<TripDataset> dataset) {
