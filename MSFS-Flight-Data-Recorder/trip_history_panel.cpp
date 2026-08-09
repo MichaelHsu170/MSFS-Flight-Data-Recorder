@@ -594,6 +594,52 @@ void TripHistoryPanel::showInitialOverview() {
 	emit tripDeselected(model_->trips());
 }
 
+void TripHistoryPanel::selectTripById(int tripId) {
+	if (loading_) {
+		// Unlike a real row click, a map click isn't blocked by table_ being
+		// disabled during a load -- MapWidget/the WebEngine view is never
+		// disabled, so segments stay clickable throughout. Without this guard,
+		// selectRow() below would still visually reselect the clicked row even
+		// though onRowActivated() then no-ops on this same loading_ check,
+		// desyncing the highlighted row from the trip actually being loaded
+		// (see the loading_ ? pendingTripId_ : selectedTripId_ handling in
+		// refreshTrips(), which exists to protect this same invariant).
+		Logger::logf(Logger::Trace, "DB", "selectTripById: trip %d clicked while another load is in progress; ignoring", tripId);
+		return;
+	}
+	if (tripId == selectedTripId_) {
+		// Mirrors eventFilter()'s suppression of clicks on the already-selected
+		// row (see the trip->id == selectedTripId_ check there) -- without this,
+		// clicking a trip's own segment while it's already loaded would trigger
+		// a fully redundant reload (all three background queries, loading bar,
+		// disabled controls) for data that's already on screen.
+		Logger::logf(Logger::Trace, "DB", "selectTripById: trip %d already selected; ignoring", tripId);
+		return;
+	}
+	const auto& trips = model_->trips();
+	for (int i = 0; i < (int)trips.size(); ++i) {
+		if (trips[i].id == tripId) {
+			if (trips[i].status == TripStatus::Live) {
+				// Mirrors flags()/eventFilter's own Live-row protections: a real
+				// mouse click on a Live row never reaches the selection model
+				// (eventFilter consumes the press), so a map click shouldn't
+				// force-select one either -- selectRow() bypasses that filter and
+				// would otherwise leave the row visually selected with nothing
+				// actually loaded, since onRowActivated() also just no-ops on Live.
+				Logger::logf(Logger::Trace, "DB", "selectTripById: trip %d is still Live; ignoring", tripId);
+				return;
+			}
+			// onRowActivated only reads index.row() -- selectRow() is done
+			// separately since, unlike an actual mouse click, there's no prior
+			// QAbstractItemView selection-model update to piggyback on here.
+			table_->selectRow(i);
+			onRowActivated(model_->index(i, 0));
+			return;
+		}
+	}
+	Logger::logf(Logger::Trace, "DB", "selectTripById: trip %d not found in the currently filtered/displayed set; ignoring", tripId);
+}
+
 void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	// Block re-entrant loads: the table itself is disabled below for the same
 	// reason (belt and suspenders against a queued click slipping through).

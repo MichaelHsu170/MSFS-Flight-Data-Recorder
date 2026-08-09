@@ -39,6 +39,10 @@ signals:
 	// Emitted when the user drags the data-table splitter, so MainWindow can
 	// keep the live-status panel's width in sync.
 	void rightPanelWidthChanged(int w);
+	// Forwarded from MapWidget when the user clicks a trip's segment on the
+	// overview map. MainWindow wires this to TripHistoryPanel::selectTripById
+	// so clicking the map selects and loads the same trip as clicking its row.
+	void overviewTripClicked(int tripId);
 
 public slots:
 	void setDataset(std::shared_ptr<TripDataset> dataset);

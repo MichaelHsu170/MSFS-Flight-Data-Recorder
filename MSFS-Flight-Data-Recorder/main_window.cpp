@@ -65,6 +65,7 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 	connect(tripHistoryPanel_, &TripHistoryPanel::tripDeselected,   trajectoryView_, &TrajectoryView::clearAndShowOverview);
 	connect(tripHistoryPanel_, &TripHistoryPanel::zoomResetRequested, trajectoryView_, &TrajectoryView::resetZoom);
 	connect(trajectoryView_, &TrajectoryView::renderingFinished, tripHistoryPanel_, &TripHistoryPanel::setLoadingFinished);
+	connect(trajectoryView_, &TrajectoryView::overviewTripClicked, tripHistoryPanel_, &TripHistoryPanel::selectTripById);
 
 	// Show departure→destination arcs for all trips on the initial map load.
 	// The WebEngine page isn't ready yet at this point; MapWidget stores the

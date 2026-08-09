@@ -101,6 +101,13 @@ public slots:
 	// Emits tripDeselected with the current trip list so the map shows the
 	// departure→destination overview immediately at startup.
 	void showInitialOverview();
+	// Selects and loads tripId the same way clicking its row would, e.g. in
+	// response to the user clicking that trip's segment on the overview map.
+	// tripId must be present in the currently filtered/displayed set (see
+	// model_->trips()) -- since the overview map is only ever built from that
+	// same set, a genuine map click always satisfies this; a miss is logged
+	// and otherwise ignored rather than treated as an error.
+	void selectTripById(int tripId);
 
 protected:
 	bool eventFilter(QObject* obj, QEvent* event) override;
