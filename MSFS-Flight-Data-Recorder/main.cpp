@@ -50,6 +50,28 @@ static void terminateHandler() {
     std::abort();
 }
 
+// Ensures at most one instance of this app runs per Windows login session.
+// A named kernel mutex is used rather than a lock file so a crash or kill
+// leaves nothing stale behind -- the OS releases the mutex automatically
+// when the process exits, however it exits, with no cleanup/staleness check
+// needed on the next launch.
+static bool acquireSingleInstanceLock() {
+    // "Local\" scopes the name to this login session, matching one instance
+    // per logged-in user -- "Global\" would also block a second instance
+    // running under a different user or RDP session, which isn't what a
+    // per-user desktop app wants.
+    HANDLE mutex = CreateMutexW(nullptr, FALSE, L"Local\\MSFS-Flight-Data-Recorder-SingleInstance");
+    if (mutex == nullptr)
+        return true; // Unexpected failure to even create the mutex -- fail open rather than block launch entirely.
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        CloseHandle(mutex);
+        return false;
+    }
+    // Deliberately never closed: held for the life of this process so the OS
+    // frees it (unblocking a future launch) on exit, normal or crash.
+    return true;
+}
+
 static void logMessageHandler(QtMsgType type, const QMessageLogContext& ctx, const QString& msg) {
     // Suppress high-volume Qt-internal noise that drowns out app messages.
     if (msg.startsWith(QLatin1String("QML debugging"))
@@ -77,6 +99,19 @@ static void logMessageHandler(QtMsgType type, const QMessageLogContext& ctx, con
 }
 
 int main(int argc, char* argv[]) {
+    // Checked before anything else (log init included): logging opens its
+    // file with FILE_SHARE_READ only and rotates the previous run's log on
+    // every launch (see Logger::init), so letting a second instance reach
+    // that code would fight the first instance over the same log file
+    // instead of being turned away cleanly here.
+    if (!acquireSingleInstanceLock()) {
+        MessageBoxW(nullptr,
+            L"MSFS Flight Data Recorder is already running.",
+            L"MSFS Flight Data Recorder",
+            MB_OK | MB_ICONINFORMATION);
+        return 0;
+    }
+
     // Determine base directory for log and settings files.
     // Debug: use cwd so each project checkout is self-contained.
     // Release: use the exe's directory so they follow the installation.
