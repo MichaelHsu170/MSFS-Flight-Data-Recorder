@@ -775,6 +775,12 @@ var UNGROUPED_COLOR = '#898781';
 // callers must size their icon box to (glyph size + 2 * MARKER_HALO_PAD).
 var MARKER_HALO_PAD = 2;
 
+// Leaflet's default fitBounds pan/zoom animation (0.25s) reads as an abrupt
+// snap for the map-wide moves this app uses it for (switching trips,
+// changing the group filter, resetting zoom) -- slowed down so the motion
+// is clearly visible.
+var MAP_FIT_BOUNDS_DURATION = 0.75;
+
 function groupStyle(groupRank) {
     if (!groupRank) return { color: UNGROUPED_COLOR, shape: 'x' };
     // Color cycles fully (all 3) for each shape before the shape advances --
@@ -1003,10 +1009,12 @@ function initLeafletProvider() {
             if (n === 0)
                 return;
 
-            // animate:false skips the pan/zoom animation so fitBounds fires
-            // zoomend/moveend immediately rather than over several JS frames,
-            // avoiding stalling the QWebChannel rangeChanged() IPC round-trip.
-            map.fitBounds(polyline.getBounds(), { padding: [20, 20], animate: false });
+            // Animated so switching trips visibly pans/zooms rather than
+            // jump-cutting -- zoomend/moveend (and so the rangeChanged() IPC
+            // round-trip that syncs the charts panel's visible range) now
+            // fire only once the animation settles, a few hundred ms later
+            // than an instant fitBounds would.
+            map.fitBounds(polyline.getBounds(), { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
 
             if (marker === null) {
                 marker = L.marker(trajectoryLatLngs[0], { draggable: true }).addTo(map);
@@ -1213,13 +1221,13 @@ function initLeafletProvider() {
                 }
             });
             if (bounds.length > 0)
-                map.fitBounds(L.latLngBounds(bounds), { padding: [20, 20], animate: false });
+                map.fitBounds(L.latLngBounds(bounds), { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
             groupLegendControl = buildGroupLegend(legendGroups, map, overviewLines);
         },
         resetZoom: function () {
             map.closePopup();
             if (trajectoryLatLngs.length > 0)
-                map.fitBounds(polyline.getBounds(), { padding: [20, 20], animate: false });
+                map.fitBounds(polyline.getBounds(), { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
         }
     };
 
