@@ -27,6 +27,25 @@
     font-weight: bold; font-family: sans-serif;
   }
 
+  .group-legend {
+    background: rgba(255,255,255,0.92);
+    border-radius: 6px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    padding: 6px 4px;
+    font-family: sans-serif;
+    font-size: 11px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .group-legend-item {
+    display: flex; align-items: center; gap: 6px;
+    padding: 2px 6px; border-radius: 3px; cursor: pointer;
+    white-space: nowrap;
+  }
+  .group-legend-item:hover { background: rgba(0,0,0,0.06); }
+  .group-legend-item.dimmed { opacity: 0.4; }
+  .group-legend-swatch { flex: 0 0 auto; display: flex; }
+
   @keyframes td-spin { to { transform: rotate(360deg); } }
   .td-spinner {
     display: inline-block;
@@ -720,6 +739,192 @@ function initProvider() {
     initLeafletProvider();
 }
 
+// ── Group color/shape encoding for the overview map ─────────────────────────
+// Each trip group gets a stable (color, shape) pair derived from groupRank --
+// its 1-based position in the Manage Groups list order (trip_groups.sort_order,
+// ties broken by name), stamped onto every segment by TripHistoryPanel
+// (trip_history_panel.cpp's groupRank_) from the *full* group list, never from
+// just whatever subset of groups the currently-filtered/displayed segments
+// happen to contain -- so a group's appearance stays the same whether the map
+// is showing all groups or a filtered handful, and only changes when the user
+// actually reorders groups in Manage Groups.
+// A map is an all-pairs context -- any two groups' markers can end up next
+// to each other anywhere, not just as neighbors in a legend list -- so the
+// color channel alone must be mutually distinguishable across every pair,
+// not merely adjacent ones. Per the app's validated categorical palette
+// (palette.md), only the first 3 of its 8 hues clear that all-pairs bar in
+// both light and dark modes; past 3, some pair (e.g. slot 2 orange vs. slot
+// 4 yellow) falls below the colorblind-safe separation floor, and no
+// reordering of the 8 fixes that -- it's a property of the hues themselves.
+// So GROUP_COLORS is capped at those 3 slots, and shape carries the rest of
+// the identity load: color cycles fully (all 3) for each shape before the
+// shape advances -- rank 1..3 are shape A in each of the 3 colors, 4..6 are
+// shape B, etc. -- rather than both indices advancing independently every
+// rank, which produced an unpredictable diagonal stepping through the
+// (color, shape) grid instead of filling it in order. Either scheme covers
+// all 3*5 = 15 combos before one repeats; this one is just legible.
+var GROUP_COLORS = ['#2a78d6', '#eb6834', '#1baf7a'];
+var GROUP_SHAPES = ['circle', 'square', 'triangle', 'plus', 'star'];
+var UNGROUPED_COLOR = '#898781';
+// The map basemap (satellite/street tiles) isn't a flat surface -- it's
+// blue ocean, green terrain, cream land, colored roads -- so a marker's
+// fill hue alone can land on a same-hued patch of tile and disappear. Every
+// marker gets a white halo ring behind its dark outline so it stays visible
+// against any tile color, light or dark, the way map pin icons conventionally
+// do. shapeMarkerHtml() pads its returned glyph by this amount on each side;
+// callers must size their icon box to (glyph size + 2 * MARKER_HALO_PAD).
+var MARKER_HALO_PAD = 2;
+
+function groupStyle(groupRank) {
+    if (!groupRank) return { color: UNGROUPED_COLOR, shape: 'x' };
+    // Color cycles fully (all 3) for each shape before the shape advances --
+    // rank 1..3 are shape A in each of the 3 colors, 4..6 are shape B, etc. --
+    // rather than the reverse, so consecutive ranks differ in the
+    // still-scarcer color channel first. Rank is 1-based, so subtract 1
+    // before the modulo split.
+    var i = groupRank - 1;
+    var colorIdx = i % GROUP_COLORS.length;
+    var shapeIdx = Math.floor(i / GROUP_COLORS.length) % GROUP_SHAPES.length;
+    return {
+        color: GROUP_COLORS[colorIdx],
+        shape: GROUP_SHAPES[shapeIdx]
+    };
+}
+
+function starPolygonPoints(cx, cy, outerR, innerR) {
+    var pts = [];
+    for (var i = 0; i < 10; i++) {
+        var r = (i % 2 === 0) ? outerR : innerR;
+        var angle = i * Math.PI / 5 - Math.PI / 2;
+        pts.push((cx + r * Math.cos(angle)).toFixed(2) + ',' + (cy + r * Math.sin(angle)).toFixed(2));
+    }
+    return pts.join(' ');
+}
+
+// Renders one group's endpoint marker as a small inline SVG filled with its
+// color (or the legacy "x" glyph for ungrouped trips), wrapped in a white
+// halo ring (see MARKER_HALO_PAD) so it stays visible on any basemap tile
+// color. Pure function of (shape, color, size) -- no user-controlled text
+// ever flows through here, so building it via string concatenation/innerHTML
+// is safe. Returned markup always measures (size + 2*MARKER_HALO_PAD) square;
+// callers must size their icon box (and center anchor) to match.
+function shapeMarkerHtml(shape, color, size) {
+    size = size || 10;
+    var pad = MARKER_HALO_PAD;
+    var total = size + pad * 2;
+    var half = pad + size / 2;
+    if (shape === 'x') {
+        return '<div style="width:' + total + 'px;height:' + total + 'px;display:flex;'
+            + 'align-items:center;justify-content:center">'
+            + '<div style="line-height:' + size + 'px;text-align:center;color:' + color + ';'
+            + 'font-size:' + (size + 1) + 'px;font-weight:bold;'
+            + 'text-shadow:-1px -1px 0 #fff,1px -1px 0 #fff,-1px 1px 0 #fff,1px 1px 0 #fff">&times;</div></div>';
+    }
+    var body;
+    switch (shape) {
+        case 'square':
+            body = '<rect x="' + (pad + 1) + '" y="' + (pad + 1) + '" width="' + (size - 2) + '" height="' + (size - 2) + '" />';
+            break;
+        case 'triangle':
+            body = '<polygon points="' + half + ',' + (pad + 1) + ' ' + (pad + size - 1) + ',' + (pad + size - 1) + ' ' + (pad + 1) + ',' + (pad + size - 1) + '" />';
+            break;
+        case 'plus':
+            // A plus/cross reads as its own distinct silhouette at any size,
+            // unlike a diamond -- which is just a square rotated 45 deg and
+            // gets confused with the 'square' shape once both are small and
+            // share a color. 12-point polygon: an inner square notch cut
+            // from each corner of the (size-2) box leaves a plus shape with
+            // arm thickness box/3, centered on the same box the other shapes use.
+            var plusX0 = pad + 1, plusX1 = pad + size - 1;
+            var plusY0 = pad + 1, plusY1 = pad + size - 1;
+            var plusBox = size - 2;
+            var plusArm = plusBox / 3;
+            var plusInset = (plusBox - plusArm) / 2;
+            var plusXa = plusX0 + plusInset, plusXb = plusX0 + plusInset + plusArm;
+            var plusYa = plusY0 + plusInset, plusYb = plusY0 + plusInset + plusArm;
+            body = '<polygon points="'
+                + plusXa + ',' + plusY0 + ' ' + plusXb + ',' + plusY0 + ' ' + plusXb + ',' + plusYa + ' '
+                + plusX1 + ',' + plusYa + ' ' + plusX1 + ',' + plusYb + ' ' + plusXb + ',' + plusYb + ' '
+                + plusXb + ',' + plusY1 + ' ' + plusXa + ',' + plusY1 + ' ' + plusXa + ',' + plusYb + ' '
+                + plusX0 + ',' + plusYb + ' ' + plusX0 + ',' + plusYa + ' ' + plusXa + ',' + plusYa + '" />';
+            break;
+        case 'star':
+            body = '<polygon points="' + starPolygonPoints(half, half, size / 2 - 0.5, (size / 2 - 0.5) * 0.42) + '" />';
+            break;
+        case 'circle':
+        default:
+            body = '<circle cx="' + half + '" cy="' + half + '" r="' + (size / 2 - 1) + '" />';
+    }
+    // Drawn twice: a thick white halo stroke first (fill:none, so it only
+    // contributes a ring, not a filled disc behind the shape), then the real
+    // color fill + dark outline on top -- the standard halo+outline+fill
+    // stack cartographic pin icons use so a mark reads on any tile color.
+    return '<svg width="' + total + '" height="' + total + '" style="display:block;overflow:visible">'
+        + '<g fill="none" stroke="#fff" stroke-width="3" stroke-linejoin="round">' + body + '</g>'
+        + '<g fill="' + color + '" stroke="rgba(0,0,0,0.55)" stroke-width="1">' + body + '</g>'
+        + '</svg>';
+}
+
+// Builds (and adds to the map) a bottom-left legend listing each group
+// present in legendGroups ({groupId: {name, style}}), sorted alphabetically
+// with "Ungrouped" pinned last. Clicking an entry isolates that group's
+// layers (dims everything else); clicking it again restores all layers.
+// layers is the overviewLines array -- each line/marker in it must already
+// have .groupId set to the numeric group id it belongs to.
+function buildGroupLegend(legendGroups, map, layers) {
+    var ids = Object.keys(legendGroups);
+    if (ids.length === 0) return null;
+    ids.sort(function(a, b) {
+        if (a === '0') return 1;
+        if (b === '0') return -1;
+        return legendGroups[a].name.localeCompare(legendGroups[b].name);
+    });
+
+    var control = L.control({ position: 'bottomleft' });
+    control.onAdd = function() {
+        var container = L.DomUtil.create('div', 'group-legend');
+        L.DomEvent.disableClickPropagation(container);
+        // The legend scrolls (overflow-y: auto, capped height) once there are
+        // more groups than fit -- without this, a wheel scroll over the list
+        // also propagates to the map underneath and zooms it instead.
+        L.DomEvent.disableScrollPropagation(container);
+        var activeId = null; // isolated group id (string), or null = show all
+
+        function applyIsolation() {
+            layers.forEach(function(layer) {
+                var dim = activeId !== null && String(layer.groupId) !== activeId;
+                if (layer.setStyle) layer.setStyle({ opacity: dim ? 0.15 : 0.7 });
+                else if (layer.setOpacity) layer.setOpacity(dim ? 0.25 : 1);
+            });
+            Array.prototype.forEach.call(container.querySelectorAll('.group-legend-item'), function(el) {
+                el.classList.toggle('dimmed', activeId !== null && el.dataset.groupId !== activeId);
+            });
+        }
+
+        ids.forEach(function(id) {
+            var g = legendGroups[id];
+            var item = document.createElement('div');
+            item.className = 'group-legend-item';
+            item.dataset.groupId = id;
+            var swatch = document.createElement('span');
+            swatch.className = 'group-legend-swatch';
+            swatch.innerHTML = shapeMarkerHtml(g.style.shape, g.style.color, 12);
+            var label = document.createElement('span');
+            label.textContent = g.name;
+            item.appendChild(swatch);
+            item.appendChild(label);
+            item.onclick = function() {
+                activeId = (activeId === id) ? null : id;
+                applyIsolation();
+            };
+            container.appendChild(item);
+        });
+        return container;
+    };
+    control.addTo(map);
+    return control;
+}
+
 function initLeafletProvider() {
     // preferCanvas: Leaflet's Canvas renderer draws polylines via the 2D
     // Canvas API rather than SVG DOM elements. For a trajectory polyline with
@@ -760,6 +965,7 @@ function initLeafletProvider() {
     var eventMarkers = [];
     var overviewLines = [];
     var eventsVisible = true;
+    var groupLegendControl = null;
 
     function snapAndReport(decimatedIdx) {
         if (marker !== null)
@@ -781,6 +987,10 @@ function initLeafletProvider() {
         setTrajectory: function (data) {
             overviewLines.forEach(function(l) { map.removeLayer(l); });
             overviewLines = [];
+            if (groupLegendControl) {
+                map.removeControl(groupLegendControl);
+                groupLegendControl = null;
+            }
             // data is {lats:[...], lngs:[...], idxs:[...]} -- parallel flat
             // arrays are more compact JSON and faster to iterate than an array
             // of {lat, lng, idx} objects.
@@ -939,38 +1149,59 @@ function initLeafletProvider() {
             eventMarkers = [];
             overviewLines.forEach(function(l) { map.removeLayer(l); });
             overviewLines = [];
+            if (groupLegendControl) {
+                map.removeControl(groupLegendControl);
+                groupLegendControl = null;
+            }
 
             // Marks a segment endpoint so departure/destination points stand out
             // clearly even where several segments' lines overlap or run close
             // together -- a plain polyline alone makes it hard to tell where one
-            // segment ends and the next begins.
-            function endpointMarker(lat, lng) {
+            // segment ends and the next begins. style is {color, shape} from
+            // groupStyle(), so endpoints double as the group's identity marks.
+            function endpointMarker(lat, lng, style) {
+                var glyphSize = 8;
+                var total = glyphSize + MARKER_HALO_PAD * 2;
                 var icon = L.divIcon({
                     className: 'overview-endpoint',
-                    html: '<div style="width:8px;height:8px;line-height:8px;text-align:center;'
-                        + 'color:#1d4ed8;font-size:11px;font-weight:bold">&times;</div>',
-                    iconSize: [8, 8], iconAnchor: [4, 4]
+                    html: shapeMarkerHtml(style.shape, style.color, glyphSize),
+                    iconSize: [total, total], iconAnchor: [total / 2, total / 2]
                 });
-                return L.marker([lat, lng], { icon: icon, interactive: false }).addTo(map);
+                var m = L.marker([lat, lng], { icon: icon, interactive: false }).addTo(map);
+                m.groupId = style.groupId;
+                return m;
             }
 
             var bounds = [];
+            var legendGroups = {};
             segments.forEach(function(s) {
                 if (s.fromLat === 0 && s.fromLng === 0) return;
+                var style = groupStyle(s.groupRank);
+                style.groupId = s.groupId || 0;
+                legendGroups[style.groupId] = { name: s.groupName || 'Ungrouped', style: style };
+
                 bounds.push([s.fromLat, s.fromLng]);
-                overviewLines.push(endpointMarker(s.fromLat, s.fromLng));
+                overviewLines.push(endpointMarker(s.fromLat, s.fromLng, style));
                 if (s.toLat !== 0 || s.toLng !== 0) {
                     var line = L.polyline(
                         [[s.fromLat, s.fromLng], [s.toLat, s.toLng]],
-                        { color: '#3b82f6', weight: 2, opacity: 0.7 }
+                        { color: style.color, weight: 3, opacity: 0.7 }
                     ).addTo(map);
+                    line.groupId = style.groupId;
+                    // Group name is user-supplied free text (trip_groups.name) --
+                    // bind a built DOM element rather than an HTML string so it can
+                    // never be interpreted as markup.
+                    var tooltipEl = document.createElement('span');
+                    tooltipEl.textContent = legendGroups[style.groupId].name;
+                    line.bindTooltip(tooltipEl);
                     overviewLines.push(line);
-                    overviewLines.push(endpointMarker(s.toLat, s.toLng));
+                    overviewLines.push(endpointMarker(s.toLat, s.toLng, style));
                     bounds.push([s.toLat, s.toLng]);
                 }
             });
             if (bounds.length > 0)
                 map.fitBounds(L.latLngBounds(bounds), { padding: [20, 20], animate: false });
+            groupLegendControl = buildGroupLegend(legendGroups, map, overviewLines);
         },
         resetZoom: function () {
             map.closePopup();

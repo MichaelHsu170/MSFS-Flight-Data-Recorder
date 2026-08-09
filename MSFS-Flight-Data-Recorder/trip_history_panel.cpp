@@ -451,6 +451,10 @@ void TripHistoryPanel::reloadGroupFilterCombo() {
 	sqlite3* sql = ensureHistoryConnection();
 	std::vector<TripGroup> groups = sql ? queryAllGroups(sql) : std::vector<TripGroup>();
 
+	groupRank_.clear();
+	for (int i = 0; i < (int)groups.size(); ++i)
+		groupRank_.insert(groups[i].id, i + 1);
+
 	QSignalBlocker blocker(groupFilterCombo_);
 	groupFilterCombo_->clear();
 	groupFilterCombo_->addItem(QStringLiteral("All Trips"), -1);
@@ -473,7 +477,14 @@ void TripHistoryPanel::reloadGroupFilterCombo() {
 		Logger::logf(Logger::Trace, "DB", "reloadGroupFilterCombo: active filter changed externally (%d -> %d, e.g. selected group was deleted); deselecting current trip", previousData, newData);
 		selectedTripId_ = -1;
 		table_->clearSelection();
-		emit tripDeselected(model_->trips());
+		// Deliberately not emitting tripDeselected here: model_->trips() at
+		// this point is still filtered from the pre-mutation allTrips_ (this
+		// only re-filters, it never re-derives a TripSummary's fields -- see
+		// TripHistoryModel::applyFilter), so it can carry stale groupRank/
+		// groupId data (e.g. the very group that was just deleted). Every
+		// caller of this function calls refreshTrips() right after, which
+		// re-queries fresh data and is responsible for emitting once that's
+		// in place -- see reloadGroupFilterCombo()'s doc comment.
 	}
 }
 
@@ -517,17 +528,48 @@ void TripHistoryPanel::openManageGroupsDialog() {
 	connect(&dialog, &ManageGroupsDialog::groupsChanged, this, [this]() {
 		reloadGroupFilterCombo();
 		refreshTrips();
+		// A rename, reorder, or add/delete of any group changes what the
+		// already-open overview map should be showing (group names, and
+		// colors/shapes, which are keyed by each group's position in this
+		// list) -- if no trip is selected, that overview is on screen right
+		// now, so nudge it. This is the only emit for this event:
+		// reloadGroupFilterCombo() itself deliberately doesn't emit (see its
+		// doc comment) so this always fires exactly once, with fresh,
+		// post-refreshTrips() data.
+		if (selectedTripId_ == -1)
+			emit tripDeselected(model_->trips());
 	});
 	dialog.exec();
 	reloadGroupFilterCombo();
 	refreshTrips();
+	if (selectedTripId_ == -1)
+		emit tripDeselected(model_->trips());
 }
 
 void TripHistoryPanel::refreshTrips() {
 	sqlite3* sql = ensureHistoryConnection();
 	if (sql == nullptr)
 		return;
-	model_->setTrips(queryAllTrips(sql, bridge_.currentTripId()));
+	std::vector<TripSummary> trips = queryAllTrips(sql, bridge_.currentTripId());
+	for (TripSummary& trip : trips) {
+		// groupRank_ is rebuilt by reloadGroupFilterCombo() from the full
+		// group list; it must already contain every group any trip
+		// currently references (reloadGroupFilterCombo() always runs before
+		// refreshTrips() following a group mutation). A miss here means a
+		// trip references a group.value(0) falls back to render as
+		// "Ungrouped" on the map while still showing its real group name --
+		// log it rather than let that mismatch pass silently.
+		auto it = groupRank_.constFind(trip.groupId);
+		if (trip.groupId != 0 && it == groupRank_.constEnd()) {
+			Logger::logf(Logger::Warning, "DB",
+				"refreshTrips: trip %d references group %d which is missing from groupRank_; it will render as Ungrouped on the map",
+				trip.id, trip.groupId);
+			trip.groupRank = 0;
+		} else {
+			trip.groupRank = it != groupRank_.constEnd() ? it.value() : 0;
+		}
+	}
+	model_->setTrips(std::move(trips));
 
 	// setTrips() resets the model, clearing any selection. While a trip is
 	// mid-load, selectedTripId_ still holds the *previous* selection (it only

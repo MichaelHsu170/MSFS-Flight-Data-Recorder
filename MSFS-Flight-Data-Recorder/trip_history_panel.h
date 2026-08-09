@@ -4,6 +4,7 @@
 #include <QAbstractTableModel>
 #include <QElapsedTimer>
 #include <QFutureWatcher>
+#include <QMap>
 #include <memory>
 #include <utility>
 
@@ -118,7 +119,14 @@ private:
 	sqlite3* ensureHistoryConnection();
 	// Rebuilds the group filter combo's items from trip_groups, preserving
 	// the current selection where possible (e.g. across a refresh after the
-	// Manage Groups dialog closes).
+	// Manage Groups dialog closes). Also refreshes groupRank_ from the same
+	// query, since the two must stay in sync -- see groupRank_. If the active
+	// filter selection itself changed as a result (e.g. its group was
+	// deleted), resets selectedTripId_ to -1 and clears the table selection,
+	// but deliberately does NOT emit tripDeselected itself -- model_ still
+	// holds pre-mutation data at this point (this only re-filters it, see
+	// TripHistoryModel::applyFilter), so it's the caller's job to emit, after
+	// calling refreshTrips(), so the map gets fresh data.
 	void reloadGroupFilterCombo();
 	// Persists a trip's group assignment and refreshes the table. groupId=0
 	// ungroups the trip.
@@ -161,4 +169,11 @@ private:
 	// with SQLITE_OPEN_NOMUTEX (single-thread-only) so it cannot be shared with
 	// this panel's main-thread refreshes or its QtConcurrent background loads.
 	sqlite3* historySql_ = nullptr;
+	// group id -> 1-based position in the Manage Groups list order (the same
+	// order reloadGroupFilterCombo() lists groups in). Rebuilt every time that
+	// function runs; refreshTrips() stamps each TripSummary's groupRank from
+	// this map so the map view can key a group's color/shape off its list
+	// position instead of its arbitrary creation id, and so that position
+	// stays correct even when the map is showing a filtered subset of groups.
+	QMap<int, int> groupRank_;
 };
