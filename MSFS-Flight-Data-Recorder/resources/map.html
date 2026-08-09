@@ -189,7 +189,13 @@ function buildLiftoffPrompt(t) {
     // leave zero and doesn't meaningfully inform liftoff quality the way it
     // does for a landing's touchdown rate, so it's omitted rather than
     // included as a mostly-meaningless number the model would still comment on.
-    lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
+    // Same reasoning for pitch: at the liftoff instant it's still mid-rotation
+    // rather than settled into a climb attitude, so it's not a representative
+    // read of "how the takeoff was flown" -- omitted rather than fed in as a
+    // number the model would still comment on. Bank is kept: a normal takeoff
+    // holds it near zero throughout, so a nonzero reading here is itself a
+    // real signal (dropped wing, crosswind technique), not a mid-ramp snapshot.
+    lines.push('  Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     lines.push('  Heading: ' + t.headingDegrees + '°');
     lines.push('  Wind: ' + t.windDirection + '° at ' + t.windVelocity + ' kt');
     if (t.distanceLength != null && t.distanceLength >= 0) {
@@ -198,7 +204,7 @@ function buildLiftoffPrompt(t) {
         lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
     }
     lines.push('');
-    lines.push('Consider: rotation pitch rate and initial climb attitude, crosswind component (calculate from wind direction vs runway heading), centerline tracking during the takeoff roll, use of available runway length' + (aircraft ? ', aircraft-type-specific handling' : '') + '.');
+    lines.push('Consider: crosswind component (calculate from wind direction vs runway heading), centerline tracking during the takeoff roll, use of available runway length' + (aircraft ? ', aircraft-type-specific handling' : '') + '.');
     return lines.join('\n');
 }
 
