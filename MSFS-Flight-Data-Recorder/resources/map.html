@@ -872,18 +872,19 @@ function shapeMarkerHtml(shape, color, size) {
 }
 
 // Builds (and adds to the map) a bottom-left legend listing each group
-// present in legendGroups ({groupId: {name, style}}), sorted alphabetically
-// with "Ungrouped" pinned last. Clicking an entry isolates that group's
-// layers (dims everything else); clicking it again restores all layers.
-// layers is the overviewLines array -- each line/marker in it must already
-// have .groupId set to the numeric group id it belongs to.
+// present in legendGroups ({groupId: {name, style, groupRank}}), sorted the
+// same as the Manage Groups list (groupRank -- see TripHistoryPanel::
+// groupRank_) with "Ungrouped" (groupRank 0) pinned first. Clicking an entry
+// isolates that group's layers (dims everything else); clicking it again
+// restores all layers. layers is the overviewLines array -- each line/marker
+// in it must already have .groupId set to the numeric group id it belongs to.
 function buildGroupLegend(legendGroups, map, layers) {
     var ids = Object.keys(legendGroups);
     if (ids.length === 0) return null;
     ids.sort(function(a, b) {
-        if (a === '0') return 1;
-        if (b === '0') return -1;
-        return legendGroups[a].name.localeCompare(legendGroups[b].name);
+        if (a === '0') return -1;
+        if (b === '0') return 1;
+        return legendGroups[a].groupRank - legendGroups[b].groupRank;
     });
 
     var control = L.control({ position: 'bottomleft' });
@@ -1186,7 +1187,7 @@ function initLeafletProvider() {
                 if (s.fromLat === 0 && s.fromLng === 0) return;
                 var style = groupStyle(s.groupRank);
                 style.groupId = s.groupId || 0;
-                legendGroups[style.groupId] = { name: s.groupName || 'Ungrouped', style: style };
+                legendGroups[style.groupId] = { name: s.groupName || 'Ungrouped', style: style, groupRank: s.groupRank };
 
                 bounds.push([s.fromLat, s.fromLng]);
                 overviewLines.push(endpointMarker(s.fromLat, s.fromLng, style));
