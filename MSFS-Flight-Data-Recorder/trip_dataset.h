@@ -146,6 +146,13 @@ struct TripSummary {
 	// reads NULL as 0, so this needs no separate "has group" flag.
 	int groupId = 0;
 	QString groupName;
+	// This trip's group's 1-based position in the Manage Groups list order
+	// (trip_groups.sort_order, ties broken by name -- see queryAllGroups()).
+	// 0 for ungrouped or if not yet resolved. Populated by TripHistoryPanel
+	// (not by queryAllTrips() itself, which has no reason to know group
+	// order) so the map can key each group's color/shape off its list
+	// position rather than its immutable but arbitrary creation id.
+	int groupRank = 0;
 };
 
 // A user-defined label trips can be assigned to (trip_groups table). Managed

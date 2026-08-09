@@ -227,6 +227,9 @@ void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
 		seg[QStringLiteral("fromLng")] = t2.departureLng;
 		seg[QStringLiteral("toLat")]   = t2.destinationLat;
 		seg[QStringLiteral("toLng")]   = t2.destinationLng;
+		seg[QStringLiteral("groupId")]   = t2.groupId;
+		seg[QStringLiteral("groupName")] = t2.groupId != 0 ? t2.groupName : QStringLiteral("Ungrouped");
+		seg[QStringLiteral("groupRank")] = t2.groupRank;
 		segments.append(seg);
 	}
 	Logger::logf(Logger::Profile, "Map", "showOverview: JSON built: %lld µs", t.nsecsElapsed() / 1000);
