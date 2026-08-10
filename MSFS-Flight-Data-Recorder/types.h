@@ -607,6 +607,12 @@ struct STATUS {
 	bool sim_running = FALSE;
 	bool paused = FALSE;
 	bool recording = FALSE;
+	// User-facing gate on automatic recording start, toggled via the Recording
+	// indicator in LiveStatusPanel and persisted through AppSettings. Distinct
+	// from `recording` (which trip is actually mid-flight right now): this only
+	// suppresses the auto-start-on-liftoff check in recorder.cpp, so flipping it
+	// while a trip is already recording has no effect on that trip.
+	bool recording_enabled = TRUE;
 	bool quit = FALSE;
 	// Heap copy of the most recently produced sample, owned outside the
 	// queue so the dispatch callback can compute the next sample's delta_s

@@ -70,6 +70,7 @@ RecorderBridge::RecorderBridge(QObject* parent)
 	, connectTimer_(new QTimer(this))
 {
 	status_.gui_context = this;
+	status_.recording_enabled = AppSettings::instance().recordingEnabled();
 
 	connect(dispatchTimer_, &QTimer::timeout, this, &RecorderBridge::pollDispatch);
 	connect(connectTimer_, &QTimer::timeout, this, &RecorderBridge::tryConnect);
@@ -101,6 +102,17 @@ RecorderBridge::~RecorderBridge() {
 			status_.sql = nullptr;
 		}
 	}
+}
+
+void RecorderBridge::setRecordingEnabled(bool enabled) {
+	if (status_.recording)
+		return;
+	if (status_.recording_enabled == enabled)
+		return;
+	status_.recording_enabled = enabled;
+	AppSettings::instance().setRecordingEnabled(enabled);
+	Logger::logf(Logger::Info, "Recorder", "Recording %s by user", enabled ? "enabled" : "disabled");
+	emit recordingEnabledChanged(enabled);
 }
 
 void RecorderBridge::tryConnect() {

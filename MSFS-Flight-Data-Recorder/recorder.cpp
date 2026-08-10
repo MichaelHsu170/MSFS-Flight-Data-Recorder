@@ -1262,7 +1262,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				status->in_sim = TRUE;
 				if ((bool)tmp.sim_on_ground) {
 					if ((bool)tmp.eng_combustion_1 || (bool)tmp.eng_combustion_2) {
-						if (!status->recording) {
+						if (!status->recording && status->recording_enabled) {
 							status->recording = TRUE;
 							gui_log_printf(status, GUI_LOG_INFO, "Recording started");
 

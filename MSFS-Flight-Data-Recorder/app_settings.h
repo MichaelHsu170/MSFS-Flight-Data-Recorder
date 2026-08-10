@@ -51,6 +51,14 @@ public:
 	// If unset, empty, or not a positive integer, defaults to 500.
 	int sampleIntervalMs() const;
 
+	// Whether automatic recording is allowed to start. Toggled via the
+	// Recording indicator in the Live Status panel (a no-op while a trip is
+	// already recording); disabling it only prevents a *new* trip from
+	// starting, it doesn't stop one in progress. Read from [recording]
+	// enabled in settings.ini. Default: true.
+	bool recordingEnabled() const;
+	void setRecordingEnabled(bool enabled);
+
 	// Log verbosity level written to [logging] verbose in settings.ini.
 	// Valid values: "FATAL", "WARNING", "INFO" (default), "TRACE", "PROFILE".
 	// INFO includes user-visible events; TRACE also writes fine-grained
