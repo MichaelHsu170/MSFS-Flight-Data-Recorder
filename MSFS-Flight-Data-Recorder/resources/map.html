@@ -458,6 +458,12 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
         if (sawThinking && finalDiv.textContent.trim()) {
             if (t.rowId) {
                 var stored = '<thinking>' + thinkingText + '</thinking>' + finalText;
+                // Mirror the DB write into the in-memory store (t is the same
+                // object as _liftoffStore[id]/_touchdownStore[id]) -- without
+                // this, closing and reopening this popup later in the same
+                // session reverts to the "Analyze" button, since the
+                // popupopen handler below only has this object to read from.
+                t.analysisReport = stored;
                 saveReport(t.rowId, stored);
             }
             break;
@@ -1068,11 +1074,17 @@ function initLeafletProvider() {
                 var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
                 var popup = liftoffPopupHtml(t);
                 m.bindPopup(popup.html, { maxWidth: 700 });
-                if (t.analysisReport) {
-                    (function(capturedId, capturedReport) {
-                        m.on('popupopen', function() { renderStoredReport(capturedId, capturedReport); });
-                    })(popup.id, t.analysisReport);
-                }
+                // Re-check _liftoffStore on every open (rather than capturing
+                // t.analysisReport once here) so a report generated after this
+                // marker was built -- via analyzeLiftoff(), which mutates the
+                // same stored object -- still reappears if the popup is closed
+                // and reopened without the trip itself reloading.
+                (function(capturedId) {
+                    m.on('popupopen', function() {
+                        var stored = _liftoffStore[capturedId];
+                        if (stored && stored.analysisReport) renderStoredReport(capturedId, stored.analysisReport);
+                    });
+                })(popup.id);
                 liftoffMarkers.push(m);
             });
         },
@@ -1087,11 +1099,13 @@ function initLeafletProvider() {
                 var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
                 var popup = touchdownPopupHtml(t);
                 m.bindPopup(popup.html, { maxWidth: 700 });
-                if (t.analysisReport) {
-                    (function(capturedId, capturedReport) {
-                        m.on('popupopen', function() { renderStoredReport(capturedId, capturedReport); });
-                    })(popup.id, t.analysisReport);
-                }
+                // See the matching comment in setLiftoffs() above.
+                (function(capturedId) {
+                    m.on('popupopen', function() {
+                        var stored = _touchdownStore[capturedId];
+                        if (stored && stored.analysisReport) renderStoredReport(capturedId, stored.analysisReport);
+                    });
+                })(popup.id);
                 touchdownMarkers.push(m);
             });
         },
