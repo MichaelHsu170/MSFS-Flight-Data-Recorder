@@ -193,6 +193,10 @@ void ensureSettingsFileExists() {
 		"; at subsonic speeds; go lower only for supersonic recording needs).\n"
 		"sample_interval_ms=500\n"
 		"\n"
+		"; Auto-managed by the app. Whether automatic recording is allowed to start,\n"
+		"; toggled via the Recording indicator in the Live Status panel.\n"
+		"enabled=true\n"
+		"\n"
 		"[logging]\n"
 		"; Maximum log level written to msfs_fdr_debug.log.\n"
 		"; Levels (inclusive — each includes all levels above it):\n"
@@ -395,6 +399,25 @@ int AppSettings::sampleIntervalMs() const {
 	}
 	Logger::logf(Logger::Trace, "Settings", "sample_interval_ms missing or invalid in settings.ini; falling back to default 500");
 	return 500;
+}
+
+bool AppSettings::recordingEnabled() const {
+	QSettings settings = makeSettings();
+	return settings.value(QStringLiteral("recording/enabled"), true).toBool();
+}
+
+void AppSettings::setRecordingEnabled(bool enabled) {
+	Logger::logf(Logger::Trace, "Settings", "recording/enabled set to %s", enabled ? "true" : "false");
+	writeIniValue(
+		QStringLiteral("recording"),
+		QStringLiteral("enabled"),
+		enabled ? QStringLiteral("true") : QStringLiteral("false"),
+		{},
+		QStringLiteral("Whether automatic recording is allowed to start, toggled via the\n"
+		               "Recording indicator in the Live Status panel. Disabling it only prevents\n"
+		               "a new trip from starting; it doesn't stop one already in progress.\n"
+		               "Default: true.")
+	);
 }
 
 QString AppSettings::verboseLevel() const {

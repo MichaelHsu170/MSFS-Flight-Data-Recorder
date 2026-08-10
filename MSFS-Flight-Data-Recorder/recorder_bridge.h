@@ -25,6 +25,13 @@ public:
 	const FLIGHT_DATA& currentData() const { return status_.data; }
 	bool isConnected() const { return connected_; }
 	bool isRecording() const { return status_.recording; }
+	// User-facing gate on automatic recording start; see STATUS::recording_enabled.
+	bool isRecordingEnabled() const { return status_.recording_enabled; }
+	// No-op if a trip is currently recording (see isRecording()) -- callers
+	// (LiveStatusPanel's click handler) are expected to check that first, but
+	// this guards the underlying flag either way since toggling it mid-trip
+	// couldn't affect that trip regardless.
+	void setRecordingEnabled(bool enabled);
 	int currentTripId() const { return status_.id_trip; }
 	// True if tripId stopped recording but its tail samples may still be
 	// draining onto the DB-write thread. A trip can look non-Live
@@ -43,6 +50,7 @@ signals:
 	void connectionChanged(bool connected);
 	void recordingStateChanged(int tripId);
 	void tripEnded(int tripId);
+	void recordingEnabledChanged(bool enabled);
 	void tripUpdated(int tripId);
 	void sampleUpdated();
 	// Same sample just queued for trip_data (see gui_notify_sample), decoded

@@ -12,25 +12,38 @@ class RecorderBridge;
 
 // Mirrors what the console build used to printf(): connection state, recording
 // start/stop, liftoff/touchdown/crash messages, and a live flight-data snapshot.
-// Connection/recording are shown as small painted dots (black = true, grey =
-// false -- painted rather than drawn from a Unicode glyph, since glyphs like
-// the power/record symbols get rendered by Windows' color emoji font and
-// ignore QLabel's text color entirely) with the descriptive text in a
-// tooltip. The full message history is an always-visible scrolling list
-// (newest entry on top) inline in this panel's own layout rather than behind
-// a separate History button/dialog. Also hosts the "Live Follow" toggle for
-// the Trajectory View feature, forwarded out via liveFollowToggled(bool)
-// since this panel has no direct dependency on TrajectoryView.
+// Connection/recording are shown as small painted dots (green/red, grey for
+// Recording's disabled state -- painted rather than drawn from a Unicode
+// glyph, since glyphs like the power/record symbols get rendered by Windows'
+// color emoji font and ignore QLabel's text color entirely) with the
+// descriptive text in a tooltip. Recording's label+dot are also a click
+// target (recordingToggle_): clicking enables/disables automatic recording
+// (a no-op while a trip is currently recording), a static outline marks it
+// as clickable at rest, and its tooltip is shown instantly on hover rather
+// than after Qt's default delay -- see updateRecordingIndicator() and
+// eventFilter(). Connection stays a plain non-interactive indicator. The
+// full message history is an always-visible scrolling list (newest entry on
+// top) inline in this panel's own layout rather than behind a separate
+// History button/dialog. Also hosts the "Live Follow" toggle for the
+// Trajectory View feature, forwarded out via liveFollowToggled(bool) since
+// this panel has no direct dependency on TrajectoryView.
 class LiveStatusPanel : public QWidget {
 	Q_OBJECT
 public:
 	explicit LiveStatusPanel(RecorderBridge& bridge, QWidget* parent = nullptr);
+
+protected:
+	// Catches clicks on recordingToggle_ (the "Recording:" label + dot,
+	// wrapped in one small container widget so they share a single hover
+	// highlight and click target) -- see toggleRecordingEnabled().
+	bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
 	void onLogMessage(const QString& text);
 	void onConnectionChanged(bool connected);
 	void onRecordingStateChanged(int tripId);
 	void onTripEnded(int tripId);
+	void onRecordingEnabledChanged(bool enabled);
 	void onSampleUpdated();
 	// One event occurrence committed to trip_events -- adds its line like
 	// onLogMessage, but also remembers seq -> item so a later retraction (see
@@ -58,11 +71,24 @@ private:
 	// (never null -- kMaxHistoryItems is always > 0, so the just-added item is
 	// never itself the one pruned).
 	QListWidgetItem* appendHistoryItem(const QString& text);
+	// Repaints recordingIcon_ (green/red/grey) and refreshes recordingToggle_'s
+	// tooltip + cursor from the current bridge_.isRecording()/
+	// isRecordingEnabled() state. Called after anything that can change
+	// either of those.
+	void updateRecordingIndicator();
+	// Flips recordingEnabled via the bridge; a no-op while bridge_.isRecording()
+	// is true, per the user-facing rule that the toggle can't interrupt a trip
+	// already in progress.
+	void toggleRecordingEnabled();
 
 	RecorderBridge& bridge_;
 	QLabel* versionLabel_;
 	QLabel* connectionIcon_;
 	QLabel* recordingIcon_;
+	QLabel* recordingLabel_;
+	// Container wrapping recordingLabel_ + recordingIcon_ so both share one
+	// hover highlight and one click target for the enable/disable toggle.
+	QWidget* recordingToggle_;
 	QLabel* snapshotLabel_;
 	QListWidget* historyList_;
 	// Trip currently shown as "Recording" -- lets a tripEnded() for a stale
