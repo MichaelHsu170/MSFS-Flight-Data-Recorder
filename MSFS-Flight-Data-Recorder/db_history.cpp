@@ -277,7 +277,7 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 std::vector<LiftoffPoint> queryLiftoffs(sqlite3* sql, int tripId) {
 	// migrate_db() at app startup ensures all columns exist before any query runs.
 	const char* stmt_txt =
-		"SELECT id, plane_latitude, plane_longitude, icao, airport_name, runway, airspeed_indicated, "
+		"SELECT id, plane_latitude, plane_longitude, icao, airport_name, runway, runway_heading, airspeed_indicated, "
 		"vertical_speed, plane_pitch_degrees, plane_bank_degrees, heading_indicator, "
 		"distance_length, distance_width, distance_length_percent, distance_width_percent, "
 		"wind_direction, wind_velocity, time_zulu, time_local, analysis_report "
@@ -291,20 +291,21 @@ std::vector<LiftoffPoint> queryLiftoffs(sqlite3* sql, int tripId) {
 			point.icao               = columnTextOrEmpty(stmt, 3);
 			point.airportName        = columnTextOrEmpty(stmt, 4);
 			point.runway              = columnTextOrEmpty(stmt, 5);
-			point.airspeed           = sqlite3_column_int(stmt, 6);
-			point.verticalSpeed      = sqlite3_column_int(stmt, 7);
-			point.pitchDegrees       = sqlite3_column_double(stmt, 8);
-			point.bankDegrees        = sqlite3_column_double(stmt, 9);
-			point.headingDegrees     = sqlite3_column_int(stmt, 10);
-			point.distanceLength     = sqlite3_column_double(stmt, 11);
-			point.distanceWidth      = sqlite3_column_double(stmt, 12);
-			point.distanceLengthPercent = sqlite3_column_double(stmt, 13);
-			point.distanceWidthPercent  = sqlite3_column_double(stmt, 14);
-			point.windDirection      = sqlite3_column_int(stmt, 15);
-			point.windVelocity       = sqlite3_column_int(stmt, 16);
-			point.zuluTime           = columnTextOrEmpty(stmt, 17);
-			point.localTime          = columnTextOrEmpty(stmt, 18);
-			point.analysisReport     = columnTextOrEmpty(stmt, 19);
+			point.runwayHeading      = sqlite3_column_type(stmt, 6) == SQLITE_NULL ? -1 : sqlite3_column_int(stmt, 6);
+			point.airspeed           = sqlite3_column_int(stmt, 7);
+			point.verticalSpeed      = sqlite3_column_int(stmt, 8);
+			point.pitchDegrees       = sqlite3_column_double(stmt, 9);
+			point.bankDegrees        = sqlite3_column_double(stmt, 10);
+			point.headingDegrees     = sqlite3_column_int(stmt, 11);
+			point.distanceLength     = sqlite3_column_double(stmt, 12);
+			point.distanceWidth      = sqlite3_column_double(stmt, 13);
+			point.distanceLengthPercent = sqlite3_column_double(stmt, 14);
+			point.distanceWidthPercent  = sqlite3_column_double(stmt, 15);
+			point.windDirection      = sqlite3_column_int(stmt, 16);
+			point.windVelocity       = sqlite3_column_int(stmt, 17);
+			point.zuluTime           = columnTextOrEmpty(stmt, 18);
+			point.localTime          = columnTextOrEmpty(stmt, 19);
+			point.analysisReport     = columnTextOrEmpty(stmt, 20);
 			return point;
 		});
 }
@@ -312,7 +313,7 @@ std::vector<LiftoffPoint> queryLiftoffs(sqlite3* sql, int tripId) {
 std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 	// migrate_db() at app startup ensures all columns exist before any query runs.
 	const char* stmt_txt =
-		"SELECT id, plane_latitude, plane_longitude, icao, airport_name, runway, airspeed_indicated, "
+		"SELECT id, plane_latitude, plane_longitude, icao, airport_name, runway, runway_heading, airspeed_indicated, "
 		"vertical_speed, g_force, plane_pitch_degrees, plane_bank_degrees, heading_indicator, "
 		"distance_length, distance_width, distance_length_percent, distance_width_percent, "
 		"wind_direction, wind_velocity, time_zulu, time_local, analysis_report "
@@ -326,21 +327,22 @@ std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 			point.icao               = columnTextOrEmpty(stmt, 3);
 			point.airportName        = columnTextOrEmpty(stmt, 4);
 			point.runway             = columnTextOrEmpty(stmt, 5);
-			point.airspeed           = sqlite3_column_int(stmt, 6);
-			point.verticalSpeed      = sqlite3_column_int(stmt, 7);
-			point.gForce             = sqlite3_column_double(stmt, 8);
-			point.pitchDegrees       = sqlite3_column_double(stmt, 9);
-			point.bankDegrees        = sqlite3_column_double(stmt, 10);
-			point.headingDegrees     = sqlite3_column_int(stmt, 11);
-			point.distanceLength     = sqlite3_column_double(stmt, 12);
-			point.distanceWidth      = sqlite3_column_double(stmt, 13);
-			point.distanceLengthPercent = sqlite3_column_double(stmt, 14);
-			point.distanceWidthPercent  = sqlite3_column_double(stmt, 15);
-			point.windDirection      = sqlite3_column_int(stmt, 16);
-			point.windVelocity       = sqlite3_column_int(stmt, 17);
-			point.zuluTime           = columnTextOrEmpty(stmt, 18);
-			point.localTime          = columnTextOrEmpty(stmt, 19);
-			point.analysisReport     = columnTextOrEmpty(stmt, 20);
+			point.runwayHeading      = sqlite3_column_type(stmt, 6) == SQLITE_NULL ? -1 : sqlite3_column_int(stmt, 6);
+			point.airspeed           = sqlite3_column_int(stmt, 7);
+			point.verticalSpeed      = sqlite3_column_int(stmt, 8);
+			point.gForce             = sqlite3_column_double(stmt, 9);
+			point.pitchDegrees       = sqlite3_column_double(stmt, 10);
+			point.bankDegrees        = sqlite3_column_double(stmt, 11);
+			point.headingDegrees     = sqlite3_column_int(stmt, 12);
+			point.distanceLength     = sqlite3_column_double(stmt, 13);
+			point.distanceWidth      = sqlite3_column_double(stmt, 14);
+			point.distanceLengthPercent = sqlite3_column_double(stmt, 15);
+			point.distanceWidthPercent  = sqlite3_column_double(stmt, 16);
+			point.windDirection      = sqlite3_column_int(stmt, 17);
+			point.windVelocity       = sqlite3_column_int(stmt, 18);
+			point.zuluTime           = columnTextOrEmpty(stmt, 19);
+			point.localTime          = columnTextOrEmpty(stmt, 20);
+			point.analysisReport     = columnTextOrEmpty(stmt, 21);
 			return point;
 		});
 }

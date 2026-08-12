@@ -37,6 +37,7 @@ QJsonObject liftoffToJson(const LiftoffPoint& t) {
 	obj["icao"] = t.icao;
 	obj["airportName"] = t.airportName;
 	obj["runway"] = t.runway;
+	obj["runwayHeading"] = t.runwayHeading;
 	obj["airspeed"] = t.airspeed;
 	obj["verticalSpeed"] = t.verticalSpeed;
 	obj["pitchDegrees"] = t.pitchDegrees;
@@ -62,6 +63,7 @@ QJsonObject touchdownToJson(const TouchdownPoint& t) {
 	obj["icao"] = t.icao;
 	obj["airportName"] = t.airportName;
 	obj["runway"] = t.runway;
+	obj["runwayHeading"] = t.runwayHeading;
 	obj["airspeed"] = t.airspeed;
 	obj["verticalSpeed"] = t.verticalSpeed;
 	obj["gForce"] = t.gForce;

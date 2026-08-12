@@ -130,8 +130,8 @@ hidden_fields=
 | `trips` | One row per flight session: departure/destination airport ICAO, runway, times, ATC callsign |
 | `trip_data` | Telemetry sampled at a configurable interval (default 0.5 s) while recording: position, altitude, airspeed, engine N1/N2, gear/flaps/spoilers, fuel, autopilot state, and ~60 other variables |
 | `trip_events` | Discrete cockpit events (gear up/down, flaps, spoilers, parking brake, anti-ice, etc.) with zulu and local timestamps |
-| `trip_liftoffs` | One row per liftoff (the trip's departure, plus any touch-and-go): airport, runway, airspeed, vertical speed, pitch/bank/heading, wind direction/speed, and lateral/longitudinal distance from the runway threshold and centreline |
-| `trip_touchdowns` | One row per touchdown: airport, runway, airspeed, vertical speed, g-force, pitch/bank/heading, wind direction/speed, and lateral/longitudinal distance from the runway threshold and centreline |
+| `trip_liftoffs` | One row per liftoff (the trip's departure, plus any touch-and-go): airport, runway (plus its real facility heading — usually a few degrees off the runway number), airspeed, vertical speed, pitch/bank/heading, wind direction/speed, and lateral/longitudinal distance from the runway threshold and centreline |
+| `trip_touchdowns` | One row per touchdown: airport, runway (plus its real facility heading — usually a few degrees off the runway number), airspeed, vertical speed, g-force, pitch/bank/heading, wind direction/speed, and lateral/longitudinal distance from the runway threshold and centreline |
 
 Recording starts automatically when an engine is running on the ground and stops when all engines shut down. A trip that ends abnormally (simulator crash or process kill before engine shutdown) is marked as **Open** in the UI.
 
@@ -145,8 +145,8 @@ Both Debug and Release link dynamically against `SimConnect.dll`. The DLL is cop
 
 Clicking a liftoff or touchdown marker on the map opens a popup with two panels:
 
-- **Left** — raw telemetry for that liftoff or landing: airport, runway, airspeed, vertical speed, G-force (landings only), pitch/bank, heading, wind, threshold distance, and centreline offset.
-- **Right** — an **Analyze Liftoff** / **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API).
+- **Left** — raw telemetry for that liftoff or landing: airport, runway (with its real facility heading in parentheses, when known), airspeed, vertical speed, G-force (landings only), pitch/bank, heading, wind, threshold distance, and centreline offset.
+- **Right** — an **Analyze Liftoff** / **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API). The prompt includes the runway's real heading (not just its two-digit number, which can be off by up to ~10°) so the model can calculate an accurate crosswind component.
 
 The analysis is returned in a fixed structure:
 
