@@ -81,10 +81,15 @@ std::optional<qint64> tripDurationSeconds(const QString& departureZuluTime, cons
 // otherwise the plain "Hh MMm" used before. Days rather than months/years:
 // a calendar month has no fixed length, which would make a duration (as
 // opposed to a calendar span) imprecise.
+// Rounded up to the minute (not floored/truncated): a display granularity
+// of whole minutes would otherwise silently understate every trip by up to
+// 59 seconds, and a real, non-zero duration under a minute would floor to
+// "0h 00m" -- indistinguishable from an actual zero-length span.
 QString formatDurationSeconds(qint64 seconds) {
-    const qint64 days = seconds / 86400;
-    const qint64 hours = (seconds % 86400) / 3600;
-    const qint64 minutes = (seconds % 3600) / 60;
+    const qint64 totalMinutes = seconds > 0 ? (seconds + 59) / 60 : 0;
+    const qint64 days = totalMinutes / 1440;
+    const qint64 hours = (totalMinutes % 1440) / 60;
+    const qint64 minutes = totalMinutes % 60;
     if (days > 0)
         return QStringLiteral("%1d %2h %3m").arg(days).arg(hours).arg(minutes, 2, 10, QChar('0'));
     return QStringLiteral("%1h %2m").arg(hours).arg(minutes, 2, 10, QChar('0'));
