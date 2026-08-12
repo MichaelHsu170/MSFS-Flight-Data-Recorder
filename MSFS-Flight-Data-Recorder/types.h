@@ -241,6 +241,16 @@ struct RUNWAY_OPERATION {
 	double diff_bearing_tra = 0;
 	double distances[2];
 	double distances_percent[2];
+	// Operational heading (1-360, aviation convention -- due north is 360,
+	// never 0) of the runway end actually used -- i.e.
+	// AIRPORT::runways[index].heading, flipped 180° if !is_primary. Captured
+	// and rounded once at match time (see the runway-candidate loop in
+	// recorder.cpp) instead of being re-derived from runways[] wherever it's
+	// read, so it stays valid even after the source AIRPORT is cleared/reused.
+	// -1 (unlike 1-360) means "not yet computed" -- see AIRPORT::clear(),
+	// matching the -1 = unset convention used by distances[]/distances_percent[]
+	// above.
+	int heading = -1;
 };
 
 class AIRPORT {
@@ -276,6 +286,7 @@ public:
 			runway_act.distances[i] = -1;
 		for (int i = 0; i < (int)(sizeof(runway_act.distances_percent) / sizeof(double)); i++)
 			runway_act.distances_percent[i] = -1;
+		runway_act.heading = -1;
 	}
 
 	void copy(AIRPORT* src) {

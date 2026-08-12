@@ -50,6 +50,7 @@ struct LiftoffPoint {
 	double longitude = 0;
 	QString icao;
 	QString runway;
+	int runwayHeading = -1;  // real facility heading (1-360) of runway used, -1 = unknown
 	int airspeed = 0;
 	int verticalSpeed = 0;
 	double pitchDegrees = 0;
@@ -75,6 +76,7 @@ struct TouchdownPoint {
 	double longitude = 0;
 	QString icao;
 	QString runway;
+	int runwayHeading = -1;  // real facility heading (1-360) of runway used, -1 = unknown
 	int airspeed = 0;
 	int verticalSpeed = 0;
 	double gForce = 0;

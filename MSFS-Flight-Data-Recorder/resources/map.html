@@ -201,7 +201,7 @@ function buildLiftoffPrompt(t) {
         var airport = t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
         lines.push('  Airport: ' + airport);
     }
-    if (t.runway) lines.push('  Runway: ' + t.runway);
+    if (t.runway) lines.push('  Runway: ' + t.runway + (t.runwayHeading != null && t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
     lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
     // Deliberately no vertical-speed line here, unlike buildTouchdownPrompt()
     // below -- at the moment of liftoff vertical speed is just starting to
@@ -251,7 +251,7 @@ function buildTouchdownPrompt(t) {
         var airport = t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
         lines.push('  Airport: ' + airport);
     }
-    if (t.runway) lines.push('  Runway: ' + t.runway);
+    if (t.runway) lines.push('  Runway: ' + t.runway + (t.runwayHeading != null && t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
     lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
     lines.push('  Vertical speed: ' + t.verticalSpeed + ' ft/min');
     lines.push('  G-force: ' + Number(t.gForce).toFixed(2) + ' G');
@@ -533,7 +533,7 @@ function liftoffPopupHtml(t) {
         var airportLabel = t.icao + (t.airportName ? ' – ' + t.airportName : '');
         leftHtml += row('Airport', airportLabel);
     }
-    if (t.runway) leftHtml += row('Runway', t.runway);
+    if (t.runway) leftHtml += row('Runway', t.runway + (t.runwayHeading != null && t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
 
     leftHtml += div;
     leftHtml += row('Airspeed', t.airspeed + ' kt');
@@ -603,7 +603,7 @@ function touchdownPopupHtml(t) {
         var airportLabel = t.icao + (t.airportName ? ' – ' + t.airportName : '');
         leftHtml += row('Airport', airportLabel);
     }
-    if (t.runway) leftHtml += row('Runway', t.runway);
+    if (t.runway) leftHtml += row('Runway', t.runway + (t.runwayHeading != null && t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
 
     leftHtml += div;
     leftHtml += row('Airspeed', t.airspeed + ' kt');

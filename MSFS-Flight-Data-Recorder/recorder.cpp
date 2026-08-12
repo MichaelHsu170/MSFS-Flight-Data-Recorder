@@ -2025,6 +2025,9 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						heading += 360;
 					index = 1;
 				}
+				candidate.heading = (int)(heading + 0.5);
+				if (candidate.heading <= 0)
+					candidate.heading += 360;
 
 				candidate.diff_bearing_tra = abs(bearing_tra - heading);
 				if (candidate.diff_bearing_tra > 180)
@@ -2101,7 +2104,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					gui_log_printf(status, GUI_LOG_WARNING, "Liftoff from %s (%s) runway %s: trip_liftoffs row was never inserted; dropping this resolution", rep->name, rep->icao, strRunway.c_str());
 				} else {
 					db_insert_update_table(status->sql,
-						"UPDATE trip_liftoffs SET icao=?,airport_name=?,runway=?,"
+						"UPDATE trip_liftoffs SET icao=?,airport_name=?,runway=?,runway_heading=?,"
 						"distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
 						" WHERE id=?;",
 						rep, status,
@@ -2111,11 +2114,12 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 							db_bind(stmt, stmt_txt, 1, pS->icao);
 							db_bind(stmt, stmt_txt, 2, pS->name);
 							db_bind(stmt, stmt_txt, 3, (char*)aux);
-							db_bind(stmt, stmt_txt, 4, pS->runway_act.distances[0] < 0 ? -1.0 : pS->runway_act.distances[0]);
-							db_bind(stmt, stmt_txt, 5, pS->runway_act.distances[1]);
-							db_bind(stmt, stmt_txt, 6, pS->runway_act.distances_percent[0]);
-							db_bind(stmt, stmt_txt, 7, pS->runway_act.distances_percent[1]);
-							db_bind(stmt, stmt_txt, 8, status->departure_db_id);
+							db_bind(stmt, stmt_txt, 4, pS->runway_act.heading);
+							db_bind(stmt, stmt_txt, 5, pS->runway_act.distances[0] < 0 ? -1.0 : pS->runway_act.distances[0]);
+							db_bind(stmt, stmt_txt, 6, pS->runway_act.distances[1]);
+							db_bind(stmt, stmt_txt, 7, pS->runway_act.distances_percent[0]);
+							db_bind(stmt, stmt_txt, 8, pS->runway_act.distances_percent[1]);
+							db_bind(stmt, stmt_txt, 9, status->departure_db_id);
 						}
 					);
 				}
@@ -2138,7 +2142,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						gui_log_printf(status, GUI_LOG_WARNING, "Liftoff (subsequent) from %s (%s) runway %s: trip_liftoffs row was never inserted; dropping this resolution", rep->name, rep->icao, strRunway.c_str());
 					} else {
 						db_insert_update_table(status->sql,
-							"UPDATE trip_liftoffs SET icao=?,airport_name=?,runway=?,"
+							"UPDATE trip_liftoffs SET icao=?,airport_name=?,runway=?,runway_heading=?,"
 							"distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
 							" WHERE id=?;",
 							tmp, status,
@@ -2148,11 +2152,12 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 								db_bind(stmt, stmt_txt, 1, pS->airport.icao);
 								db_bind(stmt, stmt_txt, 2, pS->airport.name);
 								db_bind(stmt, stmt_txt, 3, (char*)aux);
-								db_bind(stmt, stmt_txt, 4, pS->airport.runway_act.distances[0] < 0 ? -1.0 : pS->airport.runway_act.distances[0]);
-								db_bind(stmt, stmt_txt, 5, pS->airport.runway_act.distances[1]);
-								db_bind(stmt, stmt_txt, 6, pS->airport.runway_act.distances_percent[0]);
-								db_bind(stmt, stmt_txt, 7, pS->airport.runway_act.distances_percent[1]);
-								db_bind(stmt, stmt_txt, 8, pS->db_id);
+								db_bind(stmt, stmt_txt, 4, pS->airport.runway_act.heading);
+								db_bind(stmt, stmt_txt, 5, pS->airport.runway_act.distances[0] < 0 ? -1.0 : pS->airport.runway_act.distances[0]);
+								db_bind(stmt, stmt_txt, 6, pS->airport.runway_act.distances[1]);
+								db_bind(stmt, stmt_txt, 7, pS->airport.runway_act.distances_percent[0]);
+								db_bind(stmt, stmt_txt, 8, pS->airport.runway_act.distances_percent[1]);
+								db_bind(stmt, stmt_txt, 9, pS->db_id);
 							}
 						);
 					}
@@ -2211,7 +2216,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						gui_log_printf(status, GUI_LOG_WARNING, "Touchdown at %s (%s) runway %s: trip_touchdowns row was never inserted; dropping this resolution", rep->name, rep->icao, strRunway.c_str());
 					} else {
 						db_insert_update_table(status->sql,
-							"UPDATE trip_touchdowns SET icao=?,airport_name=?,runway=?,"
+							"UPDATE trip_touchdowns SET icao=?,airport_name=?,runway=?,runway_heading=?,"
 							"distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
 							" WHERE id=?;",
 							tmp, status,
@@ -2221,11 +2226,12 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 								db_bind(stmt, stmt_txt, 1, pS->airport.icao);
 								db_bind(stmt, stmt_txt, 2, pS->airport.name);
 								db_bind(stmt, stmt_txt, 3, (char*)aux);
-								db_bind(stmt, stmt_txt, 4, pS->airport.runway_act.distances[0] < 0 ? -1.0 : pS->airport.runway_act.distances[0]);
-								db_bind(stmt, stmt_txt, 5, pS->airport.runway_act.distances[1]);
-								db_bind(stmt, stmt_txt, 6, pS->airport.runway_act.distances_percent[0]);
-								db_bind(stmt, stmt_txt, 7, pS->airport.runway_act.distances_percent[1]);
-								db_bind(stmt, stmt_txt, 8, pS->db_id);
+								db_bind(stmt, stmt_txt, 4, pS->airport.runway_act.heading);
+								db_bind(stmt, stmt_txt, 5, pS->airport.runway_act.distances[0] < 0 ? -1.0 : pS->airport.runway_act.distances[0]);
+								db_bind(stmt, stmt_txt, 6, pS->airport.runway_act.distances[1]);
+								db_bind(stmt, stmt_txt, 7, pS->airport.runway_act.distances_percent[0]);
+								db_bind(stmt, stmt_txt, 8, pS->airport.runway_act.distances_percent[1]);
+								db_bind(stmt, stmt_txt, 9, pS->db_id);
 							}
 						);
 					}
