@@ -6,10 +6,18 @@
 #include <QWebEngineView>
 #include <QWebEnginePage>
 #include <QWebEngineProfile>
+#include <QWebEngineContextMenuRequest>
 #include <QWebChannel>
 #include <QVBoxLayout>
 #include <QToolButton>
+#include <QMenu>
+#include <QContextMenuEvent>
 #include <QResizeEvent>
+#include <QFileDialog>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QPixmap>
+#include <QMessageBox>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonDocument>
@@ -19,6 +27,7 @@
 #include "logger.h"
 #include <QtConcurrent/QtConcurrentRun>
 
+#include <functional>
 #include <vector>
 
 namespace {
@@ -108,6 +117,71 @@ protected:
 	}
 };
 
+// Trims Chromium's default context menu down to just what's useful on a map
+// tile view -- drops Back/Forward (no in-page navigation happens here), Save
+// Page, and View Page Source, replaces Reload with Reset Zoom (reloading
+// would blank the Leaflet page rather than just refit the view), and
+// replaces the stock per-tile Save/Copy image (which only captured the one
+// right-clicked tile) with whole-view versions that grab the composited map
+// -- trajectory, markers, and underlying tiles together -- as a single image.
+class FilteredWebEngineView : public QWebEngineView {
+public:
+	explicit FilteredWebEngineView(QWidget* parent = nullptr) : QWebEngineView(parent) {}
+
+	void setResetZoomHandler(std::function<void()> handler) { resetZoomHandler_ = std::move(handler); }
+	void setDefaultFileNameHandler(std::function<QString()> handler) { defaultFileNameHandler_ = std::move(handler); }
+
+protected:
+	void contextMenuEvent(QContextMenuEvent* event) override {
+		QWebEngineContextMenuRequest* request = lastContextMenuRequest();
+		if (!request)
+			return;
+
+		auto* menu = new QMenu(this);
+		menu->setAttribute(Qt::WA_DeleteOnClose);
+
+		QAction* resetZoomAction = menu->addAction(QStringLiteral("Reset Zoom"));
+		connect(resetZoomAction, &QAction::triggered, this, [this]() {
+			if (resetZoomHandler_)
+				resetZoomHandler_();
+		});
+
+		menu->addSeparator();
+		QAction* saveImageAction = menu->addAction(QStringLiteral("Save Image"));
+		connect(saveImageAction, &QAction::triggered, this, [this]() { saveMapImage(); });
+		QAction* copyImageAction = menu->addAction(QStringLiteral("Copy Image"));
+		connect(copyImageAction, &QAction::triggered, this, [this]() { copyMapImage(); });
+
+		// CopyLinkToClipboard isn't kept enabled/disabled in sync with the
+		// context menu request the way navigation/edit actions are -- its
+		// enabled bit is only ever flipped by Qt's own default context-menu
+		// builder, which this override replaces, so isEnabled() on it stays
+		// false here. Gate on the request's own linkUrl instead.
+		if (!request->linkUrl().isEmpty()) {
+			menu->addSeparator();
+			menu->addAction(pageAction(QWebEnginePage::CopyLinkToClipboard));
+		}
+
+		menu->popup(event->globalPos());
+	}
+
+private:
+	void saveMapImage() {
+		const QString defaultName = defaultFileNameHandler_ ? defaultFileNameHandler_() : QStringLiteral("map.png");
+		const QString fileName = QFileDialog::getSaveFileName(
+		    this, QStringLiteral("Save Map Image"), defaultName, QStringLiteral("PNG Image (*.png)"));
+		if (!fileName.isEmpty() && !grab().save(fileName, "PNG"))
+			QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to save the map image to %1.").arg(fileName));
+	}
+
+	void copyMapImage() {
+		QGuiApplication::clipboard()->setPixmap(grab());
+	}
+
+	std::function<void()> resetZoomHandler_;
+	std::function<QString()> defaultFileNameHandler_;
+};
+
 }
 
 MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
@@ -116,7 +190,10 @@ MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
 	// that doesn't, which tile servers can reject.
 	QWebEngineProfile::defaultProfile()->setHttpUserAgent(QStringLiteral("MSFS-Flight-Data-Recorder v2.0.0"));
 
-	view_ = new QWebEngineView(this);
+	auto* filteredView = new FilteredWebEngineView(this);
+	filteredView->setResetZoomHandler([this]() { resetZoom(); });
+	filteredView->setDefaultFileNameHandler([this]() { return defaultMapImageFileName(); });
+	view_ = filteredView;
 	view_->setPage(new LoggingPage(view_));
 	channel_ = new QWebChannel(this);
 	bridge_ = new MapBridge(this);
@@ -248,6 +325,20 @@ void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
 void MapWidget::resetZoom() {
 	if (pageReady_)
 		runJs(QStringLiteral("resetZoom();"));
+}
+
+QString MapWidget::defaultMapImageFileName() const {
+	if (inOverviewMode_)
+		return QStringLiteral("trips.png");
+	const QString departure = !liftoffPoints_.empty() ? liftoffPoints_.front().icao : QString();
+	const QString destination = !touchdowns_.empty() ? touchdowns_.back().icao : QString();
+	if (!departure.isEmpty() && !destination.isEmpty())
+		return QStringLiteral("%1-%2.png").arg(departure, destination);
+	if (!departure.isEmpty())
+		return departure + QStringLiteral(".png");
+	if (!destination.isEmpty())
+		return destination + QStringLiteral(".png");
+	return QStringLiteral("trip.png");
 }
 
 void MapWidget::appendLivePoint(const TripSamplePoint& point) {
