@@ -38,6 +38,9 @@ public:
 	// liftoff/touchdown markers are always shown regardless of this setting.
 	// Wired internally to the floating events-toggle icon button.
 	void setEventsVisible(bool visible);
+	// Suggested file name for the context menu's Save Image action: "trips.png"
+	// in overview mode, or "<departure>-<destination>.png" for a loaded trip.
+	QString defaultMapImageFileName() const;
 
 signals:
 	// Forwarded from MapBridge when the user drags the map marker.

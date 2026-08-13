@@ -979,6 +979,11 @@ function initLeafletProvider() {
     var overviewLines = [];
     var eventsVisible = true;
     var groupLegendControl = null;
+    // Bounds of the last overview drawn by setOverview(), so resetZoom() can
+    // refit to it -- trajectoryLatLngs is empty in overview mode (no single
+    // trip is loaded), so resetZoom()'s normal polyline.getBounds() path has
+    // nothing to fit to there.
+    var overviewBounds = null;
 
     function snapAndReport(decimatedIdx) {
         if (marker !== null)
@@ -1000,6 +1005,7 @@ function initLeafletProvider() {
         setTrajectory: function (data) {
             overviewLines.forEach(function(l) { map.removeLayer(l); });
             overviewLines = [];
+            overviewBounds = null;
             if (groupLegendControl) {
                 map.removeControl(groupLegendControl);
                 groupLegendControl = null;
@@ -1172,6 +1178,7 @@ function initLeafletProvider() {
             eventMarkers = [];
             overviewLines.forEach(function(l) { map.removeLayer(l); });
             overviewLines = [];
+            overviewBounds = null;
             if (groupLegendControl) {
                 map.removeControl(groupLegendControl);
                 groupLegendControl = null;
@@ -1235,14 +1242,18 @@ function initLeafletProvider() {
                     bounds.push([s.toLat, s.toLng]);
                 }
             });
-            if (bounds.length > 0)
-                map.fitBounds(L.latLngBounds(bounds), { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
+            if (bounds.length > 0) {
+                overviewBounds = L.latLngBounds(bounds);
+                map.fitBounds(overviewBounds, { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
+            }
             groupLegendControl = buildGroupLegend(legendGroups, map, overviewLines);
         },
         resetZoom: function () {
             map.closePopup();
             if (trajectoryLatLngs.length > 0)
                 map.fitBounds(polyline.getBounds(), { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
+            else if (overviewBounds !== null)
+                map.fitBounds(overviewBounds, { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
         }
     };
 
