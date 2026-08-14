@@ -1076,6 +1076,123 @@ static const char* facility_lookup_target_label(struct STATUS* status, AIRPORT* 
 	return (apt == &status->departure) ? "departure" : status->facility_lookup_is_liftoff ? "liftoff" : "destination";
 }
 
+// Padding applied past each runway end / each runway edge to build the
+// "margin rectangle" used by the FACILITY_DATA_END handler's multi-candidate
+// runway walk -- a touchdown/liftoff inside this but outside the strict
+// runway rectangle is judged "on this airport, but not confidently on a
+// runway" rather than a clean runway match. Loosely based on real-world
+// runway safety-area dimensions.
+static const double RUNWAY_MARGIN_LENGTH_M = 200; // past each end
+static const double RUNWAY_MARGIN_WIDTH_M = 60;   // past each edge
+
+// Issues the SimConnect facility-data (runway) request for
+// facility_lookup_top[idx] into the current lookup's scratch AIRPORT slot,
+// and records idx as the candidate the walk is now on. Shared by the
+// AIRPORT_LIST handler (first candidate) and the FACILITY_DATA_END handler
+// (advancing to the next candidate after a candidate with no strict runway
+// match) -- see the multi-candidate walk described where
+// facility_lookup_candidate_index is declared in types.h.
+static void facility_lookup_request_candidate(struct STATUS* status, int idx) {
+	status->facility_lookup_candidate_index = idx;
+	char* ident = status->facility_lookup_top[idx].ident;
+	char* region = status->facility_lookup_top[idx].region;
+	AIRPORT* apt = facility_lookup_target(status);
+	strncpy(apt->icao, ident, sizeof(apt->icao) - 1);
+	apt->icao[sizeof(apt->icao) - 1] = '\0';
+	strncpy(apt->region, region, sizeof(apt->region) - 1);
+	apt->region[sizeof(apt->region) - 1] = '\0';
+	gui_log_printf(status, GUI_LOG_TRACE, "Requesting facility data for candidate #%d %s (%s) into %s slot",
+		idx + 1, apt->icao, apt->region, facility_lookup_target_label(status, apt));
+	// The definition's fields are server-side, per-connection state -- only
+	// need to be registered once per connection, not once per lookup (see
+	// facility_definition_runways_added in types.h).
+	if (!status->facility_definition_runways_added) {
+		status->facility_definition_runways_added = TRUE;
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN AIRPORT");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "NAME64");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "MAGVAR");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "N_RUNWAYS");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN RUNWAY");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LENGTH");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "WIDTH");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "HEADING");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "PRIMARY_NUMBER");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "SECONDARY_NUMBER");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "PRIMARY_DESIGNATOR");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "SECONDARY_DESIGNATOR");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LATITUDE");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LONGITUDE");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE RUNWAY");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE AIRPORT");
+	}
+	SimConnect_RequestFacilityData_EX1(status->hSimConnect, DEFINITION_RUNWAYS, REQUEST_RUNWAYS, ident, region);
+	SimConnect_GetLastSentPacketID(status->hSimConnect, &status->facility_lookup_send_id);
+}
+
+// Terminal "no airport at all" resolution: logs and records a pure
+// coordinate-only liftoff/departure/touchdown, with no ICAO/name attached.
+// Reached when there are no airport candidates whatsoever (empty
+// facility_lookup_top[]), or when the multi-candidate walk exhausts every
+// candidate in facility_lookup_top[] without so much as a margin-rectangle
+// hit and the nearest candidate is also too far away to trust by distance
+// alone (see the FACILITY_DATA_END handler). The caller is still
+// responsible for clearing facility_lookup_pending and draining the queue
+// afterward -- this only performs the logging/DB-update side effects.
+static void facility_lookup_resolve_no_airport(struct STATUS* status) {
+	if (status->facility_lookup_is_departure) {
+		gui_log_printf(status, GUI_LOG_INFO, "Liftoff from %s, %s at %s",
+			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
+			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
+			status->data.time_local.format_date_time().c_str());
+		status->departure.runway_act.index = -2;
+	} else if (status->facility_lookup_is_liftoff) {
+		// Found up front, same reasoning as the touchdown branch below: this
+		// callback fires asynchronously and can lag well behind the actual
+		// liftoff moment. No trips.* update -- a trip has exactly one
+		// departure, and this is a subsequent-liftoff marker, not it.
+		struct LIFTOFF_DATA* tmp = status->liftoff_data;
+		while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
+			tmp = tmp->next;
+		gui_log_printf(status, GUI_LOG_INFO, "Liftoff (subsequent) at %s, %s at %s",
+			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
+			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
+			tmp != NULL ? tmp->flight_data.time_local.format_date_time().c_str() : "unknown time");
+		if (tmp != NULL) {
+			tmp->airport.runway_act.distances[0] = -2;
+			// trip_liftoffs row already has NULL airport fields from the immediate
+			// INSERT at liftoff; no further DB update needed for this path.
+			gui_notify_trip_updated(status);
+		}
+	} else {
+		// Found up front (rather than after the log line, as it used to be)
+		// so its own recorded touchdown time -- not "now" -- can be logged:
+		// this callback fires asynchronously once the facility lookup
+		// resolves, which can lag well behind the actual touchdown moment.
+		struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
+		while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
+			tmp = tmp->next;
+		gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s, %s at %s",
+			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
+			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
+			tmp != NULL ? tmp->flight_data.time_local.format_date_time().c_str() : "unknown time");
+		db_insert_update_table(status->sql,
+			"UPDATE trips SET destination_icao=NULL,destination_rwy=NULL,destination_region=NULL WHERE id=?;",
+			NULL,
+			status,
+			NULL,
+			[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
+				db_bind(stmt, stmt_txt, 1, status->id_trip);
+			}
+		);
+		if (tmp != NULL) {
+			tmp->airport.runway_act.distances[0] = -2;
+			// trip_touchdowns row already has NULL airport fields from the immediate
+			// INSERT at touchdown; no further DB update needed for this path.
+			gui_notify_trip_updated(status);
+		}
+	}
+}
+
 void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContext) {
 	struct STATUS* status = (struct STATUS*)pContext;
 	try {
@@ -1730,6 +1847,8 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				status->facility_lookup_top[k].ident[0] = '\0';
 				status->facility_lookup_top[k].region[0] = '\0';
 			}
+			status->facility_lookup_candidate_index = 0;
+			status->facility_lookup_margin_cache.found = false;
 		}
 		for (int i = 0; i < (int)pWxData->dwArraySize; i++) {
 			struct SIMCONNECT_DATA_FACILITY_AIRPORT airport = pWxData->rgData[i];
@@ -1763,95 +1882,14 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			gui_log_printf(status, GUI_LOG_TRACE, "AIRPORT_LIST nearest #%d: %s (%s) at %.2f km",
 				k + 1, status->facility_lookup_top[k].ident, status->facility_lookup_top[k].region, status->facility_lookup_top[k].distance);
 		}
-		double min_distance = status->facility_lookup_top[0].distance;
-		if (min_distance < 5) {
-			char* ident = status->facility_lookup_top[0].ident;
-			char* region = status->facility_lookup_top[0].region;
-			AIRPORT* apt = facility_lookup_target(status);
-			strncpy(apt->icao, ident, sizeof(apt->icao) - 1);
-			apt->icao[sizeof(apt->icao) - 1] = '\0';
-			strncpy(apt->region, region, sizeof(apt->region) - 1);
-			apt->region[sizeof(apt->region) - 1] = '\0';
-			gui_log_printf(status, GUI_LOG_TRACE, "Requesting facility data for %s (%s) into %s slot",
-				apt->icao, apt->region, facility_lookup_target_label(status, apt));
-			// The definition's fields are server-side, per-connection state -- only
-			// need to be registered once per connection, not once per lookup (see
-			// facility_definition_runways_added in types.h).
-			if (!status->facility_definition_runways_added) {
-				status->facility_definition_runways_added = TRUE;
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN AIRPORT");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "NAME64");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "MAGVAR");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "N_RUNWAYS");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN RUNWAY");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LENGTH");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "WIDTH");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "HEADING");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "PRIMARY_NUMBER");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "SECONDARY_NUMBER");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "PRIMARY_DESIGNATOR");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "SECONDARY_DESIGNATOR");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LATITUDE");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LONGITUDE");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE RUNWAY");
-				SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE AIRPORT");
-			}
-			SimConnect_RequestFacilityData_EX1(status->hSimConnect, DEFINITION_RUNWAYS, REQUEST_RUNWAYS, ident, region);
-			SimConnect_GetLastSentPacketID(status->hSimConnect, &status->facility_lookup_send_id);
+		if (status->facility_lookup_top[0].ident[0] != '\0') {
+			// Kick off the multi-candidate walk at the nearest airport. Actual
+			// runway geometry -- not ARP distance -- decides whether this (or a
+			// farther candidate) is a match; see FACILITY_DATA_END below.
+			facility_lookup_request_candidate(status, 0);
 		} else {
-			gui_log_printf(status, GUI_LOG_TRACE, "AIRPORT_LIST: nearest airport %.2f km away exceeds 5km threshold; using coordinate-only fallback", min_distance);
-			if (status->facility_lookup_is_departure) {
-				gui_log_printf(status, GUI_LOG_INFO, "Liftoff from %s, %s at %s",
-					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
-					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
-					status->data.time_local.format_date_time().c_str());
-				status->departure.runway_act.index = -2;
-			} else if (status->facility_lookup_is_liftoff) {
-				// Found up front, same reasoning as the touchdown branch below: this
-				// callback fires asynchronously and can lag well behind the actual
-				// liftoff moment. No trips.* update -- a trip has exactly one
-				// departure, and this is a subsequent-liftoff marker, not it.
-				struct LIFTOFF_DATA* tmp = status->liftoff_data;
-				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-					tmp = tmp->next;
-				gui_log_printf(status, GUI_LOG_INFO, "Liftoff (subsequent) at %s, %s at %s",
-					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
-					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
-					tmp != NULL ? tmp->flight_data.time_local.format_date_time().c_str() : "unknown time");
-				if (tmp != NULL) {
-					tmp->airport.runway_act.distances[0] = -2;
-					// trip_liftoffs row already has NULL airport fields from the immediate
-					// INSERT at liftoff; no further DB update needed for this path.
-					gui_notify_trip_updated(status);
-				}
-			} else {
-				// Found up front (rather than after the log line, as it used to be)
-				// so its own recorded touchdown time -- not "now" -- can be logged:
-				// this callback fires asynchronously once the facility lookup
-				// resolves, which can lag well behind the actual touchdown moment.
-				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
-				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-					tmp = tmp->next;
-				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s, %s at %s",
-					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
-					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
-					tmp != NULL ? tmp->flight_data.time_local.format_date_time().c_str() : "unknown time");
-				db_insert_update_table(status->sql,
-					"UPDATE trips SET destination_icao=NULL,destination_rwy=NULL,destination_region=NULL WHERE id=?;",
-					NULL,
-					status,
-					NULL,
-					[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-						db_bind(stmt, stmt_txt, 1, status->id_trip);
-					}
-				);
-				if (tmp != NULL) {
-					tmp->airport.runway_act.distances[0] = -2;
-						// trip_touchdowns row already has NULL airport fields from the immediate
-					// INSERT at touchdown; no further DB update needed for this path.
-					gui_notify_trip_updated(status);
-				}
-			}
+			gui_log_printf(status, GUI_LOG_TRACE, "AIRPORT_LIST: no airport candidates at all; using coordinate-only fallback");
+			facility_lookup_resolve_no_airport(status);
 			// Terminal outcome for this lookup -- no facility data request was made,
 			// so FACILITY_DATA_END will never fire to clear this.
 			status->facility_lookup_pending = FALSE;
@@ -1925,11 +1963,20 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		struct FacilityLookupCleanup {
 			AIRPORT* rep;
 			struct STATUS* status;
+			// Set just before this case falls out to advance the multi-candidate
+			// walk to facility_lookup_top[]'s next entry (see the no-strict-match
+			// handling below) -- the walk is still the same logical lookup, so
+			// facility_lookup_pending must stay TRUE and the queue must not be
+			// drained until the walk actually finishes (a strict match, a cached
+			// margin/identity/coordinate-only fallback, or exhausting the list).
+			bool more_candidates_pending = false;
 			~FacilityLookupCleanup() {
 				if (rep->runways != NULL) {
 					free(rep->runways);
 					rep->runways = NULL;
 				}
+				if (more_candidates_pending)
+					return;
 				status->facility_lookup_pending = FALSE;
 				// Pick up a touchdown that landed while this lookup was still in
 				// flight and had its own request skipped -- see
@@ -1980,6 +2027,14 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			bearing_tra, (is_touchdown && loc_dh_source->latitude != 360) ? "loc_dh-based" : "heading-based",
 			rep->n_runways, facility_lookup_target_label(status, rep));
 		std::vector<struct RUNWAY_OPERATION> candidates;
+		// True if any runway's padded "margin rectangle" (but not necessarily
+		// its strict rectangle) contains the touchdown/liftoff point -- see
+		// RUNWAY_MARGIN_LENGTH_M/RUNWAY_MARGIN_WIDTH_M above. Unlike the strict
+		// tier, a margin hit never selects a specific runway (no best-fit-by-
+		// heading needed) -- it only means "this airport, near a runway, but
+		// not confidently on one", i.e. the existing "-2, known airport, no
+		// runway" outcome. So this is a simple OR across every runway.
+		bool any_margin_hit = false;
 		for (int i = 0; i < rep->n_runways; i++) {
 			RUNWAY* rwy = &rep->runways[i];
 			// Human-readable "06L/24R"-style id for trace output -- numbers[]/
@@ -1992,6 +2047,37 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			if (heading <= 0)
 				heading += 360;
 			rwy->start_points[0] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, heading);
+
+			if (!any_margin_hit) {
+				// Same single-corner-referenced polar footprint check as the strict
+				// tier below, but anchored on a point shifted RUNWAY_MARGIN_LENGTH_M
+				// further past threshold 0 (rather than reusing start_points[0]
+				// as-is), with length/width padded by RUNWAY_MARGIN_LENGTH_M/
+				// RUNWAY_MARGIN_WIDTH_M -- shifting the anchor, not just growing the
+				// dimensions, is what lets this catch points short of threshold 0 or
+				// beyond the runway's side edges near its ends, not only points
+				// beyond the far threshold.
+				double margin_length = rwy->length + 2 * RUNWAY_MARGIN_LENGTH_M;
+				double margin_width = rwy->width + 2 * RUNWAY_MARGIN_WIDTH_M;
+				double margin_angle = atan(margin_width / 2 / margin_length) / V_PI * 180;
+				COORDINATE margin_start = rwy->coordinate.destinationWithDistanceAndBearing(
+					(rwy->length / 2 + RUNWAY_MARGIN_LENGTH_M) / 1000, heading);
+				double margin_bearing = margin_start.bearing2Coordinate(status->facility_lookup_coordinate);
+				double margin_distance = margin_start.distanceInKm2Coordinate(status->facility_lookup_coordinate) * 1000;
+				double margin_diff_bearing = abs(margin_bearing - rwy->heading);
+				if (margin_diff_bearing > 180)
+					margin_diff_bearing = 360 - margin_diff_bearing;
+				double margin_distance2 = 0;
+				if (margin_diff_bearing >= 0 && margin_diff_bearing <= margin_angle)
+					margin_distance2 = margin_length / cos(margin_diff_bearing / 180 * V_PI);
+				else if (margin_diff_bearing > margin_angle && margin_diff_bearing <= 90)
+					margin_distance2 = margin_width / 2 / sin(margin_diff_bearing / 180 * V_PI);
+				if (margin_distance <= margin_distance2) {
+					any_margin_hit = true;
+					gui_log_printf(status, GUI_LOG_TRACE, "Runway candidate %d/%d: %s margin-rectangle hit (distance=%.1fm, distance2=%.1fm)",
+						i + 1, rep->n_runways, rwy_id.c_str(), margin_distance, margin_distance2);
+				}
+			}
 
 			double angle = atan(rwy->width / 2 / rwy->length) / V_PI * 180;
 			double bearing = rwy->start_points[0].bearing2Coordinate(status->facility_lookup_coordinate);
@@ -2260,6 +2346,62 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				}
 			}
 		} else {
+			// No strict runway match for this candidate. Snapshot candidate 0's
+			// name (needed by the final <5km identity-only fallback below, since
+			// this shared scratch AIRPORT slot gets overwritten by later
+			// candidates), cache the nearest margin-rectangle hit if this is the
+			// first one seen, then either advance the walk to the next candidate
+			// or -- if the walk is exhausted -- resolve using whatever the walk
+			// found (cached margin hit, then nearest-candidate identity within
+			// 5km, then pure coordinate-only).
+			if (status->facility_lookup_candidate_index == 0) {
+				strncpy(status->facility_lookup_candidate0_name, rep->name, sizeof(status->facility_lookup_candidate0_name) - 1);
+				status->facility_lookup_candidate0_name[sizeof(status->facility_lookup_candidate0_name) - 1] = '\0';
+			}
+			if (any_margin_hit && !status->facility_lookup_margin_cache.found) {
+				status->facility_lookup_margin_cache.found = true;
+				strncpy(status->facility_lookup_margin_cache.name, rep->name, sizeof(status->facility_lookup_margin_cache.name) - 1);
+				status->facility_lookup_margin_cache.name[sizeof(status->facility_lookup_margin_cache.name) - 1] = '\0';
+				strncpy(status->facility_lookup_margin_cache.icao, rep->icao, sizeof(status->facility_lookup_margin_cache.icao) - 1);
+				status->facility_lookup_margin_cache.icao[sizeof(status->facility_lookup_margin_cache.icao) - 1] = '\0';
+				strncpy(status->facility_lookup_margin_cache.region, rep->region, sizeof(status->facility_lookup_margin_cache.region) - 1);
+				status->facility_lookup_margin_cache.region[sizeof(status->facility_lookup_margin_cache.region) - 1] = '\0';
+				gui_log_printf(status, GUI_LOG_TRACE, "Runway match: cached margin-rectangle identity %s (%s) for %s slot",
+					rep->icao, rep->name, facility_lookup_target_label(status, rep));
+			}
+			bool has_next_candidate = (status->facility_lookup_candidate_index + 1 < STATUS::FACILITY_LIST_TOP_N)
+				&& status->facility_lookup_top[status->facility_lookup_candidate_index + 1].ident[0] != '\0';
+			bool resolve_as_known_airport_no_runway = false;
+			if (has_next_candidate) {
+				gui_log_printf(status, GUI_LOG_TRACE, "Runway match: no strict match for candidate #%d (%s); advancing to candidate #%d",
+					status->facility_lookup_candidate_index + 1, rep->icao, status->facility_lookup_candidate_index + 2);
+				cleanup_guard.more_candidates_pending = true;
+				facility_lookup_request_candidate(status, status->facility_lookup_candidate_index + 1);
+			} else if (status->facility_lookup_margin_cache.found) {
+				gui_log_printf(status, GUI_LOG_TRACE, "Runway match: candidate walk exhausted; resolving via cached margin-rectangle identity %s (%s)",
+					status->facility_lookup_margin_cache.icao, status->facility_lookup_margin_cache.name);
+				strncpy(rep->name, status->facility_lookup_margin_cache.name, sizeof(rep->name) - 1);
+				rep->name[sizeof(rep->name) - 1] = '\0';
+				strncpy(rep->icao, status->facility_lookup_margin_cache.icao, sizeof(rep->icao) - 1);
+				rep->icao[sizeof(rep->icao) - 1] = '\0';
+				strncpy(rep->region, status->facility_lookup_margin_cache.region, sizeof(rep->region) - 1);
+				rep->region[sizeof(rep->region) - 1] = '\0';
+				resolve_as_known_airport_no_runway = true;
+			} else if (status->facility_lookup_top[0].distance < 5) {
+				gui_log_printf(status, GUI_LOG_TRACE, "Runway match: candidate walk exhausted with no margin hit; nearest candidate %.2f km away is within 5km, using its identity with no runway",
+					status->facility_lookup_top[0].distance);
+				strncpy(rep->icao, status->facility_lookup_top[0].ident, sizeof(rep->icao) - 1);
+				rep->icao[sizeof(rep->icao) - 1] = '\0';
+				strncpy(rep->region, status->facility_lookup_top[0].region, sizeof(rep->region) - 1);
+				rep->region[sizeof(rep->region) - 1] = '\0';
+				strncpy(rep->name, status->facility_lookup_candidate0_name, sizeof(rep->name) - 1);
+				rep->name[sizeof(rep->name) - 1] = '\0';
+				resolve_as_known_airport_no_runway = true;
+			} else {
+				gui_log_printf(status, GUI_LOG_TRACE, "Runway match: candidate walk exhausted with no strict/margin match and nearest candidate %.2f km away exceeds 5km threshold; using coordinate-only fallback", status->facility_lookup_top[0].distance);
+				facility_lookup_resolve_no_airport(status);
+			}
+			if (resolve_as_known_airport_no_runway) {
 			if (rep == &status->departure) {
 				gui_log_printf(status, GUI_LOG_INFO, "Liftoff from %s (%s) [%s, %s] at %s",
 					rep->name,
@@ -2370,6 +2512,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					}
 					gui_notify_trip_updated(status);
 				}
+			}
 			}
 		}
 		// runways free + facility_lookup_pending reset happen in cleanup_guard's

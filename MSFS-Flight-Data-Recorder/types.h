@@ -846,6 +846,29 @@ struct STATUS {
 	};
 	static const int FACILITY_LIST_TOP_N = 5;
 	FACILITY_LIST_CANDIDATE facility_lookup_top[FACILITY_LIST_TOP_N];
+	// Which facility_lookup_top[] slot the in-flight multi-candidate runway
+	// walk is currently fetching/evaluating. Reset to 0 alongside
+	// facility_lookup_top[] itself, on a fresh request's first chunk.
+	int facility_lookup_candidate_index = 0;
+	// Cached "known airport, no specific runway" identity from a margin-
+	// rectangle hit (touchdown/liftoff near a runway but not strictly on it)
+	// found while walking facility_lookup_top[] nearest-to-farthest. Only
+	// ever holds the nearest candidate that had a margin hit -- see the
+	// "cache only if not already found" rule in recorder.cpp's
+	// FACILITY_DATA_END handler.
+	struct FACILITY_LOOKUP_MARGIN_CACHE {
+		bool found = false;
+		char name[64] = {};
+		char icao[5] = {};
+		char region[3] = {};
+	} facility_lookup_margin_cache;
+	// Snapshot of facility_lookup_top[0]'s AIRPORT::name, captured the first
+	// time candidate 0's FACILITY_DATA_END is processed. Needed by the final
+	// <5km identity-only fallback: by the time the candidate walk exhausts
+	// facility_lookup_top[], the one shared scratch AIRPORT slot has been
+	// overwritten by later candidates' data, so candidate 0's name has to be
+	// preserved separately.
+	char facility_lookup_candidate0_name[64] = {};
 	// Per-event-name tier 1 flood-detection buffers -- see EVENT_STREAK and
 	// record_event() in recorder.cpp. Runs continuously for the life of the
 	// app (not scoped to a trip or reset when one starts/ends): each entry's
