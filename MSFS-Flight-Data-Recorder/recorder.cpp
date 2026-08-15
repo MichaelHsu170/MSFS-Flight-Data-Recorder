@@ -1122,6 +1122,20 @@ static void facility_lookup_request_candidate(struct STATUS* status, int idx) {
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "SECONDARY_DESIGNATOR");
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LATITUDE");
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LONGITUDE");
+		// Displaced-threshold offsets -- nested PAVEMENT child records, matched
+		// back to this runway in the FACILITY_DATA_PAVEMENT case below via
+		// ParentUniqueRequestId. Request order (primary before secondary)
+		// is relied on there to tell the two apart.
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN PRIMARY_THRESHOLD");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LENGTH");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "WIDTH");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "ENABLE");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE PRIMARY_THRESHOLD");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN SECONDARY_THRESHOLD");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LENGTH");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "WIDTH");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "ENABLE");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE SECONDARY_THRESHOLD");
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE RUNWAY");
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "CLOSE AIRPORT");
 	}
@@ -1932,8 +1946,15 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		{
 			AIRPORT* apt = facility_lookup_target(status);
 			RUNWAY* rep = apt->runways;
-			gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_RUNWAY: %s slot, ItemIndex=%lu, n_runways=%d",
-				facility_lookup_target_label(status, apt), pWxData->ItemIndex, apt->n_runways);
+			// UniqueRequestId is logged here (and echoed by the FACILITY_DATA_PAVEMENT
+			// case below on every match) specifically so a captured debug log can be
+			// used to confirm SimConnect actually hands out a distinct id per nested
+			// RUNWAY record -- see the correlation assumption noted in pending_request_id's
+			// declaration in types.h. If every runway at a multi-runway airport logs the
+			// same UniqueRequestId here, that assumption is false and PAVEMENT matching
+			// below is unreliable.
+			gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_RUNWAY: %s slot, ItemIndex=%lu, n_runways=%d, UniqueRequestId=%lu",
+				facility_lookup_target_label(status, apt), pWxData->ItemIndex, apt->n_runways, pWxData->UniqueRequestId);
 			// apt->n_runways is guaranteed >= 0 (clamped in FACILITY_DATA_AIRPORT
 			// above); ItemIndex is unsigned, so comparing it directly against a
 			// non-negative n_runways (rather than casting ItemIndex down to a
@@ -1943,7 +1964,76 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				break;
 			}
 			memset(&rep[pWxData->ItemIndex], 0, sizeof(RUNWAY));
-			memcpy((char*)&rep[pWxData->ItemIndex] + sizeof(rep->placeholder), &pWxData->Data, sizeof(RUNWAY) - sizeof(rep->placeholder) - sizeof(rep->start_points));
+			// Wire payload is only placeholder..coordinate -- start_points[] and
+			// the threshold/correlation fields below it are computed/populated
+			// locally (start_points here, threshold fields by the nested
+			// FACILITY_DATA_PAVEMENT case below), never sent over the wire, so
+			// all of them must stay excluded from this copy's size.
+			memcpy((char*)&rep[pWxData->ItemIndex] + sizeof(rep->placeholder), &pWxData->Data,
+				sizeof(RUNWAY) - sizeof(rep->placeholder) - sizeof(rep->start_points)
+				- sizeof(rep->primary_threshold_offset_m) - sizeof(rep->secondary_threshold_offset_m)
+				- sizeof(rep->primary_threshold_enable) - sizeof(rep->secondary_threshold_enable)
+				- sizeof(rep->pending_request_id) - sizeof(rep->threshold_pavement_seen));
+			rep[pWxData->ItemIndex].pending_request_id = pWxData->UniqueRequestId;
+			rep[pWxData->ItemIndex].threshold_pavement_seen = 0;
+		}
+		break;
+		case SIMCONNECT_FACILITY_DATA_PAVEMENT:
+		{
+			AIRPORT* apt = facility_lookup_target(status);
+			RUNWAY* rep = apt->runways;
+			// PAVEMENT is a child of RUNWAY (used for PRIMARY_THRESHOLD/
+			// SECONDARY_THRESHOLD, both requested per-runway) -- unlike
+			// FACILITY_DATA_RUNWAY, there's no ItemIndex identifying which
+			// runway this belongs to, so it's matched via ParentUniqueRequestId
+			// against the UniqueRequestId captured when that runway's own
+			// FACILITY_DATA_RUNWAY record arrived, just above.
+			struct { float length; float width; int enable; } pavement;
+			memcpy(&pavement, &pWxData->Data, sizeof(pavement));
+			RUNWAY* match = NULL;
+			int match_index = -1;
+			if (rep != NULL) {
+				for (int i = 0; i < apt->n_runways; i++) {
+					if (rep[i].pending_request_id == pWxData->ParentUniqueRequestId) {
+						match = &rep[i];
+						match_index = i;
+						break;
+					}
+				}
+			}
+			if (match == NULL) {
+				gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_PAVEMENT: no runway matches ParentUniqueRequestId=%lu; dropping", pWxData->ParentUniqueRequestId);
+				break;
+			}
+			// rwy_id/match_index/ParentUniqueRequestId are logged on every branch below
+			// (not just failures) specifically so a captured debug log can be checked
+			// against a runway with a known real-world displaced threshold to confirm:
+			// (1) this record landed on the right runway, and (2) primary-vs-secondary
+			// (order-based, see below) came out the right way round.
+			std::string rwy_id = match->runway_code_generator(true) + "/" + match->runway_code_generator(false);
+			// Requested field order is OPEN PRIMARY_THRESHOLD before OPEN
+			// SECONDARY_THRESHOLD (see facility_lookup_request_candidate), so
+			// the first PAVEMENT record for a given runway is always primary,
+			// the second always secondary. This relies on SimConnect delivering
+			// a runway's nested children in request-definition order -- not
+			// independently confirmable from this data, hence logging both
+			// offsets here for cross-checking against a known runway.
+			if (match->threshold_pavement_seen == 0) {
+				match->primary_threshold_offset_m = pavement.length;
+				match->primary_threshold_enable = pavement.enable;
+				match->threshold_pavement_seen = 1;
+				gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_PAVEMENT: runway[%d] %s (ParentUniqueRequestId=%lu): primary threshold offset=%.1fm, enable=%d",
+					match_index, rwy_id.c_str(), pWxData->ParentUniqueRequestId, pavement.length, pavement.enable);
+			} else if (match->threshold_pavement_seen == 1) {
+				match->secondary_threshold_offset_m = pavement.length;
+				match->secondary_threshold_enable = pavement.enable;
+				match->threshold_pavement_seen = 2;
+				gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_PAVEMENT: runway[%d] %s (ParentUniqueRequestId=%lu): secondary threshold offset=%.1fm, enable=%d",
+					match_index, rwy_id.c_str(), pWxData->ParentUniqueRequestId, pavement.length, pavement.enable);
+			} else {
+				gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_PAVEMENT: runway[%d] %s (ParentUniqueRequestId=%lu): unexpected extra pavement record; dropping",
+					match_index, rwy_id.c_str(), pWxData->ParentUniqueRequestId);
+			}
 		}
 		break;
 		default:
@@ -2144,6 +2234,46 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				candidate.distances[1] = loc.distanceInKm2Coordinate(status->facility_lookup_coordinate) * dir * 1000 * M_2_FT;
 				candidate.distances_percent[0] = candidate.distances[0] / rwy->length / M_2_FT;
 				candidate.distances_percent[1] = candidate.distances[1] / rwy->width * 2 / M_2_FT;
+				// Displaced-threshold correction applies to touchdowns only: a
+				// landing's "usable region" is genuinely bounded by the marked
+				// threshold (touching down before it is a short/non-standard
+				// landing, worth surfacing), but a takeoff roll may legitimately
+				// start at the physical runway end -- the pre-threshold pavement
+				// is still valid, usable surface for a departure, so a liftoff's
+				// distance/percent stay measured from the physical end, exactly
+				// as before this feature existed.
+				if (is_touchdown) {
+					// enable==0 means this runway has no threshold data, so the
+					// offset must stay 0 rather than be applied. Intentionally not
+					// clamped at 0 after subtraction: a touchdown short of the
+					// marked threshold (e.g. on a blast pad) reporting a negative
+					// distance is meaningful, not an error.
+					float threshold_offset_m = candidate.is_primary
+						? (rwy->primary_threshold_enable ? rwy->primary_threshold_offset_m : 0)
+						: (rwy->secondary_threshold_enable ? rwy->secondary_threshold_offset_m : 0);
+					double distance_before_correction_ft = candidate.distances[0];
+					candidate.distances[0] -= threshold_offset_m * M_2_FT;
+					// Percent is of landing distance available (physical length
+					// minus both ends' displaced-threshold offsets), not full
+					// physical length, so 100% still means "the far threshold" now
+					// that the numerator starts from the near threshold instead of
+					// the near physical end.
+					float primary_offset_m = rwy->primary_threshold_enable ? rwy->primary_threshold_offset_m : 0;
+					float secondary_offset_m = rwy->secondary_threshold_enable ? rwy->secondary_threshold_offset_m : 0;
+					double landing_distance_available_m = rwy->length - primary_offset_m - secondary_offset_m;
+					if (landing_distance_available_m <= 0)
+						landing_distance_available_m = rwy->length;
+					candidate.distances_percent[0] = candidate.distances[0] / (landing_distance_available_m * M_2_FT);
+					// Logged unconditionally (even when offset==0, i.e. no threshold data)
+					// so a captured debug log always shows what this feature did with a
+					// given touchdown -- this is the line to check against a runway with a
+					// known displaced threshold to confirm the popup's corrected "Threshold"
+					// figure is right, independent of the raw PAVEMENT parsing logged above.
+					gui_log_printf(status, GUI_LOG_TRACE, "Runway candidate %d/%d: %s touchdown threshold correction: end=%s, offset=%.1fm, distance %.1fft -> %.1fft (%.1f%%), LDA=%.1fm",
+						i + 1, rep->n_runways, rwy_id.c_str(), candidate.is_primary ? "primary" : "secondary",
+						threshold_offset_m, distance_before_correction_ft, candidate.distances[0], candidate.distances_percent[0] * 100,
+						landing_distance_available_m);
+				}
 
 				gui_log_printf(status, GUI_LOG_TRACE, "Runway candidate %d/%d: %s accepted, is_primary=%d, diff_bearing_tra=%.1f",
 					i + 1, rep->n_runways, rwy_id.c_str(), candidate.is_primary ? 1 : 0, candidate.diff_bearing_tra);
@@ -2313,7 +2443,13 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 								db_bind(stmt, stmt_txt, 2, pS->airport.name);
 								db_bind(stmt, stmt_txt, 3, (char*)aux);
 								db_bind(stmt, stmt_txt, 4, pS->airport.runway_act.heading);
-								db_bind(stmt, stmt_txt, 5, pS->airport.runway_act.distances[0] < 0 ? -1.0 : pS->airport.runway_act.distances[0]);
+								// No "< 0 ? -1.0 : ..." clamp here (unlike the liftoff binds
+								// above): we're inside the runway_act.index != -1 branch, so a
+								// runway is already matched and this is a real, resolved value --
+								// a touchdown before the marked/displaced threshold legitimately
+								// reports negative. Clamping it to -1 would collide with -1's
+								// other meaning ("no runway matched") and silently hide it.
+								db_bind(stmt, stmt_txt, 5, pS->airport.runway_act.distances[0]);
 								db_bind(stmt, stmt_txt, 6, pS->airport.runway_act.distances[1]);
 								db_bind(stmt, stmt_txt, 7, pS->airport.runway_act.distances_percent[0]);
 								db_bind(stmt, stmt_txt, 8, pS->airport.runway_act.distances_percent[1]);

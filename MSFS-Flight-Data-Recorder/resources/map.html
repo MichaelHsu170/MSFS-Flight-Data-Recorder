@@ -218,8 +218,12 @@ function buildLiftoffPrompt(t) {
     lines.push('  Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     lines.push('  Heading: ' + t.headingDegrees + '°');
     lines.push('  Wind: ' + t.windDirection + '° at ' + t.windVelocity + ' kt');
-    if (t.distanceLength != null && t.distanceLength >= 0) {
-        lines.push('  Distance from threshold at liftoff: ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of runway)');
+    // Gated on t.runway (a runway was matched), not "distanceLength >= 0":
+    // a NULL distance_length column (no runway matched, never written) reads
+    // back as 0 via sqlite3_column_double, which would pass ">= 0" and show
+    // a meaningless "0 ft (0%)" as if a runway had been determined.
+    if (t.runway && t.distanceLength != null) {
+        lines.push('  Distance from threshold at liftoff: ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of runway) [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
         var side = t.distanceWidth >= 0 ? 'right' : 'left';
         lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
     }
@@ -260,8 +264,11 @@ function buildTouchdownPrompt(t) {
     lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     lines.push('  Heading: ' + t.headingDegrees + '°');
     lines.push('  Wind: ' + t.windDirection + '° at ' + t.windVelocity + ' kt');
-    if (t.distanceLength != null && t.distanceLength >= 0) {
-        lines.push('  Distance from threshold: ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of runway)');
+    // Gated on t.runway (a runway was matched), not "distanceLength >= 0":
+    // a touchdown before the marked/displaced threshold legitimately reports
+    // a negative distance, which is real data, not the "-1 = unknown" sentinel.
+    if (t.runway && t.distanceLength != null) {
+        lines.push('  Distance from threshold: ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of landing distance available) [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
         var side = t.distanceWidth >= 0 ? 'right' : 'left';
         lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
     }
@@ -544,7 +551,11 @@ function liftoffPopupHtml(t) {
     leftHtml += row('Bank', Number(t.bankDegrees).toFixed(1) + '°');
     leftHtml += row('Heading', t.headingDegrees + '°');
 
-    if (t.distanceLength != null && t.distanceLength >= 0) {
+    // Gated on t.runway (a runway was matched), not "distanceLength >= 0":
+    // a NULL distance_length column (no runway matched, never written) reads
+    // back as 0 via sqlite3_column_double, which would pass ">= 0" and show
+    // a meaningless "0 ft (0%)" as if a runway had been determined.
+    if (t.runway && t.distanceLength != null) {
         leftHtml += div;
         leftHtml += row('Threshold', Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '%)');
         var cSide = t.distanceWidth >= 0 ? 'R' : 'L';
@@ -615,7 +626,10 @@ function touchdownPopupHtml(t) {
     leftHtml += row('Bank', Number(t.bankDegrees).toFixed(1) + '°');
     leftHtml += row('Heading', t.headingDegrees + '°');
 
-    if (t.distanceLength != null && t.distanceLength >= 0) {
+    // Gated on t.runway (a runway was matched), not "distanceLength >= 0":
+    // a touchdown before the marked/displaced threshold legitimately reports
+    // a negative distance, which is real data, not the "-1 = unknown" sentinel.
+    if (t.runway && t.distanceLength != null) {
         leftHtml += div;
         leftHtml += row('Threshold', Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '%)');
         var cSide = t.distanceWidth >= 0 ? 'R' : 'L';

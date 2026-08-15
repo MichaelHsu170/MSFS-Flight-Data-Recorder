@@ -195,6 +195,22 @@ public:
 	COORDINATE coordinate;
 	COORDINATE start_points[2];
 
+	// Displaced-threshold offset (meters, from the physical runway end to the
+	// marked/usable threshold) for each end, from SimConnect's PRIMARY_THRESHOLD/
+	// SECONDARY_THRESHOLD facility data (nested PAVEMENT child records -- see
+	// the FACILITY_DATA_PAVEMENT handling in recorder.cpp). *_enable mirrors
+	// the sim's own ENABLE flag: 0 means this runway has no threshold data, so
+	// the offset must be treated as 0, not used as-is.
+	float primary_threshold_offset_m;
+	float secondary_threshold_offset_m;
+	int primary_threshold_enable;
+	int secondary_threshold_enable;
+	// Transient correlation state, valid only while a single FACILITY_DATA
+	// response for this runway is streaming in -- not part of the wire copy,
+	// not persisted. See SIMCONNECT_FACILITY_DATA_RUNWAY/_PAVEMENT handling.
+	unsigned int pending_request_id;
+	int threshold_pavement_seen; // 0=none yet, 1=primary received, 2=both received
+
 	RUNWAY() { clear(); }
 	~RUNWAY() { clear(); }
 
@@ -209,6 +225,12 @@ public:
 		coordinate.clear();
 		for (int i = 0; i < 2; i++)
 			start_points[i].clear();
+		primary_threshold_offset_m = 0;
+		secondary_threshold_offset_m = 0;
+		primary_threshold_enable = 0;
+		secondary_threshold_enable = 0;
+		pending_request_id = 0;
+		threshold_pavement_seen = 0;
 	}
 
 	std::string runway_code_generator(bool is_primary) {
