@@ -183,6 +183,7 @@ function buildLiftoffPrompt(t) {
 
     lines.push('You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.');
     lines.push('Respond using exactly this structure — no preamble, no extra sections:');
+    lines.push('Plain text only — no markdown and no LaTeX (e.g. write "Vref", not "**Vref**" or "$V_{ref}$").');
     lines.push('');
     lines.push('Grade: [A+/A/A−/B+/B/B−/C+/C/C−/D/F]');
     lines.push('');
@@ -233,6 +234,7 @@ function buildTouchdownPrompt(t) {
 
     lines.push('You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 landing.');
     lines.push('Respond using exactly this structure — no preamble, no extra sections:');
+    lines.push('Plain text only — no markdown and no LaTeX (e.g. write "Vref", not "**Vref**" or "$V_{ref}$").');
     lines.push('');
     lines.push('Grade: [A+/A/A−/B+/B/B−/C+/C/C−/D/F]');
     lines.push('');
