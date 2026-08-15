@@ -124,6 +124,8 @@ protected:
 // replaces the stock per-tile Save/Copy image (which only captured the one
 // right-clicked tile) with whole-view versions that grab the composited map
 // -- trajectory, markers, and underlying tiles together -- as a single image.
+// Copy is added back in when text is selected (e.g. in a liftoff/touchdown
+// popup) since the trimmed-down menu would otherwise drop it entirely.
 class FilteredWebEngineView : public QWebEngineView {
 public:
 	explicit FilteredWebEngineView(QWidget* parent = nullptr) : QWebEngineView(parent) {}
@@ -139,6 +141,23 @@ protected:
 
 		auto* menu = new QMenu(this);
 		menu->setAttribute(Qt::WA_DeleteOnClose);
+
+		if (!request->selectedText().isEmpty()) {
+			QAction* copyAction = menu->addAction(QStringLiteral("Copy"));
+			connect(copyAction, &QAction::triggered, this, [this]() {
+				// Read the selection and copy it via Qt (rather than triggering the
+				// page's own async Copy action) so the clear below is guaranteed to
+				// run only after the text has actually been captured -- chaining
+				// through runJavaScript's result callback, instead of firing two
+				// independent commands back-to-back, is what makes the ordering safe.
+				QWebEnginePage* webPage = page();
+				webPage->runJavaScript(QStringLiteral("window.getSelection().toString()"), [webPage](const QVariant& result) {
+					QGuiApplication::clipboard()->setText(result.toString());
+					webPage->runJavaScript(QStringLiteral("window.getSelection().removeAllRanges();"));
+				});
+			});
+			menu->addSeparator();
+		}
 
 		QAction* resetZoomAction = menu->addAction(QStringLiteral("Reset Zoom"));
 		connect(resetZoomAction, &QAction::triggered, this, [this]() {
