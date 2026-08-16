@@ -175,6 +175,31 @@ var _loIdx = 0;
 var _touchdownStore = {};
 var _tdIdx = 0;
 
+// Decimal degrees -> ISO 6709-ordered (lat, then lng) DMS string with N/S/E/W
+// suffixes -- unlike ISO 6709's own compact sexagesimal notation (signed,
+// unpunctuated, e.g. "+405302.6+0141711.6/"), this uses degree/minute/second
+// symbols and hemisphere letters so it's directly pasteable into Google
+// Maps/Earth's search box.
+function formatDMS(lat, lng) {
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+    function part(value, posLetter, negLetter) {
+        var letter = value >= 0 ? posLetter : negLetter;
+        // Rounded to whole tenths-of-an-arcsecond up front, then decomposed
+        // with integer division/modulo -- avoids straight float subtraction
+        // ever rounding seconds up to "60.0" instead of carrying into the
+        // next minute (e.g. 59.999... via toFixed(1)).
+        var totalTenths = Math.round(Math.abs(value) * 36000);
+        var deg = Math.floor(totalTenths / 36000);
+        var remTenths = totalTenths - deg * 36000;
+        var min = Math.floor(remTenths / 600);
+        remTenths -= min * 600;
+        var secWhole = Math.floor(remTenths / 10);
+        var secFrac = remTenths % 10;
+        return deg + '°' + pad2(min) + '\'' + pad2(secWhole) + '.' + secFrac + '"' + letter;
+    }
+    return part(lat, 'N', 'S') + ' ' + part(lng, 'E', 'W');
+}
+
 // ── Gemini analysis helpers ──────────────────────────────────────────────────
 
 function buildLiftoffPrompt(t) {
@@ -543,6 +568,7 @@ function liftoffPopupHtml(t) {
         leftHtml += row('Airport', airportLabel);
     }
     if (t.runway) leftHtml += row('Runway', t.runway + (t.runwayHeading != null && t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
+    leftHtml += row('Coordinate', formatDMS(Number(t.lat), Number(t.lng)));
 
     leftHtml += div;
     leftHtml += row('Airspeed', t.airspeed + ' kt');
@@ -617,6 +643,7 @@ function touchdownPopupHtml(t) {
         leftHtml += row('Airport', airportLabel);
     }
     if (t.runway) leftHtml += row('Runway', t.runway + (t.runwayHeading != null && t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
+    leftHtml += row('Coordinate', formatDMS(Number(t.lat), Number(t.lng)));
 
     leftHtml += div;
     leftHtml += row('Airspeed', t.airspeed + ' kt');
