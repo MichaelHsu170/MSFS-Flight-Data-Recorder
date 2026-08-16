@@ -15,6 +15,13 @@ std::vector<LiftoffPoint> queryLiftoffs(sqlite3* sql, int tripId);
 std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId);
 std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId);
 
+// trip_events only stores a timestamp, not a position -- resolves each
+// event's position (and sampleIndex) to the nearest sample in dataset.points
+// by zuluTime (lexicographically comparable since every row shares the same
+// "%04d-%02d-%02dT..." format and timezone). Call after populating
+// dataset.points and dataset.events.
+void resolveEventPositions(TripDataset& dataset);
+
 // Deletes all rows in trip_data, trip_events, trip_liftoffs, trip_touchdowns,
 // and trips for the given trip id. Caller opens and closes the (readwrite) connection.
 // Returns true on success.

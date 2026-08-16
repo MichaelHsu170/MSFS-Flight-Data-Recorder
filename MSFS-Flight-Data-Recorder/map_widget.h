@@ -39,7 +39,10 @@ public:
 	// Wired internally to the floating events-toggle icon button.
 	void setEventsVisible(bool visible);
 	// Suggested file name for the context menu's Save Image action: "trips.png"
-	// in overview mode, or "<departure>-<destination>.png" for a loaded trip.
+	// in overview mode, or "<departure>-<destination>_<departure timestamp>.png"
+	// for a loaded trip -- same base name and timestamp suffix as Export to
+	// KML (see defaultBaseFileName()), so the two features don't collide and
+	// re-saving the same trip later doesn't silently overwrite the first file.
 	QString defaultMapImageFileName() const;
 
 signals:
@@ -67,6 +70,15 @@ private:
 	void pushTouchdownsAndEvents();
 	void runJs(const QString& script);
 	void resizeEvent(QResizeEvent* event) override;
+	// Shared by defaultMapImageFileName() and the Export to KML action:
+	// "<departure>-<destination>" / "<departure>" / "<destination>" / "trip",
+	// plus a "_<departure timestamp>" suffix when available, no extension.
+	// The timestamp suffix is deliberately on both consumers, not just KML:
+	// it's what stops re-saving/re-exporting the same trip later (or two
+	// trips between the same airports) from overwriting the earlier file.
+	QString defaultBaseFileName() const;
+	// Wired to the map context menu's "Export to KML" action.
+	void exportKml();
 
 	QWebEngineView* view_;
 	QWebChannel* channel_;
@@ -80,6 +92,13 @@ private:
 	std::vector<LiftoffPoint> liftoffPoints_;
 	std::vector<TouchdownPoint> touchdowns_;
 	std::vector<TripEvent> events_;
+	// Non-owning pointer into TrajectoryView's shared_ptr<TripDataset> (see
+	// trajectory_view.cpp's setDataset() -- old dataset is only destroyed,
+	// asynchronously, after every sub-panel including this one has already
+	// been repointed at the new one). Needed for KML export, which requires
+	// per-point altitude/timestamp that trajCoords_ above doesn't keep.
+	// Set in setDataset(), cleared in showOverview().
+	const TripDataset* dataset_ = nullptr;
 	// Buffered lat/lng pairs waiting for the next liveUpdateTimer_ flush.
 	std::vector<std::pair<double, double>> pendingLiveCoords_;
 	// Stored by showOverview so refreshProvider can re-send them when the

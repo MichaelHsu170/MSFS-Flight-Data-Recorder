@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDateTime>
 #include <QString>
 #include <cstdint>
 #include <vector>
@@ -109,9 +110,55 @@ struct TripEvent {
 	int sampleIndex = -1;
 };
 
+// Parses a DATETIME::format_date_time() string (types.h), which is ISO8601
+// with milliseconds and a UTC offset, plus a non-standard trailing
+// "_<day-of-week>" suffix that QDateTime doesn't understand -- strip it
+// before handing the rest to Qt's ISO parser.
+inline QDateTime parseZuluTime(const QString& value) {
+	const QString isoPart = value.section('_', 0, 0);
+	return QDateTime::fromString(isoPart, Qt::ISODateWithMs);
+}
+
+// "<departure>-<destination>" / "<departure>" / "<destination>" / fallback --
+// shared by MapWidget's default Save Image/KML file name, TripHistoryPanel's
+// row-menu KML file name, and kml_export.cpp's KML document title.
+inline QString airportPairName(const QString& departureIcao, const QString& destinationIcao, const QString& fallback) {
+	if (!departureIcao.isEmpty() && !destinationIcao.isEmpty())
+		return QStringLiteral("%1-%2").arg(departureIcao, destinationIcao);
+	if (!departureIcao.isEmpty())
+		return departureIcao;
+	if (!destinationIcao.isEmpty())
+		return destinationIcao;
+	return fallback;
+}
+
+// Same, deriving the ICAO pair from a trip's first liftoff and last touchdown.
+inline QString airportPairName(const std::vector<LiftoffPoint>& liftoffPoints,
+	const std::vector<TouchdownPoint>& touchdowns, const QString& fallback) {
+	return airportPairName(!liftoffPoints.empty() ? liftoffPoints.front().icao : QString(),
+		!touchdowns.empty() ? touchdowns.back().icao : QString(), fallback);
+}
+
+// Appends "_yyyyMMddHHmmss" derived from departureZulu to base, if it parses
+// -- so re-saving/re-exporting the same trip later (or two trips between the
+// same airports) doesn't silently overwrite the earlier file. Deliberately
+// shared by MapWidget's Save Image *and* Export to KML file names (not just
+// KML) and TripHistoryPanel's Export to KML file name, so all three use the
+// same collision-avoidance scheme.
+inline QString appendDepartureTimestamp(const QString& base, const QString& departureZulu) {
+	const QDateTime departureTime = parseZuluTime(departureZulu);
+	return departureTime.isValid()
+		? base + QStringLiteral("_%1").arg(departureTime.toString(QStringLiteral("yyyyMMddHHmmss")))
+		: base;
+}
+
 struct TripDataset {
 	int tripId = -1;
 	QString aircraftTitle;  // trips.title — human-readable name like "Airbus A320neo FlyByWire"
+	// trips.departure_zulu_time -- set at trip creation, so unlike
+	// liftoffPoints.front().zuluTime it's available even when the trip has no
+	// detected liftoff. The authoritative source for KML export file names.
+	QString departureZuluTime;
 	std::vector<TripSamplePoint> points;
 	std::vector<LiftoffPoint> liftoffPoints;
 	std::vector<TouchdownPoint> touchdowns;
