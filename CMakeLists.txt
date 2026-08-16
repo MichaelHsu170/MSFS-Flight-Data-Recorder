@@ -50,6 +50,7 @@ set(SOURCES
     ${SRC_DIR}/data_table_panel.cpp
     ${SRC_DIR}/map_bridge.cpp
     ${SRC_DIR}/map_widget.cpp
+    ${SRC_DIR}/kml_export.cpp
     ${SRC_DIR}/trajectory_view.cpp
     ${SRC_DIR}/main_window.cpp
     ${SRC_DIR}/app_settings.cpp

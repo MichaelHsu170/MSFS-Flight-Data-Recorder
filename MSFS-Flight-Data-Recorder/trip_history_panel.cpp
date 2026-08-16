@@ -5,6 +5,7 @@
 #include "manage_groups_dialog.h"
 #include "db.h"
 #include "app_settings.h"
+#include "kml_export.h"
 
 #include <memory>
 #include <optional>
@@ -22,6 +23,7 @@
 #include <QStyleOption>
 #include <QPainter>
 #include <QMessageBox>
+#include <QFileDialog>
 #include <QMap>
 #include <QMetaEnum>
 #include <QSignalBlocker>
@@ -51,15 +53,6 @@ public:
         QStyledItemDelegate::paint(p, o, idx);
     }
 };
-
-// Parses a DATETIME::format_date_time() string (types.h), which is ISO8601
-// with milliseconds and a UTC offset, plus a non-standard trailing
-// "_<day-of-week>" suffix that QDateTime doesn't understand -- strip it
-// before handing the rest to Qt's ISO parser.
-QDateTime parseZuluTime(const QString& value) {
-    const QString isoPart = value.section('_', 0, 0);
-    return QDateTime::fromString(isoPart, Qt::ISODateWithMs);
-}
 
 // Destination - departure in seconds. Returns nullopt for open/incomplete
 // trips (empty destinationZuluTime) or any parse failure.
@@ -677,6 +670,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 
 	int tripId = trip->id;
 	QString aircraftTitle = trip->title;
+	QString departureZuluTime = trip->departureZuluTime;
 	// These queries (trip_data is by far the largest) each get their own
 	// connect_db_readonly() connection and are launched directly from the GUI
 	// thread (not nested inside a wrapping QtConcurrent::run that blocks on
@@ -686,7 +680,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	// if the pool's max thread count is too small to run all of them at
 	// once. Joining happens in tryFinishLoad() once all three watchers report
 	// finished.
-	pointsWatcher_->setFuture(QtConcurrent::run([tripId, aircraftTitle]() {
+	pointsWatcher_->setFuture(QtConcurrent::run([tripId, aircraftTitle, departureZuluTime]() {
 		QElapsedTimer t; t.start();
 		sqlite3* sql = connect_db_readonly();
 		if (!sql)
@@ -696,6 +690,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 			sqlite3_close(sql);
 		dataset->tripId = tripId;
 		dataset->aircraftTitle = aircraftTitle;
+		dataset->departureZuluTime = departureZuluTime;
 		Logger::logf(Logger::Profile, "DB", "queryTripData: %lld ms  (%zu pts)", t.nsecsElapsed() / 1000000, dataset->points.size());
 		return dataset;
 	}));
@@ -748,21 +743,7 @@ void TripHistoryPanel::tryFinishLoad() {
 	dataset->events = eventsWatcher_->result();
 	Logger::logf(Logger::Profile, "DB", "all joined: %lld ms wall time from click", loadTimer_.nsecsElapsed() / 1000000);
 
-	// trip_events only stores a timestamp, not a position -- resolve each
-	// event to the nearest sample by zuluTime (lexicographically comparable
-	// since every row shares the same "%04d-%02d-%02dT..." format and
-	// timezone) so it can be placed on the map.
-	for (TripEvent& event : dataset->events) {
-		auto it = std::lower_bound(dataset->points.begin(), dataset->points.end(), event.zuluTime,
-			[](const TripSamplePoint& point, const QString& time) { return point.zuluTime < time; });
-		if (it == dataset->points.end() && !dataset->points.empty())
-			--it;
-		if (it != dataset->points.end()) {
-			event.latitude = it->latitude;
-			event.longitude = it->longitude;
-			event.sampleIndex = (int)(it - dataset->points.begin());
-		}
-	}
+	resolveEventPositions(*dataset);
 
 	selectedTripId_ = pendingTripId_;
 	// Keep loading_ = true and table disabled until TrajectoryView signals that
@@ -860,7 +841,14 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		resetZoomAction = menu.addAction(QStringLiteral("Reset Zoom"));
 	}
 
-	// Row-specific "Delete Trip" at the bottom — only for the right-clicked, non-Live row.
+	// "Export to KML" / row-specific "Delete Trip" at the bottom — only for the
+	// right-clicked, non-Live row (can't export/delete a still-recording trip).
+	QAction* exportKmlAction = nullptr;
+	int exportKmlTripId = -1;
+	QString exportKmlAircraftTitle;
+	QString exportKmlDeparture;
+	QString exportKmlDestination;
+	QString exportKmlDepartureZulu;
 	QAction* deleteAction = nullptr;
 	int deleteId = -1;
 	QString deleteName;
@@ -869,6 +857,14 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	if (rightClickedTrip && rightClickedTrip->status != TripStatus::Live) {
 		if (!menu.isEmpty())
 			menu.addSeparator();
+		exportKmlAction = menu.addAction(QStringLiteral("Export to KML"));
+		exportKmlTripId = rightClickedTrip->id;
+		exportKmlAircraftTitle = rightClickedTrip->title;
+		exportKmlDeparture = rightClickedTrip->departureIcao;
+		exportKmlDestination = rightClickedTrip->destinationIcao;
+		exportKmlDepartureZulu = rightClickedTrip->departureZuluTime;
+
+		menu.addSeparator();
 		deleteAction = menu.addAction(QStringLiteral("Delete Trip"));
 		deleteId = rightClickedTrip->id;
 		deleteName = rightClickedTrip->title.isEmpty()
@@ -935,6 +931,41 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		openManageGroupsDialog();
 	} else if (groupActionIds.contains(chosen)) {
 		setTripGroupFromUi(rightClickedTripId, groupActionIds.value(chosen));
+	} else if (chosen == exportKmlAction) {
+		const QString baseName = appendDepartureTimestamp(
+			airportPairName(exportKmlDeparture, exportKmlDestination, QStringLiteral("trip")), exportKmlDepartureZulu);
+		const QString fileName = QFileDialog::getSaveFileName(this, QStringLiteral("Export to KML"),
+			baseName + QStringLiteral(".kml"), QStringLiteral("KML File (*.kml)"));
+		if (fileName.isEmpty())
+			return;
+
+		int tripId = exportKmlTripId;
+		QString aircraftTitle = exportKmlAircraftTitle;
+		QString departureZuluTime = exportKmlDepartureZulu;
+		auto* watcher = new QFutureWatcher<QString>(this);
+		connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, fileName]() {
+			const QString error = watcher->result();
+			watcher->deleteLater();
+			if (!error.isEmpty())
+				QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to export KML to %1.\n%2").arg(fileName, error));
+		});
+		watcher->setFuture(QtConcurrent::run([tripId, aircraftTitle, departureZuluTime, fileName]() -> QString {
+			sqlite3* sql = connect_db_readonly();
+			if (!sql)
+				return QStringLiteral("Could not open the trip database.");
+			TripDataset dataset = queryTripData(sql, tripId);
+			dataset.tripId = tripId;
+			dataset.aircraftTitle = aircraftTitle;
+			dataset.departureZuluTime = departureZuluTime;
+			dataset.liftoffPoints = queryLiftoffs(sql, tripId);
+			dataset.touchdowns = queryTouchdowns(sql, tripId);
+			dataset.events = queryEvents(sql, tripId);
+			resolveEventPositions(dataset);
+			sqlite3_close(sql);
+			QString error;
+			exportTripDatasetToKmlFile(dataset, fileName, &error);
+			return error;
+		}));
 	} else if (chosen == deleteAction) {
 		// Re-check right before deleting (not just via the TripStatus::Live
 		// filter that built the menu): a trip that just stopped recording can

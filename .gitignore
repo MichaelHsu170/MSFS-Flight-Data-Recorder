@@ -71,3 +71,7 @@ flight_data.db
 *.tmp
 *.temp
 *~
+
+# Exported KML / map images saved to the repo root during manual testing
+/*.kml
+/*.png

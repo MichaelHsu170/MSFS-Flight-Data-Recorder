@@ -1,6 +1,7 @@
 #include "map_widget.h"
 #include "map_bridge.h"
 #include "app_settings.h"
+#include "kml_export.h"
 
 #include <QTimer>
 #include <QWebEngineView>
@@ -132,6 +133,11 @@ public:
 
 	void setResetZoomHandler(std::function<void()> handler) { resetZoomHandler_ = std::move(handler); }
 	void setDefaultFileNameHandler(std::function<QString()> handler) { defaultFileNameHandler_ = std::move(handler); }
+	void setExportKmlHandler(std::function<void()> handler) { exportKmlHandler_ = std::move(handler); }
+	// Gates whether "Export to KML" is even shown -- there's no single trip's
+	// trajectory to export while the map is showing the departure->destination
+	// overview of every trip.
+	void setExportKmlAvailableHandler(std::function<bool()> handler) { exportKmlAvailableHandler_ = std::move(handler); }
 
 protected:
 	void contextMenuEvent(QContextMenuEvent* event) override {
@@ -170,6 +176,13 @@ protected:
 		connect(saveImageAction, &QAction::triggered, this, [this]() { saveMapImage(); });
 		QAction* copyImageAction = menu->addAction(QStringLiteral("Copy Image"));
 		connect(copyImageAction, &QAction::triggered, this, [this]() { copyMapImage(); });
+		if (!exportKmlAvailableHandler_ || exportKmlAvailableHandler_()) {
+			QAction* exportKmlAction = menu->addAction(QStringLiteral("Export to KML"));
+			connect(exportKmlAction, &QAction::triggered, this, [this]() {
+				if (exportKmlHandler_)
+					exportKmlHandler_();
+			});
+		}
 
 		// CopyLinkToClipboard isn't kept enabled/disabled in sync with the
 		// context menu request the way navigation/edit actions are -- its
@@ -199,6 +212,8 @@ private:
 
 	std::function<void()> resetZoomHandler_;
 	std::function<QString()> defaultFileNameHandler_;
+	std::function<void()> exportKmlHandler_;
+	std::function<bool()> exportKmlAvailableHandler_;
 };
 
 }
@@ -212,6 +227,8 @@ MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
 	auto* filteredView = new FilteredWebEngineView(this);
 	filteredView->setResetZoomHandler([this]() { resetZoom(); });
 	filteredView->setDefaultFileNameHandler([this]() { return defaultMapImageFileName(); });
+	filteredView->setExportKmlHandler([this]() { exportKml(); });
+	filteredView->setExportKmlAvailableHandler([this]() { return dataset_ != nullptr; });
 	view_ = filteredView;
 	view_->setPage(new LoggingPage(view_));
 	channel_ = new QWebChannel(this);
@@ -268,6 +285,10 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 	liveUpdateTimer_->stop();
 	pendingLiveCoords_.clear();
 	lastCursorIndex_ = -1;
+	// TrajectoryView::dataset_ (shared_ptr) outlives this pointer exactly like
+	// DataTablePanel's own raw dataset_ pointer -- see trajectory_view.cpp's
+	// setDataset() for the destruction-ordering guarantee.
+	dataset_ = &dataset;
 	trajCoords_.clear();
 	trajCoords_.reserve(dataset.points.size());
 	QElapsedTimer copyTimer; copyTimer.start();
@@ -310,6 +331,7 @@ void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
 	liveUpdateTimer_->stop();
 	pendingLiveCoords_.clear();
 	lastCursorIndex_ = -1;
+	dataset_ = nullptr;
 	trajCoords_.clear();
 	liftoffPoints_.clear();
 	touchdowns_.clear();
@@ -349,15 +371,30 @@ void MapWidget::resetZoom() {
 QString MapWidget::defaultMapImageFileName() const {
 	if (inOverviewMode_)
 		return QStringLiteral("trips.png");
-	const QString departure = !liftoffPoints_.empty() ? liftoffPoints_.front().icao : QString();
-	const QString destination = !touchdowns_.empty() ? touchdowns_.back().icao : QString();
-	if (!departure.isEmpty() && !destination.isEmpty())
-		return QStringLiteral("%1-%2.png").arg(departure, destination);
-	if (!departure.isEmpty())
-		return departure + QStringLiteral(".png");
-	if (!destination.isEmpty())
-		return destination + QStringLiteral(".png");
-	return QStringLiteral("trip.png");
+	return defaultBaseFileName() + QStringLiteral(".png");
+}
+
+QString MapWidget::defaultBaseFileName() const {
+	const QString base = airportPairName(liftoffPoints_, touchdowns_, QStringLiteral("trip"));
+
+	// Uses the trip's actual departure time (same source TripHistoryPanel's
+	// row context menu uses), not the first liftoff's zuluTime -- a trip with
+	// no detected liftoff would otherwise get no timestamp suffix at all.
+	// Falls back to the trajectory's first sample if departureZuluTime itself
+	// is somehow unset.
+	const QString departureZulu = dataset_ && !dataset_->departureZuluTime.isEmpty() ? dataset_->departureZuluTime
+		: (dataset_ && !dataset_->points.empty() ? dataset_->points.front().zuluTime : QString());
+	return appendDepartureTimestamp(base, departureZulu);
+}
+
+void MapWidget::exportKml() {
+	if (!dataset_) return; // overview mode / nothing loaded -- action shouldn't really fire, but guard anyway
+	const QString fileName = QFileDialog::getSaveFileName(this, QStringLiteral("Export to KML"),
+		defaultBaseFileName() + QStringLiteral(".kml"), QStringLiteral("KML File (*.kml)"));
+	if (fileName.isEmpty()) return;
+	QString error;
+	if (!exportTripDatasetToKmlFile(*dataset_, fileName, &error))
+		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to export KML to %1.\n%2").arg(fileName, error));
 }
 
 void MapWidget::appendLivePoint(const TripSamplePoint& point) {

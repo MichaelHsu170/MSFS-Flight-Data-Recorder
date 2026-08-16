@@ -5,6 +5,7 @@
 #include "sqlite3.h"
 
 #include <QHash>
+#include <algorithm>
 #include <functional>
 
 namespace {
@@ -345,6 +346,20 @@ std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 			point.analysisReport     = columnTextOrEmpty(stmt, 21);
 			return point;
 		});
+}
+
+void resolveEventPositions(TripDataset& dataset) {
+	for (TripEvent& event : dataset.events) {
+		auto it = std::lower_bound(dataset.points.begin(), dataset.points.end(), event.zuluTime,
+			[](const TripSamplePoint& point, const QString& time) { return point.zuluTime < time; });
+		if (it == dataset.points.end() && !dataset.points.empty())
+			--it;
+		if (it != dataset.points.end()) {
+			event.latitude = it->latitude;
+			event.longitude = it->longitude;
+			event.sampleIndex = (int)(it - dataset.points.begin());
+		}
+	}
 }
 
 bool deleteTripData(sqlite3* sql, int tripId) {
