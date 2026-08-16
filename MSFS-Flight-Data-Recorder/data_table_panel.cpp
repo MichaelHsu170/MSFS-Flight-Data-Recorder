@@ -3,11 +3,15 @@
 #include "trip_data_fields.h"
 #include "logger.h"
 
+#include <QAction>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QGridLayout>
+#include <QGuiApplication>
 #include <QHeaderView>
+#include <QMenu>
 #include <QScrollArea>
 #include <QTableWidget>
 #include <QVBoxLayout>
@@ -19,11 +23,16 @@ namespace {
 // generic field list (formatted as plain timestamps, not numbers/booleans);
 // every other trip_data column follows in TRIP_DATA_NUM_FIELDS then
 // TRIP_DATA_BOOL_FIELDS order, matching the rawNums/boolGroup layout in
-// TripSamplePoint so showPoint's macro expansion maps row N+2 → rawNums[N].
+// TripSamplePoint so showPoint's macro expansion maps row N+3 → rawNums[N]
+// (N+2 for gps_position_lat/gps_position_lon, which are combined into the
+// single "GPS Position" row at index 2 instead of getting their own rows --
+// see showPoint()).
 QStringList buildFieldRowLabels() {
-	QStringList labels = { QStringLiteral("Time (Zulu)"), QStringLiteral("Time (Local)") };
+	QStringList labels = { QStringLiteral("Time (Zulu)"), QStringLiteral("Time (Local)"), QStringLiteral("GPS Position") };
 
-#define TRIP_NUM_FIELD(dbColumn, memberExpr) labels.append(tripFieldLabel(#dbColumn));
+#define TRIP_NUM_FIELD(dbColumn, memberExpr) \
+	if (QLatin1String(#dbColumn) != QLatin1String("gps_position_lat") && QLatin1String(#dbColumn) != QLatin1String("gps_position_lon")) \
+		labels.append(tripFieldLabel(#dbColumn));
 	TRIP_DATA_NUM_FIELDS(TRIP_NUM_FIELD)
 #undef TRIP_NUM_FIELD
 
@@ -32,6 +41,32 @@ QStringList buildFieldRowLabels() {
 #undef TRIP_BOOL_FIELD
 
 	return labels;
+}
+
+// Decimal degrees -> DMS string with N/S/E/W suffixes, matching the format
+// used by the map popups' "Coordinate" row (see formatDMS in map.html) so a
+// position copied from either place pastes the same way into Google Maps/
+// Earth's search box. Rounds to whole tenths-of-an-arcsecond up front and
+// decomposes with integer division/modulo so seconds can't round up to
+// "60.0" instead of carrying into the next minute.
+QString formatDMS(double lat, double lng) {
+	auto part = [](double value, QChar posLetter, QChar negLetter) {
+		QChar letter = value >= 0 ? posLetter : negLetter;
+		qint64 totalTenths = qRound64(qAbs(value) * 36000.0);
+		qint64 deg = totalTenths / 36000;
+		qint64 remTenths = totalTenths - deg * 36000;
+		qint64 min = remTenths / 600;
+		remTenths -= min * 600;
+		qint64 secWhole = remTenths / 10;
+		qint64 secFrac = remTenths % 10;
+		return QStringLiteral("%1°%2'%3.%4\"%5")
+			.arg(deg)
+			.arg(min, 2, 10, QChar('0'))
+			.arg(secWhole, 2, 10, QChar('0'))
+			.arg(secFrac)
+			.arg(letter);
+	};
+	return part(lat, QChar('N'), QChar('S')) + QStringLiteral(" ") + part(lng, QChar('E'), QChar('W'));
 }
 
 }
@@ -72,6 +107,22 @@ DataTablePanel::DataTablePanel(QWidget* parent) : QWidget(parent) {
 			AppSettings::instance().setDataTableFieldColumnWidth(newSize);
 	});
 	table_->setStyleSheet(QStringLiteral("QTableWidget { font-size: 9pt; }"));
+	// Value cells (column 1) hold read-only display text with no built-in
+	// way to select/copy it (NoEditTriggers, NoSelection) -- a right-click
+	// Copy entry is the only way to get a value (e.g. the GPS Position row
+	// below) out to the clipboard.
+	table_->setContextMenuPolicy(Qt::CustomContextMenu);
+	connect(table_, &QTableWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+		QTableWidgetItem* item = table_->itemAt(pos);
+		if (!item || item->column() != 1 || item->text().isEmpty())
+			return;
+		QMenu menu(table_);
+		QAction* copyAction = menu.addAction(QStringLiteral("Copy"));
+		connect(copyAction, &QAction::triggered, this, [item]() {
+			QGuiApplication::clipboard()->setText(item->text());
+		});
+		menu.exec(table_->viewport()->mapToGlobal(pos));
+	});
 	// Long values (e.g. full ISO timestamps) get clipped at the fixed 20px row
 	// height with no wrap -- wrap them instead and let each row grow to fit,
 	// with the full value always available via tooltip regardless.
@@ -193,14 +244,38 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 	table_->item(1, 1)->setText(point.localTime);
 	table_->item(1, 1)->setToolTip(point.localTime);
 	{
-		int ni = 0, row = 2;
+		// Index of gps_position_lat/gps_position_lon within TRIP_DATA_NUM_FIELDS'
+		// ni-ordering (== point.rawNums[] index) -- computed once from the
+		// X-macro itself, rather than hardcoded, so the combined "GPS Position"
+		// row below can't silently point at the wrong two rawNums entries if
+		// fields are reordered/added above them in trip_data_fields.h.
+		static int gpsLatIdx = -1, gpsLonIdx = -1;
+		if (gpsLatIdx < 0) {
+			int idx = 0;
+#define TRIP_NUM_INDEX(dbColumn, memberExpr) \
+			if (QLatin1String(#dbColumn) == QLatin1String("gps_position_lat")) gpsLatIdx = idx; \
+			else if (QLatin1String(#dbColumn) == QLatin1String("gps_position_lon")) gpsLonIdx = idx; \
+			++idx;
+			TRIP_DATA_NUM_FIELDS(TRIP_NUM_INDEX)
+#undef TRIP_NUM_INDEX
+		}
+		QString gpsPos;
+		if (gpsLatIdx >= 0 && gpsLonIdx >= 0
+		    && gpsLatIdx < (int)point.rawNums.size() && gpsLonIdx < (int)point.rawNums.size())
+			gpsPos = formatDMS(point.rawNums[gpsLatIdx], point.rawNums[gpsLonIdx]);
+		table_->item(2, 1)->setText(gpsPos);
+		table_->item(2, 1)->setToolTip(gpsPos);
+
+		int ni = 0, row = 3;
 #define TRIP_NUM_DISP(dbColumn, memberExpr) \
-		if (row < table_->rowCount()) { \
-			QString v = ni < (int)point.rawNums.size() \
-				? QString::number(point.rawNums[ni], 'g', 6) : QString(); \
-			table_->item(row, 1)->setText(v); \
-			table_->item(row, 1)->setToolTip(v); \
-			++row; \
+		if (QLatin1String(#dbColumn) != QLatin1String("gps_position_lat") && QLatin1String(#dbColumn) != QLatin1String("gps_position_lon")) { \
+			if (row < table_->rowCount()) { \
+				QString v = ni < (int)point.rawNums.size() \
+					? QString::number(point.rawNums[ni], 'g', 6) : QString(); \
+				table_->item(row, 1)->setText(v); \
+				table_->item(row, 1)->setToolTip(v); \
+				++row; \
+			} \
 		} \
 		++ni;
 		TRIP_DATA_NUM_FIELDS(TRIP_NUM_DISP)
