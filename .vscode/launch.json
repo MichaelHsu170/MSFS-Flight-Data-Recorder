@@ -2,29 +2,30 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Launch",
+      "name": "Debug",
       "type": "cppvsdbg",
       "request": "launch",
-      "program": "${workspaceFolder}\\build\\${input:buildConfig}\\bin\\MSFS-Flight-Data-Recorder.exe",
+      "program": "${workspaceFolder}\\build\\Debug\\bin\\MSFS-Flight-Data-Recorder.exe",
       "args": [],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],
       "externalConsole": false,
       "console": "integratedTerminal",
-      "preLaunchTask": "CMake: Build"
-    }
-  ],
-  "inputs": [
+      "preLaunchTask": "Debug"
+    },
     {
-      "id": "buildConfig",
-      "type": "pickString",
-      "description": "Select configuration to launch",
-      "options": [
-        "Debug",
-        "Release"
-      ],
-      "default": "Debug"
+      "name": "Release",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\build\\Release\\bin\\MSFS-Flight-Data-Recorder.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "console": "integratedTerminal",
+      "preLaunchTask": "Release"
     }
   ]
 }

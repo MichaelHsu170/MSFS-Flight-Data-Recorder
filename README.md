@@ -22,38 +22,35 @@ SQLite3 is bundled under `third_party/sqlite3/` — no separate install needed.
 
 ## Build with VS Code
 
-Press **Ctrl+Shift+B** and select **Debug** or **Release** when prompted.
+Press **Ctrl+Shift+B** and pick **Debug**, **Release**, or **Clean** from the menu. This works whether or not the CMake Tools extension is installed — the menu is plain VS Code tasks driving `cmake` directly, not the extension.
 
-The build task automatically:
-1. Runs CMake configure (generates a Visual Studio solution under `build/Debug` or `build/Release`)
-2. Compiles with MSBuild via `with_vs_env.bat` (which sources `vcvarsall.bat` first)
+- **Debug** / **Release** — configure (first time only) and build into `build/Debug` or `build/Release`. On repeat builds, configure is skipped and only `cmake --build` runs, which keeps the lead time low; CMake's own `ZERO_CHECK` step still reconfigures automatically if `CMakeLists.txt` changes.
+- **Clean** — removes `build/Debug`, `build/Release`, and the `build/` folder itself.
+
+Each build automatically:
+1. Runs CMake configure the first time (generates a Visual Studio solution under `build/Debug` or `build/Release`)
+2. Compiles with MSBuild via `build.bat` (which sources `vcvarsall.bat` once)
 3. Runs `windeployqt` to copy Qt DLLs, QML modules, and WebEngine resources next to the exe
 4. Copies `sqlite3.dll` next to the exe
 5. Copies `SimConnect.dll` next to the exe (both Debug and Release use dynamic linking)
 
-Press **F5** to debug or **Ctrl+F5** to run without debugging.
-
-### Clean
-
-**Ctrl+Shift+P → Tasks: Run Task → CMake: Clean** — removes the entire `build/` directory.
+Press **F5** to debug (choose the **Debug** or **Release** launch configuration) or **Ctrl+F5** to run without debugging.
 
 ## Manual Build (PowerShell)
 
-Configure:
+Configure and build Release in one step:
 ```powershell
-.\.vscode\scripts\with_vs_env.bat `
-  "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" `
-  -S . -B build/Release -G "Visual Studio 18 2026" -A x64 `
-  -DSIMCONNECT_DIR="C:\MSFS 2024 SDK\SimConnect SDK" `
-  -DCMAKE_PREFIX_PATH="C:\Qt\6.11.1\msvc2022_64"
+.\.vscode\scripts\build.bat Release
 ```
 
-Build:
+Or drive CMake yourself:
 ```powershell
-.\.vscode\scripts\with_vs_env.bat `
-  "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" `
-  --build build/Release --config Release
+cmake -S . -B build/Release -G "Visual Studio 18 2026" -A x64 `
+  -DSIMCONNECT_DIR="C:\MSFS 2024 SDK\SimConnect SDK" `
+  -DCMAKE_PREFIX_PATH="C:\Qt\6.11.1\msvc2022_64"
+cmake --build build/Release --config Release
 ```
+(Run from a Developer PowerShell/Command Prompt for VS 2026, or call `build.bat` above which sets that environment up for you.)
 
 ## Output Locations
 
@@ -197,10 +194,11 @@ MSFS-Flight-Data-Recorder/
 │       └── map.html              Leaflet map: trajectory polyline, liftoff/touchdown markers with AI analysis popup, event markers
 ├── third_party/sqlite3/          Bundled SQLite3 (sqlite3.h, sqlite3.lib, sqlite3.dll)
 ├── .vscode/
-│   ├── tasks.json                Configure, Build, Clean tasks
-│   ├── launch.json               Debug and Run configurations
+│   ├── tasks.json                Debug, Release, Clean tasks (Ctrl+Shift+B)
+│   ├── launch.json               Debug and Release launch configurations
+│   ├── settings.json             Keeps the CMake Tools extension, if installed, from auto-configuring
 │   └── scripts/
-│       ├── with_vs_env.bat       Sources vcvarsall.bat then invokes CMake/MSBuild
+│       ├── build.bat             Sources vcvarsall.bat once, configures (if needed) and builds
 │       └── clean.ps1             Removes the build/ directory
 └── CMakeLists.txt
 ```

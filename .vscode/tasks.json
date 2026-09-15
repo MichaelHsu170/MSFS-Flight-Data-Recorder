@@ -2,87 +2,55 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "CMake: Configure",
+      "label": "Debug",
       "type": "shell",
-      "command": "${workspaceFolder}\\.vscode\\scripts\\with_vs_env.bat",
-      "args": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
-        "-S",
-        ".",
-        "-B",
-        "build/${input:buildConfig}",
-        "-G",
-        "Visual Studio 18 2026",
-        "-A",
-        "x64",
-        "-DSIMCONNECT_DIR=C:\\MSFS 2024 SDK\\SimConnect SDK",
-        "-DCMAKE_PREFIX_PATH=C:\\Qt\\6.11.1\\msvc2022_64"
-      ],
-      "options": {
-        "env": {
-          "VSINSTALLDIR": "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools"
-        }
-      },
-      "problemMatcher": [],
-      "presentation": {
-        "reveal": "always"
-      }
-    },
-    {
-      "label": "CMake: Build",
-      "type": "shell",
-      "command": "${workspaceFolder}\\.vscode\\scripts\\with_vs_env.bat",
-      "args": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin\\cmake.exe",
-        "--build",
-        "build/${input:buildConfig}",
-        "--config",
-        "${input:buildConfig}"
-      ],
-      "options": {
-        "env": {
-          "VSINSTALLDIR": "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools"
-        }
-      },
-      "dependsOn": "CMake: Configure",
-      "problemMatcher": [
-        "$msCompile"
-      ],
+      "command": "${workspaceFolder}\\.vscode\\scripts\\build.bat",
+      "args": ["Debug"],
       "group": {
-        "kind": "build",
-        "isDefault": true
+        "kind": "build"
       },
+      "problemMatcher": ["$msCompile"],
       "presentation": {
-        "reveal": "always"
+        "reveal": "always",
+        "clear": true,
+        "panel": "shared"
       }
     },
     {
-      "label": "CMake: Clean",
+      "label": "Release",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.vscode\\scripts\\build.bat",
+      "args": ["Release"],
+      "group": {
+        "kind": "build"
+      },
+      "problemMatcher": ["$msCompile"],
+      "presentation": {
+        "reveal": "always",
+        "clear": true,
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Clean",
       "type": "shell",
       "command": "powershell",
       "args": [
+        "-NoProfile",
         "-ExecutionPolicy",
         "Bypass",
         "-File",
         "${workspaceFolder}\\.vscode\\scripts\\clean.ps1"
       ],
+      "group": {
+        "kind": "build"
+      },
       "problemMatcher": [],
       "presentation": {
         "reveal": "always",
+        "clear": true,
         "panel": "shared"
       }
-    }
-  ],
-  "inputs": [
-    {
-      "id": "buildConfig",
-      "type": "pickString",
-      "description": "Select build configuration",
-      "options": [
-        "Debug",
-        "Release"
-      ],
-      "default": "Debug"
     }
   ]
 }
