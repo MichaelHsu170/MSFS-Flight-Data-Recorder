@@ -266,8 +266,8 @@ struct RUNWAY_OPERATION {
 	// Operational heading (1-360, aviation convention -- due north is 360,
 	// never 0) of the runway end actually used -- i.e.
 	// AIRPORT::runways[index].heading, flipped 180° if !is_primary. Captured
-	// and rounded once at match time (see the runway-candidate loop in
-	// recorder.cpp) instead of being re-derived from runways[] wherever it's
+	// and rounded once at match time (see match_runways() in
+	// runway_match.cpp) instead of being re-derived from runways[] wherever it's
 	// read, so it stays valid even after the source AIRPORT is cleared/reused.
 	// -1 (unlike 1-360) means "not yet computed" -- see AIRPORT::clear(),
 	// matching the -1 = unset convention used by distances[]/distances_percent[]

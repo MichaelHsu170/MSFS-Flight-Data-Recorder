@@ -1,0 +1,191 @@
+#include "runway_match.h"
+
+#include <cstdarg>
+#include <cstdio>
+#include <string>
+
+namespace {
+
+// Padding applied past each runway end / each runway edge to build the
+// "margin rectangle" -- a touchdown/liftoff inside this but outside the strict
+// runway rectangle is judged "on this airport, but not confidently on a
+// runway" rather than a clean runway match. Loosely based on real-world
+// runway safety-area dimensions.
+const double RUNWAY_MARGIN_LENGTH_M = 200; // past each end
+const double RUNWAY_MARGIN_WIDTH_M = 60;   // past each edge
+
+void tracef(const std::function<void(const char*)>& trace, const char* fmt, ...) {
+	char buf[512];
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(buf, sizeof(buf), fmt, args);
+	va_end(args);
+	trace(buf);
+}
+
+// Single-corner-referenced polar footprint check shared by the margin and
+// strict rectangles: anchor is the rectangle's near end on the centerline,
+// extending length along runway_heading and width/2 to either side. Sets
+// distance (anchor to point, meters) and limit (how far the rectangle reaches
+// in that direction); the point is inside when distance <= limit. Templated on
+// the dimension type so the strict check keeps computing in float, exactly as
+// it did inline.
+template <typename Length>
+void footprint(COORDINATE anchor, float runway_heading, Length length, Length width, const COORDINATE& point,
+	double& distance, double& limit) {
+	double angle = atan(width / 2 / length) / V_PI * 180;
+	double bearing = anchor.bearing2Coordinate(point);
+	distance = anchor.distanceInKm2Coordinate(point) * 1000;
+	double diff_bearing = abs(bearing - runway_heading);
+	if (diff_bearing > 180)
+		diff_bearing = 360 - diff_bearing;
+	limit = 0;
+	if (diff_bearing >= 0 && diff_bearing <= angle)
+		limit = length / cos(diff_bearing / 180 * V_PI);
+	else if (diff_bearing > angle && diff_bearing <= 90)
+		limit = width / 2 / sin(diff_bearing / 180 * V_PI);
+}
+
+}
+
+RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bearing_tra, bool is_touchdown,
+	const std::function<void(const char*)>& trace) {
+	RUNWAY_MATCH result;
+	for (int i = 0; i < airport.n_runways; i++) {
+		RUNWAY* rwy = &airport.runways[i];
+		// Human-readable "06L/24R"-style id for trace output -- numbers[]/
+		// designators[] alone (e.g. 6/24) don't carry the leading zero or
+		// the L/R/C side letter that a pilot would recognize.
+		std::string rwy_id = rwy->runway_code_generator(true) + "/" + rwy->runway_code_generator(false);
+		double heading = rwy->heading;
+		rwy->start_points[1] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, heading);
+		heading -= 180;
+		if (heading <= 0)
+			heading += 360;
+		rwy->start_points[0] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, heading);
+
+		if (!result.any_margin_hit) {
+			// Same footprint check as the strict one below, but anchored on a
+			// point shifted RUNWAY_MARGIN_LENGTH_M further past threshold 0
+			// (rather than reusing start_points[0] as-is), with length/width
+			// padded by RUNWAY_MARGIN_LENGTH_M/RUNWAY_MARGIN_WIDTH_M -- shifting
+			// the anchor, not just growing the dimensions, is what lets this
+			// catch points short of threshold 0 or beyond the runway's side
+			// edges near its ends, not only points beyond the far threshold.
+			double margin_length = rwy->length + 2 * RUNWAY_MARGIN_LENGTH_M;
+			double margin_width = rwy->width + 2 * RUNWAY_MARGIN_WIDTH_M;
+			COORDINATE margin_start = rwy->coordinate.destinationWithDistanceAndBearing(
+				(rwy->length / 2 + RUNWAY_MARGIN_LENGTH_M) / 1000, heading);
+			double margin_distance = 0, margin_distance2 = 0;
+			footprint(margin_start, rwy->heading, margin_length, margin_width, point, margin_distance, margin_distance2);
+			if (margin_distance <= margin_distance2) {
+				result.any_margin_hit = true;
+				tracef(trace, "Runway candidate %d/%d: %s margin-rectangle hit (distance=%.1fm, distance2=%.1fm)",
+					i + 1, airport.n_runways, rwy_id.c_str(), margin_distance, margin_distance2);
+			}
+		}
+
+		double distance = 0, distance2 = 0;
+		footprint(rwy->start_points[0], rwy->heading, rwy->length, rwy->width, point, distance, distance2);
+
+		tracef(trace, "Runway candidate %d/%d: %s (heading=%.1f, len=%.0f, width=%.0f): distance=%.1fm, distance2=%.1fm -> %s",
+			i + 1, airport.n_runways, rwy_id.c_str(), rwy->heading, rwy->length, rwy->width,
+			distance, distance2, (distance <= distance2) ? "pass" : "fail (outside runway footprint)");
+
+		if (distance <= distance2) {
+			RUNWAY_OPERATION candidate;
+			candidate.index = i;
+			double diff_bearing = abs(bearing_tra - rwy->heading);
+			if (diff_bearing > 180)
+				diff_bearing = 360 - diff_bearing;
+			candidate.is_primary = diff_bearing < 90;
+
+			heading = rwy->heading;
+			int index = 0;
+			if (!candidate.is_primary) {
+				heading -= 180;
+				if (heading <= 0)
+					heading += 360;
+				index = 1;
+			}
+			candidate.heading = (int)(heading + 0.5);
+			if (candidate.heading <= 0)
+				candidate.heading += 360;
+
+			candidate.diff_bearing_tra = abs(bearing_tra - heading);
+			if (candidate.diff_bearing_tra > 180)
+				candidate.diff_bearing_tra = 360 - candidate.diff_bearing_tra;
+
+			int dir = -1;
+			double tmp_heading = heading + 90;
+			if (tmp_heading > 360)
+				tmp_heading -= 360;
+			COORDINATE loc = rwy->start_points[index].intersectionCoordinate(heading, point, tmp_heading);
+			if (loc.latitude == 360) {
+				dir = 1;
+				tmp_heading = heading - 90;
+				if (tmp_heading <= 0)
+					tmp_heading += 360;
+				loc = rwy->start_points[index].intersectionCoordinate(heading, point, tmp_heading);
+			}
+			// Both attempts failed (parallel/coincident great circles) -- loc is
+			// still the (360,360) invalid sentinel. Skip this runway rather than
+			// computing a distance against it, which would silently write a
+			// nonsensical distance_length/distance_width for this touchdown.
+			if (loc.latitude == 360) {
+				tracef(trace, "Runway candidate %d/%d: %s passed footprint check but intersection calc failed (parallel/coincident bearings); skipping",
+					i + 1, airport.n_runways, rwy_id.c_str());
+				continue;
+			}
+			candidate.distances[0] = loc.distanceInKm2Coordinate(rwy->start_points[index]) * 1000 * M_2_FT;
+			candidate.distances[1] = loc.distanceInKm2Coordinate(point) * dir * 1000 * M_2_FT;
+			candidate.distances_percent[0] = candidate.distances[0] / rwy->length / M_2_FT;
+			candidate.distances_percent[1] = candidate.distances[1] / rwy->width * 2 / M_2_FT;
+			// Displaced-threshold correction applies to touchdowns only: a
+			// landing's "usable region" is genuinely bounded by the marked
+			// threshold (touching down before it is a short/non-standard
+			// landing, worth surfacing), but a takeoff roll may legitimately
+			// start at the physical runway end -- the pre-threshold pavement
+			// is still valid, usable surface for a departure, so a liftoff's
+			// distance/percent stay measured from the physical end.
+			if (is_touchdown) {
+				// enable==0 means this runway has no threshold data, so the
+				// offset must stay 0 rather than be applied. Intentionally not
+				// clamped at 0 after subtraction: a touchdown short of the
+				// marked threshold (e.g. on a blast pad) reporting a negative
+				// distance is meaningful, not an error.
+				float threshold_offset_m = candidate.is_primary
+					? (rwy->primary_threshold_enable ? rwy->primary_threshold_offset_m : 0)
+					: (rwy->secondary_threshold_enable ? rwy->secondary_threshold_offset_m : 0);
+				double distance_before_correction_ft = candidate.distances[0];
+				candidate.distances[0] -= threshold_offset_m * M_2_FT;
+				// Percent is of landing distance available (physical length
+				// minus both ends' displaced-threshold offsets), not full
+				// physical length, so 100% still means "the far threshold" now
+				// that the numerator starts from the near threshold instead of
+				// the near physical end.
+				float primary_offset_m = rwy->primary_threshold_enable ? rwy->primary_threshold_offset_m : 0;
+				float secondary_offset_m = rwy->secondary_threshold_enable ? rwy->secondary_threshold_offset_m : 0;
+				double landing_distance_available_m = rwy->length - primary_offset_m - secondary_offset_m;
+				if (landing_distance_available_m <= 0)
+					landing_distance_available_m = rwy->length;
+				candidate.distances_percent[0] = candidate.distances[0] / (landing_distance_available_m * M_2_FT);
+				// Logged unconditionally (even when offset==0, i.e. no threshold data)
+				// so a captured debug log always shows what this feature did with a
+				// given touchdown -- this is the line to check against a runway with a
+				// known displaced threshold to confirm the popup's corrected "Threshold"
+				// figure is right, independent of the raw PAVEMENT parsing logged in
+				// recorder.cpp.
+				tracef(trace, "Runway candidate %d/%d: %s touchdown threshold correction: end=%s, offset=%.1fm, distance %.1fft -> %.1fft (%.1f%%), LDA=%.1fm",
+					i + 1, airport.n_runways, rwy_id.c_str(), candidate.is_primary ? "primary" : "secondary",
+					threshold_offset_m, distance_before_correction_ft, candidate.distances[0], candidate.distances_percent[0] * 100,
+					landing_distance_available_m);
+			}
+
+			tracef(trace, "Runway candidate %d/%d: %s accepted, is_primary=%d, diff_bearing_tra=%.1f",
+				i + 1, airport.n_runways, rwy_id.c_str(), candidate.is_primary ? 1 : 0, candidate.diff_bearing_tra);
+			result.candidates.push_back(candidate);
+		}
+	}
+	return result;
+}

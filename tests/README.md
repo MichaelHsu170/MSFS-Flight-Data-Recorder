@@ -6,12 +6,17 @@ by CTest.
 
 ## Running
 
-Build as usual (Ctrl+Shift+B, or `build.bat`), then:
+Pick **Test** from the Ctrl+Shift+B menu (builds Debug, then runs every
+test), or from a terminal:
 
 ```powershell
-ctest --test-dir build/Debug -C Debug --output-on-failure
-ctest --test-dir build/Release -C Release --output-on-failure
+.\.vscode\scripts\build.bat Debug test
+.\.vscode\scripts\build.bat Release test
 ```
+
+`ctest.exe` itself ships with CMake next to `cmake.exe`
+(`...\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\`),
+which isn't on PATH by default; `build.bat` finds it there.
 
 A single test program can also be run directly, e.g.
 `build\Debug\tests\tst_airport_lookup.exe`, optionally with one test
@@ -43,6 +48,7 @@ for the 0.5 s / 5 s flood windows.
 | Geometry, formatting, runway codes, write queues (`types.h`) | `tst_types` | distance/bearing/destination/intersection, DMS and timestamp text, every runway designator and compass code, AIRPORT copy/clear, queue ordering and shutdown |
 | SimConnect connection and registration | `tst_recording` | registrations, data definition size = copied sample size, every mapped event in the notification group, open/quit/dispatch failure, reconnect retry |
 | Trip start and stop, samples | `tst_recording` | start conditions (sim running, not paused, loaded flight, on ground, either engine, recording enabled), trip row contents, sample interval (default and from settings), midnight rollover, pause, pitch/bank sign, live signals, stop on engine shutdown / leaving the flight / sim quit / app close, consecutive trips |
+| Runway matching module (`runway_match.cpp`) on its own | `tst_runway_match` | strict hit in both directions, stored runway ends, margin-only hits (past the end, beside), no hit (far, short of the margin), no runways, crossing runways, north = 360, displaced threshold for touchdowns only, disabled threshold data, trace lines |
 | Liftoff, touchdown, airport and runway matching | `tst_airport_lookup` | departure and touchdown rows, runway match in both directions, designators, crossing runways, magnetic variation, centerline offset sign, displaced thresholds (incl. touchdown before threshold, disabled threshold data), approach track vs heading, stale approach position, touch-and-go markers, lookups queued behind a pending one, facility definition registered once, every fallback (no airports, margin hit, within/beyond 5 km, farther candidate, multi-packet list, non-airport idents), rejected request, unrelated exception, stale responses, deferred departure, reconnect reset |
 | Cockpit events and flood protection | `tst_events` | quiet-period recording, every mapped event name, no trip, flap whitelist, below/at burst threshold, burst recovery, slow flood retraction + suppression + recovery, event resolved after trip end, flush on shutdown, deleted trip, crash message, unknown event |
 | Database | `tst_database` | missing database, schema and indexes, repeatable migration, column upgrade of old databases, group-name uniqueness, every trip_data field written and read back identically on the live and stored paths, trip list (order, status, group), liftoff/touchdown/event reads, event positions, trip deletion |

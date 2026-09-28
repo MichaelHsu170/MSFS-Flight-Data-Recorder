@@ -1,7 +1,7 @@
 # Automated tests: each tst_*.cpp is its own Qt Test executable, linked
 # against fdr_core (the app's code) and fake_simconnect.cpp in place of
-# SimConnect.lib, so they run without MSFS. Run them with:
-#   ctest --test-dir build/Debug -C Debug --output-on-failure
+# SimConnect.lib, so they run without MSFS. Run them with the Ctrl+Shift+B
+# "Test" task, or: .vscode\scripts\build.bat Debug test
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test)
 
 add_library(fdr_test_support OBJECT fake_simconnect.cpp test_support.cpp)
@@ -48,3 +48,4 @@ fdr_add_test(tst_trip_history)
 fdr_add_test(tst_live_status_panel)
 fdr_add_test(tst_manage_groups_dialog)
 fdr_add_test(tst_map_bridge)
+fdr_add_test(tst_runway_match)

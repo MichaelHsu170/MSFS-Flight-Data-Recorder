@@ -32,6 +32,21 @@
       }
     },
     {
+      "label": "Test",
+      "type": "shell",
+      "command": "${workspaceFolder}\\.vscode\\scripts\\build.bat",
+      "args": ["Debug", "test"],
+      "group": {
+        "kind": "build"
+      },
+      "problemMatcher": ["$msCompile"],
+      "presentation": {
+        "reveal": "always",
+        "clear": true,
+        "panel": "shared"
+      }
+    },
+    {
       "label": "Clean",
       "type": "shell",
       "command": "powershell",

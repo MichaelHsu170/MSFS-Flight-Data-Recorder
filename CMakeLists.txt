@@ -42,6 +42,7 @@ configure_file("${SRC_DIR}/version.h.in" "${GENERATED_DIR}/version.h" @ONLY)
 set(CORE_SOURCES
     ${SRC_DIR}/db.cpp
     ${SRC_DIR}/recorder.cpp
+    ${SRC_DIR}/runway_match.cpp
     ${SRC_DIR}/recorder_bridge.cpp
     ${SRC_DIR}/live_status_panel.cpp
     ${SRC_DIR}/db_history.cpp

@@ -22,9 +22,10 @@ SQLite3 is bundled under `third_party/sqlite3/` — no separate install needed.
 
 ## Build with VS Code
 
-Press **Ctrl+Shift+B** and pick **Debug**, **Release**, or **Clean** from the menu. This works whether or not the CMake Tools extension is installed — the menu is plain VS Code tasks driving `cmake` directly, not the extension.
+Press **Ctrl+Shift+B** and pick **Debug**, **Release**, **Test**, or **Clean** from the menu. This works whether or not the CMake Tools extension is installed — the menu is plain VS Code tasks driving `cmake` directly, not the extension.
 
 - **Debug** / **Release** — configure (first time only) and build into `build/Debug` or `build/Release`. On repeat builds, configure is skipped and only `cmake --build` runs, which keeps the lead time low; CMake's own `ZERO_CHECK` step still reconfigures automatically if `CMakeLists.txt` changes.
+- **Test** — builds Debug, then runs the automated tests (see [Tests](#tests)).
 - **Clean** — removes `build/Debug`, `build/Release`, and the `build/` folder itself.
 
 Each build automatically:
@@ -38,10 +39,10 @@ Press **F5** to debug (choose the **Debug** or **Release** launch configuration)
 
 ## Tests
 
-Automated tests run the app's code against a fake SimConnect with made-up flight data, so no simulator is needed. After building:
+Automated tests run the app's code against a fake SimConnect with made-up flight data, so no simulator is needed. Pick **Test** from the Ctrl+Shift+B menu, or run:
 
 ```powershell
-ctest --test-dir build/Debug -C Debug --output-on-failure
+.\.vscode\scripts\build.bat Debug test
 ```
 
 See [tests/README.md](tests/README.md) for what is covered, what still needs a manual check, and suspected bugs the tests exposed.
@@ -211,6 +212,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── types.h                   Core C structs shared across all modules
 │   ├── simconnect_defs.h         SimConnect event/definition enums and FLIGHT_DATA_RECORD
 │   ├── recorder.h / .cpp         Raw SimConnect layer: data definitions, event subscriptions, dispatch callback
+│   ├── runway_match.h / .cpp     Which runway a liftoff/touchdown point is on, and its threshold/centerline distances
 │   ├── recorder_bridge.h / .cpp  Qt wrapper: QTimer-driven dispatch, connection retry, Qt signals
 │   ├── gui_notify.h              Free functions called by recorder.cpp and db.cpp to report state changes
 │   ├── db.h / .cpp               SQLite write path: schema creation, buffered telemetry flush
@@ -250,11 +252,11 @@ MSFS-Flight-Data-Recorder/
 ├── .claude/skills/diff-review/   Claude Code /diff-review entry point
 ├── CLAUDE.md                     Claude Code instructions (imports .github/copilot-instructions.md)
 ├── .vscode/
-│   ├── tasks.json                Debug, Release, Clean tasks (Ctrl+Shift+B)
+│   ├── tasks.json                Debug, Release, Test, Clean tasks (Ctrl+Shift+B)
 │   ├── launch.json               Debug and Release launch configurations
 │   ├── settings.json             Keeps the CMake Tools extension, if installed, from auto-configuring
 │   └── scripts/
-│       ├── build.bat             Sources vcvarsall.bat once, configures (if needed) and builds
+│       ├── build.bat             Sources vcvarsall.bat once, configures (if needed), builds, optionally runs the tests
 │       └── clean.ps1             Removes the build/ directory
 └── CMakeLists.txt                fdr_core library (all app code but main.cpp), the app, and tests/
 ```
