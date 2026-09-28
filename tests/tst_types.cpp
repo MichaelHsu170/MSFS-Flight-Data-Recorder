@@ -1,0 +1,229 @@
+// types.h: geodesic math, coordinate/time formatting, runway codes, AIRPORT
+// ownership, and the two DB write queues.
+#include "types.h"
+
+#include <QtTest>
+
+#include <thread>
+
+class TstTypes : public QObject {
+	Q_OBJECT
+
+private:
+	static COORDINATE at(double lat, double lon) {
+		COORDINATE c;
+		c.latitude = lat;
+		c.longitude = lon;
+		return c;
+	}
+
+private slots:
+	void coordinateDefaultsToInvalidSentinel() {
+		COORDINATE c;
+		QCOMPARE(c.latitude, 360.0);
+		QCOMPARE(c.longitude, 360.0);
+	}
+
+	void distanceOneDegreeOfLongitudeAtEquator() {
+		// 6371 km * pi / 180
+		QVERIFY(qAbs(at(0, 0).distanceInKm2Coordinate(at(0, 1)) - 111.19492664) < 1e-6);
+	}
+
+	void distanceLondonToParis() {
+		QVERIFY(qAbs(at(51.5074, -0.1278).distanceInKm2Coordinate(at(48.8566, 2.3522)) - 343.56) < 0.1);
+	}
+
+	void distanceToSelfIsZero() {
+		QCOMPARE(at(43, 1).distanceInKm2Coordinate(at(43, 1)), 0.0);
+	}
+
+	void bearingCardinalDirections() {
+		QVERIFY(qAbs(at(0, 0).bearing2Coordinate(at(0, 1)) - 90) < 1e-9);
+		QVERIFY(qAbs(at(0, 0).bearing2Coordinate(at(-1, 0)) - 180) < 1e-9);
+		QVERIFY(qAbs(at(0, 0).bearing2Coordinate(at(0, -1)) - 270) < 1e-9);
+		// Due north is reported as 360, never 0 (the "<= 0 -> += 360" rule).
+		QVERIFY(qAbs(at(0, 0).bearing2Coordinate(at(1, 0)) - 360) < 1e-9);
+	}
+
+	void destinationAlongEquatorAndMeridian() {
+		COORDINATE east = at(0, 0).destinationWithDistanceAndBearing(111.19492664, 90);
+		QVERIFY(qAbs(east.latitude) < 1e-9);
+		QVERIFY(qAbs(east.longitude - 1) < 1e-6);
+		COORDINATE north = at(0, 0).destinationWithDistanceAndBearing(111.19492664, 360);
+		QVERIFY(qAbs(north.latitude - 1) < 1e-6);
+		QVERIFY(qAbs(north.longitude) < 1e-9);
+	}
+
+	void destinationRoundTripsAtRunwayScale() {
+		// At the few-kilometre scale the recorder uses it for (runway ends,
+		// margin rectangles), destination -> distance/bearing agrees closely.
+		COORDINATE origin = at(43.6, 1.4);
+		COORDINATE target = origin.destinationWithDistanceAndBearing(1.5, 123);
+		QVERIFY(qAbs(origin.distanceInKm2Coordinate(target) - 1.5) < 0.001);
+		QVERIFY(qAbs(origin.bearing2Coordinate(target) - 123) < 0.1);
+	}
+
+	void intersectionOfCrossingCourses() {
+		// Eastbound from (0,0) meets southbound from (1,1) at (0,1).
+		COORDINATE x = at(0, 0).intersectionCoordinate(90, at(1, 1), 180);
+		QVERIFY(qAbs(x.latitude) < 1e-6);
+		QVERIFY(qAbs(x.longitude - 1) < 1e-6);
+	}
+
+	void intersectionBehindAStartPointIsInvalid() {
+		// Eastbound from (0,0) and northbound from (1,1) would only meet at
+		// (0,1), behind the second start point.
+		COORDINATE x = at(0, 0).intersectionCoordinate(90, at(1, 1), 0);
+		QCOMPARE(x.latitude, 360.0);
+		QCOMPARE(x.longitude, 360.0);
+	}
+
+	void intersectionOfCoincidentCoursesReturnsAPoint() {
+		// Current behavior, suspected bug: the "coincident" check compares
+		// sin() results with == 0, which floating-point error never hits, so
+		// two points on the same course get a point back instead of the
+		// (360,360) sentinel recorder.cpp's runway matching expects.
+		COORDINATE x = at(0, 0).intersectionCoordinate(90, at(0, 2), 90);
+		QVERIFY(x.latitude != 360.0);
+	}
+
+	void dmsFormatting() {
+		COORDINATE c = at(43.5, -1.25);
+		QCOMPARE(QString::fromStdString(c.coordinate_decimal_to_dms(COORDINATE::LATITUDE)), QStringLiteral("043 30 00N"));
+		QCOMPARE(QString::fromStdString(c.coordinate_decimal_to_dms(COORDINATE::LONGITUDE)), QStringLiteral("001 15 00W"));
+		// Seconds are truncated, not rounded.
+		COORDINATE t = at(0.9999999, 0);
+		QCOMPARE(QString::fromStdString(t.coordinate_decimal_to_dms(COORDINATE::LATITUDE)), QStringLiteral("000 59 59N"));
+		COORDINATE s = at(-10, 0);
+		QCOMPARE(QString::fromStdString(s.coordinate_decimal_to_dms(COORDINATE::LATITUDE)), QStringLiteral("010 00 00S"));
+	}
+
+	void dateTimeFormatting() {
+		DATETIME t;
+		t.year = 2026;
+		t.month_of_year = 1;
+		t.day_of_month = 2;
+		t.day_of_week = 5;
+		t.time_day = 36000.5;
+		t.timezone_offset = 3600;
+		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T10:00:00.500+01:00_5"));
+		t.timezone_offset = -5400;
+		t.time_day = 3 * 3600 + 4 * 60 + 5.25;
+		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T03:04:05.250-01:30_5"));
+	}
+
+	void runwayCodes_data() {
+		QTest::addColumn<int>("number");
+		QTest::addColumn<int>("designator");
+		QTest::addColumn<QString>("expected");
+		QTest::newRow("no designator") << 9 << 0 << "09";
+		QTest::newRow("left") << 9 << 1 << "09L";
+		QTest::newRow("right") << 27 << 2 << "27R";
+		QTest::newRow("center") << 36 << 3 << "36C";
+		QTest::newRow("water") << 18 << 4 << "18W";
+		QTest::newRow("A") << 1 << 5 << "01A";
+		QTest::newRow("B") << 1 << 6 << "01B";
+		QTest::newRow("compass N") << 37 << 0 << "N";
+		QTest::newRow("compass NW with designator") << 44 << 1 << "NWL";
+		QTest::newRow("zero") << 0 << 0 << "";
+		QTest::newRow("out of range") << 45 << 0 << "";
+	}
+
+	void runwayCodes() {
+		QFETCH(int, number);
+		QFETCH(int, designator);
+		QFETCH(QString, expected);
+		RUNWAY rwy;
+		rwy.numbers[0] = number;
+		rwy.designators[0] = designator;
+		QCOMPARE(QString::fromStdString(rwy.runway_code_generator(true)), expected);
+	}
+
+	void runwayCodeSecondaryEnd() {
+		RUNWAY rwy;
+		rwy.numbers[0] = 9;
+		rwy.numbers[1] = 27;
+		rwy.designators[0] = 1;
+		rwy.designators[1] = 2;
+		QCOMPARE(QString::fromStdString(rwy.runway_code_generator(false)), QStringLiteral("27R"));
+	}
+
+	void airportCopyIsDeepAndClearResets() {
+		AIRPORT src;
+		strcpy(src.name, "Test Field");
+		strcpy(src.icao, "LFBO");
+		strcpy(src.region, "LF");
+		src.magvar = 1.5f;
+		src.n_runways = 1;
+		src.runways = (RUNWAY*)calloc(1, sizeof(RUNWAY));
+		src.runways[0].numbers[0] = 14;
+		src.runways[0].designators[0] = 2;
+		src.runway_act.index = 0;
+		src.runway_act.is_primary = true;
+
+		AIRPORT dst;
+		dst.copy(&src);
+		QVERIFY(dst.runways != nullptr);
+		QVERIFY(dst.runways != src.runways);
+		QCOMPARE(QString(dst.icao), QStringLiteral("LFBO"));
+		QCOMPARE(QString(dst.name), QStringLiteral("Test Field"));
+		QCOMPARE(QString::fromStdString(dst.runway_code_generator()), QStringLiteral("14R"));
+
+		dst.clear();
+		QVERIFY(dst.runways == nullptr);
+		QCOMPARE(dst.n_runways, 0);
+		QCOMPARE(dst.runway_act.index, -1);
+		QCOMPARE(dst.runway_act.heading, -1);
+		QCOMPARE(dst.runway_act.distances[0], -1.0);
+		QCOMPARE(QString::fromStdString(dst.runway_code_generator()), QString());
+	}
+
+	void sampleQueueDrainsBeforeStopping() {
+		SampleWriteQueue q;
+		q.push(nullptr, 1);
+		q.push(nullptr, 2);
+		q.stop();
+		SAMPLE_QUEUE_ITEM item;
+		QVERIFY(q.pop(item));
+		QCOMPARE(item.trip_id, 1);
+		QVERIFY(q.pop(item));
+		QCOMPARE(item.trip_id, 2);
+		QVERIFY(!q.pop(item));
+		q.reset();
+		q.push(nullptr, 3);
+		QVERIFY(q.pop(item));
+		QCOMPARE(item.trip_id, 3);
+	}
+
+	void sampleQueuePopBlocksUntilPush() {
+		SampleWriteQueue q;
+		std::thread producer([&q] {
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			q.push(nullptr, 7);
+		});
+		SAMPLE_QUEUE_ITEM item;
+		QVERIFY(q.pop(item));
+		QCOMPARE(item.trip_id, 7);
+		producer.join();
+	}
+
+	void eventQueueKeepsInsertAndDeleteOrder() {
+		EventWriteQueue q;
+		q.push(4, "GEAR_UP", "z", "l", 11);
+		q.push_delete({ 11 });
+		q.stop();
+		EVENT_QUEUE_ITEM item;
+		QVERIFY(q.pop(item));
+		QVERIFY(item.kind == EVENT_QUEUE_ITEM::Kind::Insert);
+		QCOMPARE(item.trip_id, 4);
+		QCOMPARE(QString::fromStdString(item.event), QStringLiteral("GEAR_UP"));
+		QCOMPARE(item.seq, 11ull);
+		QVERIFY(q.pop(item));
+		QVERIFY(item.kind == EVENT_QUEUE_ITEM::Kind::Delete);
+		QCOMPARE(item.delete_seqs.size(), size_t(1));
+		QVERIFY(!q.pop(item));
+	}
+};
+
+QTEST_APPLESS_MAIN(TstTypes)
+#include "tst_types.moc"

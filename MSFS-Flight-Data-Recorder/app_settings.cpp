@@ -241,6 +241,10 @@ void ensureSettingsFileExists() {
 
 }
 
+QString AppSettings::filePath() {
+	return settingsFilePath();
+}
+
 AppSettings& AppSettings::instance() {
 	static bool _ = (ensureSettingsFileExists(), true);
 	static AppSettings settings;

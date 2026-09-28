@@ -22,11 +22,9 @@ class RecorderBridge;
 // as clickable at rest, and its tooltip is shown instantly on hover rather
 // than after Qt's default delay -- see updateRecordingIndicator() and
 // eventFilter(). Connection stays a plain non-interactive indicator. The
-// full message history is an always-visible scrolling list (newest entry on
-// top) inline in this panel's own layout rather than behind a separate
-// History button/dialog. Also hosts the "Live Follow" toggle for the
-// Trajectory View feature, forwarded out via liveFollowToggled(bool) since
-// this panel has no direct dependency on TrajectoryView.
+// full message history is an always-visible scrolling list (newest entry at
+// the bottom, auto-scrolled into view) inline in this panel's own layout
+// rather than behind a separate History button/dialog.
 class LiveStatusPanel : public QWidget {
 	Q_OBJECT
 public:

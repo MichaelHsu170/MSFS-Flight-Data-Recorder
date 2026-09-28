@@ -36,6 +36,16 @@ Each build automatically:
 
 Press **F5** to debug (choose the **Debug** or **Release** launch configuration) or **Ctrl+F5** to run without debugging.
 
+## Tests
+
+Automated tests run the app's code against a fake SimConnect with made-up flight data, so no simulator is needed. After building:
+
+```powershell
+ctest --test-dir build/Debug -C Debug --output-on-failure
+```
+
+See [tests/README.md](tests/README.md) for what is covered, what still needs a manual check, and suspected bugs the tests exposed.
+
 ## Manual Build (PowerShell)
 
 Configure and build Release in one step:
@@ -60,6 +70,8 @@ The binary is placed in a `bin/` subdirectory of the build tree:
 |---|---|
 | Debug | `build/Debug/bin/MSFS-Flight-Data-Recorder.exe` |
 | Release | `build/Release/bin/MSFS-Flight-Data-Recorder.exe` |
+
+The test executables go to `build/Debug/tests/` and `build/Release/tests/`.
 
 ## Runtime Files
 
@@ -226,6 +238,10 @@ MSFS-Flight-Data-Recorder/
 │       ├── charts.qrc / map.qrc  Qt resource files bundling the QML and HTML below
 │       ├── charts_panel.qml      QML layout for stacked timeline charts (N1/N2, speed, altitude, gear, etc.)
 │       └── map.html              Leaflet map: trajectory polyline, liftoff/touchdown markers with AI analysis popup, event markers
+├── tests/                        Automated tests (Qt Test + CTest) -- see tests/README.md
+│   ├── fake_simconnect.h / .cpp  Stand-in for SimConnect.lib driven by made-up packets
+│   ├── test_support.h / .cpp     Packet builders, FlightDriver, fake airport world, DB/dialog helpers
+│   └── tst_*.cpp                 One test program per feature area
 ├── third_party/sqlite3/          Bundled SQLite3 (sqlite3.h, sqlite3.lib, sqlite3.dll)
 ├── .github/
 │   ├── copilot-instructions.md   Code quality rules (single source of truth) and review entry point for Copilot
@@ -240,5 +256,5 @@ MSFS-Flight-Data-Recorder/
 │   └── scripts/
 │       ├── build.bat             Sources vcvarsall.bat once, configures (if needed) and builds
 │       └── clean.ps1             Removes the build/ directory
-└── CMakeLists.txt
+└── CMakeLists.txt                fdr_core library (all app code but main.cpp), the app, and tests/
 ```

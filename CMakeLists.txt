@@ -36,8 +36,10 @@ set(SRC_DIR "${PROJECT_SOURCE_DIR}/MSFS-Flight-Data-Recorder")
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 configure_file("${SRC_DIR}/version.h.in" "${GENERATED_DIR}/version.h" @ONLY)
 
-set(SOURCES
-    ${SRC_DIR}/main.cpp
+# Everything except main() and the Windows/Qt resources lives in fdr_core, so
+# the app and the tests (tests/) link the same compiled code. The app links
+# the real SimConnect.lib; the tests link tests/fake_simconnect.cpp instead.
+set(CORE_SOURCES
     ${SRC_DIR}/db.cpp
     ${SRC_DIR}/recorder.cpp
     ${SRC_DIR}/recorder_bridge.cpp
@@ -55,6 +57,10 @@ set(SOURCES
     ${SRC_DIR}/main_window.cpp
     ${SRC_DIR}/app_settings.cpp
     ${SRC_DIR}/logger.cpp
+)
+
+set(SOURCES
+    ${SRC_DIR}/main.cpp
     ${SRC_DIR}/resources/charts.qrc
     ${SRC_DIR}/resources/map.qrc
     ${SRC_DIR}/resources/app.qrc
@@ -71,32 +77,34 @@ if(MSVC)
     )
 endif()
 
-add_executable(${PROJECT_NAME} WIN32 ${SOURCES})
-target_include_directories(${PROJECT_NAME} PRIVATE ${GENERATED_DIR})
+add_library(fdr_core STATIC ${CORE_SOURCES})
+target_include_directories(fdr_core PUBLIC ${GENERATED_DIR} ${SRC_DIR})
+target_link_libraries(fdr_core PUBLIC Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Graphs Qt${QT_VERSION_MAJOR}::GraphsWidgets Qt${QT_VERSION_MAJOR}::Concurrent Qt${QT_VERSION_MAJOR}::Quick Qt${QT_VERSION_MAJOR}::QuickWidgets Qt${QT_VERSION_MAJOR}::QuickControls2 Qt${QT_VERSION_MAJOR}::WebEngineWidgets Qt${QT_VERSION_MAJOR}::WebChannel)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Graphs Qt${QT_VERSION_MAJOR}::GraphsWidgets Qt${QT_VERSION_MAJOR}::Concurrent Qt${QT_VERSION_MAJOR}::Quick Qt${QT_VERSION_MAJOR}::QuickWidgets Qt${QT_VERSION_MAJOR}::QuickControls2 Qt${QT_VERSION_MAJOR}::WebEngineWidgets Qt${QT_VERSION_MAJOR}::WebChannel)
+add_executable(${PROJECT_NAME} WIN32 ${SOURCES})
+target_link_libraries(${PROJECT_NAME} PRIVATE fdr_core)
 
 # SQLite3 bundled in the repo
 set(SQLITE3_DIR "${PROJECT_SOURCE_DIR}/third_party/sqlite3")
 if(EXISTS "${SQLITE3_DIR}/sqlite3.lib")
-    target_include_directories(${PROJECT_NAME} PRIVATE ${SQLITE3_DIR})
-    target_link_directories(${PROJECT_NAME} PRIVATE ${SQLITE3_DIR})
-    target_link_libraries(${PROJECT_NAME} PRIVATE sqlite3.lib)
+    target_include_directories(fdr_core PUBLIC ${SQLITE3_DIR})
+    target_link_libraries(fdr_core PUBLIC "${SQLITE3_DIR}/sqlite3.lib")
 else()
     message(WARNING "sqlite3.lib not found in ${SQLITE3_DIR}. Configure your system sqlite or provide sqlite3.lib.")
 endif()
 
 # Windows system libraries used by the original project
 if (WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE shlwapi.lib user32.lib Ws2_32.lib)
+    target_link_libraries(fdr_core PUBLIC shlwapi.lib user32.lib Ws2_32.lib)
 endif()
 
 # SimConnect: allow user to set SIMCONNECT_DIR or leave unset
 if(DEFINED SIMCONNECT_DIR)
     message(STATUS "Using SimConnect from: ${SIMCONNECT_DIR}")
-    target_include_directories(${PROJECT_NAME} PRIVATE "${SIMCONNECT_DIR}/Include" "${SIMCONNECT_DIR}")
+    target_include_directories(fdr_core PUBLIC "${SIMCONNECT_DIR}/Include" "${SIMCONNECT_DIR}")
     # Always link dynamically so both Debug and Release deploy the same SimConnect.dll.
     # The static lib is built with the Release CRT and causes CRT mismatch in Debug.
+    # Linked into the app only -- the tests provide their own SimConnect_* functions.
     if(EXISTS "${SIMCONNECT_DIR}/Lib/SimConnect.lib")
         target_link_libraries(${PROJECT_NAME} PRIVATE "${SIMCONNECT_DIR}/Lib/SimConnect.lib")
         message(STATUS "SimConnect: dynamic linking (Lib/SimConnect.lib)")
@@ -259,3 +267,6 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         "${D}/qml/QtQuick3D/lightmapviewer"
     COMMENT "Removing unused Qt modules from deployment"
 )
+
+enable_testing()
+add_subdirectory(tests)

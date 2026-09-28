@@ -11,6 +11,10 @@ class AppSettings {
 public:
 	static AppSettings& instance();
 
+	// Path of settings.ini: the current working directory in Debug builds,
+	// the executable's directory in Release builds.
+	static QString filePath();
+
 	// Field names (DataTablePanel's row labels) the user has unchecked in the
 	// "Fields…" dialog -- everything not listed here stays visible.
 	QStringList dataTableHiddenFields() const;

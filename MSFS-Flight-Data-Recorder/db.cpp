@@ -651,7 +651,7 @@ static void db_write_worker(STATUS* status) {
 	log_cf(3, "DB", "db_write_worker: queue stopped; thread exiting");
 }
 
-static void resolve_db_path(char* fn_db, size_t len) {
+void resolve_db_path(char* fn_db, size_t len) {
 #ifdef _DEBUG
 	snprintf(fn_db, len, "%s.db", DATABASE_NAME);
 #else

@@ -296,6 +296,10 @@ void db_delete_events(STATUS* status, const std::vector<unsigned long long>& seq
 // current schema, even when the simulator has never connected this session.
 void migrate_db();
 
+// Writes the flight_data.db path into fn_db: the current working directory in
+// Debug builds, the executable's directory in Release builds.
+void resolve_db_path(char* fn_db, size_t len);
+
 void connect_db(struct STATUS* status);
 sqlite3* connect_db_readonly();
 // Read-write connection for explicit GUI write operations (e.g. deleting a

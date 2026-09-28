@@ -1350,6 +1350,9 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			// The wire payload covers every field except the last one:
 			// add_flight_definition() registers no ZULU counterpart of "TIME ZONE
 			// OFFSET", so time_zulu.timezone_offset is never sent.
+			static_assert(offsetof(DATETIME, timezone_offset) + sizeof(double) == sizeof(DATETIME)
+				&& offsetof(FLIGHT_DATA_RECORD, time_zulu) + sizeof(DATETIME) == sizeof(FLIGHT_DATA_RECORD),
+				"time_zulu.timezone_offset must be the last byte range of FLIGHT_DATA_RECORD");
 			memcpy(&tmp, &pObjData->dwData, sizeof(struct FLIGHT_DATA_RECORD) - sizeof(double));
 			// SimConnect returns pitch and bank inverted from aviation convention:
 			//   pitch: positive = nose down  → negate to positive = nose up

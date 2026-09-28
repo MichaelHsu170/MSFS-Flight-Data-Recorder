@@ -1,0 +1,77 @@
+// Small shared helpers: trip_dataset.h (time parsing, file-name pieces) and
+// trip_data_fields.h (field labels).
+#include "trip_data_fields.h"
+#include "trip_dataset.h"
+
+#include <QtTest>
+
+class TstTripDataset : public QObject {
+	Q_OBJECT
+
+private slots:
+	void parsesRecorderTimestamps() {
+		const QDateTime t = parseZuluTime("2026-01-02T10:00:00.500+00:00_5");
+		QVERIFY(t.isValid());
+		QCOMPARE(t.toUTC().toString(Qt::ISODateWithMs), QStringLiteral("2026-01-02T10:00:00.500Z"));
+		const QDateTime offset = parseZuluTime("2026-01-02T12:30:00.000+02:00_5");
+		QCOMPARE(offset.toUTC().toString(Qt::ISODateWithMs), QStringLiteral("2026-01-02T10:30:00.000Z"));
+		QVERIFY(!parseZuluTime("").isValid());
+		QVERIFY(!parseZuluTime("not a time").isValid());
+	}
+
+	void airportPairNames() {
+		QCOMPARE(airportPairName("AAAA", "BBBB", "x"), QStringLiteral("AAAA-BBBB"));
+		QCOMPARE(airportPairName("AAAA", "", "x"), QStringLiteral("AAAA"));
+		QCOMPARE(airportPairName("", "BBBB", "x"), QStringLiteral("BBBB"));
+		QCOMPARE(airportPairName("", "", "fallback"), QStringLiteral("fallback"));
+	}
+
+	void airportPairFromFirstLiftoffAndLastTouchdown() {
+		LiftoffPoint lo1, lo2;
+		lo1.icao = "AAAA";
+		lo2.icao = "CCCC";
+		TouchdownPoint td1, td2;
+		td1.icao = "DDDD";
+		td2.icao = "BBBB";
+		QCOMPARE(airportPairName(std::vector<LiftoffPoint>{ lo1, lo2 }, std::vector<TouchdownPoint>{ td1, td2 }, "x"), QStringLiteral("AAAA-BBBB"));
+		QCOMPARE(airportPairName(std::vector<LiftoffPoint>{}, std::vector<TouchdownPoint>{}, "Trip 3"), QStringLiteral("Trip 3"));
+	}
+
+	void departureTimestampSuffix() {
+		QCOMPARE(appendDepartureTimestamp("AAAA-BBBB", "2026-01-02T10:00:00.500+00:00_5"), QStringLiteral("AAAA-BBBB_20260102100000"));
+		QCOMPARE(appendDepartureTimestamp("trip", ""), QStringLiteral("trip"));
+	}
+
+	void fieldLabels() {
+		QCOMPARE(tripFieldLabel("plane_touchdown_latitude"), QStringLiteral("Plane Touchdown Latitude"));
+		QCOMPARE(tripFieldLabel("turb_eng_n1_1"), QStringLiteral("Turb Eng N1 1"));
+		QCOMPARE(tripFieldLabel("g_force"), QStringLiteral("G Force"));
+	}
+
+	void fieldListsHaveNoDuplicates() {
+		QSet<QString> names;
+		int count = 0;
+#define ADD_NUM(dbColumn, memberExpr) names.insert(QStringLiteral(#dbColumn)); ++count;
+		TRIP_DATA_NUM_FIELDS(ADD_NUM)
+#undef ADD_NUM
+#define ADD_BOOL(name, group, bit) names.insert(QStringLiteral(#name)); ++count;
+		TRIP_DATA_BOOL_FIELDS(ADD_BOOL)
+#undef ADD_BOOL
+		QCOMPARE(names.size(), count);
+		QCOMPARE(count, 140 + 96);
+	}
+
+	void boolFieldsUseEachBitOnce() {
+		QSet<int> usedBits;
+		int count = 0;
+#define ADD_BIT(name, group, bit) \
+		QVERIFY((group) >= 1 && (group) <= 3 && (bit) >= 0 && (bit) <= 31); \
+		usedBits.insert((group) * 32 + (bit)); ++count;
+		TRIP_DATA_BOOL_FIELDS(ADD_BIT)
+#undef ADD_BIT
+		QCOMPARE(usedBits.size(), count);
+	}
+};
+
+QTEST_APPLESS_MAIN(TstTripDataset)
+#include "tst_trip_dataset.moc"
