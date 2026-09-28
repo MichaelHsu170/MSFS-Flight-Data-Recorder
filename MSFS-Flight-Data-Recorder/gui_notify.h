@@ -2,8 +2,8 @@
 
 #include <cstddef>
 
-// Qt-free notification hooks called from recorder.cpp at the same points it
-// already transitions state. Implemented in recorder_bridge.cpp, the only
+// Qt-free notification hooks called from recorder.cpp and db.cpp at the points
+// where they transition state. Implemented in recorder_bridge.cpp, the only
 // file that depends on both the plain-C++ recording core and Qt.
 
 struct STATUS;
@@ -28,8 +28,10 @@ void gui_notify_sample(struct STATUS* status, const struct FLIGHT_DATA_RECORD* s
 // airport resolved, touchdown inserted, destination airport resolved, etc.) so the
 // trip history panel can refresh without waiting for the recording to end.
 void gui_notify_trip_updated(struct STATUS* status);
-// Fired from commit_event() (recorder.cpp) for every occurrence actually
-// written to trip_events, carrying the same event_seq assigned to that row so
+// Fired from commit_event() (recorder.cpp) for every occurrence queued for
+// writing to trip_events -- before the write itself happens; if it later fails,
+// event_write_worker() (db.cpp) retracts it again via
+// gui_notify_events_retracted() -- carrying the same event_seq assigned to that row so
 // the Live Status list can associate its new line with the seq -- see
 // gui_notify_events_retracted() below. Distinct from gui_notify_log (which
 // this replaces at that one call site) purely so the UI-side item and its seq

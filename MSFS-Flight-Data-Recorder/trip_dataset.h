@@ -101,7 +101,7 @@ struct TouchdownPoint {
 // the trip (trip_events). trip_events only stores a timestamp, not a
 // position -- latitude/longitude/sampleIndex are resolved after loading by
 // matching zuluTime against the nearest TripSamplePoint (see
-// TripHistoryPanel::onRowActivated).
+// resolveEventPositions() in db_history.h).
 struct TripEvent {
 	QString event;
 	QString zuluTime;

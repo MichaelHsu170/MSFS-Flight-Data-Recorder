@@ -14,8 +14,9 @@ class QTimer;
 // Owns the STATUS struct and drives SimConnect_CallDispatch() on the Qt main thread
 // (replacing the console main()'s busy while-loop with a timer), retrying
 // SimConnect_Open() until the simulator is available. gui_notify_*() free functions
-// (implemented below, in this .cpp) reach back into this object via status->gui_context
-// to turn recorder.cpp's existing printf/state-transition points into Qt signals.
+// (declared in gui_notify.h, implemented in recorder_bridge.cpp) reach back into this
+// object via status->gui_context to turn recorder.cpp's and db.cpp's state-transition
+// points into Qt signals.
 class RecorderBridge : public QObject {
 	Q_OBJECT
 public:
@@ -23,7 +24,6 @@ public:
 	~RecorderBridge() override;
 
 	const FLIGHT_DATA& currentData() const { return status_.data; }
-	bool isConnected() const { return connected_; }
 	bool isRecording() const { return status_.recording; }
 	// User-facing gate on automatic recording start; see STATUS::recording_enabled.
 	bool isRecordingEnabled() const { return status_.recording_enabled; }
@@ -81,7 +81,8 @@ private:
 	// Logs the SimConnect_Open failure once per disconnected episode instead of
 	// every 2s retry, so the log shows why it isn't connecting without spamming.
 	bool connectFailureLogged_ = false;
-	// Holds the in-progress future when stop_recording is offloaded to a
-	// worker thread so the GUI thread stays live while the DB flush completes.
+	// Holds the in-progress future when shutdown() offloads wait_for_db_writers()
+	// and the sqlite3 close to a worker thread, so the GUI thread stays live while
+	// the DB writers drain.
 	QFuture<void> stopFuture_;
 };

@@ -44,7 +44,6 @@ public:
 	// Gemini API key used by the liftoff/landing analysis feature in the map popup.
 	// Set manually under [ai] gemini_api_key in settings.ini.
 	QString geminiApiKey() const;
-	void setGeminiApiKey(const QString& key);
 
 	// Maximum milliseconds between telemetry samples written to trip_data.
 	// Read from [recording] sample_interval_ms in settings.ini.
@@ -58,13 +57,6 @@ public:
 	// enabled in settings.ini. Default: true.
 	bool recordingEnabled() const;
 	void setRecordingEnabled(bool enabled);
-
-	// Log verbosity level written to [logging] verbose in settings.ini.
-	// Valid values: "FATAL", "WARNING", "INFO" (default), "TRACE", "PROFILE".
-	// INFO includes user-visible events; TRACE also writes fine-grained
-	// diagnostic detail; PROFILE also writes timing breakdowns.
-	QString verboseLevel() const;
-	void setVerboseLevel(const QString& level);
 
 private:
 	AppSettings() = default;

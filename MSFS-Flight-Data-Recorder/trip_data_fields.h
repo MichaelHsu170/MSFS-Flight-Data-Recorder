@@ -20,12 +20,15 @@ inline QString tripFieldLabel(const char* name) {
 // Canonical list of every trip_data column that represents flight telemetry
 // (i.e. every column except the `id`/`trip` key columns and `zulu_time`/
 // `local_time`, which DataTablePanel shows in their own dedicated rows
-// instead). Expanded via X-macros so the field list is written exactly once
-// and shared by three consumers that must agree on the same field set and
-// order: recorder_bridge.cpp (live path fills TripSamplePoint::rawNums from
-// FLIGHT_DATA_RECORD), db_history.cpp (historical path fills rawNums from
-// sqlite3_column_double), and data_table_panel.cpp (formats rawNums/boolGroups
-// to display strings using these same macros in showPoint).
+// instead). Expanded via X-macros by three consumers that must agree on the
+// same field set and order: recorder_bridge.cpp (live path fills
+// TripSamplePoint::rawNums from FLIGHT_DATA_RECORD), db_history.cpp
+// (historical path fills rawNums from sqlite3_column_double), and
+// data_table_panel.cpp (formats rawNums/boolGroups to display strings using
+// these same macros in showPoint). NOT yet used by the write path: the
+// trip_data schema in db.h (DATABASE_TABLE_FIELDS) and db_write_worker()'s
+// INSERT column list, bool_group packing and binds in db.cpp are still
+// hand-written copies of this list and must be kept in the same order by hand.
 //
 // TRIP_DATA_NUM_FIELDS(X): X(dbColumnName, recordMemberExpr) -- a plain
 // numeric trip_data column. recordMemberExpr is the FLIGHT_DATA_RECORD

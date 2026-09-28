@@ -350,5 +350,4 @@ struct FLIGHT_DATA_RECORD {
 	char atc_type[64];
 	DATETIME time_local;
 	DATETIME time_zulu;
-	struct FLIGHT_DATA_RECORD* next;
 };

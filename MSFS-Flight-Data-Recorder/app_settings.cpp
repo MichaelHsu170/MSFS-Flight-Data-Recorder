@@ -374,21 +374,6 @@ QString AppSettings::geminiApiKey() const {
 	return settings.value(QStringLiteral("ai/gemini_api_key")).toString();
 }
 
-void AppSettings::setGeminiApiKey(const QString& key) {
-	// Never log the key value itself, only whether one is now configured.
-	Logger::logf(Logger::Trace, "Settings", "Gemini API key %s", key.isEmpty() ? "cleared" : "updated");
-	writeIniValue(
-		QStringLiteral("ai"),
-		QStringLiteral("gemini_api_key"),
-		key,
-		QStringLiteral("AI liftoff/landing analysis settings."),
-		QStringLiteral("Gemini API key for the AI liftoff/landing analysis feature.\n"
-		               "Obtain a free key from Google AI Studio (aistudio.google.com), then paste it\n"
-		               "here and restart the app. The app never writes this value.\n"
-		               "Without a key the Analyze Liftoff and Analyze Landing buttons are disabled.")
-	);
-}
-
 int AppSettings::sampleIntervalMs() const {
 	QSettings settings = makeSettings();
 	bool ok = false;
@@ -417,28 +402,5 @@ void AppSettings::setRecordingEnabled(bool enabled) {
 		               "Recording indicator in the Live Status panel. Disabling it only prevents\n"
 		               "a new trip from starting; it doesn't stop one already in progress.\n"
 		               "Default: true.")
-	);
-}
-
-QString AppSettings::verboseLevel() const {
-	QSettings settings = makeSettings();
-	return settings.value(QStringLiteral("logging/verbose"), QStringLiteral("INFO")).toString();
-}
-
-void AppSettings::setVerboseLevel(const QString& level) {
-	Logger::logf(Logger::Trace, "Settings", "Log verbosity level set to %s", qUtf8Printable(level));
-	writeIniValue(
-		QStringLiteral("logging"),
-		QStringLiteral("verbose"),
-		level,
-		QStringLiteral("Logging settings."),
-		QStringLiteral("Maximum log level written to msfs_fdr_debug.log.\n"
-		               "Levels (inclusive — each includes all levels above it):\n"
-		               "  FATAL    — unrecoverable errors only\n"
-		               "  WARNING  — unexpected conditions that don't abort the app\n"
-		               "  INFO     — operational events (connect, recording start/stop, liftoff, touchdown)\n"
-		               "  TRACE    — fine-grained diagnostic detail (high-volume; for deep debugging)\n"
-		               "  PROFILE  — performance timing for all subsystems (highest volume; for profiling only)\n"
-		               "Default: INFO")
 	);
 }

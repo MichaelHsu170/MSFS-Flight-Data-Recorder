@@ -2,6 +2,7 @@
 #include "map_bridge.h"
 #include "app_settings.h"
 #include "kml_export.h"
+#include "version.h"
 
 #include <QTimer>
 #include <QWebEngineView>
@@ -222,7 +223,7 @@ MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
 	// OSM's tile usage policy requires a valid User-Agent identifying the
 	// application -- QtWebEngine's default UA is a generic Chromium string
 	// that doesn't, which tile servers can reject.
-	QWebEngineProfile::defaultProfile()->setHttpUserAgent(QStringLiteral("MSFS-Flight-Data-Recorder v2.0.0"));
+	QWebEngineProfile::defaultProfile()->setHttpUserAgent(QStringLiteral("MSFS-Flight-Data-Recorder v" APP_VERSION));
 
 	auto* filteredView = new FilteredWebEngineView(this);
 	filteredView->setResetZoomHandler([this]() { resetZoom(); });

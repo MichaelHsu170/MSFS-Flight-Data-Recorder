@@ -68,8 +68,8 @@ All runtime files follow the same rule: **Debug** builds use the **current worki
 | File | Purpose |
 |---|---|
 | `flight_data.db` | SQLite database — created on first run, grows as flights are recorded |
-| `settings.ini` | User preferences (panel sizes, hidden data-table fields, log level, event skip list, sample interval, Gemini API key) — created on first launch |
-| `msfs_fdr_debug.log` | Unified log — truncated on each launch; level-filtered output from all modules (Qt, SimConnect, DB, map, charts) |
+| `settings.ini` | User preferences (panel sizes, table column widths, hidden data-table fields, log level, sample interval, automatic-recording toggle, Gemini API key) — created on first launch |
+| `msfs_fdr_debug.log` | Unified log — started fresh on each launch, with the previous run's log kept as `msfs_fdr_debug.log.old`; level-filtered output from all modules (Qt, SimConnect, DB, map, charts) |
 
 ## settings.ini Reference
 
@@ -90,6 +90,10 @@ gemini_api_key=
 ; Default: 500  (0.5 s — adequate for all aircraft types including fast jets
 ; at subsonic speeds; go lower only for supersonic recording needs).
 sample_interval_ms=500
+
+; Auto-managed by the app. Whether automatic recording is allowed to start,
+; toggled via the Recording indicator in the Live Status panel.
+enabled=true
 
 [logging]
 ; Maximum log level written to msfs_fdr_debug.log.
@@ -116,21 +120,35 @@ charts_panel_height=400
 ; Comma-separated list of field labels hidden in the Data Table panel via the
 ; Fields dialog. Absent or empty means all fields are visible.
 hidden_fields=
+
+; Auto-managed by the app. Persisted column widths for the tables in the
+; UI that support user resizing.
+[table_column_width]
+; Width in pixels of the Field column in the Data Table panel. The Value
+; column always stretches to fill the rest. Default: 140.
+data_table_field_column_width=140
+
+; Column widths in pixels for the Trip History table, as comma-separated
+; key=value pairs keyed by TripHistoryModel::Column enum member name (e.g.
+; TitleColumn=120). Columns using Stretch sizing are never stored. Unknown
+; or missing keys fall back to that column's coded default.
+trip_history_column_widths=
 ```
 
 ## Database
 
-`flight_data.db` is a SQLite database. The schema is created automatically on first launch. On every subsequent launch `connect_db()` adds any columns present in the current code but missing from the on-disk table (`ALTER TABLE ADD COLUMN`), so databases created by older builds are automatically upgraded without data loss.
+`flight_data.db` is a SQLite database. At every launch `migrate_db()` creates any missing tables and indexes and adds any columns present in the current code but missing from the on-disk table (`ALTER TABLE ADD COLUMN`), so databases created by older builds are automatically upgraded without data loss. `connect_db()` repeats the same check when the simulator connects.
 
 | Table | Contents |
 |---|---|
 | `trips` | One row per flight session: departure/destination airport ICAO, runway, times, ATC callsign |
-| `trip_data` | Telemetry sampled at a configurable interval (default 0.5 s) while recording: position, altitude, airspeed, engine N1/N2, gear/flaps/spoilers, fuel, autopilot state, and ~60 other variables |
+| `trip_data` | Telemetry sampled at a configurable interval (default 0.5 s) while recording: 140 numeric variables (position, altitude, airspeed, engine N1/N2, gear/flaps/spoilers, fuel, …) plus 96 on/off states (autopilot modes, switches, warnings, …) bit-packed into three `bool_group_*` columns — the full list is in `trip_data_fields.h` |
 | `trip_events` | Discrete cockpit events (gear up/down, flaps, spoilers, parking brake, anti-ice, etc.) with zulu and local timestamps |
-| `trip_liftoffs` | One row per liftoff (the trip's departure, plus any touch-and-go): airport, runway (plus its real facility heading — usually a few degrees off the runway number), airspeed, vertical speed, pitch/bank/heading, wind direction/speed, and lateral/longitudinal distance from the runway threshold and centreline |
-| `trip_touchdowns` | One row per touchdown: airport, runway (plus its real facility heading — usually a few degrees off the runway number), airspeed, vertical speed, g-force, pitch/bank/heading, wind direction/speed, and lateral/longitudinal distance from the runway threshold and centreline |
+| `trip_liftoffs` | One row per liftoff (the trip's departure, plus any touch-and-go): airport, runway (plus its real facility heading — usually a few degrees off the runway number), airspeed, vertical speed, pitch/bank/heading, wind direction/speed, lateral/longitudinal distance from the runway threshold and centreline, and the stored AI analysis report |
+| `trip_touchdowns` | One row per touchdown: airport, runway (plus its real facility heading — usually a few degrees off the runway number), airspeed, vertical speed, g-force, pitch/bank/heading, wind direction/speed, lateral/longitudinal distance from the runway threshold and centreline, and the stored AI analysis report |
+| `trip_groups` | User-defined trip groups: name and list order (`trips.group_id` references a row here; NULL = ungrouped) |
 
-Recording starts automatically when an engine is running on the ground and stops when all engines shut down. A trip that ends abnormally (simulator crash or process kill before engine shutdown) is marked as **Open** in the UI.
+Recording starts automatically when an engine is running on the ground (unless automatic recording is disabled via the **Recording** indicator in the Live Status panel) and stops when all engines shut down on the ground or the simulator leaves the flight. A trip that ends abnormally (simulator crash or process kill before engine shutdown) is marked as **Open** in the UI.
 
 ## SimConnect
 
@@ -163,6 +181,15 @@ While the model is reasoning the toggle label reads **Thinking…** and is non-i
 3. Set `gemini_api_key=YOUR_KEY` under `[ai]`.
 4. Restart the app — the button becomes active on the next liftoff or touchdown popup.
 
+## Trip Groups
+
+Trips can be sorted into user-defined groups. **Manage Groups…** (above the trip table) adds, renames (double-click), deletes and reorders (drag) groups; right-clicking a trip row offers **Set Group**. The **Group** filter above the table limits the table and the overview map to one group, and the overview map colors each group's routes differently, with a legend.
+
+## Export and Images
+
+- **Export to KML** — available from a trip row's right-click menu and from the map's right-click menu while a trip is shown. The KML file contains the 3D flight path, a time-animated track, and liftoff, touchdown and event placemarks, for viewing in Google Earth.
+- **Save Image** / **Copy Image** — the map's right-click menu saves or copies the whole visible map (trajectory, markers and tiles) as one image.
+
 ## Project Structure
 
 ```
@@ -173,26 +200,39 @@ MSFS-Flight-Data-Recorder/
 │   ├── simconnect_defs.h         SimConnect event/definition enums and FLIGHT_DATA_RECORD
 │   ├── recorder.h / .cpp         Raw SimConnect layer: data definitions, event subscriptions, dispatch callback
 │   ├── recorder_bridge.h / .cpp  Qt wrapper: QTimer-driven dispatch, connection retry, Qt signals
-│   ├── gui_notify.h              Free functions called by recorder.cpp to report state changes
+│   ├── gui_notify.h              Free functions called by recorder.cpp and db.cpp to report state changes
 │   ├── db.h / .cpp               SQLite write path: schema creation, buffered telemetry flush
-│   ├── db_history.h / .cpp       Read-only queries: trip list, telemetry, events, liftoff points, touchdowns
-│   ├── logger.h / .cpp           Unified logger: level-filtered (Fatal/Warning/Info/Profile), module-tagged output to msfs_fdr_debug.log
+│   ├── db_history.h / .cpp       Read-only queries: trip list, telemetry, events, liftoff points, touchdowns; trip deletion
+│   ├── db_groups.h / .cpp        Trip-group queries: list, add, rename, delete, reorder, assign a trip
+│   ├── logger.h / .cpp           Unified logger: level-filtered (Fatal/Warning/Info/Trace/Profile), module-tagged output to msfs_fdr_debug.log
 │   ├── logger_c.h                C-compatible shim (log_c / log_cf) for Qt-free translation units (db.cpp)
 │   ├── app_settings.h / .cpp     QSettings wrapper for settings.ini
 │   ├── trip_dataset.h            Shared data structs: TripSamplePoint, TripEvent, TripDataset, etc.
 │   ├── trip_data_fields.h        X-macro list of all trip_data columns (keeps live and historical paths in sync)
+│   ├── version.h.in              Template for the generated version.h (APP_VERSION from CMakeLists.txt)
 │   ├── main_window.h / .cpp      Top-level QMainWindow shell and cross-feature signal wiring
 │   ├── live_status_panel.h/.cpp  Connection/recording status widget and scrolling log
-│   ├── trip_history_panel.h/.cpp Trip list table with background dataset loading and trip deletion
+│   ├── trip_history_panel.h/.cpp Trip list table with background dataset loading, group filter, trip deletion
+│   ├── manage_groups_dialog.h/.cpp Dialog to add, rename, delete and reorder trip groups
+│   ├── kml_export.h / .cpp       Builds and writes a trip's KML file
+│   ├── splitter_utils.h          Helper to persist splitter sizes only when a drag ends
 │   ├── trajectory_view.h / .cpp  Composite view: owns map, data table, and charts; cursor-sync wiring
 │   ├── map_widget.h / .cpp       QWebEngineView hosting map.html (Leaflet/OSM trajectory map)
 │   ├── map_bridge.h / .cpp       QWebChannel QObject bridging JS ↔ C++ for the map
 │   ├── charts_panel.h / .cpp     QQuickWidget hosting charts_panel.qml (timeline charts with hover tooltip)
 │   ├── data_table_panel.h / .cpp Per-sample field/value table with hide-field dialog
 │   └── resources/
+│       ├── app.qrc / app.rc / app_icon.ico  Application icon and Windows version resource
+│       ├── charts.qrc / map.qrc  Qt resource files bundling the QML and HTML below
 │       ├── charts_panel.qml      QML layout for stacked timeline charts (N1/N2, speed, altitude, gear, etc.)
 │       └── map.html              Leaflet map: trajectory polyline, liftoff/touchdown markers with AI analysis popup, event markers
 ├── third_party/sqlite3/          Bundled SQLite3 (sqlite3.h, sqlite3.lib, sqlite3.dll)
+├── .github/
+│   ├── copilot-instructions.md   Code quality rules (single source of truth) and review entry point for Copilot
+│   ├── diff-review.md            Canonical code-change review process
+│   └── prompts/diff-review.prompt.md  Copilot /diff-review entry point
+├── .claude/skills/diff-review/   Claude Code /diff-review entry point
+├── CLAUDE.md                     Claude Code instructions (imports .github/copilot-instructions.md)
 ├── .vscode/
 │   ├── tasks.json                Debug, Release, Clean tasks (Ctrl+Shift+B)
 │   ├── launch.json               Debug and Release launch configurations

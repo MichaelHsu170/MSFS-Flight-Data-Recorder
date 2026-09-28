@@ -80,8 +80,8 @@ RecorderBridge::RecorderBridge(QObject* parent)
 }
 
 RecorderBridge::~RecorderBridge() {
-	// If an async stop_recording task is still running (MSFS quit mid-session),
-	// wait for it before the STATUS struct gets destroyed.
+	// If shutdown()'s async DB-writer drain is still running (MSFS quit
+	// mid-session), wait for it before the STATUS struct gets destroyed.
 	if (stopFuture_.isRunning())
 		stopFuture_.waitForFinished();
 	// Synchronous cleanup for anything shutdown() didn't already handle

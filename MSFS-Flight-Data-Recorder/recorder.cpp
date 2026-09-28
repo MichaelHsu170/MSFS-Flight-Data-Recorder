@@ -1347,7 +1347,10 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			flush_stale_event_streaks(status);
 			struct FLIGHT_DATA_RECORD tmp;
 			memset(&tmp, 0, sizeof(struct FLIGHT_DATA_RECORD));
-			memcpy(&tmp, &pObjData->dwData, sizeof(struct FLIGHT_DATA_RECORD) - sizeof(double) - sizeof(struct FLIGHT_DATA_RECORD*));
+			// The wire payload covers every field except the last one:
+			// add_flight_definition() registers no ZULU counterpart of "TIME ZONE
+			// OFFSET", so time_zulu.timezone_offset is never sent.
+			memcpy(&tmp, &pObjData->dwData, sizeof(struct FLIGHT_DATA_RECORD) - sizeof(double));
 			// SimConnect returns pitch and bank inverted from aviation convention:
 			//   pitch: positive = nose down  → negate to positive = nose up
 			//   bank:  positive = left wing down → negate to positive = right bank
@@ -1514,7 +1517,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					// facility_lookup_departure_coordinate in types.h.
 					status->facility_lookup_departure_coordinate = status->data.coordinate;
 					status->facility_lookup_departure_heading = status->data.heading;
-					gui_log_printf(status, GUI_LOG_TRACE, "Liftoff detected (trip %d): lat=%.6f, lon=%.6f, heading=%.1f",
+					gui_log_printf(status, GUI_LOG_TRACE, "Liftoff detected (trip %d): lat=%.6f, lon=%.6f, heading=%d",
 						status->id_trip, status->facility_lookup_departure_coordinate.latitude,
 						status->facility_lookup_departure_coordinate.longitude, status->facility_lookup_departure_heading);
 					// Insert immediately so the row survives a crash before stop_recording.

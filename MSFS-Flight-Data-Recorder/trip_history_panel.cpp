@@ -554,9 +554,10 @@ void TripHistoryPanel::refreshTrips() {
 		// group list; it must already contain every group any trip
 		// currently references (reloadGroupFilterCombo() always runs before
 		// refreshTrips() following a group mutation). A miss here means a
-		// trip references a group.value(0) falls back to render as
-		// "Ungrouped" on the map while still showing its real group name --
-		// log it rather than let that mismatch pass silently.
+		// trip references a group that isn't in that list: its groupRank
+		// falls back to 0, so it renders as "Ungrouped" on the map while
+		// still showing its real group name -- log it rather than let that
+		// mismatch pass silently.
 		auto it = groupRank_.constFind(trip.groupId);
 		if (trip.groupId != 0 && it == groupRank_.constEnd()) {
 			Logger::logf(Logger::Warning, "DB",
