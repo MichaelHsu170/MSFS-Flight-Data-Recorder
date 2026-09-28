@@ -96,7 +96,8 @@ COORDINATE pointOnRunway(const RunwaySpec& runway, double distanceM, double righ
 class FlightDriver {
 public:
 	// Resets the fake, creates a RecorderBridge (which connects immediately)
-	// and delivers the OPEN packet plus "Sim running".
+	// and delivers the OPEN packet plus "Sim running". The event flood
+	// filter's clock is replaced by one that only tick() moves.
 	FlightDriver();
 	~FlightDriver();
 
@@ -110,7 +111,8 @@ public:
 	void pump();
 	void send(std::vector<char> packet);
 	void simEvent(DWORD eventId, DWORD data = 1);
-	// Advances both clocks by seconds, sends record as one sample, pumps.
+	// Advances the sim clocks in record and the event filter's clock by
+	// seconds, sends record as one sample, pumps.
 	void tick(double seconds = 0.5);
 	void ticks(int count, double seconds = 0.5);
 
@@ -135,6 +137,7 @@ public:
 
 private:
 	std::unique_ptr<RecorderBridge> bridge_;
+	EventFloodFilter::TimePoint eventClock_ = std::chrono::steady_clock::now();
 	size_t listRequestsServed_ = 0;
 	size_t dataRequestsServed_ = 0;
 };

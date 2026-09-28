@@ -1,6 +1,8 @@
-// Cockpit event recording (trip_events) and the two flood-protection tiers.
-// The tiers are timed with the real clock (500 ms / 5 s windows), so these
-// tests wait in real time; quiet periods are resolved on the next sample tick.
+// Cockpit event recording (trip_events) and the two flood-protection tiers,
+// through the whole recorder. The tiers' 500 ms / 5 s windows run on
+// FlightDriver's fake clock, which only tick() moves; quiet periods are
+// resolved on the sample tick that ends them. tst_event_filter covers the
+// filter on its own.
 #include "test_support.h"
 
 #include "db.h"
@@ -22,13 +24,13 @@ int allEventRows() {
 	return queryValue("SELECT COUNT(*) FROM trip_events").toInt();
 }
 
-// Waits out a quiet period, then sends a sample tick so the recorder resolves it.
+// One sample tick ms after the last: resolves quiet periods that ends.
 void quiet(FlightDriver& sim, int ms) {
-	QThread::msleep(ms);
-	sim.tick();
+	sim.tick(ms / 1000.0);
 }
 
-// Settles every pending write so "no row" assertions aren't racing the writer.
+// Settles every pending write so "no row" assertions aren't racing the
+// writer thread, which runs in real time.
 void drainWrites(FlightDriver& sim) {
 	quiet(sim, 600);
 	QThread::msleep(200);
@@ -145,7 +147,11 @@ private slots:
 		FlightDriver sim;
 		const int tripId = sim.startTrip();
 		sim.simEvent(EVENT_PARKING_BRAKES);
-		sim.endTrip(); // before the event's 500 ms quiet period elapsed
+		// The trip ends 0.1 s later, before the event's 500 ms quiet period.
+		sim.setEngines(false);
+		quiet(sim, 100);
+		QCOMPARE(sim.status().recording, false);
+		QCOMPARE(eventRows(tripId, "PARKING_BRAKES"), 0);
 		quiet(sim, 600);
 		QVERIFY(waitFor([tripId] { return eventRows(tripId, "PARKING_BRAKES") == 1; }));
 	}

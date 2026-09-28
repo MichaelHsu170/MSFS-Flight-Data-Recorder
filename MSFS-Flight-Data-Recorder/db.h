@@ -188,7 +188,7 @@ static const char* DATABASE_TABLE_FIELDS[] = {
 	"event VARCHAR(32) NOT NULL,"
 	"time_zulu VARCHAR(32) NOT NULL,"
 	"time_local VARCHAR(32) NOT NULL,"
-	// Tier 2 flood-detection retraction key -- see EVENT_TIER2_STATE (types.h)
+	// Slow-flood retraction key -- see EventFloodFilter (event_filter.h)
 	// and db_delete_events() below. Not NOT NULL/UNIQUE: rows written by
 	// builds older than this column's introduction migrate in with NULL here
 	// (migrate_table_columns() strips NOT NULL from the ALTER path anyway),
@@ -275,14 +275,14 @@ void db_insert_update_table(
 // enqueue time, not read from status->id_trip here -- see
 // EVENT_QUEUE_ITEM::trip_id). event_seq is EVENT_QUEUE_ITEM::seq, stored so a
 // later db_delete_events() can retract this exact row -- see
-// STATUS::next_event_seq (types.h). Called only from event_write_worker, on
+// EventFloodFilter (event_filter.h). Called only from event_write_worker, on
 // the event-write worker thread; serializes with the DB-write worker thread
 // (draining STATUS::sample_write_queue) through STATUS::mutex_db_commit.
 void db_insert_event(STATUS* status, int trip_id, const char* event, const char* time_zulu, const char* time_local, unsigned long long event_seq);
 
 // Retracts previously-inserted trip_events rows by event_seq -- the DB side of
-// tier 2 flood confirmation (see EVENT_TIER2_STATE in types.h and
-// tier2_gate() in recorder.cpp). Matches on event_seq rather than
+// slow-flood confirmation (see EventFloodFilter in event_filter.h and
+// event_output() in recorder.cpp). Matches on event_seq rather than
 // name/timestamp specifically so it can never delete an unrelated row that
 // happens to share the same event name or timestamp string (time_zulu/
 // time_local are read from a periodically-refreshed snapshot, not captured

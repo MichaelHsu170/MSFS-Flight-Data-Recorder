@@ -213,6 +213,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── simconnect_defs.h         SimConnect event/definition enums and FLIGHT_DATA_RECORD
 │   ├── recorder.h / .cpp         Raw SimConnect layer: data definitions, event subscriptions, dispatch callback
 │   ├── runway_match.h / .cpp     Which runway a liftoff/touchdown point is on, and its threshold/centerline distances
+│   ├── event_filter.h / .cpp     Flood protection for cockpit events (fast bursts, slow repeats)
 │   ├── recorder_bridge.h / .cpp  Qt wrapper: QTimer-driven dispatch, connection retry, Qt signals
 │   ├── gui_notify.h              Free functions called by recorder.cpp and db.cpp to report state changes
 │   ├── db.h / .cpp               SQLite write path: schema creation, buffered telemetry flush

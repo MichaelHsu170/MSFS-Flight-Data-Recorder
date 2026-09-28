@@ -20,9 +20,8 @@ which isn't on PATH by default; `build.bat` finds it there.
 
 A single test program can also be run directly, e.g.
 `build\Debug\tests\tst_airport_lookup.exe`, optionally with one test
-function name as an argument. The whole suite took about 16 s on the
-verification machine; most of that is `tst_events`, which waits in real time
-for the 0.5 s / 5 s flood windows.
+function name as an argument. The whole suite took about 14 s on the
+verification machine.
 
 ## How they work
 
@@ -34,8 +33,10 @@ for the 0.5 s / 5 s flood windows.
 - **test_support.cpp** builds those packets and provides `FlightDriver`,
   which runs a real `RecorderBridge` against the fake: set fields on
   `record` (position, on-ground, engines, ...), call `tick()` to send a
-  sample. `FlightDriver::airports` is a made-up world that answers the
-  recorder's airport/runway lookups (`serviceLookups()`).
+  sample. `tick()` also moves the event flood filter's clock, so its
+  0.5 s / 5 s windows pass without real waiting. `FlightDriver::airports` is
+  a made-up world that answers the recorder's airport/runway lookups
+  (`serviceLookups()`).
 - Each test program works in its own temporary directory (Debug builds put
   `flight_data.db` and `settings.ini` in the working directory). Release
   builds put them next to the test executables in `build/<config>/tests/`,
@@ -50,6 +51,7 @@ for the 0.5 s / 5 s flood windows.
 | Trip start and stop, samples | `tst_recording` | start conditions (sim running, not paused, loaded flight, on ground, either engine, recording enabled), trip row contents, sample interval (default and from settings), midnight rollover, pause, pitch/bank sign, live signals, stop on engine shutdown / leaving the flight / sim quit / app close, consecutive trips |
 | Runway matching module (`runway_match.cpp`) on its own | `tst_runway_match` | strict hit in both directions, stored runway ends, margin-only hits (past the end, beside), no hit (far, short of the margin), no runways, crossing runways, north = 360, displaced threshold for touchdowns only, disabled threshold data, trace lines |
 | Liftoff, touchdown, airport and runway matching | `tst_airport_lookup` | departure and touchdown rows, runway match in both directions, designators, crossing runways, magnetic variation, centerline offset sign, displaced thresholds (incl. touchdown before threshold, disabled threshold data), approach track vs heading, stale approach position, touch-and-go markers, lookups queued behind a pending one, facility definition registered once, every fallback (no airports, margin hit, within/beyond 5 km, farther candidate, multi-packet list, non-airport idents), rejected request, unrelated exception, stale responses, deferred departure, reconnect reset |
+| Event flood filter (`event_filter.cpp`) on its own | `tst_event_filter` | quiet-period hold (carried trip and timestamps), commit on next occurrence, two quick repeats, fast burst suppressed / kept suppressed / ends with or without a flush, flap bypass, independent names, slow flood retracted + suppressed + recovers (with or without a flush), repeats 2.5 s apart, double + single = slow flood, shutdown flush, unique seqs |
 | Cockpit events and flood protection | `tst_events` | quiet-period recording, every mapped event name, no trip, flap whitelist, below/at burst threshold, burst recovery, slow flood retraction + suppression + recovery, event resolved after trip end, flush on shutdown, deleted trip, crash message, unknown event |
 | Database | `tst_database` | missing database, schema and indexes, repeatable migration, column upgrade of old databases, group-name uniqueness, every trip_data field written and read back identically on the live and stored paths, trip list (order, status, group), liftoff/touchdown/event reads, event positions, trip deletion |
 | Trip groups | `tst_groups` | create (trim, order, blank, duplicates incl. non-ASCII case), rename, assign/unassign, trip counts, delete ungroups trips, reorder, name tie-break |

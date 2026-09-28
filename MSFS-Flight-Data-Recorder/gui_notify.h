@@ -45,11 +45,11 @@ void gui_notify_trip_updated(struct STATUS* status);
 // onEventCommitted's recordingTripId_ check, the same guard onTripEnded()
 // already uses for the analogous late-tripEnded() race.
 void gui_notify_event_committed(struct STATUS* status, int tripId, unsigned long long seq, const char* name);
-// Fired from tier2_gate() (recorder.cpp) when a flood is confirmed, to pull
-// the up-to-EVENT_TIER2_THRESHOLD occurrences back out of the Live Status
-// list (a no-op for any that were never shown in the first place -- e.g. a
-// no-active-trip occurrence) by the same event_seq values just deleted from
-// trip_events via db_delete_events() -- see EVENT_TIER2_STATE in types.h.
+// Fired from event_output() (recorder.cpp) when the flood filter confirms a
+// slow flood, to pull its already-committed occurrences back out of the Live
+// Status list (a no-op for any that were never shown in the first place --
+// e.g. a no-active-trip occurrence) by the same event_seq values just deleted
+// from trip_events via db_delete_events() -- see event_filter.h.
 // Also fired from event_write_worker() (db.cpp) when a queued Insert's DB
 // write fails, to pull that one occurrence back out since it never actually
 // made it into trip_events. Unlike every other gui_notify_*() function, that

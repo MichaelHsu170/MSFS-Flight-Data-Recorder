@@ -110,9 +110,9 @@ void db_insert_update_table(
 void db_insert_event(STATUS* status, int trip_id, const char* event, const char* time_zulu, const char* time_local, unsigned long long event_seq) {
 	struct EventInsertArgs { int trip_id; const char* event; const char* time_zulu; const char* time_local; long long event_seq; };
 	EventInsertArgs args{ trip_id, event, time_zulu, time_local, (long long)event_seq };
-	// The flood-detection buffers this is drained from (STATUS::event_streaks/
-	// tier2_state, see recorder.cpp) can hold an occurrence for up to
-	// EVENT_TIER2_WINDOW after the trip it belongs to already ended, so by the
+	// The flood filter this is fed from (STATUS::event_filter, see
+	// event_filter.h) can hold an occurrence back for several seconds after
+	// the trip it belongs to already ended, so by the
 	// time this runs the trip may have already been deleted from the UI. The
 	// WHERE EXISTS guard, evaluated inside this same transaction, makes that a
 	// silent no-op instead of an orphaned row: if the trip's gone by the time
@@ -813,8 +813,8 @@ static void create_db_indexes(sqlite3* sql) {
 		"CREATE INDEX IF NOT EXISTS idx_trip_data_trip ON trip_data(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_events_trip ON trip_events(trip);",
 		// Backs db_delete_events()'s "WHERE event_seq IN (...)" retraction --
-		// without it, tier 2 confirming a flood (see EVENT_TIER2_STATE in
-		// types.h) would force a full table scan of trip_events every time.
+		// without it, confirming a slow flood (see event_filter.h) would
+		// force a full table scan of trip_events every time.
 		"CREATE INDEX IF NOT EXISTS idx_trip_events_event_seq ON trip_events(event_seq);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_liftoffs_trip ON trip_liftoffs(trip);",
 		"CREATE INDEX IF NOT EXISTS idx_trip_touchdowns_trip ON trip_touchdowns(trip);",

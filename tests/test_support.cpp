@@ -295,6 +295,7 @@ COORDINATE pointOnRunway(const RunwaySpec& runway, double distanceM, double righ
 FlightDriver::FlightDriver() : record(makeRecord()) {
 	FakeSim::reset();
 	bridge_ = std::make_unique<RecorderBridge>();
+	status().event_filter.set_clock([this] { return eventClock_; });
 	send(recvPacket(SIMCONNECT_RECV_ID_OPEN, sizeof(SIMCONNECT_RECV)));
 	simEvent(EVENT_SIM, 1);
 }
@@ -317,6 +318,8 @@ void FlightDriver::simEvent(DWORD eventId, DWORD data) {
 }
 
 void FlightDriver::tick(double seconds) {
+	eventClock_ += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+		std::chrono::duration<double>(seconds));
 	for (DATETIME* t : { &record.time_zulu, &record.time_local }) {
 		t->time_day += seconds;
 		if (t->time_day >= 86400) {
