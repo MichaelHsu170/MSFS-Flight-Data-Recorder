@@ -82,7 +82,7 @@ private slots:
 		// Current behavior, suspected bug: the "coincident" check compares
 		// sin() results with == 0, which floating-point error never hits, so
 		// two points on the same course get a point back instead of the
-		// (360,360) sentinel recorder.cpp's runway matching expects.
+		// (360,360) sentinel runway_match.cpp expects.
 		COORDINATE x = at(0, 0).intersectionCoordinate(90, at(0, 2), 90);
 		QVERIFY(x.latitude != 360.0);
 	}

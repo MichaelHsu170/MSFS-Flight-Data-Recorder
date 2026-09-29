@@ -6,12 +6,12 @@
 #include <vector>
 
 // Which of one airport's runways a liftoff/touchdown point lies on, and where
-// on it -- the geometry half of the facility lookup in recorder.cpp, which
-// owns the SimConnect requests and the DB writes around it.
+// on it -- the geometry half of the airport lookup (airport_lookup.cpp), which
+// owns the SimConnect requests around it.
 struct RUNWAY_MATCH {
 	// Every runway whose footprint (its strict length x width rectangle)
 	// contains the point, with direction, operational heading and
-	// threshold/centerline distances filled in. recorder.cpp picks the one
+	// threshold/centerline distances filled in. airport_lookup.cpp picks the one
 	// best aligned with the direction of travel.
 	std::vector<RUNWAY_OPERATION> candidates;
 	// True if any runway's padded "margin rectangle" (RUNWAY_MARGIN_LENGTH_M

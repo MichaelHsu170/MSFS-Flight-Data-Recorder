@@ -210,14 +210,15 @@ MSFS-Flight-Data-Recorder/
 ├── MSFS-Flight-Data-Recorder/    C++ source
 │   ├── main.cpp                  Entry point: log file, Qt style, window setup
 │   ├── types.h                   Core C structs shared across all modules
-│   ├── simconnect_defs.h         SimConnect event/definition enums and FLIGHT_DATA_RECORD
-│   ├── recorder.h / .cpp         Raw SimConnect layer: data definitions, event subscriptions, dispatch callback
+│   ├── simconnect_defs.h         SimConnect enums, the cockpit event list (COCKPIT_EVENTS) and FLIGHT_DATA_RECORD
+│   ├── recorder.h / .cpp         SimConnect dispatch callback (routes each message), cockpit event commit, DB writer shutdown
+│   ├── sim_link.h / .cpp         What is asked of SimConnect: flight data definition, cockpit event registration and names, sample decoding
 │   ├── flight_phase.h / .cpp     Trip start/stop, liftoff/touchdown detection, applying airport lookup results
 │   ├── airport_lookup.h / .cpp   Which airport a departure/liftoff/touchdown was at: SimConnect facility requests, nearest candidates, fallbacks
 │   ├── runway_match.h / .cpp     Which runway a liftoff/touchdown point is on, and its threshold/centerline distances
 │   ├── event_filter.h / .cpp     Flood protection for cockpit events (fast bursts, slow repeats)
 │   ├── recorder_bridge.h / .cpp  Qt wrapper: QTimer-driven dispatch, connection retry, Qt signals
-│   ├── gui_notify.h              Free functions called by recorder.cpp and db.cpp to report state changes
+│   ├── gui_notify.h              Free functions called by recorder.cpp, flight_phase.cpp and db.cpp to report state changes
 │   ├── db.h / .cpp               SQLite write path: schema creation, the recorder's writes, buffered telemetry flush
 │   ├── db_connection.h / .cpp    Read-only/read-write connections for the UI and background queries
 │   ├── db_history.h / .cpp       Read-only queries: trip list, telemetry, events, liftoff points, touchdowns; trip deletion, AI reports

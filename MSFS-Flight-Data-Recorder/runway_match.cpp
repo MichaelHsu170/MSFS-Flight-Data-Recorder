@@ -175,7 +175,7 @@ RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bea
 				// given touchdown -- this is the line to check against a runway with a
 				// known displaced threshold to confirm the popup's corrected "Threshold"
 				// figure is right, independent of the raw PAVEMENT parsing logged in
-				// recorder.cpp.
+				// airport_lookup.cpp.
 				tracef(trace, "Runway candidate %d/%d: %s touchdown threshold correction: end=%s, offset=%.1fm, distance %.1fft -> %.1fft (%.1f%%), LDA=%.1fm",
 					i + 1, airport.n_runways, rwy_id.c_str(), candidate.is_primary ? "primary" : "secondary",
 					threshold_offset_m, distance_before_correction_ft, candidate.distances[0], candidate.distances_percent[0] * 100,

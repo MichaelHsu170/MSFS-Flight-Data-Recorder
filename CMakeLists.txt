@@ -42,6 +42,7 @@ configure_file("${SRC_DIR}/version.h.in" "${GENERATED_DIR}/version.h" @ONLY)
 set(CORE_SOURCES
     ${SRC_DIR}/db.cpp
     ${SRC_DIR}/recorder.cpp
+    ${SRC_DIR}/sim_link.cpp
     ${SRC_DIR}/runway_match.cpp
     ${SRC_DIR}/airport_lookup.cpp
     ${SRC_DIR}/flight_phase.cpp

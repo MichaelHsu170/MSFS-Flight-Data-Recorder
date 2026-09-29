@@ -1,5 +1,6 @@
 #include "recorder_bridge.h"
 #include "recorder.h"
+#include "sim_link.h"
 #include "airport_lookup.h"
 #include "flight_phase.h"
 #include "db.h"

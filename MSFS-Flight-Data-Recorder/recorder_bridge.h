@@ -15,8 +15,8 @@ class QTimer;
 // (replacing the console main()'s busy while-loop with a timer), retrying
 // SimConnect_Open() until the simulator is available. gui_notify_*() free functions
 // (declared in gui_notify.h, implemented in recorder_bridge.cpp) reach back into this
-// object via status->gui_context to turn recorder.cpp's and db.cpp's state-transition
-// points into Qt signals.
+// object via status->gui_context to turn recorder.cpp's, flight_phase.cpp's and db.cpp's
+// state-transition points into Qt signals.
 class RecorderBridge : public QObject {
 	Q_OBJECT
 public:

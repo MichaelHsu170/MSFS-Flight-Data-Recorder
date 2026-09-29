@@ -11,7 +11,7 @@ struct db_exception {
 	db_exception(const std::string& msg) : message(msg) {}
 };
 
-// Trip recording writes (recorder.cpp). Each is one transaction on
+// Trip recording writes (flight_phase.cpp). Each is one transaction on
 // status->sql, serialized with the writer threads through
 // STATUS::mutex_db_commit.
 
