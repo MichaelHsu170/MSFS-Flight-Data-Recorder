@@ -2,28 +2,43 @@
 
 #include "types.h"
 
+// Thrown by every db_* write below when SQLite fails; the write is rolled
+// back. message says which statement failed and why (also logged).
 struct db_exception {
 	std::string message;
 	db_exception(const std::string& msg) : message(msg) {}
 };
 
-void db_error(const char* stmt_txt, int sql_ret, char** errmsg);
+// Trip recording writes (recorder.cpp). Each is one transaction on
+// status->sql, serialized with the writer threads through
+// STATUS::mutex_db_commit.
 
-void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, int value);
-void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, long long value);
-void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, double value);
-void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, char* value);
-void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, const char* value);
+// Which end of a trip a trips.* airport update is for.
+enum class TRIP_END { DEPARTURE, DESTINATION };
+// Which table a liftoff/touchdown row lives in.
+enum class CONTACT_TABLE { LIFTOFFS, TOUCHDOWNS };
 
-void db_insert_update_table(
-	sqlite3* sql,
-	const char* stmt_txt,
-	void* data,
-	struct STATUS* status,
-	void* aux,
-	void (*func)(sqlite3_stmt*, const char*, void*, struct STATUS*, void*),
-	int* out_rowid = nullptr
-);
+// New trips row for a trip starting at departure (title, ATC identity,
+// position and times); returns its id.
+int db_insert_trip(STATUS* status, const FLIGHT_DATA_RECORD& departure);
+void db_set_trip_destination_time(STATUS* status, int trip_id, const DATETIME& time_zulu, const DATETIME& time_local);
+void db_set_trip_destination_position(STATUS* status, int trip_id, const COORDINATE& position);
+// The trip's departure or destination airport (ICAO, region, name) and
+// runway; runway nullptr stores NULL (airport found, no runway matched).
+void db_set_trip_airport(STATUS* status, int trip_id, TRIP_END end, const AIRPORT& airport, const char* runway);
+// No airport found for the destination: ICAO, runway and region become NULL
+// (the name is left as it was).
+void db_clear_trip_destination_airport(STATUS* status, int trip_id);
+// New trip_liftoffs/trip_touchdowns row for one liftoff or touchdown, with
+// NULL airport/runway until db_set_contact_airport(); returns its id.
+// Touchdowns also store data.g_force.
+int db_insert_contact(STATUS* status, CONTACT_TABLE table, int trip_id, const FLIGHT_DATA& data);
+// The airport a liftoff/touchdown row resolved to. With a runway, also its
+// heading and airport.runway_act's threshold/centerline distances (a
+// liftoff's negative threshold distance is stored as -1; a touchdown's is
+// kept, since landing before the threshold is meaningful). runway nullptr:
+// ICAO and name only, the runway columns stay NULL.
+void db_set_contact_airport(STATUS* status, CONTACT_TABLE table, int row_id, const AIRPORT& airport, const char* runway);
 
 // Writes one event row to trip_events for trip_id (captured by the caller at
 // enqueue time, not read from status->id_trip here -- see

@@ -1,6 +1,6 @@
 // Database layer: schema creation and upgrade, a full write/read round trip
-// of every trip_data field, the Trip History queries, event rows and trip
-// deletion.
+// of every trip_data field, the recorder's write API (trips, liftoff and
+// touchdown rows), the Trip History queries, event rows and trip deletion.
 #include "test_support.h"
 
 #include "db.h"
@@ -9,6 +9,8 @@
 
 #include <QtTest>
 
+#include <cstring>
+#include <memory>
 #include <set>
 
 using namespace TestSupport;
@@ -35,6 +37,47 @@ std::set<QString> names(const char* sql) {
 sqlite3* freshDatabase() {
 	migrate_db();
 	return connect_db_readwrite();
+}
+
+// A STATUS whose write connection (status->sql) is a fresh database, for
+// the recorder write API.
+class Writer {
+public:
+	Writer() : status_(std::make_unique<STATUS>()) { status_->sql = freshDatabase(); }
+	~Writer() {
+		sqlite3_close(status_->sql);
+		status_->sql = nullptr;
+	}
+	STATUS* status() { return status_.get(); }
+
+private:
+	std::unique_ptr<STATUS> status_;
+};
+
+AIRPORT airport(const char* icao, const char* region, const char* name) {
+	AIRPORT a;
+	strcpy(a.icao, icao);
+	strcpy(a.region, region);
+	strcpy(a.name, name);
+	return a;
+}
+
+FLIGHT_DATA contactData() {
+	const FLIGHT_DATA_RECORD r = makeRecord();
+	FLIGHT_DATA d;
+	d.speed = 142;
+	d.vertical_speed = -310;
+	d.g_force = 1.75;
+	d.pitch = 4.5;
+	d.bank = -1.25;
+	d.heading = 164;
+	d.coordinate.latitude = 47.4;
+	d.coordinate.longitude = -122.3;
+	d.wind_direction = 200;
+	d.wind_velocity = 12;
+	d.time_zulu = r.time_zulu;
+	d.time_local = r.time_local;
+	return d;
 }
 
 TripSamplePoint point(const char* zulu, double lat) {
@@ -347,6 +390,189 @@ private slots:
 		QVERIFY(deleteTripData(db, tripId));
 		sqlite3_close(db);
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data").toInt(), 0);
+	}
+
+	// --- Recorder write API (db_insert_trip() etc.) ---
+
+	void insertTripStoresDepartureFields() {
+		Writer w;
+		FLIGHT_DATA_RECORD r = makeRecord();
+		strcpy(r.title, "Test Plane");
+		strcpy(r.atc_airline, "Air Test");
+		strcpy(r.atc_flight_number, "123");
+		strcpy(r.atc_id, "N123");
+		strcpy(r.atc_model, "B738");
+		strcpy(r.atc_type, "Boeing");
+		r.plane_coordinate.latitude = 47.25;
+		r.plane_coordinate.longitude = -122.5;
+		const int id = db_insert_trip(w.status(), r);
+		QVERIFY(id > 0);
+		QCOMPARE(db_insert_trip(w.status(), r), id + 1);
+		const QVariantMap t = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id)).value(0);
+		QCOMPARE(t["title"].toString(), QStringLiteral("Test Plane"));
+		QCOMPARE(t["atc_airline"].toString(), QStringLiteral("Air Test"));
+		QCOMPARE(t["atc_flight_number"].toString(), QStringLiteral("123"));
+		QCOMPARE(t["atc_id"].toString(), QStringLiteral("N123"));
+		QCOMPARE(t["atc_model"].toString(), QStringLiteral("B738"));
+		QCOMPARE(t["atc_type"].toString(), QStringLiteral("Boeing"));
+		QCOMPARE(t["departure_latitude"].toDouble(), 47.25);
+		QCOMPARE(t["departure_longitude"].toDouble(), -122.5);
+		QCOMPARE(t["departure_zulu_time"].toString(), QString::fromStdString(r.time_zulu.format_date_time()));
+		QCOMPARE(t["departure_local_time"].toString(), QString::fromStdString(r.time_local.format_date_time()));
+		QVERIFY(t["departure_icao"].isNull());
+		QVERIFY(t["destination_zulu_time"].isNull());
+	}
+
+	void tripDestinationTimeAndPosition() {
+		Writer w;
+		FLIGHT_DATA_RECORD r = makeRecord();
+		const int id = db_insert_trip(w.status(), r);
+		r.time_zulu.time_day += 3600;
+		r.time_local.time_day += 3600;
+		db_set_trip_destination_time(w.status(), id, r.time_zulu, r.time_local);
+		COORDINATE position;
+		position.latitude = 10.5;
+		position.longitude = 20.25;
+		db_set_trip_destination_position(w.status(), id, position);
+		const QVariantMap t = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id)).value(0);
+		QCOMPARE(t["destination_zulu_time"].toString(), QString::fromStdString(r.time_zulu.format_date_time()));
+		QCOMPARE(t["destination_local_time"].toString(), QString::fromStdString(r.time_local.format_date_time()));
+		QCOMPARE(t["destination_latitude"].toDouble(), 10.5);
+		QCOMPARE(t["destination_longitude"].toDouble(), 20.25);
+	}
+
+	void tripAirportWithAndWithoutRunway() {
+		Writer w;
+		const int id = db_insert_trip(w.status(), makeRecord());
+		const AIRPORT dep = airport("KSEA", "K1", "Seattle-Tacoma");
+		const AIRPORT dest = airport("KPDX", "K2", "Portland");
+		db_set_trip_airport(w.status(), id, TRIP_END::DEPARTURE, dep, "16L");
+		db_set_trip_airport(w.status(), id, TRIP_END::DESTINATION, dest, "28R");
+		QVariantMap t = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id)).value(0);
+		QCOMPARE(t["departure_icao"].toString(), QStringLiteral("KSEA"));
+		QCOMPARE(t["departure_region"].toString(), QStringLiteral("K1"));
+		QCOMPARE(t["departure_name"].toString(), QStringLiteral("Seattle-Tacoma"));
+		QCOMPARE(t["departure_rwy"].toString(), QStringLiteral("16L"));
+		QCOMPARE(t["destination_icao"].toString(), QStringLiteral("KPDX"));
+		QCOMPARE(t["destination_rwy"].toString(), QStringLiteral("28R"));
+		// Airport found, no runway: the runway becomes NULL.
+		db_set_trip_airport(w.status(), id, TRIP_END::DESTINATION, airport("KBFI", "K1", "Boeing Field"), nullptr);
+		t = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id)).value(0);
+		QCOMPARE(t["destination_icao"].toString(), QStringLiteral("KBFI"));
+		QCOMPARE(t["destination_name"].toString(), QStringLiteral("Boeing Field"));
+		QVERIFY(t["destination_rwy"].isNull());
+		QCOMPARE(t["departure_rwy"].toString(), QStringLiteral("16L"));
+	}
+
+	void clearingTheDestinationAirportKeepsItsName() {
+		Writer w;
+		const int id = db_insert_trip(w.status(), makeRecord());
+		db_set_trip_airport(w.status(), id, TRIP_END::DESTINATION, airport("KPDX", "K2", "Portland"), "28R");
+		db_clear_trip_destination_airport(w.status(), id);
+		const QVariantMap t = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id)).value(0);
+		QVERIFY(t["destination_icao"].isNull());
+		QVERIFY(t["destination_rwy"].isNull());
+		QVERIFY(t["destination_region"].isNull());
+		QCOMPARE(t["destination_name"].toString(), QStringLiteral("Portland"));
+	}
+
+	void contactRowsStoreTheirFlightData() {
+		Writer w;
+		const int trip = db_insert_trip(w.status(), makeRecord());
+		const FLIGHT_DATA data = contactData();
+		const int lo = db_insert_contact(w.status(), CONTACT_TABLE::LIFTOFFS, trip, data);
+		const int td = db_insert_contact(w.status(), CONTACT_TABLE::TOUCHDOWNS, trip, data);
+		QVERIFY(lo > 0);
+		QVERIFY(td > 0);
+		for (const char* table : { "trip_liftoffs", "trip_touchdowns" }) {
+			const QVariantMap row = queryRows(QStringLiteral("SELECT * FROM %1 WHERE trip=%2").arg(table).arg(trip)).value(0);
+			QCOMPARE(row["airspeed_indicated"].toInt(), 142);
+			QCOMPARE(row["vertical_speed"].toInt(), -310);
+			QCOMPARE(row["plane_pitch_degrees"].toDouble(), 4.5);
+			QCOMPARE(row["plane_bank_degrees"].toDouble(), -1.25);
+			QCOMPARE(row["heading_indicator"].toInt(), 164);
+			QCOMPARE(row["plane_latitude"].toDouble(), 47.4);
+			QCOMPARE(row["plane_longitude"].toDouble(), -122.3);
+			QCOMPARE(row["wind_direction"].toInt(), 200);
+			QCOMPARE(row["wind_velocity"].toInt(), 12);
+			QCOMPARE(row["time_zulu"].toString(), QString::fromStdString(data.time_zulu.format_date_time()));
+			QCOMPARE(row["time_local"].toString(), QString::fromStdString(data.time_local.format_date_time()));
+			QVERIFY(row["icao"].isNull());
+			QVERIFY(row["runway"].isNull());
+		}
+		QCOMPARE(queryValue(QStringLiteral("SELECT g_force FROM trip_touchdowns WHERE id=%1").arg(td)).toDouble(), 1.75);
+	}
+
+	void contactAirportWithRunway() {
+		Writer w;
+		const int trip = db_insert_trip(w.status(), makeRecord());
+		const int lo = db_insert_contact(w.status(), CONTACT_TABLE::LIFTOFFS, trip, contactData());
+		const int td = db_insert_contact(w.status(), CONTACT_TABLE::TOUCHDOWNS, trip, contactData());
+		AIRPORT a = airport("KSEA", "K1", "Seattle-Tacoma");
+		a.runway_act.heading = 164;
+		a.runway_act.distances[0] = 1500.5;
+		a.runway_act.distances[1] = -12.25;
+		a.runway_act.distances_percent[0] = 0.25;
+		a.runway_act.distances_percent[1] = -0.2;
+		db_set_contact_airport(w.status(), CONTACT_TABLE::LIFTOFFS, lo, a, "16L");
+		db_set_contact_airport(w.status(), CONTACT_TABLE::TOUCHDOWNS, td, a, "16L");
+		for (const char* table : { "trip_liftoffs", "trip_touchdowns" }) {
+			const QVariantMap row = queryRows(QStringLiteral("SELECT * FROM %1 WHERE trip=%2").arg(table).arg(trip)).value(0);
+			QCOMPARE(row["icao"].toString(), QStringLiteral("KSEA"));
+			QCOMPARE(row["airport_name"].toString(), QStringLiteral("Seattle-Tacoma"));
+			QCOMPARE(row["runway"].toString(), QStringLiteral("16L"));
+			QCOMPARE(row["runway_heading"].toInt(), 164);
+			QCOMPARE(row["distance_length"].toDouble(), 1500.5);
+			QCOMPARE(row["distance_width"].toDouble(), -12.25);
+			QCOMPARE(row["distance_length_percent"].toDouble(), 0.25);
+			QCOMPARE(row["distance_width_percent"].toDouble(), -0.2);
+		}
+	}
+
+	void negativeThresholdDistanceIsClampedForLiftoffsOnly() {
+		Writer w;
+		const int trip = db_insert_trip(w.status(), makeRecord());
+		const int lo = db_insert_contact(w.status(), CONTACT_TABLE::LIFTOFFS, trip, contactData());
+		const int td = db_insert_contact(w.status(), CONTACT_TABLE::TOUCHDOWNS, trip, contactData());
+		AIRPORT a = airport("KSEA", "K1", "Seattle-Tacoma");
+		a.runway_act.distances[0] = -250;
+		db_set_contact_airport(w.status(), CONTACT_TABLE::LIFTOFFS, lo, a, "16L");
+		db_set_contact_airport(w.status(), CONTACT_TABLE::TOUCHDOWNS, td, a, "16L");
+		QCOMPARE(queryValue(QStringLiteral("SELECT distance_length FROM trip_liftoffs WHERE id=%1").arg(lo)).toDouble(), -1.0);
+		QCOMPARE(queryValue(QStringLiteral("SELECT distance_length FROM trip_touchdowns WHERE id=%1").arg(td)).toDouble(), -250.0);
+	}
+
+	void contactAirportWithoutRunwaySetsOnlyTheAirport() {
+		Writer w;
+		const int trip = db_insert_trip(w.status(), makeRecord());
+		const int td = db_insert_contact(w.status(), CONTACT_TABLE::TOUCHDOWNS, trip, contactData());
+		AIRPORT a = airport("KBFI", "K1", "Boeing Field");
+		a.runway_act.heading = 130;
+		a.runway_act.distances[0] = 900;
+		db_set_contact_airport(w.status(), CONTACT_TABLE::TOUCHDOWNS, td, a, nullptr);
+		const QVariantMap row = queryRows(QStringLiteral("SELECT * FROM trip_touchdowns WHERE id=%1").arg(td)).value(0);
+		QCOMPARE(row["icao"].toString(), QStringLiteral("KBFI"));
+		QCOMPARE(row["airport_name"].toString(), QStringLiteral("Boeing Field"));
+		QVERIFY(row["runway"].isNull());
+		QVERIFY(row["runway_heading"].isNull());
+		QVERIFY(row["distance_length"].isNull());
+	}
+
+	void failedWriteThrowsAndRollsBack() {
+		Writer w;
+		const int trip = db_insert_trip(w.status(), makeRecord());
+		exec(w.status()->sql, "DROP TABLE trip_touchdowns");
+		bool threw = false;
+		try {
+			db_insert_contact(w.status(), CONTACT_TABLE::TOUCHDOWNS, trip, contactData());
+		} catch (const db_exception& e) {
+			threw = true;
+			QVERIFY(QString::fromStdString(e.message).contains(QStringLiteral("INSERT INTO trip_touchdowns")));
+		}
+		QVERIFY(threw);
+		// The connection is usable again: no transaction was left open.
+		db_set_trip_destination_position(w.status(), trip, COORDINATE());
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trips").toInt(), 1);
 	}
 };
 

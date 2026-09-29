@@ -4,6 +4,7 @@
 #include "gui_notify.h"
 #include "trip_data_fields.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -145,7 +146,9 @@ const std::vector<TableDef>& database_tables() {
 }
 
 
-void db_error(const char* stmt_txt, int sql_ret, char** errmsg) {
+// Logs and throws db_exception for a failed statement: an SQLite error code
+// (sql_ret != 0) and/or an error message from sqlite3_exec (freed here).
+static void db_error(const char* stmt_txt, int sql_ret, char** errmsg) {
 	std::string msg;
 	if (sql_ret != 0) {
 		msg = std::string("db operation \"") + stmt_txt + "\" failed with error " + std::to_string(sql_ret);
@@ -160,45 +163,49 @@ void db_error(const char* stmt_txt, int sql_ret, char** errmsg) {
 	throw db_exception(msg);
 }
 
-void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, int value) {
+static void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, int value) {
 	int sql_ret = sqlite3_bind_int(stmt, index, value);
 	if (sql_ret)
 		db_error(stmt_txt, sql_ret, NULL);
 }
 
-void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, long long value) {
+static void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, long long value) {
 	int sql_ret = sqlite3_bind_int64(stmt, index, value);
 	if (sql_ret)
 		db_error(stmt_txt, sql_ret, NULL);
 }
 
-void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, double value) {
+static void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, double value) {
 	int sql_ret = sqlite3_bind_double(stmt, index, value);
 	if (sql_ret)
 		db_error(stmt_txt, sql_ret, NULL);
 }
 
-void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, char* value) {
+static void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, const char* value) {
 	int sql_ret = sqlite3_bind_text(stmt, index, value, (int)strlen(value), SQLITE_TRANSIENT);
 	if (sql_ret)
 		db_error(stmt_txt, sql_ret, NULL);
 }
 
-void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, const char* value) {
-	int sql_ret = sqlite3_bind_text(stmt, index, value, (int)strlen(value), SQLITE_TRANSIENT);
+// value, or NULL if value is nullptr.
+static void db_bind_text_or_null(sqlite3_stmt* stmt, const char* stmt_txt, int index, const char* value) {
+	if (value != nullptr) {
+		db_bind(stmt, stmt_txt, index, value);
+		return;
+	}
+	int sql_ret = sqlite3_bind_null(stmt, index);
 	if (sql_ret)
 		db_error(stmt_txt, sql_ret, NULL);
 }
 
-void db_insert_update_table(
-	sqlite3* sql,
-	const char* stmt_txt,
-	void* data,
-	struct STATUS* status,
-	void* aux,
-	void (*func)(sqlite3_stmt*, const char*, void*, struct STATUS*, void*),
-	int* out_rowid
-) {
+// Binds the statement's parameters (with db_bind(); may throw).
+using DbBinder = std::function<void(sqlite3_stmt* stmt, const char* stmt_txt)>;
+
+// Runs one INSERT/UPDATE/DELETE on status->sql as its own transaction, holding
+// STATUS::mutex_db_commit. out_rowid, if given, receives the inserted row's
+// id once committed. Throws db_exception (after rolling back) on failure.
+static void db_insert_update_table(STATUS* status, const char* stmt_txt, const DbBinder& bind, int* out_rowid = nullptr) {
+	sqlite3* sql = status->sql;
 	status->mutex_db_commit.lock();
 	sqlite3_stmt* stmt = NULL;
 	int sql_ret = 0;
@@ -210,7 +217,7 @@ void db_insert_update_table(
 		sql_ret = sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, NULL);
 		if (sql_ret)
 			db_error(stmt_txt, sql_ret, NULL);
-		func(stmt, stmt_txt, data, status, aux);
+		bind(stmt, stmt_txt);
 		sql_ret = sqlite3_step(stmt);
 		if (sql_ret != SQLITE_DONE)
 			db_error(stmt_txt, sql_ret, NULL);
@@ -236,8 +243,8 @@ void db_insert_update_table(
 			log_cf(1, "DB", "db_insert_update_table: finalize failed after commit (data already saved): %s", sqlite3_errmsg(sql));
 	}
 	catch (...) {
-		// Catch-all, not just db_exception -- func is a caller-supplied callback
-		// that could throw something else entirely, and mutex_db_commit must be
+		// Catch-all, not just db_exception -- bind is caller-supplied and
+		// could throw something else entirely, and mutex_db_commit must be
 		// released (and the transaction rolled back) either way, or every later
 		// call deadlocks/finds a transaction still open.
 		if (stmt != NULL)
@@ -249,9 +256,155 @@ void db_insert_update_table(
 	status->mutex_db_commit.unlock();
 }
 
+int db_insert_trip(STATUS* status, const FLIGHT_DATA_RECORD& departure) {
+	int trip_id = -1;
+	db_insert_update_table(status,
+		"INSERT INTO trips ("
+		"title,"
+		"atc_airline,"
+		"atc_flight_number,"
+		"atc_id,"
+		"atc_model,"
+		"atc_type,"
+		"departure_latitude,"
+		"departure_longitude,"
+		"departure_zulu_time,"
+		"departure_local_time"
+		") VALUES (?,?,?,?,?,?,?,?,?,?);",
+		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
+			db_bind(stmt, stmt_txt, 1, departure.title);
+			db_bind(stmt, stmt_txt, 2, departure.atc_airline);
+			db_bind(stmt, stmt_txt, 3, departure.atc_flight_number);
+			db_bind(stmt, stmt_txt, 4, departure.atc_id);
+			db_bind(stmt, stmt_txt, 5, departure.atc_model);
+			db_bind(stmt, stmt_txt, 6, departure.atc_type);
+			db_bind(stmt, stmt_txt, 7, departure.plane_coordinate.latitude);
+			db_bind(stmt, stmt_txt, 8, departure.plane_coordinate.longitude);
+			db_bind(stmt, stmt_txt, 9, departure.time_zulu.format_date_time().c_str());
+			db_bind(stmt, stmt_txt, 10, departure.time_local.format_date_time().c_str());
+		},
+		&trip_id);
+	return trip_id;
+}
+
+void db_set_trip_destination_time(STATUS* status, int trip_id, const DATETIME& time_zulu, const DATETIME& time_local) {
+	db_insert_update_table(status,
+		"UPDATE trips SET destination_zulu_time=?,destination_local_time=? WHERE id=?;",
+		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
+			db_bind(stmt, stmt_txt, 1, time_zulu.format_date_time().c_str());
+			db_bind(stmt, stmt_txt, 2, time_local.format_date_time().c_str());
+			db_bind(stmt, stmt_txt, 3, trip_id);
+		});
+}
+
+void db_set_trip_destination_position(STATUS* status, int trip_id, const COORDINATE& position) {
+	db_insert_update_table(status,
+		"UPDATE trips SET destination_latitude=?,destination_longitude=? WHERE id=?;",
+		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
+			db_bind(stmt, stmt_txt, 1, position.latitude);
+			db_bind(stmt, stmt_txt, 2, position.longitude);
+			db_bind(stmt, stmt_txt, 3, trip_id);
+		});
+}
+
+void db_set_trip_airport(STATUS* status, int trip_id, TRIP_END end, const AIRPORT& airport, const char* runway) {
+	const char* stmt_txt = end == TRIP_END::DEPARTURE
+		? "UPDATE trips SET departure_icao=?,departure_rwy=?,departure_region=?,departure_name=? WHERE id=?;"
+		: "UPDATE trips SET destination_icao=?,destination_rwy=?,destination_region=?,destination_name=? WHERE id=?;";
+	db_insert_update_table(status, stmt_txt,
+		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
+			db_bind(stmt, stmt_txt, 1, airport.icao);
+			db_bind_text_or_null(stmt, stmt_txt, 2, runway);
+			db_bind(stmt, stmt_txt, 3, airport.region);
+			db_bind(stmt, stmt_txt, 4, airport.name);
+			db_bind(stmt, stmt_txt, 5, trip_id);
+		});
+}
+
+void db_clear_trip_destination_airport(STATUS* status, int trip_id) {
+	db_insert_update_table(status,
+		"UPDATE trips SET destination_icao=NULL,destination_rwy=NULL,destination_region=NULL WHERE id=?;",
+		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
+			db_bind(stmt, stmt_txt, 1, trip_id);
+		});
+}
+
+int db_insert_contact(STATUS* status, CONTACT_TABLE table, int trip_id, const FLIGHT_DATA& data) {
+	const bool touchdown = table == CONTACT_TABLE::TOUCHDOWNS;
+	const char* stmt_txt = touchdown
+		? "INSERT INTO trip_touchdowns ("
+		  "trip,airspeed_indicated,vertical_speed,g_force,plane_pitch_degrees,"
+		  "plane_bank_degrees,heading_indicator,plane_latitude,plane_longitude,"
+		  "wind_direction,wind_velocity,time_zulu,time_local"
+		  ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);"
+		: "INSERT INTO trip_liftoffs ("
+		  "trip,airspeed_indicated,vertical_speed,plane_pitch_degrees,"
+		  "plane_bank_degrees,heading_indicator,plane_latitude,plane_longitude,"
+		  "wind_direction,wind_velocity,time_zulu,time_local"
+		  ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?);";
+	int row_id = -1;
+	db_insert_update_table(status, stmt_txt,
+		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
+			int index = 1;
+			db_bind(stmt, stmt_txt, index++, trip_id);
+			db_bind(stmt, stmt_txt, index++, data.speed);
+			db_bind(stmt, stmt_txt, index++, data.vertical_speed);
+			if (touchdown)
+				db_bind(stmt, stmt_txt, index++, data.g_force);
+			db_bind(stmt, stmt_txt, index++, data.pitch);
+			db_bind(stmt, stmt_txt, index++, data.bank);
+			db_bind(stmt, stmt_txt, index++, data.heading);
+			db_bind(stmt, stmt_txt, index++, data.coordinate.latitude);
+			db_bind(stmt, stmt_txt, index++, data.coordinate.longitude);
+			db_bind(stmt, stmt_txt, index++, data.wind_direction);
+			db_bind(stmt, stmt_txt, index++, data.wind_velocity);
+			db_bind(stmt, stmt_txt, index++, data.time_zulu.format_date_time().c_str());
+			db_bind(stmt, stmt_txt, index++, data.time_local.format_date_time().c_str());
+		},
+		&row_id);
+	return row_id;
+}
+
+void db_set_contact_airport(STATUS* status, CONTACT_TABLE table, int row_id, const AIRPORT& airport, const char* runway) {
+	const bool touchdown = table == CONTACT_TABLE::TOUCHDOWNS;
+	if (runway == nullptr) {
+		db_insert_update_table(status,
+			touchdown ? "UPDATE trip_touchdowns SET icao=?,airport_name=? WHERE id=?;"
+			          : "UPDATE trip_liftoffs SET icao=?,airport_name=? WHERE id=?;",
+			[&](sqlite3_stmt* stmt, const char* stmt_txt) {
+				db_bind(stmt, stmt_txt, 1, airport.icao);
+				db_bind(stmt, stmt_txt, 2, airport.name);
+				db_bind(stmt, stmt_txt, 3, row_id);
+			});
+		return;
+	}
+	const RUNWAY_OPERATION& rwy = airport.runway_act;
+	db_insert_update_table(status,
+		touchdown
+			? "UPDATE trip_touchdowns SET icao=?,airport_name=?,runway=?,runway_heading=?,"
+			  "distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
+			  " WHERE id=?;"
+			: "UPDATE trip_liftoffs SET icao=?,airport_name=?,runway=?,runway_heading=?,"
+			  "distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
+			  " WHERE id=?;",
+		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
+			db_bind(stmt, stmt_txt, 1, airport.icao);
+			db_bind(stmt, stmt_txt, 2, airport.name);
+			db_bind(stmt, stmt_txt, 3, runway);
+			db_bind(stmt, stmt_txt, 4, rwy.heading);
+			// A runway is matched, so this is a real, resolved distance. A
+			// touchdown before the marked/displaced threshold legitimately
+			// reports negative and is kept; -1 would collide with its "no runway
+			// matched" meaning. Liftoff distances are stored clamped to -1.
+			db_bind(stmt, stmt_txt, 5, !touchdown && rwy.distances[0] < 0 ? -1.0 : rwy.distances[0]);
+			db_bind(stmt, stmt_txt, 6, rwy.distances[1]);
+			db_bind(stmt, stmt_txt, 7, rwy.distances_percent[0]);
+			db_bind(stmt, stmt_txt, 8, rwy.distances_percent[1]);
+			db_bind(stmt, stmt_txt, 9, row_id);
+		});
+}
+
 void db_insert_event(STATUS* status, int trip_id, const char* event, const char* time_zulu, const char* time_local, unsigned long long event_seq) {
-	struct EventInsertArgs { int trip_id; const char* event; const char* time_zulu; const char* time_local; long long event_seq; };
-	EventInsertArgs args{ trip_id, event, time_zulu, time_local, (long long)event_seq };
 	// The flood filter this is fed from (STATUS::event_filter, see
 	// event_filter.h) can hold an occurrence back for several seconds after
 	// the trip it belongs to already ended, so by the
@@ -261,20 +414,17 @@ void db_insert_event(STATUS* status, int trip_id, const char* event, const char*
 	// this commits, 0 rows are affected; if it isn't gone yet, deleteTripData's
 	// own "DELETE FROM trip_events WHERE trip = ?" sweeps this row up normally
 	// either way, so there's no race to lose either way it lands.
-	db_insert_update_table(status->sql,
+	db_insert_update_table(status,
 		"INSERT INTO trip_events (trip,event,time_zulu,time_local,event_seq) "
 		"SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM trips WHERE id = ?);",
-		(void*)&args, status, NULL,
-		[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-			EventInsertArgs* a = (EventInsertArgs*)data;
-			db_bind(stmt, stmt_txt, 1, a->trip_id);
-			db_bind(stmt, stmt_txt, 2, a->event);
-			db_bind(stmt, stmt_txt, 3, a->time_zulu);
-			db_bind(stmt, stmt_txt, 4, a->time_local);
-			db_bind(stmt, stmt_txt, 5, a->event_seq);
-			db_bind(stmt, stmt_txt, 6, a->trip_id);
-		}
-	);
+		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
+			db_bind(stmt, stmt_txt, 1, trip_id);
+			db_bind(stmt, stmt_txt, 2, event);
+			db_bind(stmt, stmt_txt, 3, time_zulu);
+			db_bind(stmt, stmt_txt, 4, time_local);
+			db_bind(stmt, stmt_txt, 5, (long long)event_seq);
+			db_bind(stmt, stmt_txt, 6, trip_id);
+		});
 }
 
 void db_delete_events(STATUS* status, const std::vector<unsigned long long>& seqs) {
@@ -284,15 +434,11 @@ void db_delete_events(STATUS* status, const std::vector<unsigned long long>& seq
 	for (size_t i = 0; i < seqs.size(); i++)
 		placeholders += (i == 0) ? "?" : ",?";
 	std::string stmt_txt = "DELETE FROM trip_events WHERE event_seq IN (" + placeholders + ");";
-	db_insert_update_table(status->sql,
-		stmt_txt.c_str(),
-		(void*)&seqs, status, NULL,
-		[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-			const std::vector<unsigned long long>* seqs = (const std::vector<unsigned long long>*)data;
-			for (size_t i = 0; i < seqs->size(); i++)
-				db_bind(stmt, stmt_txt, (int)(i + 1), (long long)(*seqs)[i]);
-		}
-	);
+	db_insert_update_table(status, stmt_txt.c_str(),
+		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
+			for (size_t i = 0; i < seqs.size(); i++)
+				db_bind(stmt, stmt_txt, (int)(i + 1), (long long)seqs[i]);
+		});
 }
 
 // Runs on the single persistent event-write worker thread (started in
@@ -374,12 +520,11 @@ static void db_write_worker(STATUS* status) {
 		// can catch an escaping exception either -- letting one propagate
 		// calls std::terminate and kills the whole app mid-flight.
 		try {
-			db_insert_update_table(status->sql, insert_txt.c_str(), pS, status, (void*)&item.trip_id,
-				[](sqlite3_stmt* stmt, const char* stmt_txt, void* data, struct STATUS* status, void* aux) {
-					struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)data;
+			db_insert_update_table(status, insert_txt.c_str(),
+				[&](sqlite3_stmt* stmt, const char* stmt_txt) {
 					const std::array<uint32_t, 4> bool_groups = tripBoolGroups(*pS);
 					int index = 1;
-					db_bind(stmt, stmt_txt, index++, *(int*)aux);
+					db_bind(stmt, stmt_txt, index++, item.trip_id);
 					for (int group = 1; group <= 3; group++)
 						db_bind(stmt, stmt_txt, index++, (int)bool_groups[group]);
 #define TRIP_NUM_BIND(dbColumn, memberExpr, sqlType) db_bind(stmt, stmt_txt, index++, pS->memberExpr);
