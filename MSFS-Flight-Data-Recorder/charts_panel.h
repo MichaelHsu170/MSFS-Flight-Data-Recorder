@@ -3,8 +3,10 @@
 #include <QWidget>
 #include <QDateTime>
 #include <QVariantMap>
+#include <array>
 #include <vector>
 
+#include "chart_data.h"
 #include "trip_dataset.h"
 
 class QQuickWidget;
@@ -57,19 +59,25 @@ signals:
 	void seriesLoaded();
 
 private:
-	// Resolves all 19 QLineSeries* + the shared QDateTimeAxis* once from the
-	// QML object tree and caches them. Idempotent -- safe to call multiple
-	// times; no-op after the first successful resolution.
+	// Resolves every QLineSeries (by CHART_SERIES' objectNames) and the axes
+	// once from the QML object tree and caches them. Idempotent -- safe to
+	// call multiple times; no-op after the first successful resolution.
 	void buildSeriesCache();
 	// Pushes lo/hi directly to every QDateTimeAxis in the QML tree (driver + all
 	// SyncedXAxis instances) so QML date-binding conversion never touches the values.
 	void setAllXAxisRange(const QDateTime& lo, const QDateTime& hi);
+	// Sizes the Y axes to extents (see niceAxisMax()/niceSignedAxisRange());
+	// the signed axes only once extents is valid.
+	void setYAxes(const ChartExtents& extents);
+	// Loads samples lo..hi of full_, thinned to at most kDisplayPoints, into
+	// every series.
+	void loadFullSlice(int lo, int hi);
 
 	QQuickWidget* view_;
 	int pointCount_ = 0;
-	// Parallel to the loaded dataset's points -- epoch milliseconds, used
-	// both to fill series and to translate a map-driven sample-index range
-	// (setVisibleRange) into an X axis time range.
+	// Parallel to the loaded dataset's points -- epoch milliseconds (see
+	// chartTimeMs()), used to translate a map-driven sample-index range
+	// (setVisibleRange) into an X axis time range and for valueAt().
 	std::vector<double> pointTimesMs_;
 
 	// Deduplication: skip setVisibleRange when zoomend+moveend both fire with
@@ -77,31 +85,11 @@ private:
 	int lastRangeStart_ = INT_MIN;
 	int lastRangeEnd_   = INT_MIN;
 
-	// Cached QML object pointers -- resolved lazily on the first
-	// appendLivePoint call so the per-sample hot path avoids 20 findChild
-	// tree traversals per incoming sample.
+	// Cached QML object pointers -- resolved lazily so the per-sample live
+	// path avoids a findChild tree traversal per series per sample.
 	struct SeriesCache {
-		QLineSeries* n1_1 = nullptr;
-		QLineSeries* n1_2 = nullptr;
-		QLineSeries* n2_1 = nullptr;
-		QLineSeries* n2_2 = nullptr;
-		QLineSeries* verticalSpeed = nullptr;
-		QLineSeries* airspeed = nullptr;
-		QLineSeries* groundSpeed = nullptr;
-		QLineSeries* altitude = nullptr;
-		QLineSeries* gearHandle = nullptr;
-		QLineSeries* gearPos0 = nullptr;
-		QLineSeries* gearPos1 = nullptr;
-		QLineSeries* gearPos2 = nullptr;
-		QLineSeries* gearOnGround0 = nullptr;
-		QLineSeries* gearOnGround1 = nullptr;
-		QLineSeries* gearOnGround2 = nullptr;
-		QLineSeries* brake = nullptr;
-		QLineSeries* flaps = nullptr;
-		QLineSeries* spoilers = nullptr;
-		QLineSeries* fuelWeight = nullptr;
-		QLineSeries* pitch = nullptr;
-		QLineSeries* bank  = nullptr;
+		// Indexed by ChartSeriesId.
+		std::array<QLineSeries*, CHART_SERIES_COUNT> series{};
 		// Driver axis -- C++ calls setMin/setMax here; per-chart axes bind to it.
 		QDateTimeAxis* xAxis = nullptr;
 		QValueAxis* vsYAxis    = nullptr;
@@ -113,34 +101,19 @@ private:
 		bool valid = false;
 	} cache_;
 
-	// Running Y-axis maximums for the live append path -- updated whenever an
-	// incoming point exceeds the current axis max (reset by setDataset).
-	// Also used by setVisibleRange to restore full-range maxima on zoom-out.
-	double liveVsMin_  = 0.0, liveVsMax_  = 0.0;
-	bool   liveVsValid_ = false;
-	double liveSpeedMax_ = 0.0;
-	double liveAltMax_   = 0.0;
-	double liveFuelMax_  = 0.0;
-	double livePitchMin_ = 0.0, livePitchMax_ = 0.0;
-	double liveBankMin_  = 0.0, liveBankMax_  = 0.0;
-	bool   livePitchBankValid_ = false;
+	// Extents of the whole loaded trip, grown by each live point (reset by
+	// setDataset). setVisibleRange restores the Y axes to these on zoom-out.
+	ChartExtents fullExtents_;
 
-	// Full-resolution QPointF arrays for all 19 series. Populated by the
-	// setDataset apply callback; setVisibleRange slices this to give Qt Graphs
-	// only the points it needs to render, avoiding ~938K-point iteration per
-	// frame. Invalidated (ready=false) at the start of each setDataset call so
-	// a stale slice is never used while a new background compute is in flight.
+	// Full-resolution points of every series. Populated by the setDataset
+	// apply callback; setVisibleRange slices this to give Qt Graphs only the
+	// points it needs to render, avoiding ~938K-point iteration per frame.
+	// Invalidated (fullReady_ = false) at the start of each setDataset call so
+	// a stale slice is never used while a new background compute is in
+	// flight, and by live points, which aren't added to it.
 	static constexpr int kDisplayPoints = 2500;
-	struct FullSeriesData {
-		QList<QPointF> n1_1, n1_2, n2_1, n2_2;
-		QList<QPointF> verticalSpeed, airspeed, groundSpeed, altitude;
-		QList<QPointF> gearHandle, gearPos0, gearPos1, gearPos2;
-		QList<QPointF> gearOnGround0, gearOnGround1, gearOnGround2;
-		QList<QPointF> brake, flaps, spoilers, fuelWeight;
-		QList<QPointF> pitch, bank;
-		bool ready = false;
-	} full_;
-	int displayStride_ = 1;
+	ChartSeriesLists full_;
+	bool fullReady_ = false;
 
 	// Incremented at the start of each setDataset call. The background worker's
 	// finished lambda captures this value and bails out if it no longer matches,

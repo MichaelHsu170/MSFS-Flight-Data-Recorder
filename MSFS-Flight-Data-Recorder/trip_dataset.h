@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QString>
+#include <QtGlobal>
 #include <cstdint>
 #include <vector>
 
@@ -150,6 +151,27 @@ inline QString appendDepartureTimestamp(const QString& base, const QString& depa
 	return departureTime.isValid()
 		? base + QStringLiteral("_%1").arg(departureTime.toString(QStringLiteral("yyyyMMddHHmmss")))
 		: base;
+}
+
+// Sample indices lo..hi thinned by a whole-number stride to at most
+// maxPoints, plus hi itself -- so the last sample (e.g. the touchdown) is
+// never dropped.
+// Shared by MapWidget's trajectory and ChartsPanel's series: rendering every
+// sample of a long flight is too slow for both. Empty if hi < lo.
+inline std::vector<int> decimatedIndices(int lo, int hi, int maxPoints) {
+	std::vector<int> indices;
+	if (hi < lo)
+		return indices;
+	const int count = hi - lo + 1;
+	// qMax, not std::max: <Windows.h> (included before this header in some
+	// files) defines a max() macro.
+	const int stride = qMax(1, (count + maxPoints - 1) / maxPoints);
+	indices.reserve(count / stride + 2);
+	for (int i = lo; i <= hi; i += stride)
+		indices.push_back(i);
+	if ((hi - lo) % stride != 0)
+		indices.push_back(hi);
+	return indices;
 }
 
 struct TripDataset {

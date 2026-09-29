@@ -50,3 +50,7 @@ fdr_add_test(tst_manage_groups_dialog)
 fdr_add_test(tst_map_bridge)
 fdr_add_test(tst_runway_match)
 fdr_add_test(tst_event_filter)
+fdr_add_test(tst_chart_data)
+# Checks the series table against the QML that declares the series.
+target_compile_definitions(tst_chart_data PRIVATE CHARTS_QML="${SRC_DIR}/resources/charts_panel.qml")
+fdr_add_test(tst_map_script)

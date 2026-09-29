@@ -2,6 +2,7 @@
 #include "map_bridge.h"
 #include "app_settings.h"
 #include "kml_export.h"
+#include "map_script.h"
 #include "version.h"
 
 #include <QTimer>
@@ -20,9 +21,6 @@
 #include <QGuiApplication>
 #include <QPixmap>
 #include <QMessageBox>
-#include <QJsonArray>
-#include <QJsonObject>
-#include <QJsonDocument>
 #include <QUrl>
 #include <QElapsedTimer>
 #include <QFutureWatcher>
@@ -33,75 +31,6 @@
 #include <vector>
 
 namespace {
-
-QJsonObject pointToJson(double lat, double lng) {
-	QJsonObject obj;
-	obj["lat"] = lat;
-	obj["lng"] = lng;
-	return obj;
-}
-
-QJsonObject liftoffToJson(const LiftoffPoint& t) {
-	QJsonObject obj;
-	obj["lat"] = t.latitude;
-	obj["lng"] = t.longitude;
-	obj["icao"] = t.icao;
-	obj["airportName"] = t.airportName;
-	obj["runway"] = t.runway;
-	obj["runwayHeading"] = t.runwayHeading;
-	obj["airspeed"] = t.airspeed;
-	obj["verticalSpeed"] = t.verticalSpeed;
-	obj["pitchDegrees"] = t.pitchDegrees;
-	obj["bankDegrees"] = t.bankDegrees;
-	obj["headingDegrees"] = t.headingDegrees;
-	obj["distanceLength"] = t.distanceLength;
-	obj["distanceWidth"] = t.distanceWidth;
-	obj["distanceLengthPercent"] = t.distanceLengthPercent;
-	obj["distanceWidthPercent"] = t.distanceWidthPercent;
-	obj["windDirection"] = t.windDirection;
-	obj["windVelocity"] = t.windVelocity;
-	obj["zuluTime"] = t.zuluTime;
-	obj["localTime"] = t.localTime;
-	obj["rowId"] = t.rowId;
-	obj["analysisReport"] = t.analysisReport;
-	return obj;
-}
-
-QJsonObject touchdownToJson(const TouchdownPoint& t) {
-	QJsonObject obj;
-	obj["lat"] = t.latitude;
-	obj["lng"] = t.longitude;
-	obj["icao"] = t.icao;
-	obj["airportName"] = t.airportName;
-	obj["runway"] = t.runway;
-	obj["runwayHeading"] = t.runwayHeading;
-	obj["airspeed"] = t.airspeed;
-	obj["verticalSpeed"] = t.verticalSpeed;
-	obj["gForce"] = t.gForce;
-	obj["pitchDegrees"] = t.pitchDegrees;
-	obj["bankDegrees"] = t.bankDegrees;
-	obj["headingDegrees"] = t.headingDegrees;
-	obj["distanceLength"] = t.distanceLength;
-	obj["distanceWidth"] = t.distanceWidth;
-	obj["distanceLengthPercent"] = t.distanceLengthPercent;
-	obj["distanceWidthPercent"] = t.distanceWidthPercent;
-	obj["windDirection"] = t.windDirection;
-	obj["windVelocity"] = t.windVelocity;
-	obj["zuluTime"] = t.zuluTime;
-	obj["localTime"] = t.localTime;
-	obj["rowId"] = t.rowId;
-	obj["analysisReport"] = t.analysisReport;
-	return obj;
-}
-
-QJsonObject eventToJson(const TripEvent& e) {
-	QJsonObject obj;
-	obj["lat"] = e.latitude;
-	obj["lng"] = e.longitude;
-	obj["event"] = e.event;
-	obj["zuluTime"] = e.zuluTime;
-	return obj;
-}
 
 // Routes the page's JS console (including Leaflet's tileerror/tileload and
 // our own console.log/error calls in map.html) to qDebug so failures are
@@ -306,10 +235,7 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 		// Inject the aircraft title before pushing liftoff points/touchdowns so
 		// liftoffPopupHtml()/touchdownPopupHtml() see the correct value when they
 		// run setLiftoffs/setTouchdowns.
-		QJsonArray arr;
-		arr.append(QJsonValue(aircraftTitle_));
-		QString encoded = QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
-		runJs(QStringLiteral("window._aircraftTitle=%1[0];").arg(encoded));
+		runJs(mapSetStringJs(QStringLiteral("window._aircraftTitle"), aircraftTitle_));
 		pushTrajectory();
 		pushLiftoffs();
 		pushTouchdownsAndEvents();
@@ -342,24 +268,8 @@ void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
 		Logger::log(Logger::Trace, "Map", QStringLiteral("showOverview: page not ready yet; overview will be pushed once the page loads"));
 		return;
 	}
-	QJsonArray segments;
-	for (const TripSummary& t2 : trips) {
-		QJsonObject seg;
-		seg[QStringLiteral("fromLat")] = t2.departureLat;
-		seg[QStringLiteral("fromLng")] = t2.departureLng;
-		seg[QStringLiteral("toLat")]   = t2.destinationLat;
-		seg[QStringLiteral("toLng")]   = t2.destinationLng;
-		seg[QStringLiteral("groupId")]   = t2.groupId;
-		seg[QStringLiteral("groupName")] = t2.groupId != 0 ? t2.groupName : QStringLiteral("Ungrouped");
-		seg[QStringLiteral("groupRank")] = t2.groupRank;
-		seg[QStringLiteral("tripId")]  = t2.id;
-		seg[QStringLiteral("fromIcao")] = t2.departureIcao;
-		seg[QStringLiteral("toIcao")]   = t2.destinationIcao;
-		segments.append(seg);
-	}
+	const QString js = mapSetOverviewJs(trips);
 	Logger::logf(Logger::Profile, "Map", "showOverview: JSON built: %lld µs", t.nsecsElapsed() / 1000);
-	QString js = QStringLiteral("setOverview(%1);")
-		.arg(QString::fromUtf8(QJsonDocument(segments).toJson(QJsonDocument::Compact)));
 	runJs(js);
 	Logger::logf(Logger::Profile, "Map", "showOverview: runJs done: %lld µs", t.nsecsElapsed() / 1000);
 }
@@ -412,12 +322,8 @@ void MapWidget::flushLivePoints() {
 		liveUpdateTimer_->stop();
 		return;
 	}
-	QJsonArray pts;
-	for (const auto& [lat, lng] : pendingLiveCoords_)
-		pts.append(pointToJson(lat, lng));
+	runJs(mapAppendPointsJs(pendingLiveCoords_));
 	pendingLiveCoords_.clear();
-	QJsonDocument doc(pts);
-	runJs(QStringLiteral("appendPoints(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact))));
 }
 
 void MapWidget::onLoadFinished(bool ok) {
@@ -429,16 +335,9 @@ void MapWidget::onLoadFinished(bool ok) {
 
 	// Deliver the Gemini API key and current aircraft title as JS globals so
 	// the in-popup streaming analysis can reach them without round-tripping
-	// through QWebChannel. JSON-encode inside single-element arrays so any
-	// special characters are escaped correctly.
-	auto injectString = [this](const QString& jsVar, const QString& value) {
-		QJsonArray arr;
-		arr.append(QJsonValue(value));
-		QString encoded = QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact));
-		runJs(QStringLiteral("%1=%2[0];").arg(jsVar, encoded));
-	};
-	injectString(QStringLiteral("window._geminiApiKey"), AppSettings::instance().geminiApiKey());
-	injectString(QStringLiteral("window._aircraftTitle"), aircraftTitle_);
+	// through QWebChannel.
+	runJs(mapSetStringJs(QStringLiteral("window._geminiApiKey"), AppSettings::instance().geminiApiKey()));
+	runJs(mapSetStringJs(QStringLiteral("window._aircraftTitle"), aircraftTitle_));
 
 	refreshProvider();
 }
@@ -452,7 +351,7 @@ void MapWidget::refreshProvider() {
 	// initProvider() rebuilds the JS-side map state, which would otherwise
 	// silently reset event-marker visibility to its default -- re-apply
 	// whatever the toggle button last requested.
-	runJs(QStringLiteral("setEventsVisible(%1);").arg(eventsVisible_ ? QStringLiteral("true") : QStringLiteral("false")));
+	runJs(mapSetEventsVisibleJs(eventsVisible_));
 	if (inOverviewMode_) {
 		Logger::log(Logger::Trace, "Map", QStringLiteral("refreshProvider: overview mode active; re-pushing overview"));
 		showOverview(overviewTrips_);
@@ -468,15 +367,12 @@ void MapWidget::setEventsVisible(bool visible) {
 	eventsVisible_ = visible;
 	if (!pageReady_)
 		return;
-	runJs(QStringLiteral("setEventsVisible(%1);").arg(visible ? QStringLiteral("true") : QStringLiteral("false")));
+	runJs(mapSetEventsVisibleJs(visible));
 }
 
 void MapWidget::pushTrajectory() {
-	// Build + decimate off the main thread: a long flight can have 60k+ sample
-	// points, but Leaflet bogs down rendering more than ~3000 polyline segments.
-	// Stride-decimate so at most MAX_POINTS are sent, preserving the first and
-	// last point exactly. Each JSON point carries its original sample index (idx)
-	// so the JS side can report correct indices back to C++ for cursor and range.
+	// Built off the main thread: a long flight can have 60k+ sample points
+	// (see mapSetTrajectoryJs() for how they're thinned).
 	std::vector<std::pair<double,double>> coords = trajCoords_;
 	int ver = datasetVersion_;
 	auto* watcher = new QFutureWatcher<QString>(this);
@@ -503,30 +399,9 @@ void MapWidget::pushTrajectory() {
 	});
 	watcher->setFuture(QtConcurrent::run([coords = std::move(coords)]() {
 		QElapsedTimer t; t.start();
-		const int MAX_POINTS = 3000;
-		int n = (int)coords.size();
-		int stride = std::max(1, (n + MAX_POINTS - 1) / MAX_POINTS);
-		Logger::logf(Logger::Trace, "Map", "pushTrajectory: %d pts, decimating with stride %d (cap %d) to keep Leaflet polyline rendering fast", n, stride, MAX_POINTS);
-		// Parallel flat arrays are more compact JSON than [{lat,lng,idx},...]
-		// (no repeated field-name strings) and faster to iterate in JS.
-		QJsonArray lats, lngs, idxs;
-		for (int i = 0; i < n; i += stride) {
-			lats.append(coords[i].first);
-			lngs.append(coords[i].second);
-			idxs.append(i);
-		}
-		if (n > 0 && (n - 1) % stride != 0) {
-			lats.append(coords[n - 1].first);
-			lngs.append(coords[n - 1].second);
-			idxs.append(n - 1);
-		}
-		QJsonObject data;
-		data[QStringLiteral("lats")] = lats;
-		data[QStringLiteral("lngs")] = lngs;
-		data[QStringLiteral("idxs")] = idxs;
-		QJsonDocument doc(data);
-		Logger::logf(Logger::Profile, "Map", "JSON build (bg): %lld ms  (%d → %d pts decimated)", t.nsecsElapsed() / 1000000, n, (int)lats.size());
-		return QStringLiteral("setTrajectory(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
+		QString js = mapSetTrajectoryJs(coords);
+		Logger::logf(Logger::Profile, "Map", "trajectory JSON (bg): %lld ms  (%zu pts)", t.nsecsElapsed() / 1000000, coords.size());
+		return js;
 	}));
 }
 
@@ -545,12 +420,9 @@ void MapWidget::pushLiftoffs() {
 	});
 	watcher->setFuture(QtConcurrent::run([liftoffPoints = liftoffPoints_]() {
 		QElapsedTimer t; t.start();
-		QJsonArray arr;
-		for (const LiftoffPoint& ap : liftoffPoints)
-			arr.append(liftoffToJson(ap));
-		QJsonDocument doc(arr);
-		Logger::logf(Logger::Profile, "Map", "liftoff JSON (bg): %lld µs  (%d points)", t.nsecsElapsed() / 1000, (int)arr.size());
-		return QStringLiteral("setLiftoffs(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
+		QString js = mapSetLiftoffsJs(liftoffPoints);
+		Logger::logf(Logger::Profile, "Map", "liftoff JSON (bg): %lld µs  (%zu points)", t.nsecsElapsed() / 1000, liftoffPoints.size());
+		return js;
 	}));
 }
 
@@ -569,12 +441,9 @@ void MapWidget::pushTouchdownsAndEvents() {
 	});
 	touchdownWatcher->setFuture(QtConcurrent::run([touchdowns = touchdowns_]() {
 		QElapsedTimer t; t.start();
-		QJsonArray arr;
-		for (const TouchdownPoint& td : touchdowns)
-			arr.append(touchdownToJson(td));
-		QJsonDocument doc(arr);
-		Logger::logf(Logger::Profile, "Map", "touchdowns JSON (bg): %lld µs  (%d touchdowns)", t.nsecsElapsed() / 1000, (int)arr.size());
-		return QStringLiteral("setTouchdowns(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
+		QString js = mapSetTouchdownsJs(touchdowns);
+		Logger::logf(Logger::Profile, "Map", "touchdowns JSON (bg): %lld µs  (%zu touchdowns)", t.nsecsElapsed() / 1000, touchdowns.size());
+		return js;
 	}));
 
 	auto* eventWatcher = new QFutureWatcher<QString>(this);
@@ -590,12 +459,9 @@ void MapWidget::pushTouchdownsAndEvents() {
 	});
 	eventWatcher->setFuture(QtConcurrent::run([events = events_]() {
 		QElapsedTimer t; t.start();
-		QJsonArray arr;
-		for (const TripEvent& e : events)
-			arr.append(eventToJson(e));
-		QJsonDocument doc(arr);
-		Logger::logf(Logger::Profile, "Map", "events JSON (bg): %lld µs  (%d events)", t.nsecsElapsed() / 1000, (int)arr.size());
-		return QStringLiteral("setEvents(%1);").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact)));
+		QString js = mapSetEventsJs(events);
+		Logger::logf(Logger::Profile, "Map", "events JSON (bg): %lld µs  (%zu events)", t.nsecsElapsed() / 1000, events.size());
+		return js;
 	}));
 }
 

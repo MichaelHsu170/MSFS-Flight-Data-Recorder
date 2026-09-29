@@ -55,7 +55,9 @@ verification machine.
 | Cockpit events and flood protection | `tst_events` | quiet-period recording, every mapped event name, no trip, flap whitelist, below/at burst threshold, burst recovery, slow flood retraction + suppression + recovery, event resolved after trip end, flush on shutdown, deleted trip, crash message, unknown event |
 | Database | `tst_database` | missing database, schema and indexes, repeatable migration, column upgrade of old databases, group-name uniqueness, every trip_data field written and read back identically on the live and stored paths, trip list (order, status, group), liftoff/touchdown/event reads, event positions, trip deletion |
 | Trip groups | `tst_groups` | create (trim, order, blank, duplicates incl. non-ASCII case), rename, assign/unassign, trip counts, delete ungroups trips, reorder, name tie-break |
-| Shared helpers | `tst_trip_dataset` | timestamp parsing, file-name pieces, field labels, field lists unique, bool bits unique |
+| Shared helpers | `tst_trip_dataset` | timestamp parsing, file-name pieces, decimation (within budget, stride, last sample kept, slices), field labels, field lists unique, bool bits unique |
+| Chart data (`chart_data.cpp`) | `tst_chart_data` | series table matches `charts_panel.qml` (series names, hover keys, count), sample fields to series, zulu time on the axis, malformed times, nice axis max / signed range, extents (whole trip and slices), series build incl. malformed-time fill, one-sample and no-valid-time axes, thinning, nearest sample, hover values |
+| Map scripts (`map_script.cpp`) | `tst_map_script` | string globals escaped, trajectory whole / thinned (indices, ends) / empty, live points, liftoff and touchdown popup fields, events, empty lists, events toggle, overview segments and "Ungrouped" |
 | KML export | `tst_kml` | header/name, path and track in meters, liftoff/touchdown descriptions, no-runway rows, event grouping, XML escaping, empty trip, unparseable times, write failure |
 | settings.ini | `tst_settings` | default file, defaults for missing/invalid values, values from file, in-place edits keep comments and other sections, new key/section, hidden fields, column widths, recording toggle |
 | Logging | `tst_logger` | `.old` rotation, header, level filter, line format, C shim, crash logging, single init, level names |
@@ -67,10 +69,12 @@ verification machine.
 
 ## Not covered (check by hand)
 
-- **Charts panel** (QML / Qt Graphs): series, axes, zoom slices, hover values.
-- **Map** (`map.html` in QtWebEngine): trajectory, markers and popups,
-  overview routes with group colors/legend, right-click menu (Save/Copy
-  Image, Export to KML), cursor and zoom sync with the charts.
+- **Charts panel** (QML / Qt Graphs): that the series and axes show what
+  `chart_data` computes, zoom slices, the hover tooltip.
+- **Map** (`map.html` in QtWebEngine): that the page draws what
+  `map_script` sends (trajectory, markers and popups, overview routes with
+  group colors/legend), right-click menu (Save/Copy Image, Export to KML),
+  cursor and zoom sync with the charts.
 - **AI analysis** (Gemini streaming, retries, stored report shown again).
 - **Window layout**: `TrajectoryView`, `MainWindow`, splitter sizes saved
   on release.

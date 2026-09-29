@@ -222,7 +222,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── logger.h / .cpp           Unified logger: level-filtered (Fatal/Warning/Info/Trace/Profile), module-tagged output to msfs_fdr_debug.log
 │   ├── logger_c.h                C-compatible shim (log_c / log_cf) for Qt-free translation units (db.cpp)
 │   ├── app_settings.h / .cpp     QSettings wrapper for settings.ini
-│   ├── trip_dataset.h            Shared data structs: TripSamplePoint, TripEvent, TripDataset, etc.
+│   ├── trip_dataset.h            Shared data structs (TripSamplePoint, TripEvent, TripDataset, etc.) and helpers
 │   ├── trip_data_fields.h        X-macro list of all trip_data columns (keeps live and historical paths in sync)
 │   ├── version.h.in              Template for the generated version.h (APP_VERSION from CMakeLists.txt)
 │   ├── main_window.h / .cpp      Top-level QMainWindow shell and cross-feature signal wiring
@@ -232,8 +232,10 @@ MSFS-Flight-Data-Recorder/
 │   ├── kml_export.h / .cpp       Builds and writes a trip's KML file
 │   ├── splitter_utils.h          Helper to persist splitter sizes only when a drag ends
 │   ├── trajectory_view.h / .cpp  Composite view: owns map, data table, and charts; cursor-sync wiring
+│   ├── map_script.h / .cpp       The JavaScript calls sent to map.html, built from trip data
 │   ├── map_widget.h / .cpp       QWebEngineView hosting map.html (Leaflet/OSM trajectory map)
 │   ├── map_bridge.h / .cpp       QWebChannel QObject bridging JS ↔ C++ for the map
+│   ├── chart_data.h / .cpp       Chart series, axis ranges and hover values, built from trip data
 │   ├── charts_panel.h / .cpp     QQuickWidget hosting charts_panel.qml (timeline charts with hover tooltip)
 │   ├── data_table_panel.h / .cpp Per-sample field/value table with hide-field dialog
 │   └── resources/

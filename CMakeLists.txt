@@ -50,9 +50,11 @@ set(CORE_SOURCES
     ${SRC_DIR}/db_groups.cpp
     ${SRC_DIR}/trip_history_panel.cpp
     ${SRC_DIR}/manage_groups_dialog.cpp
+    ${SRC_DIR}/chart_data.cpp
     ${SRC_DIR}/charts_panel.cpp
     ${SRC_DIR}/data_table_panel.cpp
     ${SRC_DIR}/map_bridge.cpp
+    ${SRC_DIR}/map_script.cpp
     ${SRC_DIR}/map_widget.cpp
     ${SRC_DIR}/kml_export.cpp
     ${SRC_DIR}/trajectory_view.cpp

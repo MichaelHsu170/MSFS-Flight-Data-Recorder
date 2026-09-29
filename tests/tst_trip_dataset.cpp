@@ -1,9 +1,11 @@
-// Small shared helpers: trip_dataset.h (time parsing, file-name pieces) and
-// trip_data_fields.h (field labels).
+// Small shared helpers: trip_dataset.h (time parsing, file-name pieces,
+// decimation) and trip_data_fields.h (field labels).
 #include "trip_data_fields.h"
 #include "trip_dataset.h"
 
 #include <QtTest>
+
+#include <algorithm>
 
 class TstTripDataset : public QObject {
 	Q_OBJECT
@@ -70,6 +72,30 @@ private slots:
 		TRIP_DATA_BOOL_FIELDS(ADD_BIT)
 #undef ADD_BIT
 		QCOMPARE(usedBits.size(), count);
+	}
+
+	void decimatedIndicesKeepEverySampleWithinBudget() {
+		QCOMPARE(decimatedIndices(0, 4, 10), (std::vector<int>{ 0, 1, 2, 3, 4 }));
+		QCOMPARE(decimatedIndices(3, 5, 3), (std::vector<int>{ 3, 4, 5 }));
+		QCOMPARE(decimatedIndices(7, 7, 10), (std::vector<int>{ 7 }));
+		QVERIFY(decimatedIndices(0, -1, 10).empty());
+		QVERIFY(decimatedIndices(5, 4, 10).empty());
+	}
+
+	void decimatedIndicesThinByStrideAndKeepTheLastSample() {
+		// 10 samples, budget 4: stride 3.
+		QCOMPARE(decimatedIndices(0, 9, 4), (std::vector<int>{ 0, 3, 6, 9 }));
+		// 11 samples: stride 3, and the last (10) isn't on the stride.
+		QCOMPARE(decimatedIndices(0, 10, 4), (std::vector<int>{ 0, 3, 6, 9, 10 }));
+		// A slice starts at lo.
+		QCOMPARE(decimatedIndices(100, 110, 4), (std::vector<int>{ 100, 103, 106, 109, 110 }));
+		// A long trip stays within the budget: 60001 samples need stride 21,
+		// giving 2858 plus the last.
+		const std::vector<int> many = decimatedIndices(0, 60000, 3000);
+		QCOMPARE(many.size(), size_t(2859));
+		QCOMPARE(many.front(), 0);
+		QCOMPARE(many.back(), 60000);
+		QVERIFY(std::is_sorted(many.begin(), many.end()));
 	}
 };
 
