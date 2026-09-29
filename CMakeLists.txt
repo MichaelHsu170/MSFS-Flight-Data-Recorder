@@ -44,6 +44,7 @@ set(CORE_SOURCES
     ${SRC_DIR}/recorder.cpp
     ${SRC_DIR}/runway_match.cpp
     ${SRC_DIR}/airport_lookup.cpp
+    ${SRC_DIR}/flight_phase.cpp
     ${SRC_DIR}/event_filter.cpp
     ${SRC_DIR}/recorder_bridge.cpp
     ${SRC_DIR}/live_status_panel.cpp

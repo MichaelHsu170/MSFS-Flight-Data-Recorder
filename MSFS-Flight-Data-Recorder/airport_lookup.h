@@ -13,7 +13,7 @@
 //      walking on to the next-nearest candidate when none matches, then
 //      falls back to a runway-margin hit, the nearest airport within 5 km,
 //      or no airport at all.
-// The result goes to on_lookup_resolved() (recorder.cpp). State lives in
+// The result goes to on_lookup_resolved() (flight_phase.cpp). State lives in
 // STATUS::lookup; a response for a trip that has since ended is dropped.
 
 // How a lookup ended, reported to on_lookup_resolved().
@@ -53,7 +53,7 @@ void lookup_on_exception(struct STATUS* status, DWORD send_id);
 // Forgets any lookup state from a previous SimConnect connection.
 void reset_airport_lookup(struct STATUS* status);
 
-// Implemented by the recorder (recorder.cpp):
+// Implemented by the flight phase (flight_phase.cpp):
 // Applies a finished lookup's result for slot (see facility_lookup_target()).
 void on_lookup_resolved(struct STATUS* status, AIRPORT* slot, LOOKUP_OUTCOME outcome);
 // Starts the next waiting lookup, if any, once none is in flight.

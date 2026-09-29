@@ -156,6 +156,60 @@ private slots:
 		QVERIFY(updated.count() >= 1);
 	}
 
+	void departureIsLoggedWithItsLiftoffTime() {
+		// The lookup resolves after the aircraft has flown on for 10 s: the
+		// log line says when the liftoff happened, not when the lookup ended.
+		for (const bool withAirport : { true, false }) {
+			FlightDriver sim;
+			const RunwaySpec rwy = eastWestRunway();
+			if (withAirport)
+				sim.airports = { testAirport(rwy) };
+			startOnRunway(sim, rwy);
+			liftOff(sim, onRunway(rwy, 1800));
+			const QString liftoffTime = QString::fromStdString(sim.record.time_local.format_date_time());
+			sim.ticks(20);
+			const QString laterTime = QString::fromStdString(sim.record.time_local.format_date_time());
+			QVERIFY(laterTime != liftoffTime);
+			QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+			sim.serviceLookups();
+			QString line;
+			for (const QList<QVariant>& args : log)
+				if (args.value(0).toString().contains(QStringLiteral("Liftoff from")))
+					line = args.value(0).toString();
+			QVERIFY2(line.contains(withAirport ? QStringLiteral("runway 09 at ") : QStringLiteral(" at ")), qPrintable(line));
+			QVERIFY2(line.endsWith(QStringLiteral(" at ") + liftoffTime), qPrintable(line));
+		}
+	}
+
+	void touchdownWhoseRowWasNeverInsertedIsLoggedAndSkipped() {
+		FlightDriver sim;
+		const RunwaySpec rwy = eastWestRunway();
+		sim.airports = { testAirport(rwy) };
+		const int tripId = startOnRunway(sim, rwy);
+		liftOff(sim, onRunway(rwy, 1800));
+		sim.serviceLookups();
+		// The touchdown's immediate INSERT fails, so it has no row. The sample
+		// writer thread shares this connection, so hold its lock like every
+		// recorder write does (db_insert_update_table() in db.cpp).
+		{
+			std::lock_guard<std::mutex> lock(sim.status().mutex_db_commit);
+			QCOMPARE(sqlite3_exec(sim.status().sql, "DROP TABLE trip_touchdowns", nullptr, nullptr, nullptr), SQLITE_OK);
+		}
+		touchDown(sim, onRunway(rwy, 500));
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		// A touch-and-go: the waiting touchdown is looked up first, then the liftoff.
+		liftOff(sim, onRunway(rwy, 1800));
+		sim.serviceLookups();
+		QString warning;
+		for (const QList<QVariant>& args : log)
+			if (args.value(0).toString().contains(QStringLiteral("row was never inserted")))
+				warning = args.value(0).toString();
+		QCOMPARE(warning, QStringLiteral("Touchdown at Test Field (TEST) runway 09: trip_touchdowns row was never inserted; dropping this resolution"));
+		// The trip still gets its destination, and the lookups carry on.
+		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(liftoffs(tripId).value(1)["icao"].toString(), QStringLiteral("TEST"));
+	}
+
 	void departureInOppositeDirectionUsesSecondaryEnd() {
 		FlightDriver sim;
 		const RunwaySpec rwy = eastWestRunway();
@@ -640,7 +694,7 @@ private slots:
 		sim.endTrip(); // first trip's departure lookup still in flight
 		const int second = startOnRunway(sim, rwy);
 		liftOff(sim, onRunway(rwy, 1700));
-		QVERIFY(sim.status().facility_lookup_departure_needed);
+		QVERIFY(sim.status().flight.departure_lookup_needed);
 		sim.serviceLookups();
 		QCOMPARE(trip(second)["departure_rwy"].toString(), QStringLiteral("09"));
 		VERIFY_NEAR(liftoffs(second).value(0)["distance_length"], 1700 * kFeetPerMeter, 2);

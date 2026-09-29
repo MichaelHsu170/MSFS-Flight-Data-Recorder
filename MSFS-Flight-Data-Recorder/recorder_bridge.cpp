@@ -1,6 +1,7 @@
 #include "recorder_bridge.h"
 #include "recorder.h"
 #include "airport_lookup.h"
+#include "flight_phase.h"
 #include "db.h"
 #include "gui_notify.h"
 #include "logger.h"
@@ -144,8 +145,8 @@ void RecorderBridge::tryConnect() {
 	// any active recording before connected_ can go false and tryConnect()
 	// can fire again, so no trip can be recording at this point.
 	reset_airport_lookup(&status_);
-	status_.facility_lookup_departure_needed = false;
-	status_.departure_lookup_initiated = false;
+	status_.flight.departure_lookup_needed = false;
+	status_.flight.departure_lookup_initiated = false;
 	status_.departure.clear();
 	status_.destination.clear();
 

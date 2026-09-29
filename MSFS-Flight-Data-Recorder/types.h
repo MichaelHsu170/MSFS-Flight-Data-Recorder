@@ -199,7 +199,7 @@ public:
 	// Displaced-threshold offset (meters, from the physical runway end to the
 	// marked/usable threshold) for each end, from SimConnect's PRIMARY_THRESHOLD/
 	// SECONDARY_THRESHOLD facility data (nested PAVEMENT child records -- see
-	// the FACILITY_DATA_PAVEMENT handling in recorder.cpp). *_enable mirrors
+	// the FACILITY_DATA_PAVEMENT handling in airport_lookup.cpp). *_enable mirrors
 	// the sim's own ENABLE flag: 0 means this runway has no threshold data, so
 	// the offset must be treated as 0, not used as-is.
 	float primary_threshold_offset_m;
@@ -362,15 +362,15 @@ struct FLIGHT_DATA {
 
 // Every moment this trip's aircraft actually became airborne, as a marker
 // occurrence (touch-and-goes included), independent of the trip's single,
-// permanent "departure" record (STATUS::departure / departure_db_id), which
-// always stays locked to the first liftoff only. See recorder.cpp's
-// liftoff-detection block.
+// permanent "departure" record (STATUS::departure / FLIGHT_PHASE::departure_db_id),
+// which always stays locked to the first liftoff only. See
+// flight_on_sample()'s liftoff detection.
 struct LIFTOFF_DATA {
 	struct FLIGHT_DATA flight_data;
 	AIRPORT airport;
 	int db_id = -1;              // trip_liftoffs row ID, set after immediate INSERT
 	// Monotonically increasing across both liftoff_data and touchdown_data
-	// (STATUS::next_facility_lookup_seq), so request_next_touchdown_facility_lookup
+	// (FLIGHT_PHASE::next_facility_lookup_seq), so request_next_touchdown_facility_lookup
 	// can pick whichever of the two lists holds the chronologically earliest
 	// unresolved lookup instead of always preferring one list over the other.
 	int seq = 0;
@@ -382,16 +382,16 @@ struct TOUCHDOWN_DATA {
 	struct FLIGHT_DATA flight_data;
 	AIRPORT airport;
 	int db_id = -1;             // trip_touchdowns row ID, set after immediate INSERT
-	// Snapshot of STATUS::loc_dh taken the instant this touchdown is recorded
-	// (see recorder.cpp) rather than read live from STATUS::loc_dh when this
-	// touchdown's facility lookup eventually resolves. STATUS::loc_dh is a
+	// Snapshot of FLIGHT_PHASE::loc_dh taken the instant this touchdown is recorded
+	// (see flight_phase.cpp) rather than read live from FLIGHT_PHASE::loc_dh when this
+	// touchdown's facility lookup eventually resolves. FLIGHT_PHASE::loc_dh is a
 	// single shared scratch field that keeps getting overwritten by every
 	// subsequent low-altitude pass (e.g. a go-around's second approach) --
 	// only one facility lookup is in flight at a time, so a touchdown's own
 	// lookup can still be queued (see request_next_touchdown_facility_lookup)
 	// when a later approach's crossing overwrites it. Capturing it here at
 	// touchdown time is safe because a touchdown always passes through
-	// STATUS::loc_dh's 50-100ft trigger band during its own final approach,
+	// FLIGHT_PHASE::loc_dh's 50-100ft trigger band during its own final approach,
 	// immediately beforehand -- so this field can never be stale for the
 	// touchdown that captures it, unlike the shared field read later.
 	COORDINATE loc_dh;
@@ -589,7 +589,7 @@ struct AIRPORT_LOOKUP {
 	// starts (AIRPORT_LIST -> optional FACILITY_DATA(s) -> FACILITY_DATA_END)
 	// terminates. Only one such lookup may be in flight at a time -- overlapping
 	// lookups would race on the departure/destination scratch objects above
-	// (see MyDispatchProc in recorder.cpp). trip_id records
+	// (see airport_lookup.cpp). trip_id records
 	// which trip issued the in-flight lookup, so a response that arrives after
 	// that trip has already ended (id_trip changed) can be recognized as stale
 	// and dropped instead of being applied to whatever trip is active when it
@@ -635,7 +635,7 @@ struct AIRPORT_LOOKUP {
 	// is set immediately before each SimConnect_RequestFacilitiesList_EX1
 	// call to the *historical* coordinate the response should be evaluated
 	// against (the touchdown's stored TOUCHDOWN_DATA::flight_data.coordinate,
-	// or STATUS::facility_lookup_departure_coordinate below for a departure), and used
+	// or STATUS::departure_data for a departure), and used
 	// in place of STATUS::data.coordinate throughout the AIRPORT_LIST/
 	// FACILITY_DATA_END handlers so a moved-since aircraft position can't
 	// misattribute the response to the wrong airport/runway.
@@ -697,6 +697,72 @@ struct AIRPORT_LOOKUP {
 	COORDINATE approach;
 };
 
+// The recording trip's flight-phase state -- see flight_phase.h.
+struct FLIGHT_PHASE {
+	// Heap copy of the most recently produced sample, owned outside the
+	// queue so the dispatch callback can compute the next sample's delta_s
+	// without touching whatever the DB-write worker is doing.
+	struct FLIGHT_DATA_RECORD* last_sample = NULL;
+	bool airborne = FALSE;
+	// Every moment this trip's aircraft actually became airborne, as a marker
+	// occurrence (touch-and-goes included), independent of the trip's single
+	// permanent departure_db_id/departure below -- see LIFTOFF_DATA. NOT
+	// populated for the trip's first liftoff, which only ever updates
+	// departure_db_id/STATUS::departure (see flight_on_sample()'s liftoff
+	// detection).
+	LIFTOFF_DATA* liftoff_data = NULL;
+	LIFTOFF_DATA* liftoff_data_end = NULL;
+	TOUCHDOWN_DATA* touchdown_data = NULL;
+	TOUCHDOWN_DATA* touchdown_data_end = NULL;
+	// Shared seq counter for LIFTOFF_DATA::seq/TOUCHDOWN_DATA::seq, so
+	// request_next_touchdown_facility_lookup() can pick whichever of the two
+	// lists holds the chronologically earliest unresolved lookup. Reset only
+	// at true trip boundaries, same as departure_lookup_initiated.
+	int next_facility_lookup_seq = 0;
+	// trip_liftoffs row ID for this trip's single departure, set after the
+	// immediate INSERT at the moment it becomes airborne (see flight_on_sample()'s
+	// liftoff detection) and consumed later by on_lookup_resolved()'s
+	// departure UPDATE, same db_id pattern as TOUCHDOWN_DATA::db_id but for
+	// the one-per-trip departure. Reset to -1 at trip start (recording-start
+	// block in flight_on_sample()).
+	int departure_db_id = -1;
+	COORDINATE loc_dh;
+	// Set when a departure's own facility lookup was skipped because
+	// lookup.pending was already true (a previous trip's lookup was
+	// still draining when this trip became airborne). request_next_touchdown_facility_lookup()
+	// in flight_phase.cpp checks this before touchdown_data, so the departure lookup
+	// is retried as soon as the shared slot frees up rather than being lost --
+	// unlike touchdowns, a skipped departure has no "unresolved" marker of its own
+	// to search for later. Cleared in stop_recording() so a lookup skipped by a
+	// trip that ends before its retry turn can't be mistakenly fired for
+	// whatever trip is active later.
+	bool departure_lookup_needed = FALSE;
+	// Set the instant this trip's first liftoff is detected (flight_phase.cpp),
+	// whether or not the resulting lookup fires immediately or is deferred via
+	// departure_lookup_needed above. A trip has exactly one departure
+	// airport -- wherever that first liftoff happened -- so this must stay
+	// TRUE for the rest of the trip, including through any number of later
+	// touch-and-goes or full-stop taxi-back-and-liftoffs, none of which are a
+	// new departure. Using departure.runway_act.index == -1 for this same
+	// purpose used to be racy: that field only flips once the async lookup
+	// actually *resolves*, so becoming airborne before a slow (e.g.
+	// multi-chunk AIRPORT_LIST) departure lookup resolves would still see -1
+	// and be mistaken for a fresh departure, overwriting the captured liftoff
+	// coordinate/heading and eventually misrouting that stale lookup's
+	// response into the destination slot once the real departure resolves.
+	// Reset only at true trip boundaries: trip start and RecorderBridge::
+	// tryConnect()'s carry-over reset (same places facility_lookup_departure_
+	// needed etc. are reset), never on landing.
+	bool departure_lookup_initiated = FALSE;
+	// What the trip's departure (first liftoff) recorded at the moment it
+	// became airborne -- position, heading, time, speeds -- captured whether
+	// or not its lookup fires immediately (see departure_lookup_needed
+	// above): a deferred departure lookup has no other record of where and
+	// when the liftoff happened once request_next_touchdown_facility_lookup()
+	// finally sends it, and the lookup's result is logged with this time.
+	FLIGHT_DATA departure_data;
+};
+
 struct STATUS {
 	bool in_sim = FALSE;
 	bool sim_running = FALSE;
@@ -705,14 +771,10 @@ struct STATUS {
 	// User-facing gate on automatic recording start, toggled via the Recording
 	// indicator in LiveStatusPanel and persisted through AppSettings. Distinct
 	// from `recording` (which trip is actually mid-flight right now): this only
-	// suppresses the auto-start-on-liftoff check in recorder.cpp, so flipping it
+	// suppresses the auto-start-on-liftoff check in flight_phase.cpp, so flipping it
 	// while a trip is already recording has no effect on that trip.
 	bool recording_enabled = TRUE;
 	bool quit = FALSE;
-	// Heap copy of the most recently produced sample, owned outside the
-	// queue so the dispatch callback can compute the next sample's delta_s
-	// without touching whatever the DB-write worker is doing.
-	struct FLIGHT_DATA_RECORD* last_sample = NULL;
 	HANDLE hSimConnect = NULL;
 	sqlite3* sql = NULL;
 	std::mutex mutex_db_commit;
@@ -749,31 +811,7 @@ struct STATUS {
 	// and erased from the DB-write worker thread.
 	mutable std::mutex flushing_trip_ids_mutex;
 	std::set<int> flushing_trip_ids;
-	bool airborne = FALSE;
-	// Every moment this trip's aircraft actually became airborne, as a marker
-	// occurrence (touch-and-goes included), independent of the trip's single
-	// permanent departure_db_id/departure below -- see LIFTOFF_DATA. NOT
-	// populated for the trip's first liftoff, which only ever updates
-	// departure_db_id/departure (see MyDispatchProc's liftoff-detection
-	// block).
-	LIFTOFF_DATA* liftoff_data = NULL;
-	LIFTOFF_DATA* liftoff_data_end = NULL;
-	TOUCHDOWN_DATA* touchdown_data = NULL;
-	TOUCHDOWN_DATA* touchdown_data_end = NULL;
-	// Shared seq counter for LIFTOFF_DATA::seq/TOUCHDOWN_DATA::seq, so
-	// request_next_touchdown_facility_lookup() can pick whichever of the two
-	// lists holds the chronologically earliest unresolved lookup. Reset only
-	// at true trip boundaries, same as departure_lookup_initiated.
-	int next_facility_lookup_seq = 0;
-	// trip_liftoffs row ID for this trip's single departure, set after the
-	// immediate INSERT at the moment it becomes airborne (see MyDispatchProc's
-	// liftoff-detection block) and consumed later by FACILITY_DATA_END's
-	// departure UPDATE, same db_id pattern as TOUCHDOWN_DATA::db_id but for
-	// the one-per-trip departure. Reset to -1 at trip start (recording-start
-	// block in recorder.cpp).
-	int departure_db_id = -1;
 	FLIGHT_DATA data;
-	COORDINATE loc_dh;
 	AIRPORT departure;
 	// The trip's destination airport, filled in once a touchdown's facility
 	// lookup resolves (copied from here into the matching TOUCHDOWN_DATA
@@ -785,43 +823,8 @@ struct STATUS {
 	// happens synchronously within the same FACILITY_DATA_END/AIRPORT_LIST
 	// callback that just populated it.
 	AIRPORT destination;
-	// Set when a departure's own facility lookup was skipped because
-	// lookup.pending was already true (a previous trip's lookup was
-	// still draining when this trip became airborne). request_next_touchdown_facility_lookup()
-	// in recorder.cpp checks this before touchdown_data, so the departure lookup
-	// is retried as soon as the shared slot frees up rather than being lost --
-	// unlike touchdowns, a skipped departure has no "unresolved" marker of its own
-	// to search for later. Cleared in stop_recording() so a lookup skipped by a
-	// trip that ends before its retry turn can't be mistakenly fired for
-	// whatever trip is active later.
-	bool facility_lookup_departure_needed = FALSE;
-	// Set the instant this trip's first liftoff is detected (recorder.cpp),
-	// whether or not the resulting lookup fires immediately or is deferred via
-	// facility_lookup_departure_needed above. A trip has exactly one departure
-	// airport -- wherever that first liftoff happened -- so this must stay
-	// TRUE for the rest of the trip, including through any number of later
-	// touch-and-goes or full-stop taxi-back-and-liftoffs, none of which are a
-	// new departure. Using departure.runway_act.index == -1 for this same
-	// purpose used to be racy: that field only flips once the async lookup
-	// actually *resolves*, so becoming airborne before a slow (e.g.
-	// multi-chunk AIRPORT_LIST) departure lookup resolves would still see -1
-	// and be mistaken for a fresh departure, overwriting the captured liftoff
-	// coordinate/heading and eventually misrouting that stale lookup's
-	// response into the destination slot once the real departure resolves.
-	// Reset only at true trip boundaries: trip start and RecorderBridge::
-	// tryConnect()'s carry-over reset (same places facility_lookup_departure_
-	// needed etc. are reset), never on landing.
-	bool departure_lookup_initiated = FALSE;
-	// The aircraft's coordinate at the moment it became airborne, captured
-	// whether or not that liftoff's lookup fires immediately (see
-	// facility_lookup_departure_needed above) -- a deferred departure lookup
-	// has no other record of where the liftoff actually happened once
-	// request_next_touchdown_facility_lookup() finally sends it.
-	COORDINATE facility_lookup_departure_coordinate;
-	// The aircraft's heading at the moment it became airborne -- see
-	// facility_lookup_departure_coordinate above, same reasoning.
-	int facility_lookup_departure_heading = 0;
 	AIRPORT_LOOKUP lookup;
+	FLIGHT_PHASE flight;
 	// Two-tier flood protection every cockpit event passes through before
 	// commit_event() in recorder.cpp -- see event_filter.h. Lives for the
 	// app's lifetime: each entry's own quiet period clears it, so nothing here
