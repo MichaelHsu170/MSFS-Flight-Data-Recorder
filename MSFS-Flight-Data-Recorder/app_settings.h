@@ -15,6 +15,11 @@ public:
 	// the executable's directory in Release builds.
 	static QString filePath();
 
+	// [logging] verbose: the log level name (Logger::levelFromString()),
+	// "INFO" if unset. Static and read-only (never creates settings.ini), so
+	// main() can read it before QApplication exists and logging starts.
+	static QString logLevel();
+
 	// Field names (DataTablePanel's row labels) the user has unchecked in the
 	// "Fields…" dialog -- everything not listed here stays visible.
 	QStringList dataTableHiddenFields() const;

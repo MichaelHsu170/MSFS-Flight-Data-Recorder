@@ -1,4 +1,5 @@
 #include "db.h"
+#include "app_paths.h"
 #include "logger_c.h"
 #include "simconnect_defs.h"
 #include "gui_notify.h"
@@ -552,47 +553,35 @@ static void db_write_worker(STATUS* status) {
 	log_cf(3, "DB", "db_write_worker: queue stopped; thread exiting");
 }
 
-void resolve_db_path(char* fn_db, size_t len) {
-#ifdef _DEBUG
-	snprintf(fn_db, len, "%s.db", DATABASE_NAME);
-#else
-	char exe_path[MAX_PATH];
-	GetModuleFileNameA(NULL, exe_path, MAX_PATH);
-	char* last_slash = strrchr(exe_path, '\\');
-	if (last_slash)
-		*last_slash = '\0';
-	snprintf(fn_db, len, "%s\\%s.db", exe_path, DATABASE_NAME);
-#endif
+std::string db_file_path() {
+	return app_file_path(DATABASE_NAME ".db");
+}
+
+namespace {
+
+// A UI connection (see connect_db_readwrite/readonly below), or NULL.
+sqlite3* open_ui_connection(int flags, int busy_timeout_ms) {
+	sqlite3* sql = NULL;
+	if (sqlite3_open_v2(db_file_path().c_str(), &sql, flags, NULL) != SQLITE_OK) {
+		if (sql != NULL)
+			sqlite3_close(sql);
+		return NULL;
+	}
+	sqlite3_busy_timeout(sql, busy_timeout_ms);
+	return sql;
+}
+
 }
 
 // See db_connection.h. connect_db()'s connection is opened with
 // SQLITE_OPEN_NOMUTEX, so it must never be shared with a background query
 // thread; these two are opened without it.
 sqlite3* connect_db_readwrite() {
-	char fn_db[MAX_PATH];
-	resolve_db_path(fn_db, MAX_PATH);
-	sqlite3* sql = NULL;
-	if (sqlite3_open_v2(fn_db, &sql, SQLITE_OPEN_READWRITE, NULL) != SQLITE_OK) {
-		if (sql != NULL)
-			sqlite3_close(sql);
-		return NULL;
-	}
-	sqlite3_busy_timeout(sql, 5000);
-	return sql;
+	return open_ui_connection(SQLITE_OPEN_READWRITE, 5000);
 }
 
 sqlite3* connect_db_readonly() {
-	char fn_db[MAX_PATH];
-	resolve_db_path(fn_db, MAX_PATH);
-
-	sqlite3* sql = NULL;
-	if (sqlite3_open_v2(fn_db, &sql, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) {
-		if (sql != NULL)
-			sqlite3_close(sql);
-		return NULL;
-	}
-	sqlite3_busy_timeout(sql, 2000);
-	return sql;
+	return open_ui_connection(SQLITE_OPEN_READONLY, 2000);
 }
 
 // Remove constraint keywords that SQLite disallows in ALTER TABLE ADD COLUMN:
@@ -767,12 +756,11 @@ static bool create_schema(sqlite3* sql) {
 }
 
 void migrate_db() {
-	char fn_db[MAX_PATH];
-	resolve_db_path(fn_db, MAX_PATH);
-	log_cf(3, "DB", "migrate_db: checking schema for %s", fn_db);
+	const std::string fn_db = db_file_path();
+	log_cf(3, "DB", "migrate_db: checking schema for %s", fn_db.c_str());
 	sqlite3* sql = nullptr;
-	if (sqlite3_open_v2(fn_db, &sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
-		log_cf(0, "DB", "migrate_db: cannot open database %s: %s", fn_db, sql ? sqlite3_errmsg(sql) : "unknown error");
+	if (sqlite3_open_v2(fn_db.c_str(), &sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
+		log_cf(0, "DB", "migrate_db: cannot open database %s: %s", fn_db.c_str(), sql ? sqlite3_errmsg(sql) : "unknown error");
 		if (sql) sqlite3_close(sql);
 		return;
 	}
@@ -783,11 +771,9 @@ void migrate_db() {
 }
 
 void connect_db(struct STATUS* status) {
-	char fn_db[MAX_PATH];
-	resolve_db_path(fn_db, MAX_PATH);
-
-	if (sqlite3_open_v2(fn_db, &status->sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_SHAREDCACHE, NULL) == SQLITE_OK)
-		log_cf(2, "DB", "Opened database %s", fn_db);
+	const std::string fn_db = db_file_path();
+	if (sqlite3_open_v2(fn_db.c_str(), &status->sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_SHAREDCACHE, NULL) == SQLITE_OK)
+		log_cf(2, "DB", "Opened database %s", fn_db.c_str());
 	else {
 		log_cf(0, "DB", "Cannot open database: %s", sqlite3_errmsg(status->sql));
 		exit(1);

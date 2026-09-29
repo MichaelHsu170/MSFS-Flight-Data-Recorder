@@ -67,9 +67,8 @@ void db_delete_events(STATUS* status, const std::vector<unsigned long long>& seq
 // current schema, even when the simulator has never connected this session.
 void migrate_db();
 
-// Writes the flight_data.db path into fn_db: the current working directory in
-// Debug builds, the executable's directory in Release builds.
-void resolve_db_path(char* fn_db, size_t len);
+// Full path of flight_data.db (see app_file_path()).
+std::string db_file_path();
 
 // Opens (creating if needed) the recorder's own write connection,
 // status->sql, and starts the two DB-writer threads. The UI's connections

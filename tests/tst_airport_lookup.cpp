@@ -210,6 +210,39 @@ private slots:
 		QCOMPARE(liftoffs(tripId).value(1)["icao"].toString(), QStringLiteral("TEST"));
 	}
 
+	void liftoffMarkerWhoseInsertFailsIsLoggedAndSkipped() {
+		FlightDriver sim;
+		const RunwaySpec rwy = eastWestRunway();
+		sim.airports = { testAirport(rwy) };
+		const int tripId = startOnRunway(sim, rwy);
+		liftOff(sim, onRunway(rwy, 1800));
+		sim.serviceLookups();
+		touchDown(sim, onRunway(rwy, 500));
+		sim.serviceLookups();
+		// The touch-and-go's liftoff marker INSERT fails, so it has no row.
+		{
+			std::lock_guard<std::mutex> lock(sim.status().mutex_db_commit);
+			QCOMPARE(sqlite3_exec(sim.status().sql, "DROP TABLE trip_liftoffs", nullptr, nullptr, nullptr), SQLITE_OK);
+		}
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		liftOff(sim, onRunway(rwy, 1800));
+		// The next touchdown's lookup runs the marker's first; it's skipped.
+		touchDown(sim, onRunway(rwy, 500));
+		sim.serviceLookups();
+		QString insertFailed, neverInserted;
+		for (const QList<QVariant>& args : log) {
+			const QString line = args.value(0).toString();
+			if (line.contains(QStringLiteral("trip_liftoffs insert failed")))
+				insertFailed = line;
+			if (line.contains(QStringLiteral("row was never inserted")))
+				neverInserted = line;
+		}
+		QVERIFY2(insertFailed.startsWith(QStringLiteral("Liftoff (trip %1, subsequent): trip_liftoffs insert failed, "
+			"this liftoff marker will not be recorded: ").arg(tripId)), qPrintable(insertFailed));
+		QCOMPARE(neverInserted, QStringLiteral("Liftoff (subsequent) from Test Field (TEST) runway 09: trip_liftoffs row was never inserted; dropping this resolution"));
+		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
+	}
+
 	void departureInOppositeDirectionUsesSecondaryEnd() {
 		FlightDriver sim;
 		const RunwaySpec rwy = eastWestRunway();

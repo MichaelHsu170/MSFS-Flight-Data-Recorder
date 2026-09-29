@@ -56,6 +56,25 @@ void writeLine(const QString& line) {
     }
 }
 
+// The log-file line for msg, or a null QString when level is filtered out or
+// no log file is open.
+QString formatLine(Logger::Level level, const char* module, const QString& msg) {
+    if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
+        return QString();
+    if (g_fileHandle.load(std::memory_order_acquire) == INVALID_HANDLE_VALUE)
+        return QString();
+    return QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
+        + QStringLiteral(" [") + QLatin1String(levelTag(level)) + QStringLiteral("] [")
+        + QString::fromUtf8(module).leftJustified(8) + QStringLiteral("] ") + msg + QStringLiteral("\n");
+}
+
+// printf-style formatting, cut to 1023 bytes, read as UTF-8.
+QString formatArgs(const char* fmt, va_list args) {
+    char buf[1024];
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    return QString::fromUtf8(buf);
+}
+
 }
 
 namespace Logger {
@@ -111,13 +130,9 @@ Level levelFromString(const QString& s) {
 }
 
 void log(Level level, const char* module, const QString& msg) {
-    if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
+    const QString line = formatLine(level, module, msg);
+    if (line.isNull())
         return;
-    if (g_fileHandle.load(std::memory_order_acquire) == INVALID_HANDLE_VALUE)
-        return;
-    QString line = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
-        + QStringLiteral(" [") + QLatin1String(levelTag(level)) + QStringLiteral("] [")
-        + QString::fromUtf8(module).leftJustified(8) + QStringLiteral("] ") + msg + QStringLiteral("\n");
     QMutexLocker lock(&g_mutex);
     writeLine(line);
 }
@@ -125,22 +140,17 @@ void log(Level level, const char* module, const QString& msg) {
 void logf(Level level, const char* module, const char* fmt, ...) {
     if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
         return;
-    char buf[1024];
     va_list args;
     va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
+    const QString msg = formatArgs(fmt, args);
     va_end(args);
-    log(level, module, QString::fromUtf8(buf));
+    log(level, module, msg);
 }
 
 void logCrash(Level level, const char* module, const QString& msg) {
-    if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
+    const QString line = formatLine(level, module, msg);
+    if (line.isNull())
         return;
-    if (g_fileHandle.load(std::memory_order_acquire) == INVALID_HANDLE_VALUE)
-        return;
-    QString line = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
-        + QStringLiteral(" [") + QLatin1String(levelTag(level)) + QStringLiteral("] [")
-        + QString::fromUtf8(module).leftJustified(8) + QStringLiteral("] ") + msg + QStringLiteral("\n");
     // Deliberately skips g_mutex: g_fileHandle was opened with FILE_APPEND_DATA,
     // so each WriteFile call atomically appends at EOF at the OS level -- safe
     // to call concurrently with log()'s own writeLine() even if the thread that
@@ -153,12 +163,11 @@ void logCrash(Level level, const char* module, const QString& msg) {
 void logCrashf(Level level, const char* module, const char* fmt, ...) {
     if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
         return;
-    char buf[1024];
     va_list args;
     va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
+    const QString msg = formatArgs(fmt, args);
     va_end(args);
-    logCrash(level, module, QString::fromUtf8(buf));
+    logCrash(level, module, msg);
 }
 
 }
@@ -172,12 +181,11 @@ void log_c(int level, const char* module, const char* msg) {
 void log_cf(int level, const char* module, const char* fmt, ...) {
     if (level > static_cast<int>(Logger::Profile))
         return;
-    char buf[1024];
     va_list args;
     va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
+    const QString msg = formatArgs(fmt, args);
     va_end(args);
-    log_c(level, module, buf);
+    Logger::log(static_cast<Logger::Level>(level), module, msg);
 }
 
 }

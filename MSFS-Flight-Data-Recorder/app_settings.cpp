@@ -1,8 +1,7 @@
 #include "app_settings.h"
+#include "app_paths.h"
 #include "logger.h"
 
-#include <QCoreApplication>
-#include <QDir>
 #include <QFile>
 #include <QSettings>
 #include <QTextStream>
@@ -10,17 +9,18 @@
 namespace {
 
 QString settingsFilePath() {
-	// Debug: cwd so each project checkout is self-contained.
-	// Release: exe directory so settings follow the installation.
-#ifdef _DEBUG
-	return QDir(QDir::currentPath()).filePath(QStringLiteral("settings.ini"));
-#else
-	return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("settings.ini"));
-#endif
+	return QString::fromStdString(app_file_path("settings.ini"));
 }
 
 QSettings makeSettings() {
 	return QSettings(settingsFilePath(), QSettings::IniFormat);
+}
+
+// key's value if it's a positive integer, otherwise fallback.
+int positiveInt(const char* key, int fallback) {
+	bool ok = false;
+	const int v = makeSettings().value(QLatin1String(key)).toInt(&ok);
+	return (ok && v > 0) ? v : fallback;
 }
 
 // Writes a single key=value in the named INI section, touching only that one
@@ -276,10 +276,7 @@ void AppSettings::setDataTableHiddenFields(const QStringList& fields) {
 }
 
 int AppSettings::dataTableFieldColumnWidth() const {
-	QSettings settings = makeSettings();
-	bool ok = false;
-	int v = settings.value(QStringLiteral("table_column_width/data_table_field_column_width"), 140).toInt(&ok);
-	return (ok && v > 0) ? v : 140;
+	return positiveInt("table_column_width/data_table_field_column_width", 140);
 }
 
 void AppSettings::setDataTableFieldColumnWidth(int w) {
@@ -295,10 +292,7 @@ void AppSettings::setDataTableFieldColumnWidth(int w) {
 }
 
 int AppSettings::rightPanelWidth() const {
-	QSettings settings = makeSettings();
-	bool ok = false;
-	int v = settings.value(QStringLiteral("layout/right_panel_width"), 260).toInt(&ok);
-	return (ok && v > 0) ? v : 260;
+	return positiveInt("layout/right_panel_width", 260);
 }
 
 void AppSettings::setRightPanelWidth(int w) {
@@ -314,10 +308,7 @@ void AppSettings::setRightPanelWidth(int w) {
 }
 
 int AppSettings::chartsPanelHeight() const {
-	QSettings settings = makeSettings();
-	bool ok = false;
-	int v = settings.value(QStringLiteral("layout/charts_panel_height"), 400).toInt(&ok);
-	return (ok && v > 0) ? v : 400;
+	return positiveInt("layout/charts_panel_height", 400);
 }
 
 void AppSettings::setChartsPanelHeight(int h) {
@@ -373,16 +364,18 @@ void AppSettings::setTripHistoryColumnWidths(const QMap<QString, int>& widths) {
 	);
 }
 
+QString AppSettings::logLevel() {
+	return makeSettings().value(QStringLiteral("logging/verbose"), QStringLiteral("INFO")).toString();
+}
+
 QString AppSettings::geminiApiKey() const {
 	QSettings settings = makeSettings();
 	return settings.value(QStringLiteral("ai/gemini_api_key")).toString();
 }
 
 int AppSettings::sampleIntervalMs() const {
-	QSettings settings = makeSettings();
-	bool ok = false;
-	int v = settings.value(QStringLiteral("recording/sample_interval_ms")).toInt(&ok);
-	if (ok && v > 0) {
+	const int v = positiveInt("recording/sample_interval_ms", 0);
+	if (v > 0) {
 		Logger::logf(Logger::Trace, "Settings", "sample_interval_ms=%d read from settings.ini", v);
 		return v;
 	}

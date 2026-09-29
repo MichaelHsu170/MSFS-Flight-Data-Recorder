@@ -93,7 +93,6 @@ private slots:
 
 	void malformedTimeIsNaN() {
 		QVERIFY(qIsNaN(chartTimeMs(QString())));
-		QVERIFY(qIsNaN(chartTimeMs(QStringLiteral("2026-03-04T10:20:30"))));   // too short
 		QVERIFY(qIsNaN(chartTimeMs(QStringLiteral("2026-13-04T10:20:30.000+00:00"))));
 		QVERIFY(qIsNaN(chartTimeMs(QStringLiteral("2026-03-04T25:20:30.000+00:00"))));
 		QVERIFY(qIsNaN(chartTimeMs(QStringLiteral("garbage garbage garbage!"))));

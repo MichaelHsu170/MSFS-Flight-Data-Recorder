@@ -2,6 +2,7 @@
 
 #include <QWidget>
 
+#include <functional>
 #include <utility>
 #include <vector>
 
@@ -68,6 +69,12 @@ private:
 	void pushTrajectory();
 	void pushLiftoffs();
 	void pushTouchdownsAndEvents();
+	// Runs build() off the main thread, then the JavaScript it returns --
+	// unless a newer dataset arrived meanwhile (datasetVersion_) -- then
+	// afterRun, if given. what names it in the log; count is how many items
+	// it covers.
+	void runJsBuiltInBackground(const char* what, size_t count, std::function<QString()> build,
+		std::function<void()> afterRun = {});
 	void runJs(const QString& script);
 	void resizeEvent(QResizeEvent* event) override;
 	// Shared by defaultMapImageFileName() and the Export to KML action:
@@ -109,7 +116,7 @@ private:
 	QString aircraftTitle_;
 	bool pageReady_ = false;
 	// Incremented by setDataset and showOverview to invalidate any in-flight
-	// pushTrajectory / pushTouchdownsAndEvents workers so their finished lambdas
+	// runJsBuiltInBackground() workers so their finished lambdas
 	// don't call setTrajectory() / setTouchdowns() after showOverview() was issued.
 	int datasetVersion_ = 0;
 	// Set when setDataset() emits trajectoryLoaded() early because the page

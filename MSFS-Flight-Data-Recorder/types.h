@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <deque>
 #include <iostream>
@@ -82,32 +83,22 @@ public:
 		longitude = 360;
 	}
 
-	std::string coordinate_decimal_to_dms(enum COORDINATE_CAT cat) {
-		double coordinate = 0;
-		char tmp1 = 'T';
-		switch (cat) {
-		case LATITUDE:
-			coordinate = latitude;
-			tmp1 = (coordinate < 0) ? 'S' : 'N';
-			break;
-		case LONGITUDE:
-			coordinate = longitude;
-			tmp1 = (coordinate < 0) ? 'W' : 'E';
-			break;
-		default:
-			break;
-		}
-		coordinate = abs(coordinate);
-		int degree = (int)coordinate;
-		coordinate -= degree;
-		coordinate *= 60;
-		int minute = (int)coordinate;
-		coordinate -= minute;
-		coordinate *= 60;
-		int second = (int)coordinate;
-		char ret[12];
-		memset(ret, 0, sizeof(ret));
-		snprintf(ret, sizeof(ret), "%03d %02d %02d%c", degree, minute, second, tmp1);
+	// One axis as degrees/minutes/seconds, e.g. 43°30'00.0"N -- the format the
+	// Data Table and the map popups (formatDMS in map.html) show, so a position
+	// copied from either pastes the same way into Google Maps/Earth's search
+	// box. Rounds to whole tenths of an arcsecond up front and decomposes with
+	// integer division/modulo so seconds can't round up to "60.0" instead of
+	// carrying into the next minute.
+	std::string coordinate_decimal_to_dms(enum COORDINATE_CAT cat) const {
+		const double value = cat == LATITUDE ? latitude : longitude;
+		const char letter = cat == LATITUDE ? (value >= 0 ? 'N' : 'S') : (value >= 0 ? 'E' : 'W');
+		long long tenths = llround(fabs(value) * 36000.0);
+		const long long deg = tenths / 36000;
+		tenths -= deg * 36000;
+		const long long min = tenths / 600;
+		tenths -= min * 600;
+		char ret[32];
+		snprintf(ret, sizeof(ret), "%lld\xC2\xB0%02lld'%02lld.%lld\"%c", deg, min, tenths / 10, tenths % 10, letter);
 		return std::string(ret);
 	}
 
@@ -360,28 +351,29 @@ struct FLIGHT_DATA {
 	DATETIME time_local;
 };
 
-// Every moment this trip's aircraft actually became airborne, as a marker
-// occurrence (touch-and-goes included), independent of the trip's single,
-// permanent "departure" record (STATUS::departure / FLIGHT_PHASE::departure_db_id),
-// which always stays locked to the first liftoff only. See
-// flight_on_sample()'s liftoff detection.
-struct LIFTOFF_DATA {
+// What a liftoff and a touchdown record share (LIFTOFF_DATA, TOUCHDOWN_DATA).
+struct CONTACT_RECORD {
 	struct FLIGHT_DATA flight_data;
 	AIRPORT airport;
-	int db_id = -1;              // trip_liftoffs row ID, set after immediate INSERT
+	int db_id = -1;              // trip_liftoffs/trip_touchdowns row ID, set after immediate INSERT
 	// Monotonically increasing across both liftoff_data and touchdown_data
 	// (FLIGHT_PHASE::next_facility_lookup_seq), so request_next_touchdown_facility_lookup
 	// can pick whichever of the two lists holds the chronologically earliest
 	// unresolved lookup instead of always preferring one list over the other.
 	int seq = 0;
+};
+
+// Every moment this trip's aircraft actually became airborne, as a marker
+// occurrence (touch-and-goes included), independent of the trip's single,
+// permanent "departure" record (STATUS::departure / FLIGHT_PHASE::departure_db_id),
+// which always stays locked to the first liftoff only. See
+// flight_on_sample()'s liftoff detection.
+struct LIFTOFF_DATA : CONTACT_RECORD {
 	struct LIFTOFF_DATA* next = NULL;
 };
 
-// Mirrors LIFTOFF_DATA, but for touchdowns.
-struct TOUCHDOWN_DATA {
-	struct FLIGHT_DATA flight_data;
-	AIRPORT airport;
-	int db_id = -1;             // trip_touchdowns row ID, set after immediate INSERT
+// Every touchdown of the trip.
+struct TOUCHDOWN_DATA : CONTACT_RECORD {
 	// Snapshot of FLIGHT_PHASE::loc_dh taken the instant this touchdown is recorded
 	// (see flight_phase.cpp) rather than read live from FLIGHT_PHASE::loc_dh when this
 	// touchdown's facility lookup eventually resolves. FLIGHT_PHASE::loc_dh is a
@@ -395,12 +387,60 @@ struct TOUCHDOWN_DATA {
 	// immediately beforehand -- so this field can never be stale for the
 	// touchdown that captures it, unlike the shared field read later.
 	COORDINATE loc_dh;
-	int seq = 0;
 	struct TOUCHDOWN_DATA* next = NULL;
 };
 
 // Forward declaration — full definition in simconnect_defs.h
 struct FLIGHT_DATA_RECORD;
+
+// Thread-safe FIFO feeding one persistent worker thread: producers push, the
+// worker blocks in pop(). Base of SampleWriteQueue and EventWriteQueue.
+template <typename T>
+class WorkQueue {
+public:
+	// Blocks until an item is available. Returns false once stop() has been
+	// called and the queue has fully drained -- the worker loop should exit.
+	bool pop(T& item) {
+		std::unique_lock<std::mutex> lock(mutex_);
+		cv_.wait(lock, [this] { return !queue_.empty() || stopping_; });
+		if (queue_.empty())
+			return false;
+		item = std::move(queue_.front());
+		queue_.pop_front();
+		return true;
+	}
+
+	// Tells the worker thread to exit once it has drained whatever is
+	// currently queued (does not discard pending items).
+	void stop() {
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			stopping_ = true;
+		}
+		cv_.notify_one();
+	}
+
+	// Re-arms the queue for a fresh worker thread after reconnecting.
+	void reset() {
+		std::lock_guard<std::mutex> lock(mutex_);
+		stopping_ = false;
+	}
+
+protected:
+	void enqueue(T item) {
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			queue_.push_back(std::move(item));
+		}
+		cv_.notify_one();
+	}
+
+private:
+	std::mutex mutex_;
+	std::condition_variable cv_;
+	std::deque<T> queue_;
+	bool stopping_ = false;
+};
 
 // One entry in STATUS::sample_write_queue. A null `data` with `trip_id` set
 // marks the end of that trip's samples (a "barrier") so the DB-write worker
@@ -418,49 +458,11 @@ struct SAMPLE_QUEUE_ITEM {
 // STATUS::sql for sample flushes. This removes the detached per-batch writer
 // threads that used to race each other and the queue-reset code that ran when
 // a new trip started while a previous trip's flush was still in flight.
-class SampleWriteQueue {
+class SampleWriteQueue : public WorkQueue<SAMPLE_QUEUE_ITEM> {
 public:
 	void push(struct FLIGHT_DATA_RECORD* data, int trip_id) {
-		{
-			std::lock_guard<std::mutex> lock(mutex_);
-			queue_.push_back({ data, trip_id });
-		}
-		cv_.notify_one();
+		enqueue({ data, trip_id });
 	}
-
-	// Blocks until an item is available. Returns false once stop() has been
-	// called and the queue has fully drained -- the worker loop should exit.
-	bool pop(SAMPLE_QUEUE_ITEM& item) {
-		std::unique_lock<std::mutex> lock(mutex_);
-		cv_.wait(lock, [this] { return !queue_.empty() || stopping_; });
-		if (queue_.empty())
-			return false;
-		item = queue_.front();
-		queue_.pop_front();
-		return true;
-	}
-
-	// Tells the worker thread to exit once it has drained whatever is
-	// currently queued (does not discard pending samples).
-	void stop() {
-		{
-			std::lock_guard<std::mutex> lock(mutex_);
-			stopping_ = true;
-		}
-		cv_.notify_one();
-	}
-
-	// Re-arms the queue for a fresh worker thread after reconnecting.
-	void reset() {
-		std::lock_guard<std::mutex> lock(mutex_);
-		stopping_ = false;
-	}
-
-private:
-	std::mutex mutex_;
-	std::condition_variable cv_;
-	std::deque<SAMPLE_QUEUE_ITEM> queue_;
-	bool stopping_ = false;
 };
 
 // One entry in STATUS::event_write_queue -- either an Insert (one new
@@ -492,11 +494,11 @@ struct EVENT_QUEUE_ITEM {
 };
 
 // Thread-safe queue feeding a single persistent event-write worker thread
-// (event_write_worker in db.cpp), mirroring SampleWriteQueue above. Moves
+// (event_write_worker in db.cpp), like SampleWriteQueue above. Moves
 // db_insert_event's synchronous BEGIN/INSERT/COMMIT (including its fsync) off
 // the SimConnect dispatch thread, which otherwise blocks the UI directly
 // (a held lever can fire an event every frame).
-class EventWriteQueue {
+class EventWriteQueue : public WorkQueue<EVENT_QUEUE_ITEM> {
 public:
 	void push(int trip_id, const std::string& event, const std::string& time_zulu, const std::string& time_local, unsigned long long seq) {
 		EVENT_QUEUE_ITEM item;
@@ -506,11 +508,7 @@ public:
 		item.time_zulu = time_zulu;
 		item.time_local = time_local;
 		item.seq = seq;
-		{
-			std::lock_guard<std::mutex> lock(mutex_);
-			queue_.push_back(std::move(item));
-		}
-		cv_.notify_one();
+		enqueue(std::move(item));
 	}
 
 	// Enqueues a retraction of previously-inserted rows by event_seq -- see
@@ -519,41 +517,8 @@ public:
 		EVENT_QUEUE_ITEM item;
 		item.kind = EVENT_QUEUE_ITEM::Kind::Delete;
 		item.delete_seqs = std::move(seqs);
-		{
-			std::lock_guard<std::mutex> lock(mutex_);
-			queue_.push_back(std::move(item));
-		}
-		cv_.notify_one();
+		enqueue(std::move(item));
 	}
-
-	bool pop(EVENT_QUEUE_ITEM& item) {
-		std::unique_lock<std::mutex> lock(mutex_);
-		cv_.wait(lock, [this] { return !queue_.empty() || stopping_; });
-		if (queue_.empty())
-			return false;
-		item = queue_.front();
-		queue_.pop_front();
-		return true;
-	}
-
-	void stop() {
-		{
-			std::lock_guard<std::mutex> lock(mutex_);
-			stopping_ = true;
-		}
-		cv_.notify_one();
-	}
-
-	void reset() {
-		std::lock_guard<std::mutex> lock(mutex_);
-		stopping_ = false;
-	}
-
-private:
-	std::mutex mutex_;
-	std::condition_variable cv_;
-	std::deque<EVENT_QUEUE_ITEM> queue_;
-	bool stopping_ = false;
 };
 
 // strncpy that always null-terminates, into a char array.
@@ -634,7 +599,7 @@ struct AIRPORT_LOOKUP {
 	// (e.g. a go-around after a bounced landing). coordinate
 	// is set immediately before each SimConnect_RequestFacilitiesList_EX1
 	// call to the *historical* coordinate the response should be evaluated
-	// against (the touchdown's stored TOUCHDOWN_DATA::flight_data.coordinate,
+	// against (the touchdown's stored CONTACT_RECORD::flight_data.coordinate,
 	// or STATUS::departure_data for a departure), and used
 	// in place of STATUS::data.coordinate throughout the AIRPORT_LIST/
 	// FACILITY_DATA_END handlers so a moved-since aircraft position can't
@@ -714,7 +679,7 @@ struct FLIGHT_PHASE {
 	LIFTOFF_DATA* liftoff_data_end = NULL;
 	TOUCHDOWN_DATA* touchdown_data = NULL;
 	TOUCHDOWN_DATA* touchdown_data_end = NULL;
-	// Shared seq counter for LIFTOFF_DATA::seq/TOUCHDOWN_DATA::seq, so
+	// Shared seq counter for CONTACT_RECORD::seq, so
 	// request_next_touchdown_facility_lookup() can pick whichever of the two
 	// lists holds the chronologically earliest unresolved lookup. Reset only
 	// at true trip boundaries, same as departure_lookup_initiated.
@@ -722,7 +687,7 @@ struct FLIGHT_PHASE {
 	// trip_liftoffs row ID for this trip's single departure, set after the
 	// immediate INSERT at the moment it becomes airborne (see flight_on_sample()'s
 	// liftoff detection) and consumed later by on_lookup_resolved()'s
-	// departure UPDATE, same db_id pattern as TOUCHDOWN_DATA::db_id but for
+	// departure UPDATE, same db_id pattern as CONTACT_RECORD::db_id but for
 	// the one-per-trip departure. Reset to -1 at trip start (recording-start
 	// block in flight_on_sample()).
 	int departure_db_id = -1;

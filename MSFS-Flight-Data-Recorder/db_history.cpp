@@ -1,5 +1,6 @@
 #include "db_history.h"
 #include "trip_data_fields.h"
+#include "db_query.h"
 #include "logger.h"
 
 #include "sqlite3.h"
@@ -9,11 +10,6 @@
 #include <functional>
 
 namespace {
-
-QString columnTextOrEmpty(sqlite3_stmt* stmt, int column) {
-	const unsigned char* text = sqlite3_column_text(stmt, column);
-	return text ? QString::fromUtf8(reinterpret_cast<const char*>(text)) : QString();
-}
 
 // Shared prepare/bind(trip)/step/finalize skeleton for queryLiftoffs() and
 // queryTouchdowns() below -- the two used to duplicate this in full and only
@@ -32,20 +28,16 @@ std::vector<T> queryFacilityPoints(sqlite3* sql, int tripId, const char* stmtTex
 	std::vector<T> items;
 	Logger::logf(Logger::Trace, "DB", "%s(trip %d): loading %s points", callerName, tripId, itemWord);
 
-	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmtText, -1, &stmt, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "%s(trip %d): prepare failed: %s", callerName, tripId, sqlite3_errmsg(sql));
+	const QString context = QStringLiteral("%1(trip %2)").arg(QLatin1String(callerName)).arg(tripId);
+	sqlite3_stmt* stmt = prepareStatement(sql, stmtText, context);
+	if (!stmt)
 		return items;
-	}
 	sqlite3_bind_int(stmt, 1, tripId);
-
-	int rc;
-	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW)
-		items.push_back(extractRow(stmt));
-	if (rc != SQLITE_DONE)
-		Logger::logf(Logger::Warning, "DB", "%s(trip %d): step failed: %s", callerName, tripId, sqlite3_errmsg(sql));
+	forEachRow(sql, stmt, context, [&](sqlite3_stmt* row) {
+		items.push_back(extractRow(row));
+		return true;
+	});
 	Logger::logf(Logger::Trace, "DB", "%s(trip %d): loaded %d %s", callerName, tripId, (int)items.size(), itemWordPlural);
-	sqlite3_finalize(stmt);
 	return items;
 }
 
@@ -85,57 +77,55 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 	if (!hasName) {
 		hasRegion = sqlite3_prepare_v2(sql, stmt_txt_with_region, -1, &stmt, nullptr) == SQLITE_OK;
 		if (!hasRegion) {
-			if (sqlite3_prepare_v2(sql, stmt_txt_no_region, -1, &stmt, nullptr) != SQLITE_OK) {
-				Logger::logf(Logger::Warning, "DB", "queryAllTrips: prepare failed: %s", sqlite3_errmsg(sql));
+			stmt = prepareStatement(sql, stmt_txt_no_region, QStringLiteral("queryAllTrips"));
+			if (!stmt)
 				return trips;
-			}
 		}
 	}
 	Logger::logf(Logger::Trace, "DB", "queryAllTrips: using %s",
 		hasName ? "full schema" : (hasRegion ? "region schema (fallback)" : "legacy schema (fallback)"));
 
-	int rc;
-	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+	forEachRow(sql, stmt, QStringLiteral("queryAllTrips"), [&](sqlite3_stmt*) {
 		TripSummary trip;
 		trip.id = sqlite3_column_int(stmt, 0);
-		trip.title = columnTextOrEmpty(stmt, 1);
-		trip.atcAirline = columnTextOrEmpty(stmt, 2);
-		trip.atcFlightNumber = columnTextOrEmpty(stmt, 3);
-		trip.departureIcao = columnTextOrEmpty(stmt, 4);
+		trip.title = columnText(stmt, 1);
+		trip.atcAirline = columnText(stmt, 2);
+		trip.atcFlightNumber = columnText(stmt, 3);
+		trip.departureIcao = columnText(stmt, 4);
 		if (hasName) {
-			trip.departureName = columnTextOrEmpty(stmt, 5);
-			trip.departureRegion = columnTextOrEmpty(stmt, 6);
-			trip.departureRwy = columnTextOrEmpty(stmt, 7);
-			trip.destinationIcao = columnTextOrEmpty(stmt, 8);
-			trip.destinationName = columnTextOrEmpty(stmt, 9);
-			trip.destinationRegion = columnTextOrEmpty(stmt, 10);
-			trip.destinationRwy = columnTextOrEmpty(stmt, 11);
-			trip.departureZuluTime = columnTextOrEmpty(stmt, 12);
-			trip.destinationZuluTime = columnTextOrEmpty(stmt, 13);
+			trip.departureName = columnText(stmt, 5);
+			trip.departureRegion = columnText(stmt, 6);
+			trip.departureRwy = columnText(stmt, 7);
+			trip.destinationIcao = columnText(stmt, 8);
+			trip.destinationName = columnText(stmt, 9);
+			trip.destinationRegion = columnText(stmt, 10);
+			trip.destinationRwy = columnText(stmt, 11);
+			trip.departureZuluTime = columnText(stmt, 12);
+			trip.destinationZuluTime = columnText(stmt, 13);
 			trip.departureLat    = sqlite3_column_double(stmt, 14);
 			trip.departureLng    = sqlite3_column_double(stmt, 15);
 			trip.destinationLat  = sqlite3_column_double(stmt, 16);
 			trip.destinationLng  = sqlite3_column_double(stmt, 17);
 			trip.groupId         = sqlite3_column_int(stmt, 18); // NULL reads as 0 (ungrouped)
-			trip.groupName       = columnTextOrEmpty(stmt, 19);
+			trip.groupName       = columnText(stmt, 19);
 		} else if (hasRegion) {
-			trip.departureRegion = columnTextOrEmpty(stmt, 5);
-			trip.departureRwy = columnTextOrEmpty(stmt, 6);
-			trip.destinationIcao = columnTextOrEmpty(stmt, 7);
-			trip.destinationRegion = columnTextOrEmpty(stmt, 8);
-			trip.destinationRwy = columnTextOrEmpty(stmt, 9);
-			trip.departureZuluTime = columnTextOrEmpty(stmt, 10);
-			trip.destinationZuluTime = columnTextOrEmpty(stmt, 11);
+			trip.departureRegion = columnText(stmt, 5);
+			trip.departureRwy = columnText(stmt, 6);
+			trip.destinationIcao = columnText(stmt, 7);
+			trip.destinationRegion = columnText(stmt, 8);
+			trip.destinationRwy = columnText(stmt, 9);
+			trip.departureZuluTime = columnText(stmt, 10);
+			trip.destinationZuluTime = columnText(stmt, 11);
 			trip.departureLat    = sqlite3_column_double(stmt, 12);
 			trip.departureLng    = sqlite3_column_double(stmt, 13);
 			trip.destinationLat  = sqlite3_column_double(stmt, 14);
 			trip.destinationLng  = sqlite3_column_double(stmt, 15);
 		} else {
-			trip.departureRwy = columnTextOrEmpty(stmt, 5);
-			trip.destinationIcao = columnTextOrEmpty(stmt, 6);
-			trip.destinationRwy = columnTextOrEmpty(stmt, 7);
-			trip.departureZuluTime = columnTextOrEmpty(stmt, 8);
-			trip.destinationZuluTime = columnTextOrEmpty(stmt, 9);
+			trip.departureRwy = columnText(stmt, 5);
+			trip.destinationIcao = columnText(stmt, 6);
+			trip.destinationRwy = columnText(stmt, 7);
+			trip.departureZuluTime = columnText(stmt, 8);
+			trip.destinationZuluTime = columnText(stmt, 9);
 			trip.departureLat    = sqlite3_column_double(stmt, 10);
 			trip.departureLng    = sqlite3_column_double(stmt, 11);
 			trip.destinationLat  = sqlite3_column_double(stmt, 12);
@@ -150,11 +140,9 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 			trip.status = TripStatus::Completed;
 
 		trips.push_back(trip);
-	}
-	if (rc != SQLITE_DONE)
-		Logger::logf(Logger::Warning, "DB", "queryAllTrips: step failed: %s", sqlite3_errmsg(sql));
+		return true;
+	});
 	Logger::logf(Logger::Trace, "DB", "queryAllTrips: loaded %d trips", (int)trips.size());
-	sqlite3_finalize(stmt);
 	return trips;
 }
 
@@ -167,12 +155,10 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	// built from the statement's own column metadata so the query doesn't need
 	// to enumerate ~140 columns by hand or care about their exact ordinal
 	// positions in the table.
-	const char* stmt_txt = "SELECT * FROM trip_data WHERE trip = ? ORDER BY rowid";
-	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "queryTripData(trip %d): prepare failed: %s", tripId, sqlite3_errmsg(sql));
+	const QString context = QStringLiteral("queryTripData(trip %1)").arg(tripId);
+	sqlite3_stmt* stmt = prepareStatement(sql, "SELECT * FROM trip_data WHERE trip = ? ORDER BY rowid", context);
+	if (!stmt)
 		return dataset;
-	}
 	sqlite3_bind_int(stmt, 1, tripId);
 
 	QHash<QString, int> columnIndex;
@@ -224,10 +210,9 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 
 	auto colDouble = [&](int index) -> double { return index >= 0 ? sqlite3_column_double(stmt, index) : 0.0; };
 	auto colInt = [&](int index) -> int { return index >= 0 ? sqlite3_column_int(stmt, index) : 0; };
-	auto colText = [&](int index) -> QString { return index >= 0 ? columnTextOrEmpty(stmt, index) : QString(); };
+	auto colText = [&](int index) -> QString { return index >= 0 ? columnText(stmt, index) : QString(); };
 
-	int rc;
-	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+	forEachRow(sql, stmt, context, [&](sqlite3_stmt*) {
 		TripSamplePoint point;
 		int boolGroup1 = colInt(idxBoolGroup1);
 		int boolGroup2 = colInt(idxBoolGroup2);
@@ -266,47 +251,59 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 		point.boolGroup3 = (uint32_t)boolGroup3;
 
 		dataset.points.push_back(point);
-	}
-	if (rc != SQLITE_DONE)
-		Logger::logf(Logger::Warning, "DB", "queryTripData(trip %d): step failed: %s", tripId, sqlite3_errmsg(sql));
+		return true;
+	});
 	Logger::logf(Logger::Trace, "DB", "queryTripData(trip %d): loaded %d points", tripId, (int)dataset.points.size());
-	sqlite3_finalize(stmt);
 
 	return dataset;
+}
+
+// The trip_liftoffs/trip_touchdowns columns readContactPoint() reads, in
+// this order; a touchdown query appends g_force after them.
+#define CONTACT_POINT_COLUMNS \
+	"id, plane_latitude, plane_longitude, icao, airport_name, runway, runway_heading, airspeed_indicated, " \
+	"vertical_speed, plane_pitch_degrees, plane_bank_degrees, heading_indicator, " \
+	"distance_length, distance_width, distance_length_percent, distance_width_percent, " \
+	"wind_direction, wind_velocity, time_zulu, time_local, analysis_report"
+
+namespace {
+
+const int CONTACT_POINT_COLUMN_COUNT = 21;
+
+void readContactPoint(sqlite3_stmt* stmt, RunwayContactPoint& point) {
+	point.rowId                 = sqlite3_column_int(stmt, 0);
+	point.latitude              = sqlite3_column_double(stmt, 1);
+	point.longitude             = sqlite3_column_double(stmt, 2);
+	point.icao                  = columnText(stmt, 3);
+	point.airportName           = columnText(stmt, 4);
+	point.runway                = columnText(stmt, 5);
+	point.runwayHeading         = sqlite3_column_type(stmt, 6) == SQLITE_NULL ? -1 : sqlite3_column_int(stmt, 6);
+	point.airspeed              = sqlite3_column_int(stmt, 7);
+	point.verticalSpeed         = sqlite3_column_int(stmt, 8);
+	point.pitchDegrees          = sqlite3_column_double(stmt, 9);
+	point.bankDegrees           = sqlite3_column_double(stmt, 10);
+	point.headingDegrees        = sqlite3_column_int(stmt, 11);
+	point.distanceLength        = sqlite3_column_double(stmt, 12);
+	point.distanceWidth         = sqlite3_column_double(stmt, 13);
+	point.distanceLengthPercent = sqlite3_column_double(stmt, 14);
+	point.distanceWidthPercent  = sqlite3_column_double(stmt, 15);
+	point.windDirection         = sqlite3_column_int(stmt, 16);
+	point.windVelocity          = sqlite3_column_int(stmt, 17);
+	point.zuluTime              = columnText(stmt, 18);
+	point.localTime             = columnText(stmt, 19);
+	point.analysisReport        = columnText(stmt, 20);
+}
+
 }
 
 std::vector<LiftoffPoint> queryLiftoffs(sqlite3* sql, int tripId) {
 	// migrate_db() at app startup ensures all columns exist before any query runs.
 	const char* stmt_txt =
-		"SELECT id, plane_latitude, plane_longitude, icao, airport_name, runway, runway_heading, airspeed_indicated, "
-		"vertical_speed, plane_pitch_degrees, plane_bank_degrees, heading_indicator, "
-		"distance_length, distance_width, distance_length_percent, distance_width_percent, "
-		"wind_direction, wind_velocity, time_zulu, time_local, analysis_report "
-		"FROM trip_liftoffs WHERE trip = ? ORDER BY id";
+		"SELECT " CONTACT_POINT_COLUMNS " FROM trip_liftoffs WHERE trip = ? ORDER BY id";
 	return queryFacilityPoints<LiftoffPoint>(sql, tripId, stmt_txt, "queryLiftoffs", "liftoff", "liftoff points",
 		[](sqlite3_stmt* stmt) {
 			LiftoffPoint point;
-			point.rowId              = sqlite3_column_int(stmt, 0);
-			point.latitude           = sqlite3_column_double(stmt, 1);
-			point.longitude          = sqlite3_column_double(stmt, 2);
-			point.icao               = columnTextOrEmpty(stmt, 3);
-			point.airportName        = columnTextOrEmpty(stmt, 4);
-			point.runway              = columnTextOrEmpty(stmt, 5);
-			point.runwayHeading      = sqlite3_column_type(stmt, 6) == SQLITE_NULL ? -1 : sqlite3_column_int(stmt, 6);
-			point.airspeed           = sqlite3_column_int(stmt, 7);
-			point.verticalSpeed      = sqlite3_column_int(stmt, 8);
-			point.pitchDegrees       = sqlite3_column_double(stmt, 9);
-			point.bankDegrees        = sqlite3_column_double(stmt, 10);
-			point.headingDegrees     = sqlite3_column_int(stmt, 11);
-			point.distanceLength     = sqlite3_column_double(stmt, 12);
-			point.distanceWidth      = sqlite3_column_double(stmt, 13);
-			point.distanceLengthPercent = sqlite3_column_double(stmt, 14);
-			point.distanceWidthPercent  = sqlite3_column_double(stmt, 15);
-			point.windDirection      = sqlite3_column_int(stmt, 16);
-			point.windVelocity       = sqlite3_column_int(stmt, 17);
-			point.zuluTime           = columnTextOrEmpty(stmt, 18);
-			point.localTime          = columnTextOrEmpty(stmt, 19);
-			point.analysisReport     = columnTextOrEmpty(stmt, 20);
+			readContactPoint(stmt, point);
 			return point;
 		});
 }
@@ -314,36 +311,12 @@ std::vector<LiftoffPoint> queryLiftoffs(sqlite3* sql, int tripId) {
 std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 	// migrate_db() at app startup ensures all columns exist before any query runs.
 	const char* stmt_txt =
-		"SELECT id, plane_latitude, plane_longitude, icao, airport_name, runway, runway_heading, airspeed_indicated, "
-		"vertical_speed, g_force, plane_pitch_degrees, plane_bank_degrees, heading_indicator, "
-		"distance_length, distance_width, distance_length_percent, distance_width_percent, "
-		"wind_direction, wind_velocity, time_zulu, time_local, analysis_report "
-		"FROM trip_touchdowns WHERE trip = ? ORDER BY id";
+		"SELECT " CONTACT_POINT_COLUMNS ", g_force FROM trip_touchdowns WHERE trip = ? ORDER BY id";
 	return queryFacilityPoints<TouchdownPoint>(sql, tripId, stmt_txt, "queryTouchdowns", "touchdown", "touchdowns",
 		[](sqlite3_stmt* stmt) {
 			TouchdownPoint point;
-			point.rowId              = sqlite3_column_int(stmt, 0);
-			point.latitude           = sqlite3_column_double(stmt, 1);
-			point.longitude          = sqlite3_column_double(stmt, 2);
-			point.icao               = columnTextOrEmpty(stmt, 3);
-			point.airportName        = columnTextOrEmpty(stmt, 4);
-			point.runway             = columnTextOrEmpty(stmt, 5);
-			point.runwayHeading      = sqlite3_column_type(stmt, 6) == SQLITE_NULL ? -1 : sqlite3_column_int(stmt, 6);
-			point.airspeed           = sqlite3_column_int(stmt, 7);
-			point.verticalSpeed      = sqlite3_column_int(stmt, 8);
-			point.gForce             = sqlite3_column_double(stmt, 9);
-			point.pitchDegrees       = sqlite3_column_double(stmt, 10);
-			point.bankDegrees        = sqlite3_column_double(stmt, 11);
-			point.headingDegrees     = sqlite3_column_int(stmt, 12);
-			point.distanceLength     = sqlite3_column_double(stmt, 13);
-			point.distanceWidth      = sqlite3_column_double(stmt, 14);
-			point.distanceLengthPercent = sqlite3_column_double(stmt, 15);
-			point.distanceWidthPercent  = sqlite3_column_double(stmt, 16);
-			point.windDirection      = sqlite3_column_int(stmt, 17);
-			point.windVelocity       = sqlite3_column_int(stmt, 18);
-			point.zuluTime           = columnTextOrEmpty(stmt, 19);
-			point.localTime          = columnTextOrEmpty(stmt, 20);
-			point.analysisReport     = columnTextOrEmpty(stmt, 21);
+			readContactPoint(stmt, point);
+			point.gForce = sqlite3_column_double(stmt, CONTACT_POINT_COLUMN_COUNT);
 			return point;
 		});
 }
@@ -371,37 +344,17 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 		"DELETE FROM trip_touchdowns WHERE trip = ?",
 		"DELETE FROM trips WHERE id = ?",
 	};
+	const QString context = QStringLiteral("deleteTripData(trip %1)").arg(tripId);
 	Logger::logf(Logger::Trace, "DB", "deleteTripData(trip %d): starting delete", tripId);
-	if (sqlite3_exec(sql, "BEGIN TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "deleteTripData(trip %d): BEGIN TRANSACTION failed: %s", tripId, sqlite3_errmsg(sql));
-		return false;
-	}
-	for (const char* stmt_txt : stmts) {
-		sqlite3_stmt* stmt = nullptr;
-		if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
-			Logger::logf(Logger::Warning, "DB", "deleteTripData(trip %d): prepare failed for \"%s\": %s",
-				tripId, stmt_txt, sqlite3_errmsg(sql));
-			if (stmt) sqlite3_finalize(stmt);
-			sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
-			return false;
-		}
-		sqlite3_bind_int(stmt, 1, tripId);
-		bool ok = sqlite3_step(stmt) == SQLITE_DONE;
-		sqlite3_finalize(stmt);
-		if (!ok) {
-			Logger::logf(Logger::Warning, "DB", "deleteTripData(trip %d): step failed for \"%s\": %s",
-				tripId, stmt_txt, sqlite3_errmsg(sql));
-			sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
-			return false;
-		}
-	}
-	if (sqlite3_exec(sql, "COMMIT TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "deleteTripData(trip %d): COMMIT TRANSACTION failed: %s", tripId, sqlite3_errmsg(sql));
-		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
-		return false;
-	}
-	Logger::logf(Logger::Trace, "DB", "deleteTripData(trip %d): delete committed", tripId);
-	return true;
+	const bool ok = inTransaction(sql, context, [&]() {
+		for (const char* stmt_txt : stmts)
+			if (!execStatement(sql, stmt_txt, context, [&](sqlite3_stmt* stmt) { sqlite3_bind_int(stmt, 1, tripId); }))
+				return false;
+		return true;
+	});
+	if (ok)
+		Logger::logf(Logger::Trace, "DB", "deleteTripData(trip %d): delete committed", tripId);
+	return ok;
 }
 
 std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId) {
@@ -414,25 +367,20 @@ std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId) {
 	// PARKING_BRAKES fires exactly once on set and once on release, so it is
 	// kept; the spatial grouping in map.html coalesces the two events into one
 	// marker since the aircraft is stationary between set and release.
-	const char* stmt_txt = "SELECT event, time_zulu FROM trip_events WHERE trip = ? AND event != 'BRAKES' ORDER BY rowid";
-	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "queryEvents(trip %d): prepare failed: %s", tripId, sqlite3_errmsg(sql));
+	const QString context = QStringLiteral("queryEvents(trip %1)").arg(tripId);
+	sqlite3_stmt* stmt = prepareStatement(sql,
+		"SELECT event, time_zulu FROM trip_events WHERE trip = ? AND event != 'BRAKES' ORDER BY rowid", context);
+	if (!stmt)
 		return events;
-	}
 	sqlite3_bind_int(stmt, 1, tripId);
-
-	int rc;
-	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+	forEachRow(sql, stmt, context, [&](sqlite3_stmt* row) {
 		TripEvent event;
-		event.event = columnTextOrEmpty(stmt, 0);
-		event.zuluTime = columnTextOrEmpty(stmt, 1);
+		event.event = columnText(row, 0);
+		event.zuluTime = columnText(row, 1);
 		events.push_back(event);
-	}
-	if (rc != SQLITE_DONE)
-		Logger::logf(Logger::Warning, "DB", "queryEvents(trip %d): step failed: %s", tripId, sqlite3_errmsg(sql));
+		return true;
+	});
 	Logger::logf(Logger::Trace, "DB", "queryEvents(trip %d): loaded %d events", tripId, (int)events.size());
-	sqlite3_finalize(stmt);
 	return events;
 }
 
@@ -445,19 +393,12 @@ bool saveAnalysisReport(sqlite3* sql, CONTACT_TABLE table, int rowId, const QStr
 	const char* stmt_txt = table == CONTACT_TABLE::TOUCHDOWNS
 		? "UPDATE trip_touchdowns SET analysis_report = ? WHERE id = ?"
 		: "UPDATE trip_liftoffs SET analysis_report = ? WHERE id = ?";
-	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "saveAnalysisReport(%s %d): prepare failed: %s", what, rowId, sqlite3_errmsg(sql));
-		return false;
-	}
-	const QByteArray utf8 = report.toUtf8();
-	sqlite3_bind_text(stmt, 1, utf8.constData(), utf8.size(), SQLITE_TRANSIENT);
-	sqlite3_bind_int(stmt, 2, rowId);
-	const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+	const bool ok = execStatement(sql, stmt_txt, QStringLiteral("saveAnalysisReport(%1 %2)").arg(QLatin1String(what)).arg(rowId),
+		[&](sqlite3_stmt* stmt) {
+			bindText(stmt, 1, report);
+			sqlite3_bind_int(stmt, 2, rowId);
+		});
 	if (ok)
-		Logger::logf(Logger::Trace, "DB", "saveAnalysisReport(%s %d): analysis report saved (%d chars)", what, rowId, (int)utf8.size());
-	else
-		Logger::logf(Logger::Warning, "DB", "saveAnalysisReport(%s %d): update failed: %s", what, rowId, sqlite3_errmsg(sql));
-	sqlite3_finalize(stmt);
+		Logger::logf(Logger::Trace, "DB", "saveAnalysisReport(%s %d): analysis report saved (%d chars)", what, rowId, (int)report.toUtf8().size());
 	return ok;
 }

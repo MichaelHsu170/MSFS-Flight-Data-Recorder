@@ -221,10 +221,12 @@ MSFS-Flight-Data-Recorder/
 │   ├── gui_notify.h              Free functions called by recorder.cpp, flight_phase.cpp and db.cpp to report state changes
 │   ├── db.h / .cpp               SQLite write path: schema creation, the recorder's writes, buffered telemetry flush
 │   ├── db_connection.h / .cpp    Read-only/read-write connections for the UI and background queries
+│   ├── db_query.h / .cpp         Statement helpers shared by the UI-side queries: row loop, single statements, transactions
 │   ├── db_history.h / .cpp       Read-only queries: trip list, telemetry, events, liftoff points, touchdowns; trip deletion, AI reports
 │   ├── db_groups.h / .cpp        Trip-group queries: list, add, rename, delete, reorder, assign a trip
 │   ├── logger.h / .cpp           Unified logger: level-filtered (Fatal/Warning/Info/Trace/Profile), module-tagged output to msfs_fdr_debug.log
 │   ├── logger_c.h                C-compatible shim (log_c / log_cf) for Qt-free translation units (db.cpp)
+│   ├── app_paths.h / .cpp        Where settings.ini, flight_data.db and the log live (working dir in Debug, exe folder in Release)
 │   ├── app_settings.h / .cpp     QSettings wrapper for settings.ini
 │   ├── trip_dataset.h            Shared data structs (TripSamplePoint, TripEvent, TripDataset, etc.) and helpers
 │   ├── trip_data_fields.h        X-macro list of all trip_data columns (keeps live and historical paths in sync)

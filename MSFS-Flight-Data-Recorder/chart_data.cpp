@@ -1,4 +1,5 @@
 #include "chart_data.h"
+#include "trip_dataset.h"
 
 #include <QtMath>
 
@@ -55,14 +56,10 @@ ChartValues chartValues(const TripSamplePoint& p) {
 }
 
 double chartTimeMs(const QString& zuluTime) {
-	if (zuluTime.size() < 23)
+	const QDateTime zulu = parseZuluTime(zuluTime);
+	if (!zulu.isValid())
 		return qQNaN();
-	QDate d(zuluTime.mid(0, 4).toInt(), zuluTime.mid(5, 2).toInt(), zuluTime.mid(8, 2).toInt());
-	QTime t(zuluTime.mid(11, 2).toInt(), zuluTime.mid(14, 2).toInt(),
-	        zuluTime.mid(17, 2).toInt(), zuluTime.mid(20, 3).toInt());
-	if (!d.isValid() || !t.isValid())
-		return qQNaN();
-	return (double)QDateTime(d, t).toMSecsSinceEpoch(); // local time
+	return (double)QDateTime(zulu.date(), zulu.time()).toMSecsSinceEpoch(); // local time
 }
 
 namespace {

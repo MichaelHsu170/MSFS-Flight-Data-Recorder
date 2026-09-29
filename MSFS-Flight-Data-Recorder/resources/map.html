@@ -179,7 +179,8 @@ var _tdIdx = 0;
 // suffixes -- unlike ISO 6709's own compact sexagesimal notation (signed,
 // unpunctuated, e.g. "+405302.6+0141711.6/"), this uses degree/minute/second
 // symbols and hemisphere letters so it's directly pasteable into Google
-// Maps/Earth's search box.
+// Maps/Earth's search box. Same format and rounding as
+// COORDINATE::coordinate_decimal_to_dms() in types.h (the Data Table's copy).
 function formatDMS(lat, lng) {
     function pad2(n) { return (n < 10 ? '0' : '') + n; }
     function part(value, posLetter, negLetter) {
@@ -202,11 +203,14 @@ function formatDMS(lat, lng) {
 
 // ── Gemini analysis helpers ──────────────────────────────────────────────────
 
-function buildLiftoffPrompt(t) {
-    var aircraft = window._aircraftTitle || '';
+// The start of an analysis prompt, shared by liftoffs and touchdowns: the
+// instructions, the answer structure, then dataTitle and the airport, runway
+// and airspeed. The caller adds its own lines and finishes with
+// finishAnalysisPrompt().
+function startAnalysisPrompt(intro, dataTitle, t, aircraft) {
     var lines = [];
 
-    lines.push('You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.');
+    lines.push(intro);
     lines.push('Respond using exactly this structure — no preamble, no extra sections:');
     lines.push('Plain text only — no markdown and no LaTeX (e.g. write "Vref", not "**Vref**" or "$V_{ref}$").');
     lines.push('');
@@ -221,7 +225,7 @@ function buildLiftoffPrompt(t) {
     lines.push('• [one brief point per bullet]');
     lines.push('');
     lines.push('---');
-    lines.push('Liftoff data:');
+    lines.push(dataTitle);
     if (aircraft) lines.push('  Aircraft: ' + aircraft);
     if (t.icao) {
         var airport = t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
@@ -229,6 +233,34 @@ function buildLiftoffPrompt(t) {
     }
     if (t.runway) lines.push('  Runway: ' + t.runway + (t.runwayHeading != null && t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
     lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
+    return lines;
+}
+
+// Adds heading, wind, the runway position (distanceLabel: ... ft (N% lengthOf))
+// and the closing "Consider:" line, and returns the prompt text.
+function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, consider) {
+    lines.push('  Heading: ' + t.headingDegrees + '°');
+    lines.push('  Wind: ' + t.windDirection + '° at ' + t.windVelocity + ' kt');
+    // Gated on t.runway (a runway was matched), not "distanceLength >= 0":
+    // a NULL distance_length column (no runway matched, never written) reads
+    // back as 0 via sqlite3_column_double, which would pass ">= 0" and show
+    // a meaningless "0 ft (0%)" as if a runway had been determined -- while a
+    // touchdown before the marked/displaced threshold legitimately reports a
+    // negative distance, which is real data, not the "-1 = unknown" sentinel.
+    if (t.runway && t.distanceLength != null) {
+        lines.push('  ' + distanceLabel + ': ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of ' + lengthOf + ') [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
+        var side = t.distanceWidth >= 0 ? 'right' : 'left';
+        lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
+    }
+    lines.push('');
+    lines.push(consider);
+    return lines.join('\n');
+}
+
+function buildLiftoffPrompt(t) {
+    var aircraft = window._aircraftTitle || '';
+    var lines = startAnalysisPrompt('You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.',
+        'Liftoff data:', t, aircraft);
     // Deliberately no vertical-speed line here, unlike buildTouchdownPrompt()
     // below -- at the moment of liftoff vertical speed is just starting to
     // leave zero and doesn't meaningfully inform liftoff quality the way it
@@ -241,65 +273,19 @@ function buildLiftoffPrompt(t) {
     // holds it near zero throughout, so a nonzero reading here is itself a
     // real signal (dropped wing, crosswind technique), not a mid-ramp snapshot.
     lines.push('  Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
-    lines.push('  Heading: ' + t.headingDegrees + '°');
-    lines.push('  Wind: ' + t.windDirection + '° at ' + t.windVelocity + ' kt');
-    // Gated on t.runway (a runway was matched), not "distanceLength >= 0":
-    // a NULL distance_length column (no runway matched, never written) reads
-    // back as 0 via sqlite3_column_double, which would pass ">= 0" and show
-    // a meaningless "0 ft (0%)" as if a runway had been determined.
-    if (t.runway && t.distanceLength != null) {
-        lines.push('  Distance from threshold at liftoff: ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of runway) [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
-        var side = t.distanceWidth >= 0 ? 'right' : 'left';
-        lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
-    }
-    lines.push('');
-    lines.push('Consider: crosswind component (calculate from wind direction vs runway heading), centerline tracking during the takeoff roll, use of available runway length' + (aircraft ? ', aircraft-type-specific handling' : '') + '.');
-    return lines.join('\n');
+    return finishAnalysisPrompt(lines, t, 'Distance from threshold at liftoff', 'runway',
+        'Consider: crosswind component (calculate from wind direction vs runway heading), centerline tracking during the takeoff roll, use of available runway length' + (aircraft ? ', aircraft-type-specific handling' : '') + '.');
 }
 
 function buildTouchdownPrompt(t) {
     var aircraft = window._aircraftTitle || '';
-    var lines = [];
-
-    lines.push('You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 landing.');
-    lines.push('Respond using exactly this structure — no preamble, no extra sections:');
-    lines.push('Plain text only — no markdown and no LaTeX (e.g. write "Vref", not "**Vref**" or "$V_{ref}$").');
-    lines.push('');
-    lines.push('Grade: [A+/A/A−/B+/B/B−/C+/C/C−/D/F]');
-    lines.push('');
-    lines.push('Summary: [1–2 sentences overall]');
-    lines.push('');
-    lines.push('Strengths:');
-    lines.push('• [one brief point per bullet]');
-    lines.push('');
-    lines.push('Areas to improve:');
-    lines.push('• [one brief point per bullet]');
-    lines.push('');
-    lines.push('---');
-    lines.push('Landing data:');
-    if (aircraft) lines.push('  Aircraft: ' + aircraft);
-    if (t.icao) {
-        var airport = t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
-        lines.push('  Airport: ' + airport);
-    }
-    if (t.runway) lines.push('  Runway: ' + t.runway + (t.runwayHeading != null && t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
-    lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
+    var lines = startAnalysisPrompt('You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 landing.',
+        'Landing data:', t, aircraft);
     lines.push('  Vertical speed: ' + t.verticalSpeed + ' ft/min');
     lines.push('  G-force: ' + Number(t.gForce).toFixed(2) + ' G');
     lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
-    lines.push('  Heading: ' + t.headingDegrees + '°');
-    lines.push('  Wind: ' + t.windDirection + '° at ' + t.windVelocity + ' kt');
-    // Gated on t.runway (a runway was matched), not "distanceLength >= 0":
-    // a touchdown before the marked/displaced threshold legitimately reports
-    // a negative distance, which is real data, not the "-1 = unknown" sentinel.
-    if (t.runway && t.distanceLength != null) {
-        lines.push('  Distance from threshold: ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of landing distance available) [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
-        var side = t.distanceWidth >= 0 ? 'right' : 'left';
-        lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
-    }
-    lines.push('');
-    lines.push('Consider: vertical speed & G-force comfort, crosswind component (calculate from wind direction vs runway heading), centerline tracking, touchdown zone placement' + (aircraft ? ', aircraft-type-specific handling' : '') + '.');
-    return lines.join('\n');
+    return finishAnalysisPrompt(lines, t, 'Distance from threshold', 'landing distance available',
+        'Consider: vertical speed & G-force comfort, crosswind component (calculate from wind direction vs runway heading), centerline tracking, touchdown zone placement' + (aircraft ? ', aircraft-type-specific handling' : '') + '.');
 }
 
 // Extract complete top-level {...} JSON objects from buf.
@@ -550,10 +536,10 @@ function renderStoredReport(id, report) {
     }
 }
 
-function liftoffPopupHtml(t) {
-    var id = 'lo' + (++_loIdx);
-    _liftoffStore[id] = t;
-
+// A liftoff or touchdown marker's popup: the details on the left, AI
+// analysis on the right. gForceText (touchdowns only) goes after V/S;
+// analyzeFn is the global function the Analyze button calls with id.
+function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabel) {
     function row(key, val) {
         return '<div class="td-row"><span class="td-key">' + key + '</span><span class="td-val">' + val + '</span></div>';
     }
@@ -561,7 +547,7 @@ function liftoffPopupHtml(t) {
 
     // Left column: grouped key-value layout
     var leftHtml = '<div style="width:260px;flex-shrink:0">'
-        + '<div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:8px">Liftoff</div>';
+        + '<div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:8px">' + title + '</div>';
 
     if (t.icao) {
         var airportLabel = t.icao + (t.airportName ? ' – ' + t.airportName : '');
@@ -573,14 +559,12 @@ function liftoffPopupHtml(t) {
     leftHtml += div;
     leftHtml += row('Airspeed', t.airspeed + ' kt');
     leftHtml += row('V/S', t.verticalSpeed + ' ft/min');
+    if (gForceText) leftHtml += row('G-Force', gForceText);
     leftHtml += row('Pitch', Number(t.pitchDegrees).toFixed(1) + '°');
     leftHtml += row('Bank', Number(t.bankDegrees).toFixed(1) + '°');
     leftHtml += row('Heading', t.headingDegrees + '°');
 
-    // Gated on t.runway (a runway was matched), not "distanceLength >= 0":
-    // a NULL distance_length column (no runway matched, never written) reads
-    // back as 0 via sqlite3_column_double, which would pass ">= 0" and show
-    // a meaningless "0 ft (0%)" as if a runway had been determined.
+    // Gated on t.runway, not "distanceLength >= 0" -- see finishAnalysisPrompt().
     if (t.runway && t.distanceLength != null) {
         leftHtml += div;
         leftHtml += row('Threshold', Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '%)');
@@ -599,7 +583,7 @@ function liftoffPopupHtml(t) {
     // Right column: analyze button + result area (pre-filled from DB if available)
     var hasKey = !!(window._geminiApiKey && window._geminiApiKey.trim().length > 0);
     var disabledAttr = hasKey ? '' : ' disabled title="Set gemini_api_key in settings.ini to enable"';
-    var clickAttr = hasKey ? ' onclick="analyzeLiftoff(\'' + id + '\')"' : '';
+    var clickAttr = hasKey ? ' onclick="' + analyzeFn + '(\'' + id + '\')"' : '';
     var initialResult = hasKey ? '' :
         '<span style="color:#aaa;font-size:11px;line-height:1.6">To enable AI analysis,<br>'
         + 'add your Gemini API key in settings.ini:<br>'
@@ -610,7 +594,7 @@ function liftoffPopupHtml(t) {
         '  <div class="td-analyze-label">✦ AI Analysis</div>',
         '  <div>',
         '    <button class="td-analyze-btn" id="td-btn-' + id + '"' + disabledAttr + clickAttr + '>',
-        '      ✦ Analyze Liftoff',
+        '      ✦ ' + analyzeLabel,
         '    </button>',
         '    <span id="td-spin-' + id + '" class="td-spinner" style="display:none">↻</span>',
         '  </div>',
@@ -625,79 +609,16 @@ function liftoffPopupHtml(t) {
     return { html: html, id: id };
 }
 
+function liftoffPopupHtml(t) {
+    var id = 'lo' + (++_loIdx);
+    _liftoffStore[id] = t;
+    return runwayContactPopupHtml(id, t, 'Liftoff', null, 'analyzeLiftoff', 'Analyze Liftoff');
+}
+
 function touchdownPopupHtml(t) {
     var id = 'td' + (++_tdIdx);
     _touchdownStore[id] = t;
-
-    function row(key, val) {
-        return '<div class="td-row"><span class="td-key">' + key + '</span><span class="td-val">' + val + '</span></div>';
-    }
-    var div = '<div class="td-divider"></div>';
-
-    // Left column: grouped key-value layout
-    var leftHtml = '<div style="width:260px;flex-shrink:0">'
-        + '<div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:8px">Touchdown</div>';
-
-    if (t.icao) {
-        var airportLabel = t.icao + (t.airportName ? ' – ' + t.airportName : '');
-        leftHtml += row('Airport', airportLabel);
-    }
-    if (t.runway) leftHtml += row('Runway', t.runway + (t.runwayHeading != null && t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
-    leftHtml += row('Coordinate', formatDMS(Number(t.lat), Number(t.lng)));
-
-    leftHtml += div;
-    leftHtml += row('Airspeed', t.airspeed + ' kt');
-    leftHtml += row('V/S', t.verticalSpeed + ' ft/min');
-    leftHtml += row('G-Force', Number(t.gForce).toFixed(2) + ' G');
-    leftHtml += row('Pitch', Number(t.pitchDegrees).toFixed(1) + '°');
-    leftHtml += row('Bank', Number(t.bankDegrees).toFixed(1) + '°');
-    leftHtml += row('Heading', t.headingDegrees + '°');
-
-    // Gated on t.runway (a runway was matched), not "distanceLength >= 0":
-    // a touchdown before the marked/displaced threshold legitimately reports
-    // a negative distance, which is real data, not the "-1 = unknown" sentinel.
-    if (t.runway && t.distanceLength != null) {
-        leftHtml += div;
-        leftHtml += row('Threshold', Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '%)');
-        var cSide = t.distanceWidth >= 0 ? 'R' : 'L';
-        leftHtml += row('Centerline', Math.round(Math.abs(t.distanceWidth)) + ' ft ' + cSide + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '%)');
-    }
-
-    leftHtml += div;
-    leftHtml += row('Wind', t.windDirection + '° / ' + t.windVelocity + ' kt');
-    leftHtml += row('Zulu', t.zuluTime);
-    if (t.localTime) leftHtml += row('Local', t.localTime);
-
-    leftHtml += '</div>';
-    var left = leftHtml;
-
-    // Right column: analyze button + result area (pre-filled from DB if available)
-    var hasKey = !!(window._geminiApiKey && window._geminiApiKey.trim().length > 0);
-    var disabledAttr = hasKey ? '' : ' disabled title="Set gemini_api_key in settings.ini to enable"';
-    var clickAttr = hasKey ? ' onclick="analyzeTouchdown(\'' + id + '\')"' : '';
-    var initialResult = hasKey ? '' :
-        '<span style="color:#aaa;font-size:11px;line-height:1.6">To enable AI analysis,<br>'
-        + 'add your Gemini API key in settings.ini:<br>'
-        + '<code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;color:#555">[ai]<br>gemini_api_key=YOUR_KEY</code><br>'
-        + 'then restart the app.</span>';
-    var right = [
-        '<div style="border-left:1px solid #e5e7eb;padding-left:14px;min-width:360px">',
-        '  <div class="td-analyze-label">✦ AI Analysis</div>',
-        '  <div>',
-        '    <button class="td-analyze-btn" id="td-btn-' + id + '"' + disabledAttr + clickAttr + '>',
-        '      ✦ Analyze Landing',
-        '    </button>',
-        '    <span id="td-spin-' + id + '" class="td-spinner" style="display:none">↻</span>',
-        '  </div>',
-        '  <div id="td-result-' + id + '"',
-        '       style="margin-top:9px;font-size:11px;line-height:1.6;height:260px;overflow-y:auto;color:#374151">',
-        initialResult,
-        '  </div>',
-        '</div>'
-    ].join('');
-
-    var html = '<div style="display:flex;gap:14px;align-items:flex-start;width:650px">' + left + right + '</div>';
-    return { html: html, id: id };
+    return runwayContactPopupHtml(id, t, 'Touchdown', Number(t.gForce).toFixed(2) + ' G', 'analyzeTouchdown', 'Analyze Landing');
 }
 
 function eventPopupHtml(events) {
@@ -800,8 +721,8 @@ function initProvider() {
 // A map is an all-pairs context -- any two groups' markers can end up next
 // to each other anywhere, not just as neighbors in a legend list -- so the
 // color channel alone must be mutually distinguishable across every pair,
-// not merely adjacent ones. Per the app's validated categorical palette
-// (palette.md), only the first 3 of its 8 hues clear that all-pairs bar in
+// not merely adjacent ones. Of the 8 hues in the validated categorical
+// palette these colors come from, only the first 3 clear that all-pairs bar in
 // both light and dark modes; past 3, some pair (e.g. slot 2 orange vs. slot
 // 4 yellow) falls below the colorblind-safe separation floor, and no
 // reordering of the 8 fixes that -- it's a property of the hues themselves.
@@ -1044,15 +965,41 @@ function initLeafletProvider() {
         snapAndReport(nearestIndexIn(trajectoryLatLngs, e.latlng.lat, e.latlng.lng));
     });
 
+    // One marker per liftoff/touchdown point: emoji plus its 1-based index,
+    // with popupHtml(t)'s popup. Returns the markers.
+    function addContactMarkers(points, emoji, className, popupHtml, currentStore) {
+        return points.map(function (t, idx) {
+            var html = '<div style="position:relative;width:100%;height:100%">' + emoji + '<span class="marker-index-badge">' + (idx + 1) + '</span></div>';
+            var icon = L.divIcon({ className: className, html: html, iconSize: [20, 20], iconAnchor: [10, 10] });
+            var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
+            var popup = popupHtml(t);
+            m.bindPopup(popup.html, { maxWidth: 700 });
+            // Re-read the store on every open (rather than capturing
+            // t.analysisReport once here) so a report generated after this
+            // marker was built -- via analyzeLiftoff()/analyzeTouchdown(),
+            // which mutate the same stored object -- still reappears if the
+            // popup is closed and reopened without the trip itself reloading.
+            m.on('popupopen', function () {
+                var stored = currentStore()[popup.id];
+                if (stored && stored.analysisReport) renderStoredReport(popup.id, stored.analysisReport);
+            });
+            return m;
+        });
+    }
+
+    function clearOverview() {
+        overviewLines.forEach(function(l) { map.removeLayer(l); });
+        overviewLines = [];
+        overviewBounds = null;
+        if (groupLegendControl) {
+            map.removeControl(groupLegendControl);
+            groupLegendControl = null;
+        }
+    }
+
     currentProvider = {
         setTrajectory: function (data) {
-            overviewLines.forEach(function(l) { map.removeLayer(l); });
-            overviewLines = [];
-            overviewBounds = null;
-            if (groupLegendControl) {
-                map.removeControl(groupLegendControl);
-                groupLegendControl = null;
-            }
+            clearOverview();
             // data is {lats:[...], lngs:[...], idxs:[...]} -- parallel flat
             // arrays are more compact JSON and faster to iterate than an array
             // of {lat, lng, idx} objects.
@@ -1110,53 +1057,21 @@ function initLeafletProvider() {
         },
         setLiftoffs: function (points) {
             liftoffMarkers.forEach(function (m) { map.removeLayer(m); });
-            liftoffMarkers = [];
             // Every entry belonged to a marker/popup just removed above (and
             // analyzeLiftoff() already no-ops once its popup's DOM is gone,
             // via the missing-btn check), so nothing still needs them --
             // without this, _liftoffStore accumulates one entry per
             // liftoff marker ever shown, for the lifetime of the page.
             _liftoffStore = {};
-            points.forEach(function (t, idx) {
-                var html = '<div style="position:relative;width:100%;height:100%">\u{1F6EB}<span class="marker-index-badge">' + (idx + 1) + '</span></div>';
-                var icon = L.divIcon({ className: 'liftoff-icon', html: html, iconSize: [20, 20], iconAnchor: [10, 10] });
-                var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
-                var popup = liftoffPopupHtml(t);
-                m.bindPopup(popup.html, { maxWidth: 700 });
-                // Re-check _liftoffStore on every open (rather than capturing
-                // t.analysisReport once here) so a report generated after this
-                // marker was built -- via analyzeLiftoff(), which mutates the
-                // same stored object -- still reappears if the popup is closed
-                // and reopened without the trip itself reloading.
-                (function(capturedId) {
-                    m.on('popupopen', function() {
-                        var stored = _liftoffStore[capturedId];
-                        if (stored && stored.analysisReport) renderStoredReport(capturedId, stored.analysisReport);
-                    });
-                })(popup.id);
-                liftoffMarkers.push(m);
-            });
+            liftoffMarkers = addContactMarkers(points, '\u{1F6EB}', 'liftoff-icon', liftoffPopupHtml,
+                function () { return _liftoffStore; });
         },
         setTouchdowns: function (points) {
             touchdownMarkers.forEach(function (m) { map.removeLayer(m); });
-            touchdownMarkers = [];
             // Same store-reset rationale as setLiftoffs() above.
             _touchdownStore = {};
-            points.forEach(function (t, idx) {
-                var html = '<div style="position:relative;width:100%;height:100%">\u{1F6EC}<span class="marker-index-badge">' + (idx + 1) + '</span></div>';
-                var icon = L.divIcon({ className: 'touchdown-icon', html: html, iconSize: [20, 20], iconAnchor: [10, 10] });
-                var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
-                var popup = touchdownPopupHtml(t);
-                m.bindPopup(popup.html, { maxWidth: 700 });
-                // See the matching comment in setLiftoffs() above.
-                (function(capturedId) {
-                    m.on('popupopen', function() {
-                        var stored = _touchdownStore[capturedId];
-                        if (stored && stored.analysisReport) renderStoredReport(capturedId, stored.analysisReport);
-                    });
-                })(popup.id);
-                touchdownMarkers.push(m);
-            });
+            touchdownMarkers = addContactMarkers(points, '\u{1F6EC}', 'touchdown-icon', touchdownPopupHtml,
+                function () { return _touchdownStore; });
         },
         setEvents: function (points) {
             eventMarkers.forEach(function (m) { map.removeLayer(m); });
@@ -1219,13 +1134,7 @@ function initLeafletProvider() {
             touchdownMarkers = [];
             eventMarkers.forEach(function(m) { map.removeLayer(m); });
             eventMarkers = [];
-            overviewLines.forEach(function(l) { map.removeLayer(l); });
-            overviewLines = [];
-            overviewBounds = null;
-            if (groupLegendControl) {
-                map.removeControl(groupLegendControl);
-                groupLegendControl = null;
-            }
+            clearOverview();
 
             // Marks a segment endpoint so departure/destination points stand out
             // clearly even where several segments' lines overlap or run close

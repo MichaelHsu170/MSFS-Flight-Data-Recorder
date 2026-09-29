@@ -364,32 +364,14 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	// A single click selects a trip and loads its data -- the previous
 	// double-click ("activated") requirement felt sluggish for browsing.
 	connect(table_, &QTableView::clicked, this, &TripHistoryPanel::onRowActivated);
-	connect(&bridge_, &RecorderBridge::recordingStateChanged, this, [this](int) {
-		refreshTrips();
-		// If no trip is selected the overview map is visible. Re-emit tripDeselected
-		// so a newly-started/ended live trip shows up on it immediately -- same
-		// reasoning as the tripEnded handler below. Skip while a trip is actively
-		// loading: selectedTripId_ still holds the pre-load value (possibly -1)
-		// until tryFinishLoad() completes, so without the loading_ guard this would
-		// briefly flash the overview map over the trip the user just clicked.
-		if (!loading_ && selectedTripId_ == -1)
-			emit tripDeselected(model_->trips());
-	});
-	connect(&bridge_, &RecorderBridge::tripEnded, this, [this](int) {
-		refreshTrips();
-		// If no trip is selected the overview map is visible. Re-emit tripDeselected
-		// so it picks up the new departure→destination segment immediately.
-		if (!loading_ && selectedTripId_ == -1)
-			emit tripDeselected(model_->trips());
-	});
-	connect(&bridge_, &RecorderBridge::tripUpdated, this, [this](int) {
-		refreshTrips();
-		// A live trip's departure/destination can resolve mid-flight well after
-		// recordingStateChanged fired -- without this, the overview map would
-		// keep showing the trip with no segment until it ends (tripEnded).
-		if (!loading_ && selectedTripId_ == -1)
-			emit tripDeselected(model_->trips());
-	});
+	// So a newly-started/ended live trip, and its departure→destination
+	// segment, show on the overview map immediately. tripUpdated: a live trip's
+	// departure/destination can resolve mid-flight well after
+	// recordingStateChanged fired -- without it, the overview map would keep
+	// showing the trip with no segment until it ends (tripEnded).
+	connect(&bridge_, &RecorderBridge::recordingStateChanged, this, [this](int) { refreshTripsAndOverview(); });
+	connect(&bridge_, &RecorderBridge::tripEnded, this, [this](int) { refreshTripsAndOverview(); });
+	connect(&bridge_, &RecorderBridge::tripUpdated, this, [this](int) { refreshTripsAndOverview(); });
 
 	// setTrips()/setGroupFilter() both go through begin/endResetModel(), which
 	// emits modelReset() -- hooking that one signal keeps the trip count and
@@ -495,18 +477,9 @@ void TripHistoryPanel::setTripGroupFromUi(int tripId, int groupId) {
 	// Changing the selected trip's group can move it out of the active group
 	// filter (or just no longer matches what the user picked it for) -- drop
 	// the selection rather than leave it selected under a changed group, same
-	// as deleting a trip does.
-	const bool wasSelected = (tripId == selectedTripId_);
-	if (wasSelected)
-		selectedTripId_ = -1;
-	refreshTrips();
-	if (wasSelected)
-		table_->clearSelection();
-	// Under an active group filter, this reassignment may have added or
-	// removed the trip from the filtered set. If no trip is selected the
-	// overview map is showing that set, so nudge it to match.
-	if (selectedTripId_ == -1)
-		emit tripDeselected(model_->trips());
+	// as deleting a trip does. Under an active group filter, this reassignment
+	// may also have added or removed the trip from the overview's set.
+	refreshTripsAndOverview(tripId);
 }
 
 void TripHistoryPanel::openManageGroupsDialog() {
@@ -517,22 +490,40 @@ void TripHistoryPanel::openManageGroupsDialog() {
 	// until the user closes the dialog.
 	connect(&dialog, &ManageGroupsDialog::groupsChanged, this, [this]() {
 		reloadGroupFilterCombo();
-		refreshTrips();
 		// A rename, reorder, or add/delete of any group changes what the
 		// already-open overview map should be showing (group names, and
 		// colors/shapes, which are keyed by each group's position in this
-		// list) -- if no trip is selected, that overview is on screen right
-		// now, so nudge it. This is the only emit for this event:
+		// list). This is the only emit for this event:
 		// reloadGroupFilterCombo() itself deliberately doesn't emit (see its
 		// doc comment) so this always fires exactly once, with fresh,
 		// post-refreshTrips() data.
-		if (selectedTripId_ == -1)
-			emit tripDeselected(model_->trips());
+		refreshTripsAndOverview();
 	});
 	dialog.exec();
 	reloadGroupFilterCombo();
+	refreshTripsAndOverview();
+}
+
+bool TripHistoryPanel::refuseWhileFlushing(int tripId, const char* action) {
+	if (!bridge_.isTripFlushing(tripId))
+		return false;
+	Logger::logf(Logger::Trace, "DB", "%s %d blocked: trip data is still flushing", action, tripId);
+	QMessageBox::information(this, QStringLiteral("Trip Still Saving"),
+		QStringLiteral("This trip's data is still being saved. Please wait a moment and try again."));
+	return true;
+}
+
+void TripHistoryPanel::refreshTripsAndOverview(int changedTripId) {
+	const bool wasSelected = changedTripId != -1 && changedTripId == selectedTripId_;
+	if (wasSelected)
+		selectedTripId_ = -1;
 	refreshTrips();
-	if (selectedTripId_ == -1)
+	if (wasSelected)
+		table_->clearSelection();
+	// Skipped while a trip is loading: selectedTripId_ still holds the
+	// pre-load value (possibly -1) until tryFinishLoad() completes, so this
+	// would briefly flash the overview map over the trip just clicked.
+	if (!loading_ && selectedTripId_ == -1)
 		emit tripDeselected(model_->trips());
 }
 
@@ -675,9 +666,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	// finished.
 	pointsWatcher_->setFuture(QtConcurrent::run([tripId, aircraftTitle, departureZuluTime]() {
 		QElapsedTimer t; t.start();
-		DbConnection sql = DbConnection::readOnly();
-		if (!sql)
-			Logger::logf(Logger::Warning, "DB", "queryTripData(trip %d): failed to open read-only connection", tripId);
+		DbConnection sql = openForReading(QStringLiteral("queryTripData(trip %1)").arg(tripId));
 		auto dataset = std::make_shared<TripDataset>(sql ? queryTripData(sql.get(), tripId) : TripDataset());
 		dataset->tripId = tripId;
 		dataset->aircraftTitle = aircraftTitle;
@@ -692,9 +681,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	// in the header.
 	liftoffTouchdownsWatcher_->setFuture(QtConcurrent::run([tripId]() {
 		QElapsedTimer t; t.start();
-		DbConnection sql = DbConnection::readOnly();
-		if (!sql)
-			Logger::logf(Logger::Warning, "DB", "queryLiftoffs/queryTouchdowns(trip %d): failed to open read-only connection", tripId);
+		DbConnection sql = openForReading(QStringLiteral("queryLiftoffs/queryTouchdowns(trip %1)").arg(tripId));
 		std::vector<LiftoffPoint> liftoffPoints = sql ? queryLiftoffs(sql.get(), tripId) : std::vector<LiftoffPoint>();
 		std::vector<TouchdownPoint> touchdowns = sql ? queryTouchdowns(sql.get(), tripId) : std::vector<TouchdownPoint>();
 		Logger::logf(Logger::Profile, "DB", "queryLiftoffs+queryTouchdowns: %lld ms  (%zu liftoffs, %zu touchdowns)",
@@ -703,9 +690,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	}));
 	eventsWatcher_->setFuture(QtConcurrent::run([tripId]() {
 		QElapsedTimer t; t.start();
-		DbConnection sql = DbConnection::readOnly();
-		if (!sql)
-			Logger::logf(Logger::Warning, "DB", "queryEvents(trip %d): failed to open read-only connection", tripId);
+		DbConnection sql = openForReading(QStringLiteral("queryEvents(trip %1)").arg(tripId));
 		std::vector<TripEvent> events = sql ? queryEvents(sql.get(), tripId) : std::vector<TripEvent>();
 		Logger::logf(Logger::Profile, "DB", "queryEvents: %lld ms  (%zu events)", t.nsecsElapsed() / 1000000, events.size());
 		return events;
@@ -937,7 +922,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 				QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to export KML to %1.\n%2").arg(fileName, error));
 		});
 		watcher->setFuture(QtConcurrent::run([tripId, aircraftTitle, departureZuluTime, fileName]() -> QString {
-			DbConnection sql = DbConnection::readOnly();
+			DbConnection sql = openForReading(QStringLiteral("export trip %1 to KML").arg(tripId));
 			if (!sql)
 				return QStringLiteral("Could not open the trip database.");
 			TripDataset dataset = queryTripData(sql.get(), tripId);
@@ -960,12 +945,8 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		// flush completes -- see flushing_trip_ids in types.h). Deleting now
 		// would race the worker's still-pending trip_data inserts and orphan
 		// rows with no parent trip.
-		if (bridge_.isTripFlushing(deleteId)) {
-			Logger::logf(Logger::Trace, "DB", "delete trip %d blocked: trip data is still flushing", deleteId);
-			QMessageBox::information(this, QStringLiteral("Trip Still Saving"),
-				QStringLiteral("This trip's data is still being saved. Please wait a moment and try again."));
+		if (refuseWhileFlushing(deleteId, "delete trip"))
 			return;
-		}
 		QMessageBox confirm(this);
 		confirm.setWindowTitle(QStringLiteral("Delete Trip"));
 		confirm.setText(QStringLiteral("Delete the trip?"));
@@ -981,12 +962,8 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		// before the actual delete, since the flush could still be draining
 		// (or could have started, if this trip only just stopped recording)
 		// while the dialog was open.
-		if (bridge_.isTripFlushing(deleteId)) {
-			Logger::logf(Logger::Trace, "DB", "delete trip %d blocked (re-check after dialog): trip data is still flushing", deleteId);
-			QMessageBox::information(this, QStringLiteral("Trip Still Saving"),
-				QStringLiteral("This trip's data is still being saved. Please wait a moment and try again."));
+		if (refuseWhileFlushing(deleteId, "delete trip (re-check after dialog)"))
 			return;
-		}
 		bool ok = false;
 		{
 			DbConnection sql = openForWriting(this, "delete trip");
@@ -999,17 +976,9 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 				QStringLiteral("Failed to delete trip data."));
 			return;
 		}
-		const bool wasSelected = (deleteId == selectedTripId_);
-		if (wasSelected)
-			selectedTripId_ = -1;
-		refreshTrips();
-		if (wasSelected)
-			table_->clearSelection();
-		// If no trip is selected the overview map is showing every trip,
-		// including whichever one was just deleted -- nudge it to drop that
-		// trip's arc whether or not it was the selected one.
-		if (selectedTripId_ == -1)
-			emit tripDeselected(model_->trips());
+		// The overview map drops the deleted trip's arc whether or not it was
+		// the selected one.
+		refreshTripsAndOverview(deleteId);
 	} else if (chosen == deselectAction) {
 		table_->clearSelection();
 		selectedTripId_ = -1;

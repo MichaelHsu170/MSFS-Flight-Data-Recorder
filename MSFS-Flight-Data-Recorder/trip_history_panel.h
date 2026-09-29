@@ -123,6 +123,15 @@ private:
 	// last time this was called (e.g. app launched before any flight was ever
 	// recorded). Returns nullptr if it still can't be opened.
 	sqlite3* ensureHistoryConnection();
+	// refreshTrips(), then, if no trip is selected (the overview map is on
+	// screen), re-sends the overview its trips. changedTripId, if it's the
+	// selected trip, is deselected first -- it may have been deleted or left
+	// the group filter.
+	void refreshTripsAndOverview(int changedTripId = -1);
+	// If tripId's samples are still being written (a trip that just stopped
+	// recording), tells the user to wait, logs "<action> <tripId> blocked" and
+	// returns true.
+	bool refuseWhileFlushing(int tripId, const char* action);
 	// Rebuilds the group filter combo's items from trip_groups, preserving
 	// the current selection where possible (e.g. across a refresh after the
 	// Manage Groups dialog closes). Also refreshes groupRank_ from the same

@@ -113,6 +113,18 @@ private slots:
 		QCOMPARE(groupOfTrip(2).toInt(), keep);
 	}
 
+	void failedDeleteRollsBackUngrouping() {
+		const int g = insertGroup(db_, "Training");
+		addTrip(1);
+		setTripGroup(db_, 1, g);
+		// The ungrouping UPDATE succeeds, then the group's DELETE fails.
+		QCOMPARE(sqlite3_exec(db_, "CREATE TRIGGER block_delete BEFORE DELETE ON trip_groups "
+			"BEGIN SELECT RAISE(ABORT, 'blocked'); END;", nullptr, nullptr, nullptr), SQLITE_OK);
+		QVERIFY(!deleteGroup(db_, g));
+		QCOMPARE(groupNames(), (QStringList{ "Training" }));
+		QCOMPARE(groupOfTrip(1).toInt(), g);
+	}
+
 	void reorderPersistsAndIgnoresMissingIds() {
 		const int a = insertGroup(db_, "A");
 		const int b = insertGroup(db_, "B");

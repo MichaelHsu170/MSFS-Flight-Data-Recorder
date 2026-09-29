@@ -2,6 +2,7 @@
 #include "app_settings.h"
 #include "trip_data_fields.h"
 #include "logger.h"
+#include "types.h"
 
 #include <QAction>
 #include <QCheckBox>
@@ -43,30 +44,13 @@ QStringList buildFieldRowLabels() {
 	return labels;
 }
 
-// Decimal degrees -> DMS string with N/S/E/W suffixes, matching the format
-// used by the map popups' "Coordinate" row (see formatDMS in map.html) so a
-// position copied from either place pastes the same way into Google Maps/
-// Earth's search box. Rounds to whole tenths-of-an-arcsecond up front and
-// decomposes with integer division/modulo so seconds can't round up to
-// "60.0" instead of carrying into the next minute.
+// Decimal degrees -> "lat lng" in DMS (COORDINATE::coordinate_decimal_to_dms()).
 QString formatDMS(double lat, double lng) {
-	auto part = [](double value, QChar posLetter, QChar negLetter) {
-		QChar letter = value >= 0 ? posLetter : negLetter;
-		qint64 totalTenths = qRound64(qAbs(value) * 36000.0);
-		qint64 deg = totalTenths / 36000;
-		qint64 remTenths = totalTenths - deg * 36000;
-		qint64 min = remTenths / 600;
-		remTenths -= min * 600;
-		qint64 secWhole = remTenths / 10;
-		qint64 secFrac = remTenths % 10;
-		return QStringLiteral("%1°%2'%3.%4\"%5")
-			.arg(deg)
-			.arg(min, 2, 10, QChar('0'))
-			.arg(secWhole, 2, 10, QChar('0'))
-			.arg(secFrac)
-			.arg(letter);
-	};
-	return part(lat, QChar('N'), QChar('S')) + QStringLiteral(" ") + part(lng, QChar('E'), QChar('W'));
+	COORDINATE c;
+	c.latitude = lat;
+	c.longitude = lng;
+	return QString::fromStdString(c.coordinate_decimal_to_dms(COORDINATE::LATITUDE) + " "
+		+ c.coordinate_decimal_to_dms(COORDINATE::LONGITUDE));
 }
 
 }

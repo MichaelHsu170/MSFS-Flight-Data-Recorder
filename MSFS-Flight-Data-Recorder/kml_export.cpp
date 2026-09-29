@@ -53,73 +53,37 @@ QString airportLabel(const QString& icao, const QString& airportName) {
 	return airportName.isEmpty() ? icao : QStringLiteral("%1 (%2)").arg(icao, airportName);
 }
 
-// Shared by liftoff/touchdown descriptions: airport/runway/airspeed/V-S
-// fields both popups show. gForce/pitch/bank/heading are appended by the caller.
-QString facilityDescriptionCommon(const QString& icao, const QString& airportName, const QString& runway,
-	int runwayHeading, int airspeed, int verticalSpeed) {
+// A liftoff or touchdown placemark's description. gForceRow (touchdowns only)
+// goes right after V/S.
+QString runwayContactDescription(const RunwayContactPoint& t, const QString& gForceRow = QString()) {
 	QString html;
-	const QString airport = airportLabel(icao, airportName);
+	const QString airport = airportLabel(t.icao, t.airportName);
 	if (!airport.isEmpty())
 		html += descRow(QStringLiteral("Airport"), airport);
-	if (!runway.isEmpty()) {
-		const QString rwy = runwayHeading >= 0 ? QStringLiteral("%1 (%2°)").arg(runway).arg(runwayHeading) : runway;
+	if (!t.runway.isEmpty()) {
+		const QString rwy = t.runwayHeading >= 0 ? QStringLiteral("%1 (%2°)").arg(t.runway).arg(t.runwayHeading) : t.runway;
 		html += descRow(QStringLiteral("Runway"), rwy);
 	}
-	html += descRow(QStringLiteral("Airspeed"), QStringLiteral("%1 kt").arg(airspeed));
-	html += descRow(QStringLiteral("V/S"), QStringLiteral("%1 ft/min").arg(verticalSpeed));
-	return html;
-}
-
-QString thresholdAndWindDescription(const QString& runway, double distanceLength, double distanceWidth,
-	double distanceLengthPercent, double distanceWidthPercent, int windDirection, int windVelocity) {
-	QString html;
+	html += descRow(QStringLiteral("Airspeed"), QStringLiteral("%1 kt").arg(t.airspeed));
+	html += descRow(QStringLiteral("V/S"), QStringLiteral("%1 ft/min").arg(t.verticalSpeed));
+	html += gForceRow;
+	html += descRow(QStringLiteral("Pitch"), QStringLiteral("%1°").arg(t.pitchDegrees, 0, 'f', 1));
+	html += descRow(QStringLiteral("Bank"), QStringLiteral("%1°").arg(t.bankDegrees, 0, 'f', 1));
+	html += descRow(QStringLiteral("Heading"), QStringLiteral("%1°").arg(t.headingDegrees));
 	// Gated on a matched runway, not "distanceLength >= 0": a NULL distance_length
 	// column (no runway matched) reads back as 0 via sqlite3_column_double, which
 	// would otherwise show a meaningless "0 ft (0%)" as if a runway had been found.
-	if (!runway.isEmpty()) {
+	if (!t.runway.isEmpty()) {
 		html += descRow(QStringLiteral("Threshold"),
-			QStringLiteral("%1 ft (%2%)").arg(qRound(distanceLength)).arg(qRound(distanceLengthPercent * 100)));
-		const QChar side = distanceWidth >= 0 ? QChar('R') : QChar('L');
+			QStringLiteral("%1 ft (%2%)").arg(qRound(t.distanceLength)).arg(qRound(t.distanceLengthPercent * 100)));
+		const QChar side = t.distanceWidth >= 0 ? QChar('R') : QChar('L');
 		html += descRow(QStringLiteral("Centerline"),
-			QStringLiteral("%1 ft %2 (%3%)").arg(qRound(qAbs(distanceWidth))).arg(side).arg(qRound(qAbs(distanceWidthPercent) * 100)));
+			QStringLiteral("%1 ft %2 (%3%)").arg(qRound(qAbs(t.distanceWidth))).arg(side).arg(qRound(qAbs(t.distanceWidthPercent) * 100)));
 	}
-	html += descRow(QStringLiteral("Wind"), QStringLiteral("%1° / %2 kt").arg(windDirection).arg(windVelocity));
-	return html;
-}
-
-// Shared by liftoff/touchdown descriptions.
-QString attitudeDescription(double pitchDegrees, double bankDegrees, int headingDegrees) {
-	QString html;
-	html += descRow(QStringLiteral("Pitch"), QStringLiteral("%1°").arg(pitchDegrees, 0, 'f', 1));
-	html += descRow(QStringLiteral("Bank"), QStringLiteral("%1°").arg(bankDegrees, 0, 'f', 1));
-	html += descRow(QStringLiteral("Heading"), QStringLiteral("%1°").arg(headingDegrees));
-	return html;
-}
-
-// Shared by liftoff/touchdown descriptions.
-QString timestampDescription(const QString& zuluTime, const QString& localTime) {
-	QString html = descRow(QStringLiteral("Zulu"), zuluTime);
-	if (!localTime.isEmpty())
-		html += descRow(QStringLiteral("Local"), localTime);
-	return html;
-}
-
-QString liftoffDescription(const LiftoffPoint& t) {
-	QString html = facilityDescriptionCommon(t.icao, t.airportName, t.runway, t.runwayHeading, t.airspeed, t.verticalSpeed);
-	html += attitudeDescription(t.pitchDegrees, t.bankDegrees, t.headingDegrees);
-	html += thresholdAndWindDescription(t.runway, t.distanceLength, t.distanceWidth,
-		t.distanceLengthPercent, t.distanceWidthPercent, t.windDirection, t.windVelocity);
-	html += timestampDescription(t.zuluTime, t.localTime);
-	return html;
-}
-
-QString touchdownDescription(const TouchdownPoint& t) {
-	QString html = facilityDescriptionCommon(t.icao, t.airportName, t.runway, t.runwayHeading, t.airspeed, t.verticalSpeed);
-	html += descRow(QStringLiteral("G-Force"), QStringLiteral("%1 G").arg(t.gForce, 0, 'f', 2));
-	html += attitudeDescription(t.pitchDegrees, t.bankDegrees, t.headingDegrees);
-	html += thresholdAndWindDescription(t.runway, t.distanceLength, t.distanceWidth,
-		t.distanceLengthPercent, t.distanceWidthPercent, t.windDirection, t.windVelocity);
-	html += timestampDescription(t.zuluTime, t.localTime);
+	html += descRow(QStringLiteral("Wind"), QStringLiteral("%1° / %2 kt").arg(t.windDirection).arg(t.windVelocity));
+	html += descRow(QStringLiteral("Zulu"), t.zuluTime);
+	if (!t.localTime.isEmpty())
+		html += descRow(QStringLiteral("Local"), t.localTime);
 	return html;
 }
 
@@ -235,7 +199,7 @@ QString buildTripKml(const TripDataset& dataset) {
 		kml += QStringLiteral("<Folder><name>Liftoffs</name>\n");
 		for (const LiftoffPoint& t : dataset.liftoffPoints)
 			appendPointPlacemark(kml, QStringLiteral("Liftoff"), QStringLiteral("#liftoffStyle"),
-				t.zuluTime, liftoffDescription(t), t.longitude, t.latitude);
+				t.zuluTime, runwayContactDescription(t), t.longitude, t.latitude);
 		kml += QStringLiteral("</Folder>\n");
 	}
 
@@ -243,7 +207,8 @@ QString buildTripKml(const TripDataset& dataset) {
 		kml += QStringLiteral("<Folder><name>Touchdowns</name>\n");
 		for (const TouchdownPoint& t : dataset.touchdowns)
 			appendPointPlacemark(kml, QStringLiteral("Touchdown"), QStringLiteral("#touchdownStyle"),
-				t.zuluTime, touchdownDescription(t), t.longitude, t.latitude);
+				t.zuluTime, runwayContactDescription(t,
+					descRow(QStringLiteral("G-Force"), QStringLiteral("%1 G").arg(t.gForce, 0, 'f', 2))), t.longitude, t.latitude);
 		kml += QStringLiteral("</Folder>\n");
 	}
 

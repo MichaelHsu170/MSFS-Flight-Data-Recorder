@@ -28,9 +28,7 @@ void isolateFiles() {
 }
 
 void removeDatabase() {
-	char path[MAX_PATH];
-	resolve_db_path(path, sizeof(path));
-	QFile::remove(QString::fromLocal8Bit(path));
+	QFile::remove(QString::fromStdString(db_file_path()));
 }
 
 void removeSettings() {

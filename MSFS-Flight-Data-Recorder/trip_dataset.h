@@ -43,11 +43,9 @@ struct TripSamplePoint {
 	uint32_t boolGroup3 = 0;
 };
 
-// One moment the aircraft became airborne during the trip (trip_liftoffs),
-// shown as a marker on the map: the trip's departure plus any subsequent
-// touch-and-go liftoffs. No gForce field: unlike a landing, there's no
-// meaningful "how hard" to becoming airborne.
-struct LiftoffPoint {
+// What a liftoff and a touchdown both record (trip_liftoffs/trip_touchdowns
+// share these columns), shown as a map marker and its popup.
+struct RunwayContactPoint {
 	double latitude = 0;
 	double longitude = 0;
 	QString icao;
@@ -67,35 +65,20 @@ struct LiftoffPoint {
 	int windVelocity = 0;    // knots
 	QString zuluTime;
 	QString localTime;
-	int rowId = 0;           // trip_liftoffs.id, used to UPDATE analysis_report
+	int rowId = 0;           // the row's id, used to UPDATE analysis_report
 	QString analysisReport;  // stored AI analysis text, empty if never analyzed
 };
 
-// One landing logged during the trip (trip_touchdowns), shown as a marker on
-// the map. A trip can have more than one touchdown (go-arounds, bounces).
-struct TouchdownPoint {
-	double latitude = 0;
-	double longitude = 0;
-	QString icao;
-	QString runway;
-	int runwayHeading = -1;  // real facility heading (1-360) of runway used, -1 = unknown
-	int airspeed = 0;
-	int verticalSpeed = 0;
+// One moment the aircraft became airborne during the trip (trip_liftoffs):
+// the trip's departure plus any subsequent touch-and-go liftoffs. No gForce
+// field: unlike a landing, there's no meaningful "how hard" to becoming
+// airborne.
+struct LiftoffPoint : RunwayContactPoint {};
+
+// One landing logged during the trip (trip_touchdowns). A trip can have more
+// than one touchdown (go-arounds, bounces).
+struct TouchdownPoint : RunwayContactPoint {
 	double gForce = 0;
-	double pitchDegrees = 0;
-	double bankDegrees = 0;
-	int headingDegrees = 0;
-	QString airportName;
-	double distanceLength = -1;   // feet from threshold, -1 = unknown
-	double distanceWidth = 0;     // feet from centerline (+right/-left)
-	double distanceLengthPercent = -1;  // 0-1 fraction of runway length
-	double distanceWidthPercent = 0;    // 0-1 fraction of runway half-width
-	int windDirection = 0;   // degrees true, 0 if unknown
-	int windVelocity = 0;    // knots
-	QString zuluTime;
-	QString localTime;
-	int rowId = 0;           // trip_touchdowns.id, used to UPDATE analysis_report
-	QString analysisReport;  // stored AI analysis text, empty if never analyzed
 };
 
 // One discrete cockpit event (gear/flaps/spoilers/etc. toggled) logged during

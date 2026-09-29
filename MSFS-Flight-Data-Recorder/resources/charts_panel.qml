@@ -80,13 +80,24 @@ Item {
 
     component ChartBlock: Item {
         id: block
-        property alias legendEntries: legendRow.entries
-        property Item graphsViewRef: null
-        // Each entry: { key, label, color, unit, decimals, signed, isBool }
-        // Drives the hover tooltip -- only these series are shown when this
-        // chart is under the cursor.
-        property var tooltipSeries: []
-        default property alias content: inner.children
+        Layout.fillWidth: true
+        Layout.preferredHeight: 180
+        Layout.minimumHeight: 160
+        // One entry per LineSeries declared in the block, in the same order:
+        //   { key, label, legend, color, unit, decimals, signed, isBool }
+        // Colors and names the lines, fills the legend (legend, or label when
+        // there's none), and drives the hover tooltip -- only these series are
+        // shown when this chart is under the cursor.
+        property var series: []
+        property alias axisY: view.axisY
+        default property alias lineSeries: view.seriesList
+
+        Component.onCompleted: {
+            for (var i = 0; i < series.length; i++) {
+                view.seriesList[i].color = series[i].color
+                view.seriesList[i].name = series[i].legend || series[i].label
+            }
+        }
 
         MouseArea {
             anchors.fill: parent
@@ -97,9 +108,7 @@ Item {
             onExited: { root.tooltipModel = null; root.tooltipSeries = null }
 
             onPositionChanged: function(mouse) {
-                if (!block.graphsViewRef) return
-                var gv = block.graphsViewRef
-                var pa = gv.plotArea
+                var pa = view.plotArea
                 if (pa.width <= 0) return
                 var minMs = driverXAxis.min.getTime()
                 var maxMs = driverXAxis.max.getTime()
@@ -114,7 +123,7 @@ Item {
                 root.tooltipModel  = (data && data.timeStr !== undefined) ? data : null
                 // Set tooltipSeries here too in case onPositionChanged fires before
                 // onEntered when transitioning quickly between adjacent charts.
-                root.tooltipSeries = root.tooltipModel ? block.tooltipSeries : null
+                root.tooltipSeries = root.tooltipModel ? block.series : null
                 if (root.tooltipModel) {
                     var p = mapToItem(root, mouse.x, mouse.y)
                     root.tooltipPos = Qt.point(p.x, p.y)
@@ -122,10 +131,14 @@ Item {
             }
         }
 
-        Item {
-            id: inner
+        GraphsView {
+            id: view
             anchors.fill: parent
+            axisX: SyncedXAxis {}
+            theme: chartTheme
         }
+        CursorLine { graphsView: view }
+        EndOfTrajectoryLine { graphsView: view }
 
         Rectangle {
             anchors.top: parent.top
@@ -138,7 +151,11 @@ Item {
             color: "#ccffffff"
             z: 20
             visible: legendRow.entries.length > 0
-            ChartLegend { id: legendRow; anchors.centerIn: parent }
+            ChartLegend {
+                id: legendRow
+                anchors.centerIn: parent
+                entries: block.series.map(function (s) { return { color: s.color, name: s.legend || s.label } })
+            }
         }
     }
 
@@ -162,242 +179,99 @@ Item {
             spacing: 2
 
             ChartBlock {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 180
-                Layout.minimumHeight: 160
-                graphsViewRef: chart1
-                legendEntries: [
-                    { color: "#1f77b4", name: "N1 #1" },
-                    { color: "#ff7f0e", name: "N1 #2" },
-                    { color: "#2ca02c", name: "N2 #1" },
-                    { color: "#d62728", name: "N2 #2" }
-                ]
-                tooltipSeries: [
+                series: [
                     { key: "n1_1", label: "N1 #1", color: "#1f77b4", unit: "%", decimals: 1, signed: false, isBool: false },
                     { key: "n1_2", label: "N1 #2", color: "#ff7f0e", unit: "%", decimals: 1, signed: false, isBool: false },
                     { key: "n2_1", label: "N2 #1", color: "#2ca02c", unit: "%", decimals: 1, signed: false, isBool: false },
                     { key: "n2_2", label: "N2 #2", color: "#d62728", unit: "%", decimals: 1, signed: false, isBool: false }
                 ]
-                GraphsView {
-                    id: chart1
-                    anchors.fill: parent
-                    axisX: SyncedXAxis {}
-                    theme: chartTheme
-                    axisY: ValueAxis { min: 0; max: 110; labelFormat: "%.0f"; titleText: "N1/N2 (%)"; titleVisible: true }
-                    LineSeries { objectName: "n1_1Series"; name: "N1 #1"; color: "#1f77b4" }
-                    LineSeries { objectName: "n1_2Series"; name: "N1 #2"; color: "#ff7f0e" }
-                    LineSeries { objectName: "n2_1Series"; name: "N2 #1"; color: "#2ca02c" }
-                    LineSeries { objectName: "n2_2Series"; name: "N2 #2"; color: "#d62728" }
-                }
-                CursorLine { graphsView: chart1 }
-                EndOfTrajectoryLine { graphsView: chart1 }
+                axisY: ValueAxis { min: 0; max: 110; labelFormat: "%.0f"; titleText: "N1/N2 (%)"; titleVisible: true }
+                LineSeries { objectName: "n1_1Series" }
+                LineSeries { objectName: "n1_2Series" }
+                LineSeries { objectName: "n2_1Series" }
+                LineSeries { objectName: "n2_2Series" }
             }
 
             ChartBlock {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 180
-                Layout.minimumHeight: 160
-                graphsViewRef: chart2
-                legendEntries: [
-                    { color: "#9467bd", name: "Vertical Speed" }
+                series: [
+                    { key: "vs", label: "V/S", legend: "Vertical Speed", color: "#9467bd", unit: "ft/min", decimals: 0, signed: true, isBool: false }
                 ]
-                tooltipSeries: [
-                    { key: "vs", label: "V/S", color: "#9467bd", unit: "ft/min", decimals: 0, signed: true, isBool: false }
-                ]
-                GraphsView {
-                    id: chart2
-                    anchors.fill: parent
-                    axisX: SyncedXAxis {}
-                    theme: chartTheme
-                    axisY: ValueAxis { objectName: "vsYAxis"; labelFormat: "%.0f"; titleText: "V/S (ft/min)"; titleVisible: true }
-                    LineSeries { objectName: "verticalSpeedSeries"; name: "Vertical Speed"; color: "#9467bd" }
-                }
-                CursorLine { graphsView: chart2 }
-                EndOfTrajectoryLine { graphsView: chart2 }
+                axisY: ValueAxis { objectName: "vsYAxis"; labelFormat: "%.0f"; titleText: "V/S (ft/min)"; titleVisible: true }
+                LineSeries { objectName: "verticalSpeedSeries" }
             }
 
             ChartBlock {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 180
-                Layout.minimumHeight: 160
-                graphsViewRef: chart3
-                legendEntries: [
-                    { color: "#1f77b4", name: "Airspeed" },
-                    { color: "#ff7f0e", name: "Ground Speed" }
+                series: [
+                    { key: "ias", label: "Airspeed", color: "#1f77b4", unit: "kt", decimals: 0, signed: false, isBool: false },
+                    { key: "gs", label: "Ground Speed", color: "#ff7f0e", unit: "kt", decimals: 0, signed: false, isBool: false }
                 ]
-                tooltipSeries: [
-                    { key: "ias", label: "Airspeed",     color: "#1f77b4", unit: "kt", decimals: 0, signed: false, isBool: false },
-                    { key: "gs",  label: "Ground Speed", color: "#ff7f0e", unit: "kt", decimals: 0, signed: false, isBool: false }
-                ]
-                GraphsView {
-                    id: chart3
-                    anchors.fill: parent
-                    axisX: SyncedXAxis {}
-                    theme: chartTheme
-                    axisY: ValueAxis { objectName: "speedYAxis"; labelFormat: "%.0f"; titleText: "Speed (kt)"; titleVisible: true }
-                    LineSeries { objectName: "airspeedSeries"; name: "Airspeed"; color: "#1f77b4" }
-                    LineSeries { objectName: "groundSpeedSeries"; name: "Ground Speed"; color: "#ff7f0e" }
-                }
-                CursorLine { graphsView: chart3 }
-                EndOfTrajectoryLine { graphsView: chart3 }
+                axisY: ValueAxis { objectName: "speedYAxis"; labelFormat: "%.0f"; titleText: "Speed (kt)"; titleVisible: true }
+                LineSeries { objectName: "airspeedSeries" }
+                LineSeries { objectName: "groundSpeedSeries" }
             }
 
             ChartBlock {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 180
-                Layout.minimumHeight: 160
-                graphsViewRef: chart4
-                legendEntries: [
-                    { color: "#2ca02c", name: "Altitude" }
-                ]
-                tooltipSeries: [
+                series: [
                     { key: "alt", label: "Altitude", color: "#2ca02c", unit: "ft", decimals: 0, signed: false, isBool: false }
                 ]
-                GraphsView {
-                    id: chart4
-                    anchors.fill: parent
-                    axisX: SyncedXAxis {}
-                    theme: chartTheme
-                    axisY: ValueAxis { objectName: "altYAxis"; labelFormat: "%.0f"; titleText: "Altitude (ft)"; titleVisible: true }
-                    LineSeries { objectName: "altitudeSeries"; name: "Altitude"; color: "#2ca02c" }
-                }
-                CursorLine { graphsView: chart4 }
-                EndOfTrajectoryLine { graphsView: chart4 }
+                axisY: ValueAxis { objectName: "altYAxis"; labelFormat: "%.0f"; titleText: "Altitude (ft)"; titleVisible: true }
+                LineSeries { objectName: "altitudeSeries" }
             }
 
             ChartBlock {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 180
-                Layout.minimumHeight: 160
-                graphsViewRef: chart5
-                legendEntries: [
-                    { color: "#1f77b4", name: "Gear Handle" },
-                    { color: "#ff7f0e", name: "Gear Pos 0" },
-                    { color: "#2ca02c", name: "Gear Pos 1" },
-                    { color: "#d62728", name: "Gear Pos 2" },
-                    { color: "#9467bd", name: "On Ground 0" },
-                    { color: "#8c564b", name: "On Ground 1" },
-                    { color: "#e377c2", name: "On Ground 2" }
+                series: [
+                    { key: "gearHandle", label: "Gear Handle", color: "#1f77b4", unit: "", decimals: 1, signed: false, isBool: false },
+                    { key: "gearPos0", label: "Gear Pos 0", color: "#ff7f0e", unit: "", decimals: 1, signed: false, isBool: false },
+                    { key: "gearPos1", label: "Gear Pos 1", color: "#2ca02c", unit: "", decimals: 1, signed: false, isBool: false },
+                    { key: "gearPos2", label: "Gear Pos 2", color: "#d62728", unit: "", decimals: 1, signed: false, isBool: false },
+                    { key: "onGnd0", label: "On Ground 0", color: "#9467bd", unit: "", decimals: 0, signed: false, isBool: true },
+                    { key: "onGnd1", label: "On Ground 1", color: "#8c564b", unit: "", decimals: 0, signed: false, isBool: true },
+                    { key: "onGnd2", label: "On Ground 2", color: "#e377c2", unit: "", decimals: 0, signed: false, isBool: true }
                 ]
-                tooltipSeries: [
-                    { key: "gearHandle", label: "Gear Handle", color: "#1f77b4", unit: "",  decimals: 1, signed: false, isBool: false },
-                    { key: "gearPos0",   label: "Gear Pos 0",  color: "#ff7f0e", unit: "",  decimals: 1, signed: false, isBool: false },
-                    { key: "gearPos1",   label: "Gear Pos 1",  color: "#2ca02c", unit: "",  decimals: 1, signed: false, isBool: false },
-                    { key: "gearPos2",   label: "Gear Pos 2",  color: "#d62728", unit: "",  decimals: 1, signed: false, isBool: false },
-                    { key: "onGnd0",     label: "On Ground 0", color: "#9467bd", unit: "",  decimals: 0, signed: false, isBool: true  },
-                    { key: "onGnd1",     label: "On Ground 1", color: "#8c564b", unit: "",  decimals: 0, signed: false, isBool: true  },
-                    { key: "onGnd2",     label: "On Ground 2", color: "#e377c2", unit: "",  decimals: 0, signed: false, isBool: true  }
-                ]
-                GraphsView {
-                    id: chart5
-                    anchors.fill: parent
-                    axisX: SyncedXAxis {}
-                    theme: chartTheme
-                    axisY: ValueAxis { min: 0; max: 1.2; labelFormat: "%.1f"; titleText: "Gear"; titleVisible: true }
-                    LineSeries { objectName: "gearHandleSeries";   name: "Gear Handle";     color: "#1f77b4" }
-                    LineSeries { objectName: "gearPosition0Series"; name: "Gear Pos 0";      color: "#ff7f0e" }
-                    LineSeries { objectName: "gearPosition1Series"; name: "Gear Pos 1";      color: "#2ca02c" }
-                    LineSeries { objectName: "gearPosition2Series"; name: "Gear Pos 2";      color: "#d62728" }
-                    LineSeries { objectName: "gearOnGround0Series"; name: "Gear On Ground 0"; color: "#9467bd" }
-                    LineSeries { objectName: "gearOnGround1Series"; name: "Gear On Ground 1"; color: "#8c564b" }
-                    LineSeries { objectName: "gearOnGround2Series"; name: "Gear On Ground 2"; color: "#e377c2" }
-                }
-                CursorLine { graphsView: chart5 }
-                EndOfTrajectoryLine { graphsView: chart5 }
+                axisY: ValueAxis { min: 0; max: 1.2; labelFormat: "%.1f"; titleText: "Gear"; titleVisible: true }
+                LineSeries { objectName: "gearHandleSeries" }
+                LineSeries { objectName: "gearPosition0Series" }
+                LineSeries { objectName: "gearPosition1Series" }
+                LineSeries { objectName: "gearPosition2Series" }
+                LineSeries { objectName: "gearOnGround0Series" }
+                LineSeries { objectName: "gearOnGround1Series" }
+                LineSeries { objectName: "gearOnGround2Series" }
             }
 
             ChartBlock {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 180
-                Layout.minimumHeight: 160
-                graphsViewRef: chart6
-                legendEntries: [
-                    { color: "#1f77b4", name: "Brake" },
-                    { color: "#ff7f0e", name: "Flaps Handle" },
-                    { color: "#2ca02c", name: "Spoilers" }
+                series: [
+                    { key: "brake", label: "Brake", color: "#1f77b4", unit: "", decimals: 0, signed: false, isBool: false },
+                    { key: "flaps", label: "Flaps", legend: "Flaps Handle", color: "#ff7f0e", unit: "", decimals: 0, signed: false, isBool: false },
+                    { key: "spoilers", label: "Spoilers", color: "#2ca02c", unit: "", decimals: 1, signed: false, isBool: false }
                 ]
-                tooltipSeries: [
-                    { key: "brake",    label: "Brake",    color: "#1f77b4", unit: "",  decimals: 0, signed: false, isBool: false },
-                    { key: "flaps",    label: "Flaps",    color: "#ff7f0e", unit: "",  decimals: 0, signed: false, isBool: false },
-                    { key: "spoilers", label: "Spoilers", color: "#2ca02c", unit: "",  decimals: 1, signed: false, isBool: false }
-                ]
-                GraphsView {
-                    id: chart6
-                    anchors.fill: parent
-                    axisX: SyncedXAxis {}
-                    theme: chartTheme
-                    axisY: ValueAxis { min: 0; max: 8; labelFormat: "%.1f"; titleText: "Brake/Flaps/Spoilers"; titleVisible: true }
-                    LineSeries { objectName: "brakeSeries";    name: "Brake";         color: "#1f77b4" }
-                    LineSeries { objectName: "flapsSeries";    name: "Flaps Handle";  color: "#ff7f0e" }
-                    LineSeries { objectName: "spoilersSeries"; name: "Spoilers";      color: "#2ca02c" }
-                }
-                CursorLine { graphsView: chart6 }
-                EndOfTrajectoryLine { graphsView: chart6 }
+                axisY: ValueAxis { min: 0; max: 8; labelFormat: "%.1f"; titleText: "Brake/Flaps/Spoilers"; titleVisible: true }
+                LineSeries { objectName: "brakeSeries" }
+                LineSeries { objectName: "flapsSeries" }
+                LineSeries { objectName: "spoilersSeries" }
             }
 
             ChartBlock {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 180
-                Layout.minimumHeight: 160
-                graphsViewRef: chart7
-                legendEntries: [
-                    { color: "#9467bd", name: "Fuel Weight" }
-                ]
-                tooltipSeries: [
+                series: [
                     { key: "fuel", label: "Fuel Weight", color: "#9467bd", unit: "lb", decimals: 0, signed: false, isBool: false }
                 ]
-                GraphsView {
-                    id: chart7
-                    anchors.fill: parent
-                    axisX: SyncedXAxis {}
-                    theme: chartTheme
-                    axisY: ValueAxis { objectName: "fuelYAxis"; labelFormat: "%.0f"; titleText: "Fuel Weight (lb)"; titleVisible: true }
-                    LineSeries { objectName: "fuelWeightSeries"; name: "Fuel Weight"; color: "#9467bd" }
-                }
-                CursorLine { graphsView: chart7 }
-                EndOfTrajectoryLine { graphsView: chart7 }
+                axisY: ValueAxis { objectName: "fuelYAxis"; labelFormat: "%.0f"; titleText: "Fuel Weight (lb)"; titleVisible: true }
+                LineSeries { objectName: "fuelWeightSeries" }
             }
 
             ChartBlock {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 180
-                Layout.minimumHeight: 160
-                graphsViewRef: chart8
-                legendEntries: [{ color: "#e377c2", name: "Pitch" }]
-                tooltipSeries: [
+                series: [
                     { key: "pitch", label: "Pitch", color: "#e377c2", unit: "°", decimals: 1, signed: true, isBool: false }
                 ]
-                GraphsView {
-                    id: chart8
-                    anchors.fill: parent
-                    axisX: SyncedXAxis {}
-                    theme: chartTheme
-                    axisY: ValueAxis { objectName: "pitchYAxis"; labelFormat: "%.0f"; titleText: "Pitch (°)"; titleVisible: true }
-                    LineSeries { objectName: "pitchSeries"; name: "Pitch"; color: "#e377c2" }
-                }
-                CursorLine { graphsView: chart8 }
-                EndOfTrajectoryLine { graphsView: chart8 }
+                axisY: ValueAxis { objectName: "pitchYAxis"; labelFormat: "%.0f"; titleText: "Pitch (°)"; titleVisible: true }
+                LineSeries { objectName: "pitchSeries" }
             }
 
             ChartBlock {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 180
-                Layout.minimumHeight: 160
-                graphsViewRef: chart9
-                legendEntries: [{ color: "#17becf", name: "Bank" }]
-                tooltipSeries: [
+                series: [
                     { key: "bank", label: "Bank", color: "#17becf", unit: "°", decimals: 1, signed: true, isBool: false }
                 ]
-                GraphsView {
-                    id: chart9
-                    anchors.fill: parent
-                    axisX: SyncedXAxis {}
-                    theme: chartTheme
-                    axisY: ValueAxis { objectName: "bankYAxis"; labelFormat: "%.0f"; titleText: "Bank (°)"; titleVisible: true }
-                    LineSeries { objectName: "bankSeries"; name: "Bank"; color: "#17becf" }
-                }
-                CursorLine { graphsView: chart9 }
-                EndOfTrajectoryLine { graphsView: chart9 }
+                axisY: ValueAxis { objectName: "bankYAxis"; labelFormat: "%.0f"; titleText: "Bank (°)"; titleVisible: true }
+                LineSeries { objectName: "bankSeries" }
             }
         }
     }

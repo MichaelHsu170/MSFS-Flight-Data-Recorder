@@ -50,6 +50,7 @@ set(CORE_SOURCES
     ${SRC_DIR}/recorder_bridge.cpp
     ${SRC_DIR}/live_status_panel.cpp
     ${SRC_DIR}/db_connection.cpp
+    ${SRC_DIR}/db_query.cpp
     ${SRC_DIR}/db_history.cpp
     ${SRC_DIR}/db_groups.cpp
     ${SRC_DIR}/trip_history_panel.cpp
@@ -63,6 +64,7 @@ set(CORE_SOURCES
     ${SRC_DIR}/kml_export.cpp
     ${SRC_DIR}/trajectory_view.cpp
     ${SRC_DIR}/main_window.cpp
+    ${SRC_DIR}/app_paths.cpp
     ${SRC_DIR}/app_settings.cpp
     ${SRC_DIR}/logger.cpp
 )

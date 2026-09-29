@@ -119,10 +119,8 @@ private slots:
 	}
 
 	void migrateAddsColumnsMissingFromOlderDatabases() {
-		char path[MAX_PATH];
-		resolve_db_path(path, sizeof(path));
 		sqlite3* db = nullptr;
-		QCOMPARE(sqlite3_open(path, &db), SQLITE_OK);
+		QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
 		exec(db, "CREATE TABLE trips (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, title VARCHAR(256) NOT NULL);");
 		exec(db, "INSERT INTO trips (title) VALUES ('Old Trip');");
 		sqlite3_close(db);
@@ -580,7 +578,9 @@ private slots:
 	void dbConnectionOpensClosesAndMoves() {
 		QVERIFY(!DbConnection::readOnly());
 		QVERIFY(!DbConnection::readWrite());
+		QVERIFY(!openForReading(QStringLiteral("test")));
 		migrate_db();
+		QVERIFY(openForReading(QStringLiteral("test")));
 		DbConnection a = DbConnection::readWrite();
 		QVERIFY(a);
 		sqlite3* raw = a.get();

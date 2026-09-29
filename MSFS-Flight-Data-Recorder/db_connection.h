@@ -4,6 +4,7 @@
 
 #include <utility>
 
+class QString;
 class QWidget;
 
 // Connections for the UI (Trip History, groups, the map's analysis reports)
@@ -46,6 +47,11 @@ private:
 	explicit DbConnection(sqlite3* sql) : sql_(sql) {}
 	sqlite3* sql_ = nullptr;
 };
+
+// DbConnection::readOnly() for a background query. If the database can't be
+// opened, logs "<what>: failed to open read-only connection" and returns a
+// closed connection.
+DbConnection openForReading(const QString& what);
 
 // DbConnection::readWrite() for a UI action. If the database can't be
 // opened, logs "Cannot <action>", shows an error box over parent and returns

@@ -89,13 +89,14 @@ private slots:
 
 	void dmsFormatting() {
 		COORDINATE c = at(43.5, -1.25);
-		QCOMPARE(QString::fromStdString(c.coordinate_decimal_to_dms(COORDINATE::LATITUDE)), QStringLiteral("043 30 00N"));
-		QCOMPARE(QString::fromStdString(c.coordinate_decimal_to_dms(COORDINATE::LONGITUDE)), QStringLiteral("001 15 00W"));
-		// Seconds are truncated, not rounded.
+		QCOMPARE(QString::fromStdString(c.coordinate_decimal_to_dms(COORDINATE::LATITUDE)), QString::fromUtf8("43°30'00.0\"N"));
+		QCOMPARE(QString::fromStdString(c.coordinate_decimal_to_dms(COORDINATE::LONGITUDE)), QString::fromUtf8("1°15'00.0\"W"));
+		// Rounded to a tenth of a second, carrying into the minute and degree
+		// rather than showing 60.0 seconds.
 		COORDINATE t = at(0.9999999, 0);
-		QCOMPARE(QString::fromStdString(t.coordinate_decimal_to_dms(COORDINATE::LATITUDE)), QStringLiteral("000 59 59N"));
-		COORDINATE s = at(-10, 0);
-		QCOMPARE(QString::fromStdString(s.coordinate_decimal_to_dms(COORDINATE::LATITUDE)), QStringLiteral("010 00 00S"));
+		QCOMPARE(QString::fromStdString(t.coordinate_decimal_to_dms(COORDINATE::LATITUDE)), QString::fromUtf8("1°00'00.0\"N"));
+		COORDINATE s = at(-10.5000278, 0);
+		QCOMPARE(QString::fromStdString(s.coordinate_decimal_to_dms(COORDINATE::LATITUDE)), QString::fromUtf8("10°30'00.1\"S"));
 	}
 
 	void dateTimeFormatting() {

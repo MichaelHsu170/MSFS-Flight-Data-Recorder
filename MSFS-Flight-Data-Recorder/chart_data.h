@@ -41,11 +41,13 @@ extern const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES;
 using ChartValues = std::array<double, CHART_SERIES_COUNT>;
 ChartValues chartValues(const TripSamplePoint& point);
 
-// A zulu-time string ("yyyy-MM-ddTHH:mm:ss.zzz..."; see DATETIME::
-// format_date_time() in types.h) as chart X-axis epoch ms. Qt Graphs'
-// DateTimeAxis always labels in local time, so the zulu components are read
-// as a local time -- the labels then show zulu. NaN for a malformed/short
-// string rather than epoch 0 (1970), so a bad point can't drag an axis back
+// A zulu-time string (parseZuluTime() in trip_dataset.h) as chart X-axis
+// epoch ms. Qt Graphs' DateTimeAxis always labels in local time, so the zulu
+// clock is read as a local time -- the labels then show zulu. Known flaw: in
+// a time zone with daylight saving time, zulu times inside the local clock
+// change hour map wrongly (skipped hour: shifted +1 h, then the axis goes
+// backwards; repeated hour: a 1 h gap). NaN for a string parseZuluTime()
+// rejects rather than epoch 0 (1970), so a bad point can't drag an axis back
 // to 1970.
 double chartTimeMs(const QString& zuluTime);
 

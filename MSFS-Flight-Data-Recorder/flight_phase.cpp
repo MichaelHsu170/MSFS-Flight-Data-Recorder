@@ -36,7 +36,7 @@ static Record* first_unresolved(Record* list) {
 }
 
 // Appends a new, zeroed liftoff/touchdown record to the list head..tail and
-// gives it the next lookup sequence number (see LIFTOFF_DATA::seq). db_id is
+// gives it the next lookup sequence number (see CONTACT_RECORD::seq). db_id is
 // -1 until its row is inserted: malloc+memset never runs the member
 // initializer, and 0 would make a later "UPDATE ... WHERE id = 0" silently
 // match nothing. NULL if allocation fails.
@@ -55,6 +55,68 @@ static Record* append_contact_record(struct STATUS* status, Record*& head, Recor
 		tail->next = record;
 	tail = record;
 	return record;
+}
+
+namespace {
+
+// Log/warning text for recording a liftoff marker or a touchdown (see
+// record_contact()).
+struct CONTACT_TEXT {
+	const char* alloc_failed;
+	const char* inserted;      // db_id
+	const char* insert_failed; // trip id, error
+};
+const CONTACT_TEXT LIFTOFF_TEXT = {
+	"Liftoff: malloc failed for liftoff record; this liftoff marker will not be recorded",
+	"Liftoff marker trip_liftoffs row inserted: db_id=%d",
+	"Liftoff (trip %d, subsequent): trip_liftoffs insert failed, this liftoff marker will not be recorded: %s",
+};
+const CONTACT_TEXT TOUCHDOWN_TEXT = {
+	"Landing: malloc failed for touchdown record; this touchdown will not be recorded",
+	"Touchdown trip_touchdowns row inserted: db_id=%d",
+	"Landing (trip %d): trip_touchdowns insert failed, this touchdown will not be recorded: %s",
+};
+
+}
+
+// Records a liftoff marker or touchdown from sample: appends it to the list
+// head..tail and inserts its row right away, so the row survives a crash
+// before stop_recording. Airport/runway fields stay NULL until its lookup
+// resolves. The record, or NULL if allocation failed; inserted says whether
+// its row was written. A failed insert leaves db_id -1, which the lookup
+// completion (on_lookup_resolved()) treats as "row was never inserted;
+// dropping this resolution" -- the marker just loses persistence instead of
+// corrupting downstream state or leaving lookup.pending stuck.
+template <typename Record>
+static Record* record_contact(struct STATUS* status, Record*& head, Record*& tail, CONTACT_TABLE table,
+	const FLIGHT_DATA_RECORD& sample, const CONTACT_TEXT& text, bool& inserted) {
+	inserted = false;
+	Record* record = append_contact_record(status, head, tail);
+	if (record == NULL) {
+		gui_log_printf(status, GUI_LOG_WARNING, "%s", text.alloc_failed);
+		return NULL;
+	}
+	fill_contact_flight_data(record->flight_data, sample);
+	try {
+		record->db_id = db_insert_contact(status, table, status->id_trip, record->flight_data);
+		gui_log_printf(status, GUI_LOG_TRACE, text.inserted, record->db_id);
+		inserted = true;
+	} catch (const db_exception& e) {
+		gui_log_printf(status, GUI_LOG_WARNING, text.insert_failed, status->id_trip, e.message.c_str());
+	}
+	return record;
+}
+
+// Frees the liftoff/touchdown list head..tail, leaving it empty.
+template <typename Record>
+static void free_contact_list(Record*& head, Record*& tail) {
+	while (head != NULL) {
+		Record* cur = head;
+		head = head->next;
+		cur->airport.clear();
+		free(cur);
+	}
+	tail = NULL;
 }
 
 // Clears a liftoff/touchdown lookup slot (liftoff_scratch/destination) once
@@ -101,25 +163,12 @@ void stop_recording(struct STATUS* status) {
 				status->id_trip, e.message.c_str());
 		}
 	}
-	// trip_touchdowns rows were already inserted at touchdown time; just free the list.
-	while (status->flight.touchdown_data != NULL) {
-		struct TOUCHDOWN_DATA* cur = status->flight.touchdown_data;
-		status->flight.touchdown_data = status->flight.touchdown_data->next;
-		cur->airport.clear();
-		free(cur);
-	}
-	status->flight.touchdown_data_end = NULL;
-	// trip_liftoffs rows for subsequent liftoffs were already inserted at
-	// liftoff time; just free the list. The trip's single departure record
+	// trip_touchdowns/trip_liftoffs rows were already inserted when each
+	// happened; just free the lists. The trip's single departure record
 	// (status->departure/departure_db_id) is untouched -- it isn't part of
-	// this list.
-	while (status->flight.liftoff_data != NULL) {
-		struct LIFTOFF_DATA* cur = status->flight.liftoff_data;
-		status->flight.liftoff_data = status->flight.liftoff_data->next;
-		cur->airport.clear();
-		free(cur);
-	}
-	status->flight.liftoff_data_end = NULL;
+	// the liftoff list.
+	free_contact_list(status->flight.touchdown_data, status->flight.touchdown_data_end);
+	free_contact_list(status->flight.liftoff_data, status->flight.liftoff_data_end);
 	// A lookup this trip skipped (because another one was still in flight) and
 	// meant to retry later is now moot -- the trip that needed it is gone.
 	// Note this deliberately leaves lookup.pending/lookup.trip_id
@@ -248,16 +297,15 @@ void on_lookup_resolved(struct STATUS* status, AIRPORT* slot, LOOKUP_OUTCOME out
 		record_airport = &status->departure;
 		record_db_id = status->flight.departure_db_id;
 		record_time = &status->flight.departure_data.time_local;
-	} else if (target == LOOKUP_TARGET::LIFTOFF) {
-		if (LIFTOFF_DATA* lo = first_unresolved(status->flight.liftoff_data)) {
-			record_airport = &lo->airport;
-			record_db_id = lo->db_id;
-			record_time = &lo->flight_data.time_local;
+	} else {
+		CONTACT_RECORD* record = target == LOOKUP_TARGET::LIFTOFF
+			? static_cast<CONTACT_RECORD*>(first_unresolved(status->flight.liftoff_data))
+			: first_unresolved(status->flight.touchdown_data);
+		if (record != NULL) {
+			record_airport = &record->airport;
+			record_db_id = record->db_id;
+			record_time = &record->flight_data.time_local;
 		}
-	} else if (TOUCHDOWN_DATA* td = first_unresolved(status->flight.touchdown_data)) {
-		record_airport = &td->airport;
-		record_db_id = td->db_id;
-		record_time = &td->flight_data.time_local;
 	}
 	const std::string time = record_time != nullptr ? record_time->format_date_time() : std::string("unknown time");
 	// Marks the record resolved without a runway: the departure by its
@@ -505,33 +553,16 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 			gui_log_printf(status, GUI_LOG_TRACE, "Liftoff detected (trip %d, subsequent): lat=%.6f, lon=%.6f, heading=%.1f",
 				status->id_trip, tmp.plane_coordinate.latitude, tmp.plane_coordinate.longitude,
 				tmp.plane_heading_degrees_magnetic);
-			struct LIFTOFF_DATA* tmp_liftoff = append_contact_record(status, status->flight.liftoff_data, status->flight.liftoff_data_end);
-			if (tmp_liftoff == NULL) {
-				gui_log_printf(status, GUI_LOG_WARNING, "Liftoff: malloc failed for liftoff record; this liftoff marker will not be recorded");
-			} else {
-				fill_contact_flight_data(status->flight.liftoff_data_end->flight_data, tmp);
-				// Insert immediately so the row survives a crash before stop_recording.
-				// Airport/runway fields are NULL until the facility callback resolves.
-				// Wrapped in try/catch (mirroring the departure insert above): on
-				// failure db_id stays -1 (set above), which the facility-lookup
-				// completion handlers already treat as "row was never inserted;
-				// dropping this resolution" (see the db_id < 0 guards near the
-				// LOOKUP_TARGET::LIFTOFF/DEPARTURE branches below) -- so this
-				// marker just quietly loses persistence instead of corrupting
-				// downstream state or leaving lookup.pending stuck.
-				try {
-					status->flight.liftoff_data_end->db_id = db_insert_contact(status, CONTACT_TABLE::LIFTOFFS, status->id_trip, status->flight.liftoff_data_end->flight_data);
-					gui_log_printf(status, GUI_LOG_TRACE, "Liftoff marker trip_liftoffs row inserted: db_id=%d", status->flight.liftoff_data_end->db_id);
-					gui_notify_trip_updated(status);
-					// No-op if a previous lookup (departure, an earlier touchdown, or
-					// an earlier liftoff marker) is still resolving -- this liftoff
-					// marker's lookup will be picked up automatically once that one completes,
-					// via request_next_touchdown_facility_lookup().
-					request_next_touchdown_facility_lookup(status);
-				} catch (const db_exception& e) {
-					gui_log_printf(status, GUI_LOG_WARNING, "Liftoff (trip %d, subsequent): trip_liftoffs insert failed, this liftoff marker will not be recorded: %s",
-						status->id_trip, e.message.c_str());
-				}
+			bool inserted = false;
+			record_contact(status, status->flight.liftoff_data, status->flight.liftoff_data_end,
+				CONTACT_TABLE::LIFTOFFS, tmp, LIFTOFF_TEXT, inserted);
+			if (inserted) {
+				gui_notify_trip_updated(status);
+				// No-op if a previous lookup (departure, an earlier touchdown, or
+				// an earlier liftoff marker) is still resolving -- this liftoff
+				// marker's lookup will be picked up automatically once that one completes,
+				// via request_next_touchdown_facility_lookup().
+				request_next_touchdown_facility_lookup(status);
 			}
 		}
 		// Landing
@@ -539,41 +570,25 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 			gui_log_printf(status, GUI_LOG_TRACE, "Touchdown detected (trip %d): lat=%.6f, lon=%.6f, heading=%d",
 				status->id_trip, tmp.plane_coordinate.latitude, tmp.plane_coordinate.longitude,
 				(int)tmp.plane_heading_degrees_magnetic);
-			struct TOUCHDOWN_DATA* tmp_touchdown = append_contact_record(status, status->flight.touchdown_data, status->flight.touchdown_data_end);
-			if (tmp_touchdown == NULL) {
-				gui_log_printf(status, GUI_LOG_WARNING, "Landing: malloc failed for touchdown record; this touchdown will not be recorded");
-			} else {
-				fill_contact_flight_data(status->flight.touchdown_data_end->flight_data, tmp);
+			bool touchdown_inserted = false;
+			if (TOUCHDOWN_DATA* touchdown = record_contact(status, status->flight.touchdown_data, status->flight.touchdown_data_end,
+					CONTACT_TABLE::TOUCHDOWNS, tmp, TOUCHDOWN_TEXT, touchdown_inserted)) {
 				// Freeze this touchdown's own low-altitude position now -- see
 				// TOUCHDOWN_DATA::loc_dh in types.h for why status->flight.loc_dh itself
 				// can't be trusted once this touchdown's facility lookup is queued.
-				status->flight.touchdown_data_end->loc_dh = status->flight.loc_dh;
-				// Insert immediately so the row survives a crash before stop_recording.
-				// Airport/runway fields are NULL until the facility callback resolves.
-				// Wrapped in try/catch (same reasoning as the liftoff branch above):
-				// on failure db_id stays -1 (set above), which the facility-lookup
-				// completion handlers already treat as "row was never inserted;
-				// dropping this resolution". The destination UPDATE, notify, and
-				// facility-lookup request below are deliberately outside this try --
-				// once the row itself is durably inserted they must still run even if
-				// one of them individually fails, so a transient error there can't
-				// suppress the facility lookup for an already-persisted row.
-				bool touchdown_inserted = false;
-				try {
-					status->flight.touchdown_data_end->db_id = db_insert_contact(status, CONTACT_TABLE::TOUCHDOWNS, status->id_trip, status->flight.touchdown_data_end->flight_data);
-					gui_log_printf(status, GUI_LOG_TRACE, "Touchdown trip_touchdowns row inserted: db_id=%d", status->flight.touchdown_data_end->db_id);
-					touchdown_inserted = true;
-				} catch (const db_exception& e) {
-					gui_log_printf(status, GUI_LOG_WARNING, "Landing (trip %d): trip_touchdowns insert failed, this touchdown will not be recorded: %s",
-						status->id_trip, e.message.c_str());
-				}
+				touchdown->loc_dh = status->flight.loc_dh;
+				// The destination UPDATE, notify and facility-lookup request below
+				// are deliberately outside record_contact()'s insert try: once the
+				// row is durably inserted they must still run even if one of them
+				// individually fails, so a transient error there can't suppress the
+				// facility lookup for an already-persisted row.
 				if (touchdown_inserted) {
 					// Update the destination position in trips to reflect this landing.
 					// A failure here only means the trip's destination lat/lon stays
 					// stale -- it must not stop the facility lookup below from being
 					// requested for the touchdown row, which is already persisted.
 					try {
-						db_set_trip_destination_position(status, status->id_trip, status->flight.touchdown_data_end->flight_data.coordinate);
+						db_set_trip_destination_position(status, status->id_trip, touchdown->flight_data.coordinate);
 					} catch (const db_exception& e) {
 						gui_log_printf(status, GUI_LOG_WARNING, "Landing (trip %d): failed to update trip destination: %s",
 							status->id_trip, e.message.c_str());

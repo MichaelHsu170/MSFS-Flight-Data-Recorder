@@ -13,8 +13,7 @@ QString call(const char* function, const QJsonDocument& argument) {
 
 // The fields liftoff and touchdown markers share (their popups show the same
 // runway/attitude/wind details).
-template <typename Point>
-QJsonObject runwayContactToJson(const Point& t) {
+QJsonObject runwayContactToJson(const RunwayContactPoint& t) {
 	QJsonObject obj;
 	obj["lat"] = t.latitude;
 	obj["lng"] = t.longitude;

@@ -23,7 +23,7 @@ namespace TestSupport {
 
 // Switches the working directory to a fresh temporary directory (once per
 // process) and deletes flight_data.db/settings.ini at the paths the app
-// itself resolves (resolve_db_path(), AppSettings::filePath()).
+// itself resolves (db_file_path(), AppSettings::filePath()).
 void isolateFiles();
 void removeDatabase();
 void removeSettings();

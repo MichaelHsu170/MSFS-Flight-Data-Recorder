@@ -1,4 +1,5 @@
 #include "db_groups.h"
+#include "db_query.h"
 #include "logger.h"
 
 #include "sqlite3.h"
@@ -7,26 +8,21 @@ std::vector<TripGroup> queryAllGroups(sqlite3* sql) {
 	std::vector<TripGroup> groups;
 	Logger::log(Logger::Trace, "DB", QStringLiteral("queryAllGroups: loading group list"));
 
-	const char* stmt_txt =
+	const QString context = QStringLiteral("queryAllGroups");
+	sqlite3_stmt* stmt = prepareStatement(sql,
 		"SELECT g.id, g.name, (SELECT COUNT(*) FROM trips t WHERE t.group_id = g.id) "
-		"FROM trip_groups g ORDER BY g.sort_order, g.name COLLATE NOCASE";
-	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
+		"FROM trip_groups g ORDER BY g.sort_order, g.name COLLATE NOCASE", context);
+	if (!stmt)
 		return groups;
-
-	int rc;
-	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+	forEachRow(sql, stmt, context, [&](sqlite3_stmt* row) {
 		TripGroup group;
-		group.id = sqlite3_column_int(stmt, 0);
-		const unsigned char* text = sqlite3_column_text(stmt, 1);
-		group.name = text ? QString::fromUtf8(reinterpret_cast<const char*>(text)) : QString();
-		group.tripCount = sqlite3_column_int(stmt, 2);
+		group.id = sqlite3_column_int(row, 0);
+		group.name = columnText(row, 1);
+		group.tripCount = sqlite3_column_int(row, 2);
 		groups.push_back(group);
-	}
-	if (rc != SQLITE_DONE)
-		Logger::logf(Logger::Warning, "DB", "queryAllGroups: step failed: %s", sqlite3_errmsg(sql));
+		return true;
+	});
 	Logger::logf(Logger::Trace, "DB", "queryAllGroups: loaded %d groups", (int)groups.size());
-	sqlite3_finalize(stmt);
 	return groups;
 }
 
@@ -38,33 +34,21 @@ bool groupNameExists(sqlite3* sql, const QString& name, int excludeGroupId) {
 	// each satisfying the NOCASE index despite being the same name to a user.
 	// Qt's QString::compare(..., Qt::CaseInsensitive) does full Unicode case
 	// folding, so pull every existing name and compare in C++ instead.
-	const char* stmt_txt = "SELECT id, name FROM trip_groups";
-	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
-		// Fails open (reports "no duplicate") on a prepare error, which is safe:
-		// the caller's subsequent INSERT/UPDATE will still hit the COLLATE
-		// NOCASE UNIQUE index and fail instead of succeeding wrongly, for any
-		// duplicate that index is able to catch. Just log it, since a prepare
-		// failure here is otherwise silent.
-		Logger::logf(Logger::Warning, "DB", "groupNameExists: prepare failed: %s", sqlite3_errmsg(sql));
+	// Fails open (reports "no duplicate") on a prepare error, which is safe:
+	// the caller's subsequent INSERT/UPDATE will still hit the COLLATE NOCASE
+	// UNIQUE index and fail instead of succeeding wrongly, for any duplicate
+	// that index is able to catch.
+	const QString context = QStringLiteral("groupNameExists");
+	sqlite3_stmt* stmt = prepareStatement(sql, "SELECT id, name FROM trip_groups", context);
+	if (!stmt)
 		return false;
-	}
 	bool exists = false;
-	int rc;
-	while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-		int id = sqlite3_column_int(stmt, 0);
-		if (id == excludeGroupId)
-			continue;
-		const unsigned char* text = sqlite3_column_text(stmt, 1);
-		QString existingName = text ? QString::fromUtf8(reinterpret_cast<const char*>(text)) : QString();
-		if (QString::compare(existingName, name, Qt::CaseInsensitive) == 0) {
+	forEachRow(sql, stmt, context, [&](sqlite3_stmt* row) {
+		if (sqlite3_column_int(row, 0) != excludeGroupId
+			&& QString::compare(columnText(row, 1), name, Qt::CaseInsensitive) == 0)
 			exists = true;
-			break;
-		}
-	}
-	if (!exists && rc != SQLITE_DONE)
-		Logger::logf(Logger::Warning, "DB", "groupNameExists: step failed: %s", sqlite3_errmsg(sql));
-	sqlite3_finalize(stmt);
+		return !exists;
+	});
 	return exists;
 }
 
@@ -89,15 +73,11 @@ int insertGroup(sqlite3* sql, const QString& name) {
 		sqlite3_finalize(maxStmt);
 	}
 
-	const char* stmt_txt = "INSERT INTO trip_groups (name, sort_order) VALUES (?, ?)";
-	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
-		return 0;
-	QByteArray utf8 = trimmed.toUtf8();
-	sqlite3_bind_text(stmt, 1, utf8.constData(), utf8.size(), SQLITE_TRANSIENT);
-	sqlite3_bind_int(stmt, 2, nextSortOrder);
-	bool ok = sqlite3_step(stmt) == SQLITE_DONE;
-	sqlite3_finalize(stmt);
+	const bool ok = execStatement(sql, "INSERT INTO trip_groups (name, sort_order) VALUES (?, ?)", QStringLiteral("insertGroup"),
+		[&](sqlite3_stmt* stmt) {
+			bindText(stmt, 1, trimmed);
+			sqlite3_bind_int(stmt, 2, nextSortOrder);
+		});
 	if (ok)
 		Logger::logf(Logger::Trace, "DB", "insertGroup: created group %d", (int)sqlite3_last_insert_rowid(sql));
 	return ok ? (int)sqlite3_last_insert_rowid(sql) : 0;
@@ -109,17 +89,13 @@ bool renameGroup(sqlite3* sql, int groupId, const QString& newName) {
 		Logger::logf(Logger::Trace, "DB", "renameGroup(%d): rejected (blank or duplicate name)", groupId);
 		return false;
 	}
-	const char* stmt_txt = "UPDATE trip_groups SET name = ? WHERE id = ?";
-	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
-		return false;
-	QByteArray utf8 = trimmed.toUtf8();
-	sqlite3_bind_text(stmt, 1, utf8.constData(), utf8.size(), SQLITE_TRANSIENT);
-	sqlite3_bind_int(stmt, 2, groupId);
-	bool ok = sqlite3_step(stmt) == SQLITE_DONE;
-	sqlite3_finalize(stmt);
+	const bool ok = execStatement(sql, "UPDATE trip_groups SET name = ? WHERE id = ?", QStringLiteral("renameGroup(%1)").arg(groupId),
+		[&](sqlite3_stmt* stmt) {
+			bindText(stmt, 1, trimmed);
+			sqlite3_bind_int(stmt, 2, groupId);
+		});
 	if (ok)
-		Logger::logf(Logger::Trace, "DB", "renameGroup(%d): renamed to \"%s\"", groupId, utf8.constData());
+		Logger::logf(Logger::Trace, "DB", "renameGroup(%d): renamed to \"%s\"", groupId, qUtf8Printable(trimmed));
 	return ok;
 }
 
@@ -128,84 +104,49 @@ bool deleteGroup(sqlite3* sql, int groupId) {
 	// must commit together -- without an explicit transaction, a failure on the
 	// second leaves trips permanently pointing at a group_id that no longer
 	// exists in trip_groups.
-	const char* stmts[] = {
-		"UPDATE trips SET group_id = NULL WHERE group_id = ?",
-		"DELETE FROM trip_groups WHERE id = ?",
-	};
+	const QString context = QStringLiteral("deleteGroup(%1)").arg(groupId);
 	Logger::logf(Logger::Trace, "DB", "deleteGroup(%d): starting delete", groupId);
-	if (sqlite3_exec(sql, "BEGIN TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "deleteGroup(%d): BEGIN TRANSACTION failed: %s", groupId, sqlite3_errmsg(sql));
-		return false;
-	}
-	for (const char* stmt_txt : stmts) {
-		sqlite3_stmt* stmt = nullptr;
-		if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
-			if (stmt) sqlite3_finalize(stmt);
-			sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
-			return false;
-		}
-		sqlite3_bind_int(stmt, 1, groupId);
-		bool ok = sqlite3_step(stmt) == SQLITE_DONE;
-		sqlite3_finalize(stmt);
-		if (!ok) {
-			sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
-			return false;
-		}
-	}
-	if (sqlite3_exec(sql, "COMMIT TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "deleteGroup(%d): COMMIT TRANSACTION failed: %s", groupId, sqlite3_errmsg(sql));
-		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
-		return false;
-	}
-	Logger::logf(Logger::Trace, "DB", "deleteGroup(%d): delete committed", groupId);
-	return true;
+	const bool ok = inTransaction(sql, context, [&]() {
+		auto bindGroup = [&](sqlite3_stmt* stmt) { sqlite3_bind_int(stmt, 1, groupId); };
+		return execStatement(sql, "UPDATE trips SET group_id = NULL WHERE group_id = ?", context, bindGroup)
+			&& execStatement(sql, "DELETE FROM trip_groups WHERE id = ?", context, bindGroup);
+	});
+	if (ok)
+		Logger::logf(Logger::Trace, "DB", "deleteGroup(%d): delete committed", groupId);
+	return ok;
 }
 
 bool reorderGroups(sqlite3* sql, const std::vector<int>& orderedGroupIds) {
 	Logger::logf(Logger::Trace, "DB", "reorderGroups: persisting order for %zu group(s)", orderedGroupIds.size());
-	if (sqlite3_exec(sql, "BEGIN TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "reorderGroups: BEGIN TRANSACTION failed: %s", sqlite3_errmsg(sql));
-		return false;
-	}
-	const char* stmt_txt = "UPDATE trip_groups SET sort_order = ? WHERE id = ?";
-	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
-		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
-		return false;
-	}
-	bool ok = true;
-	for (int i = 0; ok && i < (int)orderedGroupIds.size(); i++) {
-		sqlite3_bind_int(stmt, 1, i);
-		sqlite3_bind_int(stmt, 2, orderedGroupIds[i]);
-		ok = sqlite3_step(stmt) == SQLITE_DONE;
-		sqlite3_reset(stmt);
-	}
-	sqlite3_finalize(stmt);
-	if (!ok) {
-		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
-		return false;
-	}
-	if (sqlite3_exec(sql, "COMMIT TRANSACTION", nullptr, nullptr, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "reorderGroups: COMMIT TRANSACTION failed: %s", sqlite3_errmsg(sql));
-		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
-		return false;
-	}
-	Logger::log(Logger::Trace, "DB", QStringLiteral("reorderGroups: order committed"));
-	return true;
+	const QString context = QStringLiteral("reorderGroups");
+	const bool ok = inTransaction(sql, context, [&]() {
+		sqlite3_stmt* stmt = prepareStatement(sql, "UPDATE trip_groups SET sort_order = ? WHERE id = ?", context);
+		if (!stmt)
+			return false;
+		bool stepped = true;
+		for (int i = 0; stepped && i < (int)orderedGroupIds.size(); i++) {
+			sqlite3_bind_int(stmt, 1, i);
+			sqlite3_bind_int(stmt, 2, orderedGroupIds[i]);
+			stepped = sqlite3_step(stmt) == SQLITE_DONE;
+			sqlite3_reset(stmt);
+		}
+		sqlite3_finalize(stmt);
+		return stepped;
+	});
+	if (ok)
+		Logger::log(Logger::Trace, "DB", QStringLiteral("reorderGroups: order committed"));
+	return ok;
 }
 
 bool setTripGroup(sqlite3* sql, int tripId, int groupId) {
-	const char* stmt_txt = "UPDATE trips SET group_id = ? WHERE id = ?";
-	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK)
-		return false;
-	if (groupId > 0)
-		sqlite3_bind_int(stmt, 1, groupId);
-	else
-		sqlite3_bind_null(stmt, 1);
-	sqlite3_bind_int(stmt, 2, tripId);
-	bool ok = sqlite3_step(stmt) == SQLITE_DONE;
-	sqlite3_finalize(stmt);
+	const bool ok = execStatement(sql, "UPDATE trips SET group_id = ? WHERE id = ?", QStringLiteral("setTripGroup(trip %1)").arg(tripId),
+		[&](sqlite3_stmt* stmt) {
+			if (groupId > 0)
+				sqlite3_bind_int(stmt, 1, groupId);
+			else
+				sqlite3_bind_null(stmt, 1);
+			sqlite3_bind_int(stmt, 2, tripId);
+		});
 	if (ok)
 		Logger::logf(Logger::Trace, "DB", "setTripGroup(trip %d): group set to %d", tripId, groupId);
 	return ok;

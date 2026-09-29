@@ -1,10 +1,10 @@
 #include <QApplication>
 #include <QIcon>
-#include <QDir>
 #include <QFileInfo>
-#include <QSettings>
 #include <QQuickStyle>
 
+#include "app_paths.h"
+#include "app_settings.h"
 #include "logger.h"
 #include "db.h"
 #include "recorder_bridge.h"
@@ -112,30 +112,15 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // Determine base directory for log and settings files.
-    // Debug: use cwd so each project checkout is self-contained.
-    // Release: use the exe's directory so they follow the installation.
-#ifdef _DEBUG
-    const QString baseDir = QDir::current().absolutePath();
-#else
-    const QString baseDir = (argc > 0)
-        ? QFileInfo(QString::fromLocal8Bit(argv[0])).absoluteDir().absolutePath()
-        : QDir::current().absolutePath();
-#endif
-
-    // Read verbose level before QApplication: QSettings with an explicit file
-    // path works without QCoreApplication, and so does QDir::current().
-    {
-        QSettings s(QDir(baseDir).filePath(QStringLiteral("settings.ini")), QSettings::IniFormat);
-        Logger::Level lvl = Logger::levelFromString(
-            s.value(QStringLiteral("logging/verbose"), QStringLiteral("INFO")).toString());
-        Logger::init(lvl, baseDir + QStringLiteral("/msfs_fdr_debug.log"), QStringLiteral(APP_VERSION));
-    }
+    // Before QApplication, so everything from here on is logged: neither
+    // app_file_path() nor AppSettings::logLevel() needs a QCoreApplication.
+    const QString logPath = QString::fromStdString(app_file_path("msfs_fdr_debug.log"));
+    Logger::init(Logger::levelFromString(AppSettings::logLevel()), logPath, QStringLiteral(APP_VERSION));
     qInstallMessageHandler(logMessageHandler);
     SetUnhandledExceptionFilter(crashHandler);
     std::set_terminate(terminateHandler);
 
-    Logger::logf(Logger::Trace, "Qt", "Base directory resolved to %s", qUtf8Printable(baseDir));
+    Logger::logf(Logger::Trace, "Qt", "Base directory resolved to %s", qUtf8Printable(QFileInfo(logPath).absolutePath()));
 
     // Must be called before QApplication: QQC2 auto-detects the style from
     // the QWidget app's QStyle, which resolves to "Fusion" in a Widgets context
