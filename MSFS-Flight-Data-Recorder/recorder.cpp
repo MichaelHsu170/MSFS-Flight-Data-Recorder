@@ -1731,7 +1731,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			if (rep == &status->departure) {
 				gui_log_printf(status, GUI_LOG_INFO, "Liftoff from %s (%s) runway %s at %s", rep->name, rep->icao, strRunway.c_str(), status->data.time_local.format_date_time().c_str());
 				db_set_trip_airport(status, status->id_trip, TRIP_END::DEPARTURE, status->departure, strRunway.c_str());
-
 				gui_notify_trip_updated(status);
 				if (status->departure_db_id < 0) {
 					// The immediate INSERT at liftoff time never got a valid rowid
@@ -1741,7 +1740,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					gui_log_printf(status, GUI_LOG_WARNING, "Liftoff from %s (%s) runway %s: trip_liftoffs row was never inserted; dropping this resolution", rep->name, rep->icao, strRunway.c_str());
 				} else {
 					db_set_contact_airport(status, CONTACT_TABLE::LIFTOFFS, status->departure_db_id, *rep, strRunway.c_str());
-
 				}
 			} else if (status->facility_lookup_is_liftoff) {
 				// Mirrors the touchdown branch below, but against liftoff_data and
@@ -1762,7 +1760,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						gui_log_printf(status, GUI_LOG_WARNING, "Liftoff (subsequent) from %s (%s) runway %s: trip_liftoffs row was never inserted; dropping this resolution", rep->name, rep->icao, strRunway.c_str());
 					} else {
 						db_set_contact_airport(status, CONTACT_TABLE::LIFTOFFS, tmp->db_id, tmp->airport, strRunway.c_str());
-
 					}
 					gui_notify_trip_updated(status);
 				}
@@ -1797,7 +1794,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s (%s) runway %s at %s", rep->name, rep->icao, strRunway.c_str(),
 					tmp != NULL ? tmp->flight_data.time_local.format_date_time().c_str() : "unknown time");
 				db_set_trip_airport(status, status->id_trip, TRIP_END::DESTINATION, status->destination, strRunway.c_str());
-
 				if (tmp != NULL) {
 					tmp->airport.copy(rep);
 					if (tmp->db_id < 0) {
@@ -1808,7 +1804,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						gui_log_printf(status, GUI_LOG_WARNING, "Touchdown at %s (%s) runway %s: trip_touchdowns row was never inserted; dropping this resolution", rep->name, rep->icao, strRunway.c_str());
 					} else {
 						db_set_contact_airport(status, CONTACT_TABLE::TOUCHDOWNS, tmp->db_id, tmp->airport, strRunway.c_str());
-
 					}
 					gui_notify_trip_updated(status);
 				}
@@ -1900,7 +1895,12 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					status->data.time_local.format_date_time().c_str());
 				status->departure.runway_act.index = -2;
 				db_set_trip_airport(status, status->id_trip, TRIP_END::DEPARTURE, status->departure, nullptr);
-
+				// The departure's own trip_liftoffs row gets the airport too, like
+				// every other liftoff and touchdown resolved without a runway.
+				if (status->departure_db_id < 0)
+					gui_log_printf(status, GUI_LOG_WARNING, "Liftoff from %s (%s): trip_liftoffs row was never inserted; dropping this resolution", rep->name, rep->icao);
+				else
+					db_set_contact_airport(status, CONTACT_TABLE::LIFTOFFS, status->departure_db_id, status->departure, nullptr);
 				gui_notify_trip_updated(status);
 			} else if (status->facility_lookup_is_liftoff) {
 				// Mirrors the touchdown branch below, but against liftoff_data and
@@ -1928,7 +1928,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						gui_log_printf(status, GUI_LOG_WARNING, "Liftoff (subsequent) from %s (%s): trip_liftoffs row was never inserted; dropping this resolution", rep->name, rep->icao);
 					} else {
 						db_set_contact_airport(status, CONTACT_TABLE::LIFTOFFS, tmp->db_id, tmp->airport, nullptr);
-
 					}
 					gui_notify_trip_updated(status);
 				}
@@ -1947,7 +1946,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
 					tmp != NULL ? tmp->flight_data.time_local.format_date_time().c_str() : "unknown time");
 				db_set_trip_airport(status, status->id_trip, TRIP_END::DESTINATION, status->destination, nullptr);
-
 				if (tmp != NULL) {
 					memcpy(tmp->airport.icao, rep->icao, sizeof(rep->icao));
 					memcpy(tmp->airport.name, rep->name, sizeof(rep->name));
@@ -1961,7 +1959,6 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						gui_log_printf(status, GUI_LOG_WARNING, "Touchdown at %s (%s): trip_touchdowns row was never inserted; dropping this resolution", rep->name, rep->icao);
 					} else {
 						db_set_contact_airport(status, CONTACT_TABLE::TOUCHDOWNS, tmp->db_id, tmp->airport, nullptr);
-
 					}
 					gui_notify_trip_updated(status);
 				}

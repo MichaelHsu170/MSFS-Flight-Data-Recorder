@@ -480,11 +480,12 @@ private slots:
 		QCOMPARE(t["departure_icao"].toString(), QStringLiteral("TEST"));
 		QCOMPARE(t["departure_name"].toString(), QStringLiteral("Test Field"));
 		QVERIFY(t["departure_rwy"].isNull());
-		// Current behavior, suspected bug: this branch updates trips only, so
-		// the departure's own trip_liftoffs row keeps no airport at all.
+		// The departure's own trip_liftoffs row gets the airport too.
 		const QVariantMap lo = liftoffs(tripId).value(0);
-		QVERIFY(lo["icao"].isNull());
+		QCOMPARE(lo["icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(lo["airport_name"].toString(), QStringLiteral("Test Field"));
 		QVERIFY(lo["runway"].isNull());
+		QVERIFY(lo["distance_length"].isNull());
 	}
 
 	void touchAndGoNearRunwayGivesMarkerAirportWithoutRunway() {
@@ -520,6 +521,9 @@ private slots:
 		const QVariantMap t = trip(tripId);
 		QCOMPARE(t["departure_icao"].toString(), QStringLiteral("TEST"));
 		QVERIFY(t["departure_rwy"].isNull());
+		const QVariantMap lo = liftoffs(tripId).value(0);
+		QCOMPARE(lo["icao"].toString(), QStringLiteral("TEST"));
+		QVERIFY(lo["runway"].isNull());
 	}
 
 	void offAirportBeyond5kmIsCoordinateOnly() {

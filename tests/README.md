@@ -99,12 +99,7 @@ Recorded here rather than fixed, so the tests describe today's behavior.
    `sin(...) == 0`, which rounding never hits, so two points on the same
    course return a point instead of the (360,360) "no intersection" marker
    the runway matching relies on (`tst_types::intersectionOfCoincidentCoursesReturnsAPoint`).
-3. **Departure without a runway match loses its airport on the liftoff row.**
-   In the "near a runway" and "within 5 km" fallbacks the departure branch
-   updates `trips` but not the departure's `trip_liftoffs` row
-   (`tst_airport_lookup::nearRunwayButOffItGivesAirportWithoutRunway`).
-   Later liftoffs and touchdowns do get it.
-4. **Live trip display is unreachable.** `RecorderBridge::liveDataPoint` is
+3. **Live trip display is unreachable.** `RecorderBridge::liveDataPoint` is
    emitted but not connected to anything, `TrajectoryView::setLiveFollow()`
    is never called, and live trips can't be selected in Trip History, so
    `TrajectoryView::appendLivePoint()` and the panels' `appendLivePoint()`
