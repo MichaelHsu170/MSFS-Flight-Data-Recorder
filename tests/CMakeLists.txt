@@ -49,6 +49,7 @@ fdr_add_test(tst_live_status_panel)
 fdr_add_test(tst_manage_groups_dialog)
 fdr_add_test(tst_map_bridge)
 fdr_add_test(tst_runway_match)
+fdr_add_test(tst_airport_candidates)
 fdr_add_test(tst_event_filter)
 fdr_add_test(tst_chart_data)
 # Checks the series table against the QML that declares the series.

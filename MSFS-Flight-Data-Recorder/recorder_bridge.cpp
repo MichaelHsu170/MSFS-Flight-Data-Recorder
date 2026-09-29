@@ -1,5 +1,6 @@
 #include "recorder_bridge.h"
 #include "recorder.h"
+#include "airport_lookup.h"
 #include "db.h"
 #include "gui_notify.h"
 #include "logger.h"
@@ -137,21 +138,16 @@ void RecorderBridge::tryConnect() {
 	// A fresh SimConnect connection starts with no data definitions registered
 	// and no requests outstanding, so any facility-lookup state carried over
 	// from a previous connection (e.g. MSFS quit/crashed with a lookup still
-	// in flight, leaving facility_lookup_pending stuck true forever with no
+	// in flight, leaving lookup.pending stuck true forever with no
 	// response ever able to arrive to clear it) must be reset here. Safe to
 	// clear departure/destination unconditionally: shutdown() always stops
 	// any active recording before connected_ can go false and tryConnect()
 	// can fire again, so no trip can be recording at this point.
-	status_.facility_lookup_pending = false;
-	status_.facility_lookup_trip_id = -1;
+	reset_airport_lookup(&status_);
 	status_.facility_lookup_departure_needed = false;
-	status_.facility_lookup_for = LOOKUP_TARGET::TOUCHDOWN;
 	status_.departure_lookup_initiated = false;
-	status_.facility_lookup_send_id = 0;
-	status_.facility_definition_runways_added = false;
 	status_.departure.clear();
 	status_.destination.clear();
-	status_.liftoff_scratch.clear();
 
 	Logger::logf(Logger::Trace, "Recorder", "SimConnect connected: sample_interval_ms=%d",
 		status_.sample_interval_ms);

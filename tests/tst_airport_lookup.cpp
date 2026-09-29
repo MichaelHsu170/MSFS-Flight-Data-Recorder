@@ -447,7 +447,7 @@ private slots:
 		QVERIFY(trip(tripId)["departure_icao"].isNull());
 		QVERIFY(liftoffs(tripId).value(0)["icao"].isNull());
 		QCOMPARE(sim.status().departure.runway_act.index, -2);
-		QVERIFY(!sim.status().facility_lookup_pending);
+		QVERIFY(!sim.status().lookup.pending);
 		// The lookup slot is free again: the next touchdown gets its own lookup.
 		touchDown(sim, onRunway(rwy, 500));
 		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(2));
@@ -610,7 +610,7 @@ private slots:
 		const int tripId = startOnRunway(sim, rwy);
 		liftOff(sim, onRunway(rwy, 1800));
 		sim.send(exceptionPacket(3, 1)); // SendID of an early registration call
-		QVERIFY(sim.status().facility_lookup_pending);
+		QVERIFY(sim.status().lookup.pending);
 		sim.serviceLookups();
 		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
 	}
@@ -627,7 +627,7 @@ private slots:
 		sim.serviceLookups();
 		QVERIFY(trip(first)["departure_icao"].isNull());
 		QVERIFY(trip(second)["departure_icao"].isNull());
-		QVERIFY(!sim.status().facility_lookup_pending);
+		QVERIFY(!sim.status().lookup.pending);
 	}
 
 	void departureDeferredBehindStaleLookupStillResolves() {
@@ -651,12 +651,12 @@ private slots:
 		const RunwaySpec rwy = eastWestRunway();
 		startOnRunway(sim, rwy);
 		liftOff(sim, onRunway(rwy, 1800));
-		QVERIFY(sim.status().facility_lookup_pending);
+		QVERIFY(sim.status().lookup.pending);
 		sim.send(recvPacket(SIMCONNECT_RECV_ID_QUIT, sizeof(SIMCONNECT_RECV)));
 		sim.pump();
 		QVERIFY(waitFor([] { return FakeSim::state().openCalls == 2; }, 5000));
-		QVERIFY(!sim.status().facility_lookup_pending);
-		QVERIFY(!sim.status().facility_definition_runways_added);
+		QVERIFY(!sim.status().lookup.pending);
+		QVERIFY(!sim.status().lookup.runway_definition_added);
 	}
 };
 
