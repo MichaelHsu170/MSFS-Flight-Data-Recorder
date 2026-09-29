@@ -109,7 +109,7 @@ private slots:
 		// for field -- they are separate code paths over the same field list.
 		FlightDriver sim;
 		double value = 1.25;
-#define SET_NUM(dbColumn, memberExpr) sim.record.memberExpr = (value += 1.0);
+#define SET_NUM(dbColumn, memberExpr, sqlType) sim.record.memberExpr = (value += 1.0);
 		TRIP_DATA_NUM_FIELDS(SET_NUM)
 #undef SET_NUM
 		int boolIndex = 0;
@@ -142,7 +142,7 @@ private slots:
 		expected.plane_touchdown_pitch_degrees = -sent.plane_touchdown_pitch_degrees;
 		expected.plane_touchdown_bank_degrees = -sent.plane_touchdown_bank_degrees;
 		int i = 0;
-#define CHECK_NUM(dbColumn, memberExpr) \
+#define CHECK_NUM(dbColumn, memberExpr, sqlType) \
 		QVERIFY2(i < (int)p.rawNums.size() && p.rawNums[i] == expected.memberExpr, #dbColumn " (stored)"); \
 		QVERIFY2(i < (int)livePoint.rawNums.size() && livePoint.rawNums[i] == expected.memberExpr, #dbColumn " (live)"); \
 		++i;

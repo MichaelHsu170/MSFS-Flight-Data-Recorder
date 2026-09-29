@@ -43,21 +43,15 @@ TripSamplePoint toSamplePoint(FLIGHT_DATA_RECORD sample) {
 	p.zuluTime = QString::fromStdString(sample.time_zulu.format_date_time());
 	p.localTime = QString::fromStdString(sample.time_local.format_date_time());
 
-#define TRIP_NUM_PUSH(dbColumn, memberExpr) \
+#define TRIP_NUM_PUSH(dbColumn, memberExpr, sqlType) \
 	p.rawNums.push_back((double)(sample.memberExpr));
 	TRIP_DATA_NUM_FIELDS(TRIP_NUM_PUSH)
 #undef TRIP_NUM_PUSH
 
-	{
-		uint32_t bgs[4] = {};
-#define TRIP_BOOL_PACK(name, group, bit) \
-		bgs[group] |= sample.name != 0 ? (1u << (bit)) : 0u;
-		TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_PACK)
-#undef TRIP_BOOL_PACK
-		p.boolGroup1 = bgs[1];
-		p.boolGroup2 = bgs[2];
-		p.boolGroup3 = bgs[3];
-	}
+	const std::array<uint32_t, 4> boolGroups = tripBoolGroups(sample);
+	p.boolGroup1 = boolGroups[1];
+	p.boolGroup2 = boolGroups[2];
+	p.boolGroup3 = boolGroups[3];
 
 	return p;
 }

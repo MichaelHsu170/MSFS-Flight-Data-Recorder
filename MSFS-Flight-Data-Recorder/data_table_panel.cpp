@@ -30,7 +30,7 @@ namespace {
 QStringList buildFieldRowLabels() {
 	QStringList labels = { QStringLiteral("Time (Zulu)"), QStringLiteral("Time (Local)"), QStringLiteral("GPS Position") };
 
-#define TRIP_NUM_FIELD(dbColumn, memberExpr) \
+#define TRIP_NUM_FIELD(dbColumn, memberExpr, sqlType) \
 	if (QLatin1String(#dbColumn) != QLatin1String("gps_position_lat") && QLatin1String(#dbColumn) != QLatin1String("gps_position_lon")) \
 		labels.append(tripFieldLabel(#dbColumn));
 	TRIP_DATA_NUM_FIELDS(TRIP_NUM_FIELD)
@@ -252,7 +252,7 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 		static int gpsLatIdx = -1, gpsLonIdx = -1;
 		if (gpsLatIdx < 0) {
 			int idx = 0;
-#define TRIP_NUM_INDEX(dbColumn, memberExpr) \
+#define TRIP_NUM_INDEX(dbColumn, memberExpr, sqlType) \
 			if (QLatin1String(#dbColumn) == QLatin1String("gps_position_lat")) gpsLatIdx = idx; \
 			else if (QLatin1String(#dbColumn) == QLatin1String("gps_position_lon")) gpsLonIdx = idx; \
 			++idx;
@@ -267,7 +267,7 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 		table_->item(2, 1)->setToolTip(gpsPos);
 
 		int ni = 0, row = 3;
-#define TRIP_NUM_DISP(dbColumn, memberExpr) \
+#define TRIP_NUM_DISP(dbColumn, memberExpr, sqlType) \
 		if (QLatin1String(#dbColumn) != QLatin1String("gps_position_lat") && QLatin1String(#dbColumn) != QLatin1String("gps_position_lon")) { \
 			if (row < table_->rowCount()) { \
 				QString v = ni < (int)point.rawNums.size() \

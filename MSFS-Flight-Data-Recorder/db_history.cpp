@@ -217,7 +217,7 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 
 	std::vector<int> numFieldIndices;
 	numFieldIndices.reserve(128);
-#define TRIP_NUM_IDX(dbColumn, memberExpr) \
+#define TRIP_NUM_IDX(dbColumn, memberExpr, sqlType) \
 	numFieldIndices.push_back(indexOf(#dbColumn));
 	TRIP_DATA_NUM_FIELDS(TRIP_NUM_IDX)
 #undef TRIP_NUM_IDX

@@ -53,7 +53,7 @@ private slots:
 	void fieldListsHaveNoDuplicates() {
 		QSet<QString> names;
 		int count = 0;
-#define ADD_NUM(dbColumn, memberExpr) names.insert(QStringLiteral(#dbColumn)); ++count;
+#define ADD_NUM(dbColumn, memberExpr, sqlType) names.insert(QStringLiteral(#dbColumn)); ++count;
 		TRIP_DATA_NUM_FIELDS(ADD_NUM)
 #undef ADD_NUM
 #define ADD_BOOL(name, group, bit) names.insert(QStringLiteral(#name)); ++count;

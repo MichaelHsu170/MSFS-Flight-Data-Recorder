@@ -17,7 +17,7 @@ namespace {
 
 int numIndex(const char* column) {
 	int i = 0, found = -1;
-#define FIND(dbColumn, memberExpr) if (QLatin1String(#dbColumn) == QLatin1String(column)) found = i; ++i;
+#define FIND(dbColumn, memberExpr, sqlType) if (QLatin1String(#dbColumn) == QLatin1String(column)) found = i; ++i;
 	TRIP_DATA_NUM_FIELDS(FIND)
 #undef FIND
 	return found;
@@ -28,7 +28,7 @@ TripSamplePoint makePoint(double base, const char* zulu) {
 	p.zuluTime = QString::fromLatin1(zulu);
 	p.localTime = QStringLiteral("local ") + QString::fromLatin1(zulu);
 	int n = 0;
-#define COUNT(dbColumn, memberExpr) ++n;
+#define COUNT(dbColumn, memberExpr, sqlType) ++n;
 	TRIP_DATA_NUM_FIELDS(COUNT)
 #undef COUNT
 	for (int i = 0; i < n; ++i)

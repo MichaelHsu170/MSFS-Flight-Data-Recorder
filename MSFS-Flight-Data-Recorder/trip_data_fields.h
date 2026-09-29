@@ -3,6 +3,9 @@
 #include <QString>
 #include <QStringList>
 
+#include <array>
+#include <cstdint>
+
 // Turns a trip_data column / FLIGHT_DATA_RECORD member name like
 // "plane_touchdown_latitude" into a display label like "Plane Touchdown
 // Latitude". Shared by both producers below so the label shown in
@@ -18,169 +21,167 @@ inline QString tripFieldLabel(const char* name) {
 }
 
 // Canonical list of every trip_data column that represents flight telemetry
-// (i.e. every column except the `id`/`trip` key columns and `zulu_time`/
+// (i.e. every column except the `trip` key column and `zulu_time`/
 // `local_time`, which DataTablePanel shows in their own dedicated rows
-// instead). Expanded via X-macros by three consumers that must agree on the
-// same field set and order: recorder_bridge.cpp (live path fills
-// TripSamplePoint::rawNums from FLIGHT_DATA_RECORD), db_history.cpp
-// (historical path fills rawNums from sqlite3_column_double), and
-// data_table_panel.cpp (formats rawNums/boolGroups to display strings using
-// these same macros in showPoint). NOT yet used by the write path: the
-// trip_data schema in db.h (DATABASE_TABLE_FIELDS) and db_write_worker()'s
-// INSERT column list, bool_group packing and binds in db.cpp are still
-// hand-written copies of this list and must be kept in the same order by hand.
+// instead). Expanded via X-macros by every consumer that must agree on the
+// same field set and order: the trip_data schema, INSERT and binds (db.cpp),
+// recorder_bridge.cpp (live path fills TripSamplePoint::rawNums from
+// FLIGHT_DATA_RECORD), db_history.cpp (historical path fills rawNums from
+// sqlite3_column_double), and data_table_panel.cpp (formats rawNums/
+// boolGroups to display strings in showPoint).
 //
-// TRIP_DATA_NUM_FIELDS(X): X(dbColumnName, recordMemberExpr) -- a plain
+// TRIP_DATA_NUM_FIELDS(X): X(dbColumn, recordMemberExpr, sqlType) -- a plain
 // numeric trip_data column. recordMemberExpr is the FLIGHT_DATA_RECORD
-// expression (dotted for the COORDINATE-typed fields) that supplies it live.
+// expression (dotted for the COORDINATE-typed fields) that supplies it live;
+// sqlType (INTEGER or REAL) is the column's type in the schema.
 //
 // TRIP_DATA_BOOL_FIELDS(X): X(name, boolGroup, bitIndex) -- a boolean that's
 // bit-packed into bool_group_<boolGroup> at bit <bitIndex> for storage (see
-// db.cpp's db_write_worker()); `name` is both the trip_data column's FLIGHT_DATA_
-// RECORD member name (live path reads it as a plain bool) and the storage
-// bit's label (historical path unpacks it from the matching bool_group).
+// tripBoolGroups() below); `name` is both the FLIGHT_DATA_RECORD member name
+// (live path reads it as a plain bool) and the storage bit's label
+// (historical path unpacks it from the matching bool_group).
 
 #define TRIP_DATA_NUM_FIELDS(X) \
-	X(eng_exhaust_gas_temperature_1, eng_exhaust_gas_temperature_1) \
-	X(eng_exhaust_gas_temperature_2, eng_exhaust_gas_temperature_2) \
-	X(eng_oil_temperature_1, eng_oil_temperature_1) \
-	X(eng_oil_temperature_2, eng_oil_temperature_2) \
-	X(ambient_temperature, ambient_temperature) \
-	X(autopilot_heading_lock_dir, autopilot_heading_lock_dir) \
-	X(aileron_left_deflection, aileron_left_deflection) \
-	X(aileron_right_deflection, aileron_right_deflection) \
-	X(aileron_trim, aileron_trim) \
-	X(elevator_deflection, elevator_deflection) \
-	X(elevator_trim_position, elevator_trim_position) \
-	X(elevon_deflection, elevon_deflection) \
-	X(rudder_deflection, rudder_deflection) \
-	X(rudder_trim, rudder_trim) \
-	X(plane_bank_degrees, plane_bank_degrees) \
-	X(plane_heading_degrees_gyro, plane_heading_degrees_gyro) \
-	X(plane_heading_degrees_magnetic, plane_heading_degrees_magnetic) \
-	X(plane_heading_degrees_true, plane_heading_degrees_true) \
-	X(plane_latitude, plane_coordinate.latitude) \
-	X(plane_longitude, plane_coordinate.longitude) \
-	X(plane_pitch_degrees, plane_pitch_degrees) \
-	X(plane_touchdown_bank_degrees, plane_touchdown_bank_degrees) \
-	X(plane_touchdown_heading_degrees_magnetic, plane_touchdown_heading_degrees_magnetic) \
-	X(plane_touchdown_heading_degrees_true, plane_touchdown_heading_degrees_true) \
-	X(plane_touchdown_latitude, plane_touchdown_coordinate.latitude) \
-	X(plane_touchdown_longitude, plane_touchdown_coordinate.longitude) \
-	X(plane_touchdown_pitch_degrees, plane_touchdown_pitch_degrees) \
-	X(gps_ground_true_heading, gps_ground_true_heading) \
-	X(gps_ground_true_track, gps_ground_true_track) \
-	X(gps_position_lat, gps_position_coordinate.latitude) \
-	X(gps_position_lon, gps_position_coordinate.longitude) \
-	X(gyro_drift_error, gyro_drift_error) \
-	X(heading_indicator, heading_indicator) \
-	X(magnetic_compass, magnetic_compass) \
-	X(ambient_wind_direction, ambient_wind_direction) \
-	X(gear_position_0, gear_position_0) \
-	X(gear_position_1, gear_position_1) \
-	X(gear_position_2, gear_position_2) \
-	X(gear_warning_0, gear_warning_0) \
-	X(gear_warning_1, gear_warning_1) \
-	X(gear_warning_2, gear_warning_2) \
-	X(bleed_air_source_control_1, bleed_air_source_control_1) \
-	X(bleed_air_source_control_2, bleed_air_source_control_2) \
-	X(engine_type, engine_type) \
-	X(turb_eng_ignition_switch_ex1_1, turb_eng_ignition_switch_ex1_1) \
-	X(turb_eng_ignition_switch_ex1_2, turb_eng_ignition_switch_ex1_2) \
-	X(fuel_cross_feed_l, fuel_cross_feed_l) \
-	X(fuel_cross_feed_r, fuel_cross_feed_r) \
-	X(surface_condition, surface_condition) \
-	X(surface_type, surface_type) \
-	X(pitot_heat_switch, pitot_heat_switch) \
-	X(plane_touchdown_normal_velocity, plane_touchdown_normal_velocity) \
-	X(vertical_speed, vertical_speed) \
-	X(autopilot_altitude_lock_var, autopilot_altitude_lock_var) \
-	X(plane_altitude, plane_altitude) \
-	X(plane_alt_above_ground, plane_alt_above_ground) \
-	X(radio_height, radio_height) \
-	X(indicated_altitude, indicated_altitude) \
-	X(indicated_altitude_calibrated, indicated_altitude_calibrated) \
-	X(pressurization_cabin_altitude, pressurization_cabin_altitude) \
-	X(autopilot_vertical_hold_var, autopilot_vertical_hold_var) \
-	X(engine_control_select, engine_control_select) \
-	X(fuel_selected_quantity_l, fuel_selected_quantity_l) \
-	X(fuel_selected_quantity_r, fuel_selected_quantity_r) \
-	X(fuel_total_quantity, fuel_total_quantity) \
-	X(g_force, g_force) \
-	X(general_eng_elapsed_time_1, general_eng_elapsed_time_1) \
-	X(general_eng_elapsed_time_2, general_eng_elapsed_time_2) \
-	X(ambient_pressure, ambient_pressure) \
-	X(kohlsman_setting_hg, kohlsman_setting_hg) \
-	X(autopilot_airspeed_hold_var, autopilot_airspeed_hold_var) \
-	X(ground_velocity, ground_velocity) \
-	X(airspeed_indicated, airspeed_indicated) \
-	X(airspeed_true, airspeed_true) \
-	X(ambient_wind_velocity, ambient_wind_velocity) \
-	X(airspeed_mach, airspeed_mach) \
-	X(light_states, light_states) \
-	X(gps_ground_speed, gps_ground_speed) \
-	X(gps_position_alt, gps_position_alt) \
-	X(pressure_altitude, pressure_altitude) \
-	X(ambient_visibility, ambient_visibility) \
-	X(barometer_pressure, barometer_pressure) \
-	X(kohlsman_setting_mb, kohlsman_setting_mb) \
-	X(autopilot_mach_hold_var, autopilot_mach_hold_var) \
-	X(auto_brake_switch_cb, auto_brake_switch_cb) \
-	X(flaps_handle_index, flaps_handle_index) \
-	X(flaps_num_handle_positions, flaps_num_handle_positions) \
-	X(general_eng_throttle_managed_mode_1, general_eng_throttle_managed_mode_1) \
-	X(general_eng_throttle_managed_mode_2, general_eng_throttle_managed_mode_2) \
-	X(number_of_engines, number_of_engines) \
-	X(turb_eng_vibration_1, turb_eng_vibration_1) \
-	X(turb_eng_vibration_2, turb_eng_vibration_2) \
-	X(gear_handle_position, gear_handle_position) \
-	X(aileron_left_deflection_pct, aileron_left_deflection_pct) \
-	X(aileron_right_deflection_pct, aileron_right_deflection_pct) \
-	X(aileron_trim_pct, aileron_trim_pct) \
-	X(elevator_deflection_pct, elevator_deflection_pct) \
-	X(elevator_trim_pct, elevator_trim_pct) \
-	X(rudder_deflection_pct, rudder_deflection_pct) \
-	X(rudder_trim_pct, rudder_trim_pct) \
-	X(spoilers_handle_position, spoilers_handle_position) \
-	X(spoilers_left_position, spoilers_left_position) \
-	X(spoilers_right_position, spoilers_right_position) \
-	X(apu_pct_rpm, apu_pct_rpm) \
-	X(apu_pct_starter, apu_pct_starter) \
-	X(fuel_selected_quantity_percent_l, fuel_selected_quantity_percent_l) \
-	X(fuel_selected_quantity_percent_r, fuel_selected_quantity_percent_r) \
-	X(pitot_ice_pct, pitot_ice_pct) \
-	X(autopilot_throttle_max_thrust, autopilot_throttle_max_thrust) \
-	X(electrical_battery_estimated_capacity_pct, electrical_battery_estimated_capacity_pct) \
-	X(general_eng_damage_percent_1, general_eng_damage_percent_1) \
-	X(general_eng_damage_percent_2, general_eng_damage_percent_2) \
-	X(general_eng_throttle_lever_position_1, general_eng_throttle_lever_position_1) \
-	X(general_eng_throttle_lever_position_2, general_eng_throttle_lever_position_2) \
-	X(turb_eng_n1_1, turb_eng_n1_1) \
-	X(turb_eng_n1_2, turb_eng_n1_2) \
-	X(turb_eng_n2_1, turb_eng_n2_1) \
-	X(turb_eng_n2_2, turb_eng_n2_2) \
-	X(brake_indicator, brake_indicator) \
-	X(turb_eng_fuel_flow_pph_1, turb_eng_fuel_flow_pph_1) \
-	X(turb_eng_fuel_flow_pph_2, turb_eng_fuel_flow_pph_2) \
-	X(general_eng_fuel_used_since_start_1, general_eng_fuel_used_since_start_1) \
-	X(general_eng_fuel_used_since_start_2, general_eng_fuel_used_since_start_2) \
-	X(empty_weight, empty_weight) \
-	X(total_weight, total_weight) \
-	X(fuel_total_quantity_weight, fuel_total_quantity_weight) \
-	X(fuel_weight_per_gallon, fuel_weight_per_gallon) \
-	X(eng_hydraulic_pressure_1, eng_hydraulic_pressure_1) \
-	X(eng_hydraulic_pressure_2, eng_hydraulic_pressure_2) \
-	X(eng_oil_pressure_1, eng_oil_pressure_1) \
-	X(eng_oil_pressure_2, eng_oil_pressure_2) \
-	X(hydraulic_pressure_1, hydraulic_pressure_1) \
-	X(hydraulic_pressure_2, hydraulic_pressure_2) \
-	X(apu_bleed_pressure_received_by_engine, apu_bleed_pressure_received_by_engine) \
-	X(turb_eng_bleed_air_1, turb_eng_bleed_air_1) \
-	X(turb_eng_bleed_air_2, turb_eng_bleed_air_2) \
-	X(wheel_rpm_0, wheel_rpm_0) \
-	X(wheel_rpm_1, wheel_rpm_1) \
-	X(wheel_rpm_2, wheel_rpm_2) \
-	X(electrical_battery_voltage, electrical_battery_voltage)
+	X(eng_exhaust_gas_temperature_1, eng_exhaust_gas_temperature_1, INTEGER) \
+	X(eng_exhaust_gas_temperature_2, eng_exhaust_gas_temperature_2, INTEGER) \
+	X(eng_oil_temperature_1, eng_oil_temperature_1, INTEGER) \
+	X(eng_oil_temperature_2, eng_oil_temperature_2, INTEGER) \
+	X(ambient_temperature, ambient_temperature, INTEGER) \
+	X(autopilot_heading_lock_dir, autopilot_heading_lock_dir, INTEGER) \
+	X(aileron_left_deflection, aileron_left_deflection, REAL) \
+	X(aileron_right_deflection, aileron_right_deflection, REAL) \
+	X(aileron_trim, aileron_trim, REAL) \
+	X(elevator_deflection, elevator_deflection, REAL) \
+	X(elevator_trim_position, elevator_trim_position, REAL) \
+	X(elevon_deflection, elevon_deflection, REAL) \
+	X(rudder_deflection, rudder_deflection, REAL) \
+	X(rudder_trim, rudder_trim, REAL) \
+	X(plane_bank_degrees, plane_bank_degrees, REAL) \
+	X(plane_heading_degrees_gyro, plane_heading_degrees_gyro, INTEGER) \
+	X(plane_heading_degrees_magnetic, plane_heading_degrees_magnetic, INTEGER) \
+	X(plane_heading_degrees_true, plane_heading_degrees_true, INTEGER) \
+	X(plane_latitude, plane_coordinate.latitude, REAL) \
+	X(plane_longitude, plane_coordinate.longitude, REAL) \
+	X(plane_pitch_degrees, plane_pitch_degrees, REAL) \
+	X(plane_touchdown_bank_degrees, plane_touchdown_bank_degrees, REAL) \
+	X(plane_touchdown_heading_degrees_magnetic, plane_touchdown_heading_degrees_magnetic, INTEGER) \
+	X(plane_touchdown_heading_degrees_true, plane_touchdown_heading_degrees_true, INTEGER) \
+	X(plane_touchdown_latitude, plane_touchdown_coordinate.latitude, REAL) \
+	X(plane_touchdown_longitude, plane_touchdown_coordinate.longitude, REAL) \
+	X(plane_touchdown_pitch_degrees, plane_touchdown_pitch_degrees, REAL) \
+	X(gps_ground_true_heading, gps_ground_true_heading, INTEGER) \
+	X(gps_ground_true_track, gps_ground_true_track, INTEGER) \
+	X(gps_position_lat, gps_position_coordinate.latitude, REAL) \
+	X(gps_position_lon, gps_position_coordinate.longitude, REAL) \
+	X(gyro_drift_error, gyro_drift_error, INTEGER) \
+	X(heading_indicator, heading_indicator, INTEGER) \
+	X(magnetic_compass, magnetic_compass, INTEGER) \
+	X(ambient_wind_direction, ambient_wind_direction, INTEGER) \
+	X(gear_position_0, gear_position_0, INTEGER) \
+	X(gear_position_1, gear_position_1, INTEGER) \
+	X(gear_position_2, gear_position_2, INTEGER) \
+	X(gear_warning_0, gear_warning_0, INTEGER) \
+	X(gear_warning_1, gear_warning_1, INTEGER) \
+	X(gear_warning_2, gear_warning_2, INTEGER) \
+	X(bleed_air_source_control_1, bleed_air_source_control_1, INTEGER) \
+	X(bleed_air_source_control_2, bleed_air_source_control_2, INTEGER) \
+	X(engine_type, engine_type, INTEGER) \
+	X(turb_eng_ignition_switch_ex1_1, turb_eng_ignition_switch_ex1_1, INTEGER) \
+	X(turb_eng_ignition_switch_ex1_2, turb_eng_ignition_switch_ex1_2, INTEGER) \
+	X(fuel_cross_feed_l, fuel_cross_feed_l, INTEGER) \
+	X(fuel_cross_feed_r, fuel_cross_feed_r, INTEGER) \
+	X(surface_condition, surface_condition, INTEGER) \
+	X(surface_type, surface_type, INTEGER) \
+	X(pitot_heat_switch, pitot_heat_switch, INTEGER) \
+	X(plane_touchdown_normal_velocity, plane_touchdown_normal_velocity, INTEGER) \
+	X(vertical_speed, vertical_speed, INTEGER) \
+	X(autopilot_altitude_lock_var, autopilot_altitude_lock_var, INTEGER) \
+	X(plane_altitude, plane_altitude, INTEGER) \
+	X(plane_alt_above_ground, plane_alt_above_ground, INTEGER) \
+	X(radio_height, radio_height, INTEGER) \
+	X(indicated_altitude, indicated_altitude, INTEGER) \
+	X(indicated_altitude_calibrated, indicated_altitude_calibrated, INTEGER) \
+	X(pressurization_cabin_altitude, pressurization_cabin_altitude, INTEGER) \
+	X(autopilot_vertical_hold_var, autopilot_vertical_hold_var, INTEGER) \
+	X(engine_control_select, engine_control_select, INTEGER) \
+	X(fuel_selected_quantity_l, fuel_selected_quantity_l, INTEGER) \
+	X(fuel_selected_quantity_r, fuel_selected_quantity_r, INTEGER) \
+	X(fuel_total_quantity, fuel_total_quantity, INTEGER) \
+	X(g_force, g_force, REAL) \
+	X(general_eng_elapsed_time_1, general_eng_elapsed_time_1, REAL) \
+	X(general_eng_elapsed_time_2, general_eng_elapsed_time_2, REAL) \
+	X(ambient_pressure, ambient_pressure, REAL) \
+	X(kohlsman_setting_hg, kohlsman_setting_hg, REAL) \
+	X(autopilot_airspeed_hold_var, autopilot_airspeed_hold_var, INTEGER) \
+	X(ground_velocity, ground_velocity, INTEGER) \
+	X(airspeed_indicated, airspeed_indicated, INTEGER) \
+	X(airspeed_true, airspeed_true, INTEGER) \
+	X(ambient_wind_velocity, ambient_wind_velocity, INTEGER) \
+	X(airspeed_mach, airspeed_mach, REAL) \
+	X(light_states, light_states, INTEGER) \
+	X(gps_ground_speed, gps_ground_speed, INTEGER) \
+	X(gps_position_alt, gps_position_alt, INTEGER) \
+	X(pressure_altitude, pressure_altitude, INTEGER) \
+	X(ambient_visibility, ambient_visibility, INTEGER) \
+	X(barometer_pressure, barometer_pressure, INTEGER) \
+	X(kohlsman_setting_mb, kohlsman_setting_mb, INTEGER) \
+	X(autopilot_mach_hold_var, autopilot_mach_hold_var, REAL) \
+	X(auto_brake_switch_cb, auto_brake_switch_cb, INTEGER) \
+	X(flaps_handle_index, flaps_handle_index, INTEGER) \
+	X(flaps_num_handle_positions, flaps_num_handle_positions, INTEGER) \
+	X(general_eng_throttle_managed_mode_1, general_eng_throttle_managed_mode_1, REAL) \
+	X(general_eng_throttle_managed_mode_2, general_eng_throttle_managed_mode_2, REAL) \
+	X(number_of_engines, number_of_engines, INTEGER) \
+	X(turb_eng_vibration_1, turb_eng_vibration_1, REAL) \
+	X(turb_eng_vibration_2, turb_eng_vibration_2, REAL) \
+	X(gear_handle_position, gear_handle_position, REAL) \
+	X(aileron_left_deflection_pct, aileron_left_deflection_pct, REAL) \
+	X(aileron_right_deflection_pct, aileron_right_deflection_pct, REAL) \
+	X(aileron_trim_pct, aileron_trim_pct, REAL) \
+	X(elevator_deflection_pct, elevator_deflection_pct, REAL) \
+	X(elevator_trim_pct, elevator_trim_pct, REAL) \
+	X(rudder_deflection_pct, rudder_deflection_pct, REAL) \
+	X(rudder_trim_pct, rudder_trim_pct, REAL) \
+	X(spoilers_handle_position, spoilers_handle_position, REAL) \
+	X(spoilers_left_position, spoilers_left_position, REAL) \
+	X(spoilers_right_position, spoilers_right_position, REAL) \
+	X(apu_pct_rpm, apu_pct_rpm, REAL) \
+	X(apu_pct_starter, apu_pct_starter, REAL) \
+	X(fuel_selected_quantity_percent_l, fuel_selected_quantity_percent_l, REAL) \
+	X(fuel_selected_quantity_percent_r, fuel_selected_quantity_percent_r, REAL) \
+	X(pitot_ice_pct, pitot_ice_pct, REAL) \
+	X(autopilot_throttle_max_thrust, autopilot_throttle_max_thrust, REAL) \
+	X(electrical_battery_estimated_capacity_pct, electrical_battery_estimated_capacity_pct, REAL) \
+	X(general_eng_damage_percent_1, general_eng_damage_percent_1, REAL) \
+	X(general_eng_damage_percent_2, general_eng_damage_percent_2, REAL) \
+	X(general_eng_throttle_lever_position_1, general_eng_throttle_lever_position_1, REAL) \
+	X(general_eng_throttle_lever_position_2, general_eng_throttle_lever_position_2, REAL) \
+	X(turb_eng_n1_1, turb_eng_n1_1, REAL) \
+	X(turb_eng_n1_2, turb_eng_n1_2, REAL) \
+	X(turb_eng_n2_1, turb_eng_n2_1, REAL) \
+	X(turb_eng_n2_2, turb_eng_n2_2, REAL) \
+	X(brake_indicator, brake_indicator, INTEGER) \
+	X(turb_eng_fuel_flow_pph_1, turb_eng_fuel_flow_pph_1, INTEGER) \
+	X(turb_eng_fuel_flow_pph_2, turb_eng_fuel_flow_pph_2, INTEGER) \
+	X(general_eng_fuel_used_since_start_1, general_eng_fuel_used_since_start_1, INTEGER) \
+	X(general_eng_fuel_used_since_start_2, general_eng_fuel_used_since_start_2, INTEGER) \
+	X(empty_weight, empty_weight, INTEGER) \
+	X(total_weight, total_weight, INTEGER) \
+	X(fuel_total_quantity_weight, fuel_total_quantity_weight, INTEGER) \
+	X(fuel_weight_per_gallon, fuel_weight_per_gallon, REAL) \
+	X(eng_hydraulic_pressure_1, eng_hydraulic_pressure_1, INTEGER) \
+	X(eng_hydraulic_pressure_2, eng_hydraulic_pressure_2, INTEGER) \
+	X(eng_oil_pressure_1, eng_oil_pressure_1, INTEGER) \
+	X(eng_oil_pressure_2, eng_oil_pressure_2, INTEGER) \
+	X(hydraulic_pressure_1, hydraulic_pressure_1, INTEGER) \
+	X(hydraulic_pressure_2, hydraulic_pressure_2, INTEGER) \
+	X(apu_bleed_pressure_received_by_engine, apu_bleed_pressure_received_by_engine, INTEGER) \
+	X(turb_eng_bleed_air_1, turb_eng_bleed_air_1, INTEGER) \
+	X(turb_eng_bleed_air_2, turb_eng_bleed_air_2, INTEGER) \
+	X(wheel_rpm_0, wheel_rpm_0, INTEGER) \
+	X(wheel_rpm_1, wheel_rpm_1, INTEGER) \
+	X(wheel_rpm_2, wheel_rpm_2, INTEGER) \
+	X(electrical_battery_voltage, electrical_battery_voltage, REAL)
 
 #define TRIP_DATA_BOOL_FIELDS(X) \
 	X(autopilot_airspeed_hold, 1, 0) \
@@ -279,3 +280,16 @@ inline QString tripFieldLabel(const char* name) {
 	X(warning_voltage, 3, 29) \
 	X(sim_on_ground, 3, 30) \
 	X(kohlsman_setting_std, 3, 31)
+
+// The bool_group_<n> values for a FLIGHT_DATA_RECORD (indexed 1-3; [0] is
+// unused): each TRIP_DATA_BOOL_FIELDS member that is non-zero sets its bit.
+// A template only so this header needn't include the SimConnect headers.
+template <typename Record>
+std::array<uint32_t, 4> tripBoolGroups(const Record& record) {
+	std::array<uint32_t, 4> groups{};
+#define TRIP_BOOL_PACK(name, group, bit) \
+	groups[group] |= record.name != 0 ? (1u << (bit)) : 0u;
+	TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_PACK)
+#undef TRIP_BOOL_PACK
+	return groups;
+}
