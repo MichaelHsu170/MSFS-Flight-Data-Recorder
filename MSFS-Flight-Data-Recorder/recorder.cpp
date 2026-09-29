@@ -632,6 +632,64 @@ static void fill_contact_flight_data(FLIGHT_DATA& data, const FLIGHT_DATA_RECORD
 	data.time_local = sample.time_local;
 }
 
+// strncpy that always null-terminates, into a char array.
+template <size_t N>
+static void copy_cstr(char (&dst)[N], const char* src) {
+	strncpy(dst, src, N - 1);
+	dst[N - 1] = '\0';
+}
+
+// The earliest liftoff/touchdown in list whose airport lookup hasn't
+// resolved yet (runway_act.distances[0] still -1), or NULL. Lookups resolve
+// in order, so this is the record an in-flight lookup of that kind is for.
+template <typename Record>
+static Record* first_unresolved(Record* list) {
+	while (list != NULL && list->airport.runway_act.distances[0] != -1)
+		list = list->next;
+	return list;
+}
+
+// Appends a new, zeroed liftoff/touchdown record to the list head..tail and
+// gives it the next lookup sequence number (see LIFTOFF_DATA::seq). db_id is
+// -1 until its row is inserted: malloc+memset never runs the member
+// initializer, and 0 would make a later "UPDATE ... WHERE id = 0" silently
+// match nothing. NULL if allocation fails.
+template <typename Record>
+static Record* append_contact_record(struct STATUS* status, Record*& head, Record*& tail) {
+	Record* record = (Record*)malloc(sizeof(Record));
+	if (record == NULL)
+		return NULL;
+	memset(record, 0, sizeof(Record));
+	record->airport.clear();
+	record->db_id = -1;
+	record->seq = status->next_facility_lookup_seq++;
+	if (head == NULL)
+		head = record;
+	else
+		tail->next = record;
+	tail = record;
+	return record;
+}
+
+// Clears a liftoff/touchdown lookup slot (liftoff_scratch/destination) once
+// its lookup has resolved. If another record is still waiting for its own
+// lookup, the slot's ICAO and region are kept: FACILITY_DATA_AIRPORT doesn't
+// carry them (only AIRPORT_LIST does), and that record's AIRPORT_LIST may
+// already have filled them in before its FACILITY_DATA_END arrives.
+static void clear_lookup_slot(AIRPORT* slot, bool another_waiting) {
+	char saved_icao[sizeof(slot->icao)];
+	char saved_region[sizeof(slot->region)];
+	if (another_waiting) {
+		memcpy(saved_icao, slot->icao, sizeof(saved_icao));
+		memcpy(saved_region, slot->region, sizeof(saved_region));
+	}
+	slot->clear();
+	if (another_waiting) {
+		memcpy(slot->icao, saved_icao, sizeof(slot->icao));
+		memcpy(slot->region, saved_region, sizeof(slot->region));
+	}
+}
+
 void stop_recording(struct STATUS* status) {
 	gui_log_printf(status, GUI_LOG_TRACE, "stop_recording: trip=%d, last_sample=%s",
 		status->id_trip, status->last_sample != NULL ? "present" : "none");
@@ -736,28 +794,31 @@ void wait_for_db_writers(struct STATUS* status) {
 // which requires strict in-order resolution -- skipping straight to a later
 // touchdown here would attribute its resolved airport/runway to an earlier,
 // still-unresolved one instead.
+// Starts the facility lookup for target at position/heading: an AIRPORT_LIST
+// request, whose response (and the FACILITY_DATA ones it leads to) the
+// dispatch handlers below resolve against facility_lookup_target(). Only one
+// lookup is in flight at a time -- callers check facility_lookup_pending.
+static void start_facility_lookup(struct STATUS* status, LOOKUP_TARGET target, const COORDINATE& position, int heading) {
+	status->facility_lookup_for = target;
+	status->facility_lookup_pending = TRUE;
+	status->facility_lookup_trip_id = status->id_trip;
+	status->facility_lookup_coordinate = position;
+	status->facility_lookup_heading = heading;
+	SimConnect_RequestFacilitiesList_EX1(status->hSimConnect, SIMCONNECT_FACILITY_LIST_TYPE_AIRPORT, REQUEST_AIRPORTS);
+	SimConnect_GetLastSentPacketID(status->hSimConnect, &status->facility_lookup_send_id);
+}
+
 static void request_next_touchdown_facility_lookup(struct STATUS* status) {
 	if (status->facility_lookup_pending)
 		return;
 	if (status->facility_lookup_departure_needed) {
 		gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up deferred departure lookup (trip %d)", status->id_trip);
 		status->facility_lookup_departure_needed = FALSE;
-		status->facility_lookup_is_liftoff = FALSE;
-		status->facility_lookup_is_departure = TRUE;
-		status->facility_lookup_pending = TRUE;
-		status->facility_lookup_trip_id = status->id_trip;
-		status->facility_lookup_coordinate = status->facility_lookup_departure_coordinate;
-		status->facility_lookup_heading = status->facility_lookup_departure_heading;
-		SimConnect_RequestFacilitiesList_EX1(status->hSimConnect, SIMCONNECT_FACILITY_LIST_TYPE_AIRPORT, REQUEST_AIRPORTS);
-		SimConnect_GetLastSentPacketID(status->hSimConnect, &status->facility_lookup_send_id);
+		start_facility_lookup(status, LOOKUP_TARGET::DEPARTURE, status->facility_lookup_departure_coordinate, status->facility_lookup_departure_heading);
 		return;
 	}
-	struct TOUCHDOWN_DATA* next_td = status->touchdown_data;
-	while (next_td != NULL && next_td->airport.runway_act.distances[0] != -1)
-		next_td = next_td->next;
-	struct LIFTOFF_DATA* next_lo = status->liftoff_data;
-	while (next_lo != NULL && next_lo->airport.runway_act.distances[0] != -1)
-		next_lo = next_lo->next;
+	struct TOUCHDOWN_DATA* next_td = first_unresolved(status->touchdown_data);
+	struct LIFTOFF_DATA* next_lo = first_unresolved(status->liftoff_data);
 	if (next_td == NULL && next_lo == NULL)
 		return;
 	// Both lists are each individually in chronological order (appended at
@@ -767,45 +828,36 @@ static void request_next_touchdown_facility_lookup(struct STATUS* status) {
 	// candidates actually happened first, so FACILITY_DATA_END's strict
 	// in-order-resolution assumption still holds across the combined stream.
 	bool pick_liftoff = next_td == NULL || (next_lo != NULL && next_lo->seq < next_td->seq);
-	status->facility_lookup_is_liftoff = pick_liftoff;
-	status->facility_lookup_is_departure = FALSE;
 	gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up queued %s lookup (trip %d)",
 		pick_liftoff ? "liftoff" : "touchdown", status->id_trip);
-	status->facility_lookup_pending = TRUE;
-	status->facility_lookup_trip_id = status->id_trip;
-	status->facility_lookup_coordinate = pick_liftoff ? next_lo->flight_data.coordinate : next_td->flight_data.coordinate;
-	status->facility_lookup_heading = pick_liftoff ? next_lo->flight_data.heading : next_td->flight_data.heading;
-	SimConnect_RequestFacilitiesList_EX1(status->hSimConnect, SIMCONNECT_FACILITY_LIST_TYPE_AIRPORT, REQUEST_AIRPORTS);
-	SimConnect_GetLastSentPacketID(status->hSimConnect, &status->facility_lookup_send_id);
+	const FLIGHT_DATA& next = pick_liftoff ? next_lo->flight_data : next_td->flight_data;
+	start_facility_lookup(status, pick_liftoff ? LOOKUP_TARGET::LIFTOFF : LOOKUP_TARGET::TOUCHDOWN, next.coordinate, next.heading);
 }
 
 // Resolves which AIRPORT slot the in-flight facility lookup (AIRPORT_LIST /
 // FACILITY_DATA / FACILITY_DATA_END / EXCEPTION) targets. Deliberately reads
-// only facility_lookup_is_departure/facility_lookup_is_liftoff -- both
-// captured once, at the same three call sites that start a lookup (the
-// deferred-departure and immediate-departure branches above, and the
-// queued-pickup branch in request_next_touchdown_facility_lookup()) -- rather
-// than any live/mutable state such as status->departure.runway_act.index.
+// only facility_lookup_for -- captured once, by start_facility_lookup() --
+// rather than any live/mutable state such as status->departure.runway_act.index.
 // That field used to be used for this instead, but it can be reset to -1 by
 // a *later* trip's status->departure.clear() while an older trip's liftoff-
 // marker or destination lookup is still in flight, which would misattribute
-// the stale response to &status->departure. See facility_lookup_is_departure
-// in types.h for the full history.
+// the stale response to &status->departure. See facility_lookup_for in
+// types.h for the full history.
 static AIRPORT* facility_lookup_target(struct STATUS* status) {
-	if (status->facility_lookup_is_departure)
+	if (status->facility_lookup_for == LOOKUP_TARGET::DEPARTURE)
 		return &status->departure;
 	// Liftoff-marker and touchdown/destination lookups use separate scratch
 	// objects (status->liftoff_scratch vs. status->destination) even though
 	// they're never in flight at the same time -- see destination's/
 	// liftoff_scratch's declarations in types.h for why they're kept apart
 	// instead of sharing one field.
-	return status->facility_lookup_is_liftoff ? &status->liftoff_scratch : &status->destination;
+	return status->facility_lookup_for == LOOKUP_TARGET::LIFTOFF ? &status->liftoff_scratch : &status->destination;
 }
 
 // Human-readable label for gui_log_printf tracing, matching whichever slot
 // facility_lookup_target() returned for this same in-flight lookup.
 static const char* facility_lookup_target_label(struct STATUS* status, AIRPORT* apt) {
-	return (apt == &status->departure) ? "departure" : status->facility_lookup_is_liftoff ? "liftoff" : "destination";
+	return (apt == &status->departure) ? "departure" : status->facility_lookup_for == LOOKUP_TARGET::LIFTOFF ? "liftoff" : "destination";
 }
 
 // Issues the SimConnect facility-data (runway) request for
@@ -820,10 +872,8 @@ static void facility_lookup_request_candidate(struct STATUS* status, int idx) {
 	char* ident = status->facility_lookup_top[idx].ident;
 	char* region = status->facility_lookup_top[idx].region;
 	AIRPORT* apt = facility_lookup_target(status);
-	strncpy(apt->icao, ident, sizeof(apt->icao) - 1);
-	apt->icao[sizeof(apt->icao) - 1] = '\0';
-	strncpy(apt->region, region, sizeof(apt->region) - 1);
-	apt->region[sizeof(apt->region) - 1] = '\0';
+	copy_cstr(apt->icao, ident);
+	copy_cstr(apt->region, region);
 	gui_log_printf(status, GUI_LOG_TRACE, "Requesting facility data for candidate #%d %s (%s) into %s slot",
 		idx + 1, apt->icao, apt->region, facility_lookup_target_label(status, apt));
 	// The definition's fields are server-side, per-connection state -- only
@@ -876,20 +926,18 @@ static void facility_lookup_request_candidate(struct STATUS* status, int idx) {
 // responsible for clearing facility_lookup_pending and draining the queue
 // afterward -- this only performs the logging/DB-update side effects.
 static void facility_lookup_resolve_no_airport(struct STATUS* status) {
-	if (status->facility_lookup_is_departure) {
+	if (status->facility_lookup_for == LOOKUP_TARGET::DEPARTURE) {
 		gui_log_printf(status, GUI_LOG_INFO, "Liftoff from %s, %s at %s",
 			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
 			status->data.time_local.format_date_time().c_str());
 		status->departure.runway_act.index = -2;
-	} else if (status->facility_lookup_is_liftoff) {
+	} else if (status->facility_lookup_for == LOOKUP_TARGET::LIFTOFF) {
 		// Found up front, same reasoning as the touchdown branch below: this
 		// callback fires asynchronously and can lag well behind the actual
 		// liftoff moment. No trips.* update -- a trip has exactly one
 		// departure, and this is a subsequent-liftoff marker, not it.
-		struct LIFTOFF_DATA* tmp = status->liftoff_data;
-		while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-			tmp = tmp->next;
+		struct LIFTOFF_DATA* tmp = first_unresolved(status->liftoff_data);
 		gui_log_printf(status, GUI_LOG_INFO, "Liftoff (subsequent) at %s, %s at %s",
 			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
@@ -905,9 +953,7 @@ static void facility_lookup_resolve_no_airport(struct STATUS* status) {
 		// so its own recorded touchdown time -- not "now" -- can be logged:
 		// this callback fires asynchronously once the facility lookup
 		// resolves, which can lag well behind the actual touchdown moment.
-		struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
-		while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-			tmp = tmp->next;
+		struct TOUCHDOWN_DATA* tmp = first_unresolved(status->touchdown_data);
 		gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s, %s at %s",
 			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LATITUDE).c_str(),
 			status->facility_lookup_coordinate.coordinate_decimal_to_dms(COORDINATE::LONGITUDE).c_str(),
@@ -1147,13 +1193,12 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 							status->departure_lookup_initiated = FALSE;
 							// Not a fix for an observed bug on its own -- every call site that
 							// starts a lookup already sets both of these fresh before use (see
-							// facility_lookup_is_departure in types.h) -- but a lookup still in
+							// facility_lookup_for in types.h) -- but a lookup still in
 							// flight when this trip boundary is crossed reads them again when
 							// its (possibly stale) response arrives later; see the
 							// liftoff_scratch.clear() above for why that case needs its target
 							// AIRPORT cleared here too, not just these flags.
-							status->facility_lookup_is_liftoff = FALSE;
-							status->facility_lookup_is_departure = FALSE;
+							status->facility_lookup_for = LOOKUP_TARGET::TOUCHDOWN;
 							status->departure_db_id = -1;
 							// A go-around or bounced landing from a previous trip can leave
 							// this set -- between trips (engines off, on the ground) radio_height
@@ -1221,14 +1266,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 						gui_log_printf(status, GUI_LOG_TRACE, "Liftoff trip_liftoffs row inserted: db_id=%d", status->departure_db_id);
 						if (!status->facility_lookup_pending) {
 							gui_log_printf(status, GUI_LOG_TRACE, "Requesting departure facility lookup (trip %d)", status->id_trip);
-							status->facility_lookup_is_liftoff = FALSE;
-							status->facility_lookup_is_departure = TRUE;
-							status->facility_lookup_pending = TRUE;
-							status->facility_lookup_trip_id = status->id_trip;
-							status->facility_lookup_coordinate = status->facility_lookup_departure_coordinate;
-							status->facility_lookup_heading = status->facility_lookup_departure_heading;
-							SimConnect_RequestFacilitiesList_EX1(status->hSimConnect, SIMCONNECT_FACILITY_LIST_TYPE_AIRPORT, REQUEST_AIRPORTS);
-							SimConnect_GetLastSentPacketID(status->hSimConnect, &status->facility_lookup_send_id);
+							start_facility_lookup(status, LOOKUP_TARGET::DEPARTURE, status->facility_lookup_departure_coordinate, status->facility_lookup_departure_heading);
 						} else {
 							// A previous trip's lookup is still draining (see
 							// facility_lookup_departure_needed in types.h) -- this
@@ -1253,32 +1291,18 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					gui_log_printf(status, GUI_LOG_TRACE, "Liftoff detected (trip %d, subsequent): lat=%.6f, lon=%.6f, heading=%.1f",
 						status->id_trip, tmp.plane_coordinate.latitude, tmp.plane_coordinate.longitude,
 						tmp.plane_heading_degrees_magnetic);
-					struct LIFTOFF_DATA* tmp_liftoff = (struct LIFTOFF_DATA*)malloc(sizeof(struct LIFTOFF_DATA));
+					struct LIFTOFF_DATA* tmp_liftoff = append_contact_record(status, status->liftoff_data, status->liftoff_data_end);
 					if (tmp_liftoff == NULL) {
 						gui_log_printf(status, GUI_LOG_WARNING, "Liftoff: malloc failed for liftoff record; this liftoff marker will not be recorded");
 					} else {
-						memset(tmp_liftoff, 0, sizeof(struct LIFTOFF_DATA));
-						tmp_liftoff->airport.clear();
-						// Same reasoning as TOUCHDOWN_DATA::db_id above: memset zeroed
-						// this to 0, not the declared default of -1.
-						tmp_liftoff->db_id = -1;
-						tmp_liftoff->seq = status->next_facility_lookup_seq++;
-						if (status->liftoff_data == NULL) {
-							status->liftoff_data = tmp_liftoff;
-							status->liftoff_data_end = tmp_liftoff;
-						} else {
-							status->liftoff_data_end->next = tmp_liftoff;
-							status->liftoff_data_end = tmp_liftoff;
-						}
 						fill_contact_flight_data(status->liftoff_data_end->flight_data, tmp);
-						status->liftoff_data_end->airport.runway_act.distances[0] = -1;
 						// Insert immediately so the row survives a crash before stop_recording.
 						// Airport/runway fields are NULL until the facility callback resolves.
 						// Wrapped in try/catch (mirroring the departure insert above): on
 						// failure db_id stays -1 (set above), which the facility-lookup
 						// completion handlers already treat as "row was never inserted;
 						// dropping this resolution" (see the db_id < 0 guards near the
-						// facility_lookup_is_liftoff/is_departure branches below) -- so this
+						// LOOKUP_TARGET::LIFTOFF/DEPARTURE branches below) -- so this
 						// marker just quietly loses persistence instead of corrupting
 						// downstream state or leaving facility_lookup_pending stuck.
 						try {
@@ -1301,42 +1325,15 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					gui_log_printf(status, GUI_LOG_TRACE, "Touchdown detected (trip %d): lat=%.6f, lon=%.6f, heading=%d",
 						status->id_trip, tmp.plane_coordinate.latitude, tmp.plane_coordinate.longitude,
 						(int)tmp.plane_heading_degrees_magnetic);
-					struct TOUCHDOWN_DATA* tmp_touchdown = (struct TOUCHDOWN_DATA*)malloc(sizeof(struct TOUCHDOWN_DATA));
+					struct TOUCHDOWN_DATA* tmp_touchdown = append_contact_record(status, status->touchdown_data, status->touchdown_data_end);
 					if (tmp_touchdown == NULL) {
-						// Same handling as the liftoff-marker malloc failure above: log
-						// and move on rather than aborting the rest of this tick (this
-						// case used to duplicate status->airborne's update and break
-						// out here instead, silently dropping the regular flight-data
-						// sample below too -- a separate, unrelated allocation -- for
-						// no stated reason). status->airborne is still updated
-						// unconditionally right after this "Landing" block either way.
 						gui_log_printf(status, GUI_LOG_WARNING, "Landing: malloc failed for touchdown record; this touchdown will not be recorded");
 					} else {
-						memset(tmp_touchdown, 0, sizeof(struct TOUCHDOWN_DATA));
-						tmp_touchdown->airport.clear();
-						// memset zeroed this to 0, not TOUCHDOWN_DATA::db_id's declared
-						// default of -1 (malloc+memset never runs the member initializer).
-						// db_id is only overwritten with the real rowid if the immediate
-						// INSERT below succeeds; if it throws, db_id must stay -1 (an
-						// invalid rowid) rather than 0, which would make a later
-						// "UPDATE trip_touchdowns ... WHERE id = 0" resolve to no rows
-						// and silently drop the touchdown's icao/runway match instead of
-						// visibly failing.
-						tmp_touchdown->db_id = -1;
-						tmp_touchdown->seq = status->next_facility_lookup_seq++;
-						if (status->touchdown_data == NULL) {
-							status->touchdown_data = tmp_touchdown;
-							status->touchdown_data_end = tmp_touchdown;
-						} else {
-							status->touchdown_data_end->next = tmp_touchdown;
-							status->touchdown_data_end = tmp_touchdown;
-						}
 						fill_contact_flight_data(status->touchdown_data_end->flight_data, tmp);
 						// Freeze this touchdown's own low-altitude position now -- see
 						// TOUCHDOWN_DATA::loc_dh in types.h for why status->loc_dh itself
 						// can't be trusted once this touchdown's facility lookup is queued.
 						status->touchdown_data_end->loc_dh = status->loc_dh;
-						status->touchdown_data_end->airport.runway_act.distances[0] = -1;
 						// Insert immediately so the row survives a crash before stop_recording.
 						// Airport/runway fields are NULL until the facility callback resolves.
 						// Wrapped in try/catch (same reasoning as the liftoff branch above):
@@ -1475,10 +1472,8 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					pos--;
 				}
 				status->facility_lookup_top[pos].distance = distance;
-				strncpy(status->facility_lookup_top[pos].ident, airport.Ident, sizeof(status->facility_lookup_top[pos].ident) - 1);
-				status->facility_lookup_top[pos].ident[sizeof(status->facility_lookup_top[pos].ident) - 1] = '\0';
-				strncpy(status->facility_lookup_top[pos].region, airport.Region, sizeof(status->facility_lookup_top[pos].region) - 1);
-				status->facility_lookup_top[pos].region[sizeof(status->facility_lookup_top[pos].region) - 1] = '\0';
+				copy_cstr(status->facility_lookup_top[pos].ident, airport.Ident);
+				copy_cstr(status->facility_lookup_top[pos].region, airport.Region);
 			}
 		}
 		// Wait for the rest of the (possibly multi-chunk) list before deciding.
@@ -1694,12 +1689,10 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		// The aircraft is also mechanically tracking the runway during the
 		// ground roll (no crab yet), so its own heading is already correct
 		// for departure/liftoff; it's used unrefined for both.
-		bool is_touchdown = (rep != &status->departure) && !status->facility_lookup_is_liftoff;
+		bool is_touchdown = (rep != &status->departure) && status->facility_lookup_for != LOOKUP_TARGET::LIFTOFF;
 		COORDINATE* loc_dh_source = &status->loc_dh;
 		if (is_touchdown) {
-			struct TOUCHDOWN_DATA* pending = status->touchdown_data;
-			while (pending != NULL && pending->airport.runway_act.distances[0] != -1)
-				pending = pending->next;
+			struct TOUCHDOWN_DATA* pending = first_unresolved(status->touchdown_data);
 			if (pending != NULL)
 				loc_dh_source = &pending->loc_dh;
 			if (loc_dh_source->latitude != 360)
@@ -1741,13 +1734,11 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				} else {
 					db_set_contact_airport(status, CONTACT_TABLE::LIFTOFFS, status->departure_db_id, *rep, strRunway.c_str());
 				}
-			} else if (status->facility_lookup_is_liftoff) {
+			} else if (status->facility_lookup_for == LOOKUP_TARGET::LIFTOFF) {
 				// Mirrors the touchdown branch below, but against liftoff_data and
 				// trip_liftoffs, with NO trips.* update -- a trip has exactly one
 				// departure, and this is a subsequent-liftoff marker, not it.
-				struct LIFTOFF_DATA* tmp = status->liftoff_data;
-				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-					tmp = tmp->next;
+				struct LIFTOFF_DATA* tmp = first_unresolved(status->liftoff_data);
 				gui_log_printf(status, GUI_LOG_INFO, "Liftoff (subsequent) from %s (%s) runway %s at %s", rep->name, rep->icao, strRunway.c_str(),
 					tmp != NULL ? tmp->flight_data.time_local.format_date_time().c_str() : "unknown time");
 				if (tmp != NULL) {
@@ -1763,34 +1754,13 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					}
 					gui_notify_trip_updated(status);
 				}
-				// FACILITY_DATA_AIRPORT does not carry icao -- only AIRPORT_LIST does.
-				// Same preservation-across-clear() reasoning as the touchdown branch
-				// below, for the liftoff_scratch scratch object instead of destination.
-				{
-					LIFTOFF_DATA* next = status->liftoff_data;
-					while (next && next->airport.runway_act.distances[0] != -1)
-						next = next->next;
-					char saved_icao[sizeof(rep->icao)];
-					char saved_region[sizeof(rep->region)];
-					bool has_more = (next != nullptr);
-					if (has_more) {
-						memcpy(saved_icao, rep->icao, sizeof(saved_icao));
-						memcpy(saved_region, rep->region, sizeof(saved_region));
-					}
-					rep->clear();
-					if (has_more) {
-						memcpy(rep->icao, saved_icao, sizeof(rep->icao));
-						memcpy(rep->region, saved_region, sizeof(rep->region));
-					}
-				}
+				clear_lookup_slot(rep, first_unresolved(status->liftoff_data) != nullptr);
 			} else {
 				// Found up front (rather than after the log line, as it used to be)
 				// so its own recorded touchdown time -- not "now" -- can be logged:
 				// this callback fires asynchronously once the facility lookup
 				// resolves, which can lag well behind the actual touchdown moment.
-				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
-				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-					tmp = tmp->next;
+				struct TOUCHDOWN_DATA* tmp = first_unresolved(status->touchdown_data);
 				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s (%s) runway %s at %s", rep->name, rep->icao, strRunway.c_str(),
 					tmp != NULL ? tmp->flight_data.time_local.format_date_time().c_str() : "unknown time");
 				db_set_trip_airport(status, status->id_trip, TRIP_END::DESTINATION, status->destination, strRunway.c_str());
@@ -1807,27 +1777,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					}
 					gui_notify_trip_updated(status);
 				}
-				// FACILITY_DATA_AIRPORT does not carry icao — only AIRPORT_LIST does.
-				// If another touchdown's AIRPORT_LIST already fired but its FACILITY_DATA
-				// callbacks haven't completed yet, rep->clear() would zero icao before
-				// that touchdown's FACILITY_DATA_END runs copy(rep). Preserve it.
-				{
-					TOUCHDOWN_DATA* next = status->touchdown_data;
-					while (next && next->airport.runway_act.distances[0] != -1)
-						next = next->next;
-					char saved_icao[sizeof(rep->icao)];
-					char saved_region[sizeof(rep->region)];
-					bool has_more = (next != nullptr);
-					if (has_more) {
-						memcpy(saved_icao, rep->icao, sizeof(saved_icao));
-						memcpy(saved_region, rep->region, sizeof(saved_region));
-					}
-					rep->clear();
-					if (has_more) {
-						memcpy(rep->icao, saved_icao, sizeof(rep->icao));
-						memcpy(rep->region, saved_region, sizeof(rep->region));
-					}
-				}
+				clear_lookup_slot(rep, first_unresolved(status->touchdown_data) != nullptr);
 			}
 		} else {
 			// No strict runway match for this candidate. Snapshot candidate 0's
@@ -1839,17 +1789,13 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			// found (cached margin hit, then nearest-candidate identity within
 			// 5km, then pure coordinate-only).
 			if (status->facility_lookup_candidate_index == 0) {
-				strncpy(status->facility_lookup_candidate0_name, rep->name, sizeof(status->facility_lookup_candidate0_name) - 1);
-				status->facility_lookup_candidate0_name[sizeof(status->facility_lookup_candidate0_name) - 1] = '\0';
+				copy_cstr(status->facility_lookup_candidate0_name, rep->name);
 			}
 			if (any_margin_hit && !status->facility_lookup_margin_cache.found) {
 				status->facility_lookup_margin_cache.found = true;
-				strncpy(status->facility_lookup_margin_cache.name, rep->name, sizeof(status->facility_lookup_margin_cache.name) - 1);
-				status->facility_lookup_margin_cache.name[sizeof(status->facility_lookup_margin_cache.name) - 1] = '\0';
-				strncpy(status->facility_lookup_margin_cache.icao, rep->icao, sizeof(status->facility_lookup_margin_cache.icao) - 1);
-				status->facility_lookup_margin_cache.icao[sizeof(status->facility_lookup_margin_cache.icao) - 1] = '\0';
-				strncpy(status->facility_lookup_margin_cache.region, rep->region, sizeof(status->facility_lookup_margin_cache.region) - 1);
-				status->facility_lookup_margin_cache.region[sizeof(status->facility_lookup_margin_cache.region) - 1] = '\0';
+				copy_cstr(status->facility_lookup_margin_cache.name, rep->name);
+				copy_cstr(status->facility_lookup_margin_cache.icao, rep->icao);
+				copy_cstr(status->facility_lookup_margin_cache.region, rep->region);
 				gui_log_printf(status, GUI_LOG_TRACE, "Runway match: cached margin-rectangle identity %s (%s) for %s slot",
 					rep->icao, rep->name, facility_lookup_target_label(status, rep));
 			}
@@ -1864,22 +1810,16 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 			} else if (status->facility_lookup_margin_cache.found) {
 				gui_log_printf(status, GUI_LOG_TRACE, "Runway match: candidate walk exhausted; resolving via cached margin-rectangle identity %s (%s)",
 					status->facility_lookup_margin_cache.icao, status->facility_lookup_margin_cache.name);
-				strncpy(rep->name, status->facility_lookup_margin_cache.name, sizeof(rep->name) - 1);
-				rep->name[sizeof(rep->name) - 1] = '\0';
-				strncpy(rep->icao, status->facility_lookup_margin_cache.icao, sizeof(rep->icao) - 1);
-				rep->icao[sizeof(rep->icao) - 1] = '\0';
-				strncpy(rep->region, status->facility_lookup_margin_cache.region, sizeof(rep->region) - 1);
-				rep->region[sizeof(rep->region) - 1] = '\0';
+				copy_cstr(rep->name, status->facility_lookup_margin_cache.name);
+				copy_cstr(rep->icao, status->facility_lookup_margin_cache.icao);
+				copy_cstr(rep->region, status->facility_lookup_margin_cache.region);
 				resolve_as_known_airport_no_runway = true;
 			} else if (status->facility_lookup_top[0].distance < 5) {
 				gui_log_printf(status, GUI_LOG_TRACE, "Runway match: candidate walk exhausted with no margin hit; nearest candidate %.2f km away is within 5km, using its identity with no runway",
 					status->facility_lookup_top[0].distance);
-				strncpy(rep->icao, status->facility_lookup_top[0].ident, sizeof(rep->icao) - 1);
-				rep->icao[sizeof(rep->icao) - 1] = '\0';
-				strncpy(rep->region, status->facility_lookup_top[0].region, sizeof(rep->region) - 1);
-				rep->region[sizeof(rep->region) - 1] = '\0';
-				strncpy(rep->name, status->facility_lookup_candidate0_name, sizeof(rep->name) - 1);
-				rep->name[sizeof(rep->name) - 1] = '\0';
+				copy_cstr(rep->icao, status->facility_lookup_top[0].ident);
+				copy_cstr(rep->region, status->facility_lookup_top[0].region);
+				copy_cstr(rep->name, status->facility_lookup_candidate0_name);
 				resolve_as_known_airport_no_runway = true;
 			} else {
 				gui_log_printf(status, GUI_LOG_TRACE, "Runway match: candidate walk exhausted with no strict/margin match and nearest candidate %.2f km away exceeds 5km threshold; using coordinate-only fallback", status->facility_lookup_top[0].distance);
@@ -1902,13 +1842,11 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				else
 					db_set_contact_airport(status, CONTACT_TABLE::LIFTOFFS, status->departure_db_id, status->departure, nullptr);
 				gui_notify_trip_updated(status);
-			} else if (status->facility_lookup_is_liftoff) {
+			} else if (status->facility_lookup_for == LOOKUP_TARGET::LIFTOFF) {
 				// Mirrors the touchdown branch below, but against liftoff_data and
 				// trip_liftoffs, with NO trips.* update (see the runway-found branch
 				// above for why).
-				struct LIFTOFF_DATA* tmp = status->liftoff_data;
-				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-					tmp = tmp->next;
+				struct LIFTOFF_DATA* tmp = first_unresolved(status->liftoff_data);
 				gui_log_printf(status, GUI_LOG_INFO, "Liftoff (subsequent) from %s (%s) [%s, %s] at %s",
 					rep->name,
 					rep->icao,
@@ -1936,9 +1874,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				// so its own recorded touchdown time -- not "now" -- can be logged:
 				// this callback fires asynchronously once the facility lookup
 				// resolves, which can lag well behind the actual touchdown moment.
-				struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
-				while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-					tmp = tmp->next;
+				struct TOUCHDOWN_DATA* tmp = first_unresolved(status->touchdown_data);
 				gui_log_printf(status, GUI_LOG_INFO, "Touchdown at %s (%s) [%s, %s] at %s",
 					rep->name,
 					rep->icao,
@@ -2007,18 +1943,14 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 				AIRPORT* rep = facility_lookup_target(status);
 				if (rep == &status->departure) {
 					rep->runway_act.index = -2;
-				} else if (status->facility_lookup_is_liftoff) {
-					struct LIFTOFF_DATA* tmp = status->liftoff_data;
-					while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-						tmp = tmp->next;
+				} else if (status->facility_lookup_for == LOOKUP_TARGET::LIFTOFF) {
+					struct LIFTOFF_DATA* tmp = first_unresolved(status->liftoff_data);
 					if (tmp != NULL) {
 						tmp->airport.runway_act.distances[0] = -2;
 						gui_notify_trip_updated(status);
 					}
 				} else {
-					struct TOUCHDOWN_DATA* tmp = status->touchdown_data;
-					while (tmp != NULL && tmp->airport.runway_act.distances[0] != -1)
-						tmp = tmp->next;
+					struct TOUCHDOWN_DATA* tmp = first_unresolved(status->touchdown_data);
 					if (tmp != NULL) {
 						tmp->airport.runway_act.distances[0] = -2;
 						gui_notify_trip_updated(status);

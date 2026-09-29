@@ -556,6 +556,10 @@ private:
 	bool stopping_ = false;
 };
 
+// What a facility (airport/runway) lookup is resolving -- see
+// STATUS::facility_lookup_for.
+enum class LOOKUP_TARGET { DEPARTURE, LIFTOFF, TOUCHDOWN };
+
 struct STATUS {
 	bool in_sim = FALSE;
 	bool sim_running = FALSE;
@@ -670,32 +674,19 @@ struct STATUS {
 	// lands.
 	bool facility_lookup_pending = FALSE;
 	int facility_lookup_trip_id = -1;
-	// Set alongside facility_lookup_pending whenever the in-flight lookup is
-	// for a liftoff *marker* (touch-and-go) rather than the trip's departure
-	// or a touchdown -- facility_lookup_is_departure below still distinguishes
-	// "departure vs. not" on its own, but can no longer alone tell a
-	// liftoff-marker lookup apart from a touchdown lookup within the "not
-	// departure" case. Read throughout MyDispatchProc's AIRPORT_LIST/
-	// FACILITY_DATA/FACILITY_DATA_END/EXCEPTION handlers (always via the
-	// facility_lookup_target()/facility_lookup_target_label() helpers, not
-	// re-derived) and set by request_next_touchdown_facility_lookup().
-	bool facility_lookup_is_liftoff = FALSE;
-	// Set alongside facility_lookup_pending/facility_lookup_is_liftoff above,
-	// at each of the same three call sites, to whether the in-flight lookup
-	// is for the trip's one departure. This used to be re-derived at each
-	// async callback as "departure.runway_act.index == -1", which is exactly
-	// the kind of live/mutable check departure_lookup_initiated's own comment
-	// below already warns against for a different reason (a fast touch-and-go
-	// racing a slow lookup) -- it has a second failure mode across a trip
-	// boundary: if a liftoff-marker or destination lookup is still in flight
-	// when its trip ends, the new trip's status->departure.clear() resets
-	// runway_act.index back to -1 out from under it, so the stale response
+	// Which record the in-flight lookup is for, fixed when it starts (by
+	// start_facility_lookup() in recorder.cpp) and read by every
+	// AIRPORT_LIST/FACILITY_DATA/FACILITY_DATA_END/EXCEPTION handler through
+	// facility_lookup_target(): the trip's one departure, a later liftoff
+	// (touch-and-go marker) or a touchdown. It used to be re-derived at each
+	// callback from "departure.runway_act.index == -1", which breaks across a
+	// trip boundary: if a liftoff-marker or destination lookup is still in
+	// flight when its trip ends, the new trip's status->departure.clear()
+	// resets runway_act.index to -1 out from under it, so the stale response
 	// gets misattributed to &status->departure instead of its real target,
-	// permanently leaking that target's runways buffer (freed on the wrong
-	// object by FacilityLookupCleanup in FACILITY_DATA_END). Capturing this
-	// once at request time, like facility_lookup_is_liftoff already does,
-	// makes slot selection depend only on state fixed at request time.
-	bool facility_lookup_is_departure = FALSE;
+	// leaking that target's runways buffer (freed on the wrong object by
+	// FacilityLookupCleanup in FACILITY_DATA_END).
+	LOOKUP_TARGET facility_lookup_for = LOOKUP_TARGET::TOUCHDOWN;
 	// Set when a departure's own facility lookup was skipped because
 	// facility_lookup_pending was already true (a previous trip's lookup was
 	// still draining when this trip became airborne). request_next_touchdown_facility_lookup()
