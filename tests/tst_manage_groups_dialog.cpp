@@ -111,6 +111,39 @@ private slots:
 		QCOMPARE(changed.count(), 1);
 	}
 
+	void renameToAnExistingNameIsRejectedWithAMessage() {
+		addGroup("Training");
+		addGroup("Ops");
+		ManageGroupsDialog dialog;
+		QSignalSpy changed(&dialog, &ManageGroupsDialog::groupsChanged);
+		QString message;
+		onNextModal([&message](QWidget* box) {
+			message = static_cast<QMessageBox*>(box)->text();
+			clickDialogButton(box, "OK");
+		});
+		list(dialog)->item(0)->setText("OPS");
+		QCOMPARE(message, QStringLiteral("A group named \"OPS\" already exists."));
+		QCOMPARE(dbGroups(), (QStringList{ "Training", "Ops" }));
+		QCOMPARE(items(dialog), (QStringList{ "Training", "Ops" }));
+		QCOMPARE(changed.count(), 0);
+	}
+
+	void unopenableDatabaseShowsAnError() {
+		ManageGroupsDialog dialog;
+		removeDatabase(); // the write connection can't be opened now
+		QString message;
+		onNextModal([&message](QWidget* input) {
+			onNextModal([&message](QWidget* box) {
+				message = static_cast<QMessageBox*>(box)->text();
+				clickDialogButton(box, "OK");
+			});
+			static_cast<QInputDialog*>(input)->setTextValue("New One");
+			clickDialogButton(input, "OK");
+		});
+		button(dialog, QString::fromUtf8("New Group…"))->click();
+		QCOMPARE(message, QStringLiteral("Could not open the database for writing."));
+	}
+
 	void blankRenameIsReverted() {
 		addGroup("Training");
 		ManageGroupsDialog dialog;

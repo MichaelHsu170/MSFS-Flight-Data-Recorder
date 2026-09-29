@@ -1,6 +1,6 @@
 #include "manage_groups_dialog.h"
+#include "db_connection.h"
 #include "db_groups.h"
-#include "db.h"
 #include "logger.h"
 
 #include <QDialogButtonBox>
@@ -12,8 +12,6 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QVBoxLayout>
-
-#include "sqlite3.h"
 
 ReorderableListWidget::ReorderableListWidget(QWidget* parent) : QListWidget(parent) {
 	setDragDropMode(QAbstractItemView::InternalMove);
@@ -60,9 +58,8 @@ void ManageGroupsDialog::reload(int selectGroupId) {
 		selectGroupId = list_->currentItem()->data(Qt::UserRole).toInt();
 	updating_ = true;
 	list_->clear();
-	sqlite3* sql = connect_db_readonly();
-	if (sql) {
-		for (const TripGroup& group : queryAllGroups(sql)) {
+	if (DbConnection sql = DbConnection::readOnly()) {
+		for (const TripGroup& group : queryAllGroups(sql.get())) {
 			auto* item = new QListWidgetItem(group.name, list_);
 			item->setFlags(item->flags() | Qt::ItemIsEditable);
 			item->setData(Qt::UserRole, group.id);
@@ -72,7 +69,6 @@ void ManageGroupsDialog::reload(int selectGroupId) {
 			if (group.id == selectGroupId)
 				list_->setCurrentItem(item);
 		}
-		sqlite3_close(sql);
 	}
 	updating_ = false;
 }
@@ -86,18 +82,17 @@ void ManageGroupsDialog::addGroup() {
 		return;
 	}
 
-	sqlite3* sql = connect_db_readwrite();
-	if (!sql) {
-		Logger::log(Logger::Trace, "Groups", QStringLiteral("Cannot create group: failed to open database for writing"));
-		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Could not open the database for writing."));
-		return;
+	int newId = 0;
+	bool duplicate = false;
+	{
+		DbConnection sql = openForWriting(this, "create group");
+		if (!sql)
+			return;
+		newId = insertGroup(sql.get(), name);
+		if (newId == 0)
+			duplicate = groupNameExists(sql.get(), name, 0);
 	}
-	int newId = insertGroup(sql, name);
 	if (newId == 0) {
-		bool duplicate = false;
-		for (const TripGroup& group : queryAllGroups(sql))
-			duplicate = duplicate || group.name.compare(name, Qt::CaseInsensitive) == 0;
-		sqlite3_close(sql);
 		Logger::logf(Logger::Trace, "Groups", "Group creation failed for \"%s\" (%s)",
 			qUtf8Printable(name), duplicate ? "duplicate name" : "insert failed");
 		QMessageBox::critical(this, QStringLiteral("Error"),
@@ -105,7 +100,6 @@ void ManageGroupsDialog::addGroup() {
 			          : QStringLiteral("Failed to create group."));
 		return;
 	}
-	sqlite3_close(sql);
 	Logger::logf(Logger::Trace, "Groups", "Group \"%s\" created (id=%d)", qUtf8Printable(name), newId);
 	reload(newId);
 	emit groupsChanged();
@@ -130,14 +124,13 @@ void ManageGroupsDialog::deleteSelectedGroup() {
 		return;
 	}
 
-	sqlite3* sql = connect_db_readwrite();
-	if (!sql) {
-		Logger::log(Logger::Trace, "Groups", QStringLiteral("Cannot delete group: failed to open database for writing"));
-		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Could not open the database for writing."));
-		return;
+	bool ok = false;
+	{
+		DbConnection sql = openForWriting(this, "delete group");
+		if (!sql)
+			return;
+		ok = deleteGroup(sql.get(), groupId);
 	}
-	bool ok = deleteGroup(sql, groupId);
-	sqlite3_close(sql);
 	if (!ok) {
 		Logger::logf(Logger::Trace, "Groups", "Failed to delete group \"%s\" (id=%d)", qUtf8Printable(name), groupId);
 		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to delete group."));
@@ -161,15 +154,15 @@ void ManageGroupsDialog::onListReordered() {
 	for (int i = 0; i < list_->count(); i++)
 		orderedIds.push_back(list_->item(i)->data(Qt::UserRole).toInt());
 
-	sqlite3* sql = connect_db_readwrite();
-	if (!sql) {
-		Logger::log(Logger::Trace, "Groups", QStringLiteral("Cannot reorder groups: failed to open database for writing"));
-		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Could not open the database for writing."));
-		reload();
-		return;
+	bool ok = false;
+	{
+		DbConnection sql = openForWriting(this, "reorder groups");
+		if (!sql) {
+			reload();
+			return;
+		}
+		ok = reorderGroups(sql.get(), orderedIds);
 	}
-	bool ok = reorderGroups(sql, orderedIds);
-	sqlite3_close(sql);
 	if (!ok) {
 		Logger::log(Logger::Trace, "Groups", QStringLiteral("Failed to persist the new group order"));
 		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to save the new group order."));
@@ -194,18 +187,19 @@ void ManageGroupsDialog::onItemChanged(QListWidgetItem* item) {
 		return;
 	}
 
-	sqlite3* sql = connect_db_readwrite();
-	if (!sql) {
-		Logger::log(Logger::Trace, "Groups", QStringLiteral("Cannot rename group: failed to open database for writing"));
-		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Could not open the database for writing."));
-		reload();
-		return;
+	bool ok = false;
+	bool duplicate = false;
+	{
+		DbConnection sql = openForWriting(this, "rename group");
+		if (!sql) {
+			reload();
+			return;
+		}
+		ok = renameGroup(sql.get(), groupId, newName);
+		if (!ok)
+			duplicate = groupNameExists(sql.get(), newName, groupId);
 	}
-	bool ok = renameGroup(sql, groupId, newName);
 	if (!ok) {
-		bool duplicate = false;
-		for (const TripGroup& group : queryAllGroups(sql))
-			duplicate = duplicate || (group.id != groupId && group.name.compare(newName, Qt::CaseInsensitive) == 0);
 		Logger::logf(Logger::Trace, "Groups", "Rename of group id=%d to \"%s\" failed (%s)",
 			groupId, qUtf8Printable(newName), duplicate ? "duplicate name" : "update failed");
 		QMessageBox::critical(this, QStringLiteral("Error"),
@@ -214,7 +208,6 @@ void ManageGroupsDialog::onItemChanged(QListWidgetItem* item) {
 	} else {
 		Logger::logf(Logger::Trace, "Groups", "Group id=%d renamed to \"%s\"", groupId, qUtf8Printable(newName));
 	}
-	sqlite3_close(sql);
 	reload();
 	if (ok)
 		emit groupsChanged();

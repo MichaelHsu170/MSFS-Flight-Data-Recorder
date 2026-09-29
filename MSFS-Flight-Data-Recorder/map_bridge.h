@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QString>
 
+#include "db_history.h"
+
 // QObject exposed to the embedded map page's JavaScript via QWebChannel
 // (registered as "mapBridge" in map.html). JS calls markerMoved() when the
 // user drags the trajectory marker; MapWidget re-emits that as
@@ -34,4 +36,7 @@ signals:
 	void cursorIndexChanged(int index);
 	void visibleRangeChanged(int startIndex, int endIndex);
 	void overviewTripClicked(int tripId);
+
+private:
+	void saveReport(CONTACT_TABLE table, int rowId, const QString& report);
 };

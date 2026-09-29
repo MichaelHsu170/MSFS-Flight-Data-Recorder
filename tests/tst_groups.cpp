@@ -67,6 +67,17 @@ private slots:
 		QCOMPARE(groupNames().size(), 2);
 	}
 
+	void nameExistsIgnoresCaseAndTheExcludedGroup() {
+		const int a = insertGroup(db_, QString::fromUtf8("München"));
+		const int b = insertGroup(db_, "Ops");
+		QVERIFY(groupNameExists(db_, "ops", 0));
+		QVERIFY(groupNameExists(db_, QString::fromUtf8("MÜNCHEN"), 0));
+		QVERIFY(!groupNameExists(db_, "Training", 0));
+		// A group's own name doesn't count when it is excluded (renaming it).
+		QVERIFY(!groupNameExists(db_, "OPS", b));
+		QVERIFY(groupNameExists(db_, "OPS", a));
+	}
+
 	void renameChecksBlankAndCollisions() {
 		const int a = insertGroup(db_, "Training");
 		const int b = insertGroup(db_, "Ops");

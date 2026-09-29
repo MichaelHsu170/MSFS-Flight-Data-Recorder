@@ -17,6 +17,10 @@ struct sqlite3;
 // assigned to it.
 std::vector<TripGroup> queryAllGroups(sqlite3* sql);
 
+// True if a group other than excludeGroupId (0: none) already has name,
+// compared case-insensitively with full Unicode case folding (unlike
+// SQLite's ASCII-only COLLATE NOCASE).
+bool groupNameExists(sqlite3* sql, const QString& name, int excludeGroupId);
 // Creates a new group, appended after every existing group's sort_order.
 // Returns its new id, or 0 on failure -- including a blank (post-trim) name
 // or one that already exists (case-insensitively).

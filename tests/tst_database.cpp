@@ -574,6 +574,49 @@ private slots:
 		db_set_trip_destination_position(w.status(), trip, COORDINATE());
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM trips").toInt(), 1);
 	}
+
+	// --- UI connections and analysis reports ---
+
+	void dbConnectionOpensClosesAndMoves() {
+		QVERIFY(!DbConnection::readOnly());
+		QVERIFY(!DbConnection::readWrite());
+		migrate_db();
+		DbConnection a = DbConnection::readWrite();
+		QVERIFY(a);
+		sqlite3* raw = a.get();
+		DbConnection b = std::move(a);
+		QVERIFY(!a);
+		QCOMPARE(b.get(), raw);
+		QCOMPARE(sqlite3_exec(b.get(), "SELECT 1", nullptr, nullptr, nullptr), SQLITE_OK);
+		// Read-only really is read-only.
+		DbConnection ro = DbConnection::readOnly();
+		QVERIFY(ro);
+		QCOMPARE(sqlite3_exec(ro.get(), "DELETE FROM trips", nullptr, nullptr, nullptr), SQLITE_READONLY);
+	}
+
+	void analysisReportsAreSavedAndReplaced() {
+		Writer w;
+		const int trip = db_insert_trip(w.status(), makeRecord());
+		const int lo = db_insert_contact(w.status(), CONTACT_TABLE::LIFTOFFS, trip, contactData());
+		const int td = db_insert_contact(w.status(), CONTACT_TABLE::TOUCHDOWNS, trip, contactData());
+		const QString text = QString::fromUtf8("Grade: A\nSmooth — \"good\"");
+		QVERIFY(saveAnalysisReport(w.status()->sql, CONTACT_TABLE::LIFTOFFS, lo, text));
+		QVERIFY(saveAnalysisReport(w.status()->sql, CONTACT_TABLE::TOUCHDOWNS, td, "first"));
+		QVERIFY(saveAnalysisReport(w.status()->sql, CONTACT_TABLE::TOUCHDOWNS, td, "second"));
+		QCOMPARE(queryValue(QStringLiteral("SELECT analysis_report FROM trip_liftoffs WHERE id=%1").arg(lo)).toString(), text);
+		QCOMPARE(queryValue(QStringLiteral("SELECT analysis_report FROM trip_touchdowns WHERE id=%1").arg(td)).toString(), QStringLiteral("second"));
+		// Each table only gets its own report.
+		QVERIFY(queryValue(QStringLiteral("SELECT analysis_report FROM trip_liftoffs WHERE id=%1").arg(lo)).toString() != QStringLiteral("second"));
+	}
+
+	void analysisReportForInvalidRowIsIgnored() {
+		Writer w;
+		QVERIFY(!saveAnalysisReport(w.status()->sql, CONTACT_TABLE::LIFTOFFS, 0, "x"));
+		QVERIFY(!saveAnalysisReport(w.status()->sql, CONTACT_TABLE::TOUCHDOWNS, -3, "x"));
+		// A row id that doesn't exist changes nothing.
+		QVERIFY(saveAnalysisReport(w.status()->sql, CONTACT_TABLE::LIFTOFFS, 99, "x"));
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_liftoffs").toInt(), 0);
+	}
 };
 
 QTEST_MAIN(TstDatabase)

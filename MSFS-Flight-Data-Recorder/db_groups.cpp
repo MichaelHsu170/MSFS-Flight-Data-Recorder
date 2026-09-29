@@ -30,10 +30,7 @@ std::vector<TripGroup> queryAllGroups(sqlite3* sql) {
 	return groups;
 }
 
-// True if trip_groups already has a (case-insensitive) match for name, other
-// than excludeGroupId itself (pass 0 -- never a valid id -- for insertGroup's
-// "no exclusion" case).
-static bool groupNameExists(sqlite3* sql, const QString& name, int excludeGroupId) {
+bool groupNameExists(sqlite3* sql, const QString& name, int excludeGroupId) {
 	// Comparing in SQL via "COLLATE NOCASE" (as the UNIQUE index backing
 	// trip_groups.name in db.cpp also does) only case-folds ASCII A-Z/a-z --
 	// SQLite has no built-in Unicode-aware collation. That let e.g. "Café" and

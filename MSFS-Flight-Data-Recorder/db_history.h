@@ -6,10 +6,13 @@
 
 struct sqlite3;
 
+// Which table a liftoff/touchdown row lives in.
+enum class CONTACT_TABLE { LIFTOFFS, TOUCHDOWNS };
+
 // Queries against the existing trips/trip_data tables -- all read-only except
-// deleteTripData() below. Plain sqlite3
-// in, plain structs out — no Qt UI dependency, so this is reusable outside the
-// Trip History panel (e.g. from a future CLI or test).
+// deleteTripData() and saveAnalysisReport() below. Plain sqlite3 in, plain
+// structs out -- no Qt UI dependency, so this is reusable outside the Trip
+// History panel (e.g. from a test).
 std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId);
 TripDataset queryTripData(sqlite3* sql, int tripId);
 std::vector<LiftoffPoint> queryLiftoffs(sqlite3* sql, int tripId);
@@ -28,3 +31,9 @@ void resolveEventPositions(TripDataset& dataset);
 // and trips for the given trip id. Caller opens and closes the (readwrite) connection.
 // Returns true on success.
 bool deleteTripData(sqlite3* sql, int tripId);
+
+// Stores an AI analysis report on a liftoff/touchdown row (its
+// analysis_report column), replacing any earlier one. rowId <= 0 is ignored
+// (false); a row id that doesn't exist changes nothing. Logs the outcome;
+// false on failure.
+bool saveAnalysisReport(sqlite3* sql, CONTACT_TABLE table, int rowId, const QString& report);

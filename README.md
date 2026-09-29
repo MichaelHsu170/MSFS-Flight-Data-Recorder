@@ -216,8 +216,9 @@ MSFS-Flight-Data-Recorder/
 │   ├── event_filter.h / .cpp     Flood protection for cockpit events (fast bursts, slow repeats)
 │   ├── recorder_bridge.h / .cpp  Qt wrapper: QTimer-driven dispatch, connection retry, Qt signals
 │   ├── gui_notify.h              Free functions called by recorder.cpp and db.cpp to report state changes
-│   ├── db.h / .cpp               SQLite write path: schema creation, buffered telemetry flush
-│   ├── db_history.h / .cpp       Read-only queries: trip list, telemetry, events, liftoff points, touchdowns; trip deletion
+│   ├── db.h / .cpp               SQLite write path: schema creation, the recorder's writes, buffered telemetry flush
+│   ├── db_connection.h / .cpp    Read-only/read-write connections for the UI and background queries
+│   ├── db_history.h / .cpp       Read-only queries: trip list, telemetry, events, liftoff points, touchdowns; trip deletion, AI reports
 │   ├── db_groups.h / .cpp        Trip-group queries: list, add, rename, delete, reorder, assign a trip
 │   ├── logger.h / .cpp           Unified logger: level-filtered (Fatal/Warning/Info/Trace/Profile), module-tagged output to msfs_fdr_debug.log
 │   ├── logger_c.h                C-compatible shim (log_c / log_cf) for Qt-free translation units (db.cpp)

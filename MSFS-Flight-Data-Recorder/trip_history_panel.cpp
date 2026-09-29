@@ -3,7 +3,6 @@
 #include "db_history.h"
 #include "db_groups.h"
 #include "manage_groups_dialog.h"
-#include "db.h"
 #include "app_settings.h"
 #include "kml_export.h"
 
@@ -34,7 +33,6 @@
 #include "logger.h"
 #include <algorithm>
 
-#include "sqlite3.h"
 #include <QEvent>
 #include <QMouseEvent>
 #include <QStyledItemDelegate>
@@ -429,18 +427,13 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	refreshTrips();
 }
 
-TripHistoryPanel::~TripHistoryPanel() {
-	if (historySql_ != nullptr)
-		sqlite3_close(historySql_);
-}
-
 sqlite3* TripHistoryPanel::ensureHistoryConnection() {
-	if (historySql_ == nullptr) {
-		historySql_ = connect_db_readonly();
-		if (historySql_ == nullptr)
+	if (!history_) {
+		history_ = DbConnection::readOnly();
+		if (!history_)
 			Logger::log(Logger::Warning, "DB", QStringLiteral("Trip history: failed to open a read-only database connection"));
 	}
-	return historySql_;
+	return history_.get();
 }
 
 void TripHistoryPanel::reloadGroupFilterCombo() {
@@ -487,14 +480,13 @@ void TripHistoryPanel::reloadGroupFilterCombo() {
 }
 
 void TripHistoryPanel::setTripGroupFromUi(int tripId, int groupId) {
-	sqlite3* sql = connect_db_readwrite();
-	if (!sql) {
-		QMessageBox::critical(this, QStringLiteral("Error"),
-			QStringLiteral("Could not open the database for writing."));
-		return;
+	bool ok = false;
+	{
+		DbConnection sql = openForWriting(this, "set trip group");
+		if (!sql)
+			return;
+		ok = setTripGroup(sql.get(), tripId, groupId);
 	}
-	bool ok = setTripGroup(sql, tripId, groupId);
-	sqlite3_close(sql);
 	if (!ok) {
 		QMessageBox::critical(this, QStringLiteral("Error"),
 			QStringLiteral("Failed to update the trip's group."));
@@ -673,7 +665,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	QString aircraftTitle = trip->title;
 	QString departureZuluTime = trip->departureZuluTime;
 	// These queries (trip_data is by far the largest) each get their own
-	// connect_db_readonly() connection and are launched directly from the GUI
+	// read-only connection and are launched directly from the GUI
 	// thread (not nested inside a wrapping QtConcurrent::run that blocks on
 	// their .result()) so they genuinely run in parallel on the thread pool
 	// without risking starving it: a task that occupies a pool thread and
@@ -683,12 +675,10 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	// finished.
 	pointsWatcher_->setFuture(QtConcurrent::run([tripId, aircraftTitle, departureZuluTime]() {
 		QElapsedTimer t; t.start();
-		sqlite3* sql = connect_db_readonly();
+		DbConnection sql = DbConnection::readOnly();
 		if (!sql)
 			Logger::logf(Logger::Warning, "DB", "queryTripData(trip %d): failed to open read-only connection", tripId);
-		auto dataset = std::make_shared<TripDataset>(sql ? queryTripData(sql, tripId) : TripDataset());
-		if (sql)
-			sqlite3_close(sql);
+		auto dataset = std::make_shared<TripDataset>(sql ? queryTripData(sql.get(), tripId) : TripDataset());
 		dataset->tripId = tripId;
 		dataset->aircraftTitle = aircraftTitle;
 		dataset->departureZuluTime = departureZuluTime;
@@ -702,25 +692,21 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	// in the header.
 	liftoffTouchdownsWatcher_->setFuture(QtConcurrent::run([tripId]() {
 		QElapsedTimer t; t.start();
-		sqlite3* sql = connect_db_readonly();
+		DbConnection sql = DbConnection::readOnly();
 		if (!sql)
 			Logger::logf(Logger::Warning, "DB", "queryLiftoffs/queryTouchdowns(trip %d): failed to open read-only connection", tripId);
-		std::vector<LiftoffPoint> liftoffPoints = sql ? queryLiftoffs(sql, tripId) : std::vector<LiftoffPoint>();
-		std::vector<TouchdownPoint> touchdowns = sql ? queryTouchdowns(sql, tripId) : std::vector<TouchdownPoint>();
-		if (sql)
-			sqlite3_close(sql);
+		std::vector<LiftoffPoint> liftoffPoints = sql ? queryLiftoffs(sql.get(), tripId) : std::vector<LiftoffPoint>();
+		std::vector<TouchdownPoint> touchdowns = sql ? queryTouchdowns(sql.get(), tripId) : std::vector<TouchdownPoint>();
 		Logger::logf(Logger::Profile, "DB", "queryLiftoffs+queryTouchdowns: %lld ms  (%zu liftoffs, %zu touchdowns)",
 			t.nsecsElapsed() / 1000000, liftoffPoints.size(), touchdowns.size());
 		return std::make_pair(liftoffPoints, touchdowns);
 	}));
 	eventsWatcher_->setFuture(QtConcurrent::run([tripId]() {
 		QElapsedTimer t; t.start();
-		sqlite3* sql = connect_db_readonly();
+		DbConnection sql = DbConnection::readOnly();
 		if (!sql)
 			Logger::logf(Logger::Warning, "DB", "queryEvents(trip %d): failed to open read-only connection", tripId);
-		std::vector<TripEvent> events = sql ? queryEvents(sql, tripId) : std::vector<TripEvent>();
-		if (sql)
-			sqlite3_close(sql);
+		std::vector<TripEvent> events = sql ? queryEvents(sql.get(), tripId) : std::vector<TripEvent>();
 		Logger::logf(Logger::Profile, "DB", "queryEvents: %lld ms  (%zu events)", t.nsecsElapsed() / 1000000, events.size());
 		return events;
 	}));
@@ -951,18 +937,17 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 				QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to export KML to %1.\n%2").arg(fileName, error));
 		});
 		watcher->setFuture(QtConcurrent::run([tripId, aircraftTitle, departureZuluTime, fileName]() -> QString {
-			sqlite3* sql = connect_db_readonly();
+			DbConnection sql = DbConnection::readOnly();
 			if (!sql)
 				return QStringLiteral("Could not open the trip database.");
-			TripDataset dataset = queryTripData(sql, tripId);
+			TripDataset dataset = queryTripData(sql.get(), tripId);
 			dataset.tripId = tripId;
 			dataset.aircraftTitle = aircraftTitle;
 			dataset.departureZuluTime = departureZuluTime;
-			dataset.liftoffPoints = queryLiftoffs(sql, tripId);
-			dataset.touchdowns = queryTouchdowns(sql, tripId);
-			dataset.events = queryEvents(sql, tripId);
+			dataset.liftoffPoints = queryLiftoffs(sql.get(), tripId);
+			dataset.touchdowns = queryTouchdowns(sql.get(), tripId);
+			dataset.events = queryEvents(sql.get(), tripId);
 			resolveEventPositions(dataset);
-			sqlite3_close(sql);
 			QString error;
 			exportTripDatasetToKmlFile(dataset, fileName, &error);
 			return error;
@@ -1002,14 +987,13 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 				QStringLiteral("This trip's data is still being saved. Please wait a moment and try again."));
 			return;
 		}
-		sqlite3* sql = connect_db_readwrite();
-		if (!sql) {
-			QMessageBox::critical(this, QStringLiteral("Error"),
-				QStringLiteral("Could not open the database for writing."));
-			return;
+		bool ok = false;
+		{
+			DbConnection sql = openForWriting(this, "delete trip");
+			if (!sql)
+				return;
+			ok = deleteTripData(sql.get(), deleteId);
 		}
-		bool ok = deleteTripData(sql, deleteId);
-		sqlite3_close(sql);
 		if (!ok) {
 			QMessageBox::critical(this, QStringLiteral("Error"),
 				QStringLiteral("Failed to delete trip data."));

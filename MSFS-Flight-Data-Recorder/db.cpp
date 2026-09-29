@@ -565,12 +565,9 @@ void resolve_db_path(char* fn_db, size_t len) {
 #endif
 }
 
-// A second, independent connection for read-only history queries (Trip History
-// feature). connect_db()'s connection is opened with SQLITE_OPEN_NOMUTEX, so it
-// is only safe to use from the single thread that owns it (the dispatch loop /
-// db_write_worker thread) — it must never be shared with a background query thread.
-// This connection is opened without NOMUTEX, so SQLite's own per-connection
-// mutex makes it safe to call from whichever single thread is using it at a time.
+// See db_connection.h. connect_db()'s connection is opened with
+// SQLITE_OPEN_NOMUTEX, so it must never be shared with a background query
+// thread; these two are opened without it.
 sqlite3* connect_db_readwrite() {
 	char fn_db[MAX_PATH];
 	resolve_db_path(fn_db, MAX_PATH);

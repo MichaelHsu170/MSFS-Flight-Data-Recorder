@@ -8,9 +8,9 @@
 #include <memory>
 #include <utility>
 
+#include "db_connection.h"
 #include "trip_dataset.h"
 
-struct sqlite3;
 class RecorderBridge;
 class QTableView;
 class QProgressBar;
@@ -85,7 +85,6 @@ class TripHistoryPanel : public QWidget {
 	Q_OBJECT
 public:
 	explicit TripHistoryPanel(RecorderBridge& bridge, QWidget* parent = nullptr);
-	~TripHistoryPanel() override;
 
 signals:
 	void tripDatasetReady(std::shared_ptr<TripDataset> dataset);
@@ -120,7 +119,7 @@ private slots:
 	void openManageGroupsDialog();
 
 private:
-	// Lazily (re)opens historySql_ if the database file didn't exist yet the
+	// Lazily (re)opens history_ if the database file didn't exist yet the
 	// last time this was called (e.g. app launched before any flight was ever
 	// recorded). Returns nullptr if it still can't be opened.
 	sqlite3* ensureHistoryConnection();
@@ -175,7 +174,7 @@ private:
 	// Independent from RecorderBridge's STATUS::sql: that connection is opened
 	// with SQLITE_OPEN_NOMUTEX (single-thread-only) so it cannot be shared with
 	// this panel's main-thread refreshes or its QtConcurrent background loads.
-	sqlite3* historySql_ = nullptr;
+	DbConnection history_;
 	// group id -> 1-based position in the Manage Groups list order (the same
 	// order reloadGroupFilterCombo() lists groups in). Rebuilt every time that
 	// function runs; refreshTrips() stamps each TripSummary's groupRank from

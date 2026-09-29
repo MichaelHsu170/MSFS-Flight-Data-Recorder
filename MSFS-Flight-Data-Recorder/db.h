@@ -1,6 +1,8 @@
 #pragma once
 
 #include "types.h"
+#include "db_connection.h"
+#include "db_history.h"
 
 // Thrown by every db_* write below when SQLite fails; the write is rolled
 // back. message says which statement failed and why (also logged).
@@ -15,8 +17,8 @@ struct db_exception {
 
 // Which end of a trip a trips.* airport update is for.
 enum class TRIP_END { DEPARTURE, DESTINATION };
-// Which table a liftoff/touchdown row lives in.
-enum class CONTACT_TABLE { LIFTOFFS, TOUCHDOWNS };
+// (CONTACT_TABLE, which table a liftoff/touchdown row lives in, is in
+// db_history.h.)
 
 // New trips row for a trip starting at departure (title, ATC identity,
 // position and times); returns its id.
@@ -69,9 +71,7 @@ void migrate_db();
 // Debug builds, the executable's directory in Release builds.
 void resolve_db_path(char* fn_db, size_t len);
 
+// Opens (creating if needed) the recorder's own write connection,
+// status->sql, and starts the two DB-writer threads. The UI's connections
+// are in db_connection.h.
 void connect_db(struct STATUS* status);
-sqlite3* connect_db_readonly();
-// Read-write connection for explicit GUI write operations (e.g. deleting a
-// trip). Does NOT create the database (SQLITE_OPEN_READWRITE only — no CREATE),
-// so it fails cleanly if no database exists yet. Caller must sqlite3_close().
-sqlite3* connect_db_readwrite();

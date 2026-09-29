@@ -46,6 +46,7 @@ set(CORE_SOURCES
     ${SRC_DIR}/event_filter.cpp
     ${SRC_DIR}/recorder_bridge.cpp
     ${SRC_DIR}/live_status_panel.cpp
+    ${SRC_DIR}/db_connection.cpp
     ${SRC_DIR}/db_history.cpp
     ${SRC_DIR}/db_groups.cpp
     ${SRC_DIR}/trip_history_panel.cpp

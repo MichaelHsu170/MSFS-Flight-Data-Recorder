@@ -435,3 +435,29 @@ std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId) {
 	sqlite3_finalize(stmt);
 	return events;
 }
+
+bool saveAnalysisReport(sqlite3* sql, CONTACT_TABLE table, int rowId, const QString& report) {
+	const char* what = table == CONTACT_TABLE::TOUCHDOWNS ? "touchdown" : "liftoff";
+	if (rowId <= 0) {
+		Logger::logf(Logger::Trace, "DB", "saveAnalysisReport: ignoring invalid %s id %d", what, rowId);
+		return false;
+	}
+	const char* stmt_txt = table == CONTACT_TABLE::TOUCHDOWNS
+		? "UPDATE trip_touchdowns SET analysis_report = ? WHERE id = ?"
+		: "UPDATE trip_liftoffs SET analysis_report = ? WHERE id = ?";
+	sqlite3_stmt* stmt = nullptr;
+	if (sqlite3_prepare_v2(sql, stmt_txt, -1, &stmt, nullptr) != SQLITE_OK) {
+		Logger::logf(Logger::Warning, "DB", "saveAnalysisReport(%s %d): prepare failed: %s", what, rowId, sqlite3_errmsg(sql));
+		return false;
+	}
+	const QByteArray utf8 = report.toUtf8();
+	sqlite3_bind_text(stmt, 1, utf8.constData(), utf8.size(), SQLITE_TRANSIENT);
+	sqlite3_bind_int(stmt, 2, rowId);
+	const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+	if (ok)
+		Logger::logf(Logger::Trace, "DB", "saveAnalysisReport(%s %d): analysis report saved (%d chars)", what, rowId, (int)utf8.size());
+	else
+		Logger::logf(Logger::Warning, "DB", "saveAnalysisReport(%s %d): update failed: %s", what, rowId, sqlite3_errmsg(sql));
+	sqlite3_finalize(stmt);
+	return ok;
+}
