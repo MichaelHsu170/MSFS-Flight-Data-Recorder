@@ -10,6 +10,9 @@ Follow these rules when writing or changing code. This section is the single sou
 - **Consolidate what you touch**: when a change meets duplicated logic, extract one shared helper rather than adding another copy.
 - **Evidence-based conclusions**: a claim that work is complete, fixed, or compliant cites the evidence that proves it — the check that was run (command, scan, test, on-device step) and its actual output, with file:line references. No conclusion from memory or assumption; a check that was not run is reported as not verified.
 - **Docs always up to date**: a code change that alters behavior, structure, or a documented decision updates the matching docs/docstring in the same change. A change is not complete while its spec describes the old code.
+- **Test coverage as high as possible**: a code change adds or updates tests covering the new or changed behavior, including edge cases and error paths, to the highest coverage practically achievable. Code that cannot be unit-tested (e.g. requires live SimConnect/hardware) is covered as far down the boundary as possible, and the untestable remainder is noted in the PR description along with why.
+- **Tests verify, not reimplement**: a test asserts against an independently known expected result (fixed literals, hand-computed values, fixture/golden data, documented spec behavior), never by recomputing the same formula or logic the implementation uses. A test that would still pass after the implementation's logic is broken in the same way is not a valid test.
+- **Builds warning-clean**: a change compiles with no new compiler warnings. An existing warning touched by the change is fixed, not just preserved; a warning that cannot be fixed is suppressed narrowly (specific warning code, smallest scope) with a comment explaining why.
 
 ## Code change review
 
