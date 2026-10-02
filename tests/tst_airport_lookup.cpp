@@ -1,6 +1,7 @@
 // Liftoff/touchdown detection and the airport + runway lookup behind them:
 // runway matching, threshold/centerline distances, displaced thresholds,
 // touch-and-go markers, queued lookups and every fallback outcome.
+#include "db.h"
 #include "test_support.h"
 
 #include <QtTest>
@@ -241,6 +242,41 @@ private slots:
 			"this liftoff marker will not be recorded: ").arg(tripId)), qPrintable(insertFailed));
 		QCOMPARE(neverInserted, QStringLiteral("Liftoff (subsequent) from Test Field (TEST) runway 09: trip_liftoffs row was never inserted; dropping this resolution"));
 		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
+	}
+
+	void departureInsertFailureIsLoggedAndRetriedOnNextLiftoff() {
+		FlightDriver sim;
+		const RunwaySpec rwy = eastWestRunway();
+		sim.airports = { testAirport(rwy) };
+		const int tripId = startOnRunway(sim, rwy);
+		// The departure's own immediate INSERT fails (distinct code path from
+		// record_contact(), which the sibling tests above exercise for
+		// subsequent markers/touchdowns).
+		{
+			std::lock_guard<std::mutex> lock(sim.status().mutex_db_commit);
+			QCOMPARE(sqlite3_exec(sim.status().sql, "DROP TABLE trip_liftoffs", nullptr, nullptr, nullptr), SQLITE_OK);
+		}
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		liftOff(sim, onRunway(rwy, 1800));
+		QVERIFY(FakeSim::state().facilitiesListRequests.empty());
+		QString insertFailed;
+		for (const QList<QVariant>& args : log) {
+			const QString line = args.value(0).toString();
+			if (line.contains(QStringLiteral("trip_liftoffs insert failed")))
+				insertFailed = line;
+		}
+		QVERIFY2(insertFailed.startsWith(QStringLiteral("Liftoff detected (trip %1): trip_liftoffs insert failed, "
+			"will retry on next liftoff: ").arg(tripId)), qPrintable(insertFailed));
+		// Land, restore the table, then take off again: since the first attempt
+		// never flipped departure_lookup_initiated TRUE, this liftoff is
+		// retried as the trip's departure, not recorded as a touch-and-go marker.
+		touchDown(sim, onRunway(rwy, 500));
+		migrate_db();
+		liftOff(sim, onRunway(rwy, 1800));
+		sim.serviceLookups();
+		QCOMPARE(trip(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
+		QCOMPARE(liftoffs(tripId).size(), 1);
 	}
 
 	void departureInOppositeDirectionUsesSecondaryEnd() {

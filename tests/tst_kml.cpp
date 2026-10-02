@@ -85,7 +85,8 @@ private:
 		if (!exportTripDatasetToKmlFile(d, path, &error))
 			return QStringLiteral("EXPORT FAILED: ") + error;
 		QFile f(path);
-		f.open(QIODevice::ReadOnly);
+		if (!f.open(QIODevice::ReadOnly))
+			return QStringLiteral("OPEN FAILED: ") + f.errorString();
 		return QString::fromUtf8(f.readAll());
 	}
 
