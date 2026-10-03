@@ -29,6 +29,8 @@ class ChartsPanel : public QWidget {
 public:
 	explicit ChartsPanel(QWidget* parent = nullptr);
 
+	// Also clears the cursor (see setCursorIndex), which belonged to the
+	// previous dataset.
 	void setDataset(const TripDataset& dataset);
 	void setCursorIndex(int index);
 

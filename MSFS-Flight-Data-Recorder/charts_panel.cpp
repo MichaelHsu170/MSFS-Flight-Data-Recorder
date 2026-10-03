@@ -115,6 +115,10 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		emit seriesLoaded();
 		return;
 	}
+	// The cursor belongs to the previous dataset. MapWidget::setDataset resets
+	// its own cursor without emitting cursorIndexChanged, so clear it here or
+	// the old cursor line stays drawn over a reloaded or overlapping trip.
+	setCursorIndex(-1);
 
 	// Empty dataset (Deselect / overview mode): make charts appear empty by
 	// resetting the X axis to a 1-second window at current time. The stale

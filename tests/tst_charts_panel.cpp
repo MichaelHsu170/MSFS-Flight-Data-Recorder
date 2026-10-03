@@ -130,6 +130,36 @@ private slots:
 		QCOMPARE(root->property("cursorTime").toDouble(), -1.0);
 	}
 
+	void setDatasetClearsTheCursorOfThePreviousDataset() {
+		ChartsPanel panel;
+		panel.resize(400, 300);
+		panel.show();
+		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
+
+		const QString t0 = QStringLiteral("2026-03-05T15:30:00.000+00:00_4");
+		const QString t1 = QStringLiteral("2026-03-05T15:30:01.000+00:00_4");
+		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
+		TripDataset dataset;
+		dataset.points = { samplePoint(1, t0), samplePoint(2, t1) };
+		panel.setDataset(dataset);
+		QVERIFY(spy.wait(5000));
+		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
+
+		// Reloading the same trip: the old cursor time lies inside the new X
+		// axis range, so a stale value would stay drawn.
+		panel.setCursorIndex(1);
+		QCOMPARE(root->property("cursorTime").toDouble(), chartTimeMs(t1));
+		panel.setDataset(dataset);
+		QCOMPARE(root->property("cursorTime").toDouble(), -1.0);
+		QVERIFY(spy.wait(5000));
+
+		// Deselect (empty dataset) clears it too.
+		panel.setCursorIndex(1);
+		QCOMPARE(root->property("cursorTime").toDouble(), chartTimeMs(t1));
+		panel.setDataset(TripDataset());
+		QCOMPARE(root->property("cursorTime").toDouble(), -1.0);
+	}
+
 	void appendLivePointGrowsTheAxisAndEveryCachedSeries() {
 		ChartsPanel panel;
 		panel.resize(400, 300);
