@@ -1,5 +1,6 @@
 // Small shared helpers: trip_dataset.h (time parsing, file-name pieces,
 // decimation) and trip_data_fields.h (field labels).
+#include "fake_simconnect.h"
 #include "trip_data_fields.h"
 #include "trip_dataset.h"
 
@@ -72,6 +73,26 @@ private slots:
 		TRIP_DATA_BOOL_FIELDS(ADD_BIT)
 #undef ADD_BIT
 		QCOMPARE(usedBits.size(), count);
+	}
+
+	// tripBoolGroups()'s packing formula against independently hand-computed
+	// hex literals (field -> group/bit from TRIP_DATA_BOOL_FIELDS above), not
+	// a recomputation of the shift-and-OR it performs.
+	void tripBoolGroupsPacksFieldsIntoExpectedBits() {
+		FLIGHT_DATA_RECORD r{};
+		r.autopilot_airspeed_hold = 1; // group 1, bit 0
+		r.autopilot_master = 1;        // group 1, bit 18
+		r.aileron_trim_disabled = 1;   // group 1, bit 30
+		r.flap_damage_by_speed = 1;    // group 2, bit 0
+		r.eng_failed_2 = 1;            // group 2, bit 20
+		r.sim_on_ground = 1;           // group 3, bit 30
+		r.kohlsman_setting_std = 1;    // group 3, bit 31
+
+		const std::array<uint32_t, 4> groups = tripBoolGroups(r);
+		QCOMPARE(groups[0], 0u);
+		QCOMPARE(groups[1], 0x40040001u);
+		QCOMPARE(groups[2], 0x00100001u);
+		QCOMPARE(groups[3], 0xC0000000u);
 	}
 
 	void decimatedIndicesKeepEverySampleWithinBudget() {

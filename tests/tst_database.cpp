@@ -191,10 +191,7 @@ private slots:
 #undef CHECK_NUM
 		QCOMPARE((int)p.rawNums.size(), i);
 
-		uint32_t groups[4] = {};
-#define PACK(name, group, bit) if (expected.name != 0) groups[group] |= (1u << (bit));
-		TRIP_DATA_BOOL_FIELDS(PACK)
-#undef PACK
+		const std::array<uint32_t, 4> groups = tripBoolGroups(expected);
 		QCOMPARE(p.boolGroup1, groups[1]);
 		QCOMPARE(p.boolGroup2, groups[2]);
 		QCOMPARE(p.boolGroup3, groups[3]);

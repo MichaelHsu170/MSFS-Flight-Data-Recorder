@@ -12,6 +12,18 @@
 #include <QThreadPool>
 #include <QtConcurrent/QtConcurrentRun>
 
+namespace {
+
+// Destroys dataset off the main thread instead of letting it go out of scope
+// inline: freeing 50k+ TripSamplePoints (each with a std::vector<double>
+// rawNums) inline can visibly stall the UI on Windows.
+void destroyOffMainThread(std::shared_ptr<TripDataset>&& dataset) {
+	if (dataset)
+		QThreadPool::globalInstance()->start([d = std::move(dataset)]() mutable {});
+}
+
+}
+
 TrajectoryView::TrajectoryView(QWidget* parent) : QWidget(parent) {
 	mapWidget_ = new MapWidget(this);
 	dataTablePanel_ = new DataTablePanel(this);
@@ -90,14 +102,11 @@ void TrajectoryView::setDataset(std::shared_ptr<TripDataset> dataset) {
 	chartsPanel_->setDataset(*dataset_);
 	mapWidget_->setDataset(*dataset_);
 	dataTablePanel_->setDataset(dataset_.get());
-	// Destroy the old dataset off the main thread -- freeing 50k+ TripSamplePoints
-	// (each with a std::vector<double> rawNums) inline can visibly stall the UI on
-	// Windows. Scheduled only now, after dataTablePanel_->setDataset() above: it
-	// holds a raw, non-owning pointer to dataset_, so starting this background
-	// deletion any earlier would leave that pointer referencing memory whose
-	// destruction may already be running concurrently on another thread.
-	if (oldDataset)
-		QThreadPool::globalInstance()->start([d = std::move(oldDataset)]() mutable {});
+	// Scheduled only now, after dataTablePanel_->setDataset() above: it holds a
+	// raw, non-owning pointer to dataset_, so starting this background deletion
+	// any earlier would leave that pointer referencing memory whose destruction
+	// may already be running concurrently on another thread.
+	destroyOffMainThread(std::move(oldDataset));
 }
 
 void TrajectoryView::onSubviewLoaded() {
@@ -126,10 +135,8 @@ void TrajectoryView::onSubviewLoaded() {
 void TrajectoryView::clearAndShowOverview(const std::vector<TripSummary>& trips) {
 	QElapsedTimer t; t.start();
 	pendingRenders_ = 0;
-	// Move the dataset out before anything else. Destroying it inline on the main
-	// thread is slow: 50k TripSamplePoints each carry a std::vector<double> rawNums,
-	// meaning 50k+ individual heap frees that visibly stall the UI on Windows.
-	// We hand it to a background task so destruction runs off the main thread.
+	// Move the dataset out before anything else so it can be destroyed off the
+	// main thread below, once the panels have switched away from it.
 	auto oldDataset = std::move(dataset_);
 	currentTripId_ = -1;
 	pendingLivePoints_.clear();
@@ -140,8 +147,7 @@ void TrajectoryView::clearAndShowOverview(const std::vector<TripSummary>& trips)
 	Logger::logf(Logger::Profile, "TrajView", "clearAndShowOverview: dataTable done %lld ms", t.nsecsElapsed() / 1000000);
 	mapWidget_->showOverview(trips);
 	Logger::logf(Logger::Profile, "TrajView", "clearAndShowOverview: complete %lld ms total", t.nsecsElapsed() / 1000000);
-	if (oldDataset)
-		QThreadPool::globalInstance()->start([d = std::move(oldDataset)]() mutable {});
+	destroyOffMainThread(std::move(oldDataset));
 }
 
 void TrajectoryView::resetZoom() {
