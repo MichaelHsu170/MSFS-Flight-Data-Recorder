@@ -3,6 +3,8 @@
 #include "test_support.h"
 
 #include "app_settings.h"
+#include "db.h"
+#include "gui_notify.h"
 
 #include <QSettings>
 #include <QtTest>
@@ -18,6 +20,20 @@ private:
 	static int tripCount() { return queryValue("SELECT COUNT(*) FROM trips").toInt(); }
 	static int sampleCount(int tripId) {
 		return queryValue(QStringLiteral("SELECT COUNT(*) FROM trip_data WHERE trip=%1").arg(tripId)).toInt();
+	}
+	// Runs sql on a second connection, outside the recorder's own.
+	static void execSql(const char* sql) {
+		sqlite3* db = connect_db_readwrite();
+		QVERIFY(db);
+		QCOMPARE(sqlite3_exec(db, sql, nullptr, nullptr, nullptr), SQLITE_OK);
+		sqlite3_close(db);
+	}
+	// The first logged line starting with prefix, or an empty string.
+	static QString firstLogStartingWith(const QSignalSpy& log, const QString& prefix) {
+		for (const QList<QVariant>& call : log)
+			if (call.at(0).toString().startsWith(prefix))
+				return call.at(0).toString();
+		return QString();
 	}
 
 private slots:
@@ -419,6 +435,105 @@ private slots:
 		sim.setEngines(true);
 		sim.send(packet);
 		QCOMPARE(tripCount(), 0);
+	}
+
+	void unhandledRecvIdIsLogged() {
+		FlightDriver sim;
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		sim.send(recvPacket(SIMCONNECT_RECV_ID_ASSIGNED_OBJECT_ID, sizeof(SIMCONNECT_RECV)));
+		QVERIFY(log.contains(QVariantList{ QStringLiteral("SIMCONNECT_RECV: %1").arg((int)SIMCONNECT_RECV_ID_ASSIGNED_OBJECT_ID) }));
+	}
+
+	// --- Database failures while recording ---
+	// Each forces one statement to fail with a trigger installed through a
+	// second connection, leaving every other write working.
+
+	void failedTripInsertDoesNotRecordAndIsRetried() {
+		FlightDriver sim;
+		execSql("CREATE TRIGGER fail_insert BEFORE INSERT ON trips BEGIN SELECT RAISE(ABORT, 'forced'); END");
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		QSignalSpy started(&sim.bridge(), &RecorderBridge::recordingStateChanged);
+		sim.setEngines(true);
+		sim.tick();
+		QVERIFY(!sim.bridge().isRecording());
+		QCOMPARE(started.count(), 0);
+		QCOMPARE(tripCount(), 0);
+		QVERIFY(!firstLogStartingWith(log, QStringLiteral("Recording start failed (trip insert): ")).isEmpty());
+		// Engines still running: the next sample retries the start.
+		execSql("DROP TRIGGER fail_insert");
+		sim.tick();
+		QVERIFY(sim.bridge().isRecording());
+		QCOMPARE(tripCount(), 1);
+	}
+
+	void failedDestinationTimeWriteStillEndsTheTrip() {
+		FlightDriver sim;
+		const int tripId = sim.startTrip();
+		execSql("CREATE TRIGGER fail_update BEFORE UPDATE ON trips BEGIN SELECT RAISE(ABORT, 'forced'); END");
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		QSignalSpy ended(&sim.bridge(), &RecorderBridge::tripEnded);
+		sim.endTrip();
+		QVERIFY(!sim.bridge().isRecording());
+		QCOMPARE(sim.bridge().currentTripId(), -1);
+		QVERIFY(waitFor([&ended] { return ended.count() == 1; }));
+		QVERIFY(!firstLogStartingWith(log, QStringLiteral("stop_recording: failed to write destination time (trip %1): ").arg(tripId)).isEmpty());
+		QVERIFY(queryValue(QStringLiteral("SELECT destination_zulu_time FROM trips WHERE id=%1").arg(tripId)).isNull());
+	}
+
+	// --- RecorderBridge guards ---
+
+	void settingRecordingEnabledToItsCurrentValueEmitsNothing() {
+		FlightDriver sim;
+		QSignalSpy changed(&sim.bridge(), &RecorderBridge::recordingEnabledChanged);
+		sim.bridge().setRecordingEnabled(true);
+		QCOMPARE(changed.count(), 0);
+	}
+
+	void connectWhileConnectedDoesNotReopen() {
+		FlightDriver sim;
+		QMetaObject::invokeMethod(&sim.bridge(), "tryConnect", Qt::DirectConnection);
+		QCOMPARE(FakeSim::state().openCalls, 1);
+	}
+
+	void quitWhileDisconnectedDoesNotCloseAgain() {
+		FakeSim::reset();
+		FakeSim::state().openFails = true;
+		RecorderBridge bridge;
+		bridge.status()->quit = TRUE;
+		QMetaObject::invokeMethod(&bridge, "pollDispatch", Qt::DirectConnection);
+		QCOMPARE(FakeSim::state().closeCalls, 0);
+	}
+
+	// recorder.cpp/flight_phase.cpp/db.cpp call these with whatever STATUS
+	// they were given; one with no RecorderBridge attached (or none at all)
+	// must reach no bridge rather than dereference a null gui_context.
+	void notificationsWithoutAGuiContextReachNoBridge() {
+		FlightDriver sim;
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		QSignalSpy connected(&sim.bridge(), &RecorderBridge::connectionChanged);
+		QSignalSpy started(&sim.bridge(), &RecorderBridge::recordingStateChanged);
+		QSignalSpy updated(&sim.bridge(), &RecorderBridge::tripUpdated);
+		QSignalSpy sample(&sim.bridge(), &RecorderBridge::sampleUpdated);
+		QSignalSpy committed(&sim.bridge(), &RecorderBridge::eventCommitted);
+		QSignalSpy retracted(&sim.bridge(), &RecorderBridge::eventsRetracted);
+		STATUS headless;
+		const unsigned long long seq = 1;
+		for (STATUS* status : { &headless, static_cast<STATUS*>(nullptr) }) {
+			gui_log_printf(status, GUI_LOG_WARNING, "headless %d", 1);
+			gui_notify_connection_changed(status, true);
+			gui_notify_recording_changed(status, true, 1);
+			gui_notify_trip_updated(status);
+			gui_notify_sample(status, &sim.record);
+			gui_notify_event_committed(status, 1, seq, "GEAR_UP");
+			gui_notify_events_retracted(status, &seq, 1);
+		}
+		QCOMPARE(log.count(), 0);
+		QCOMPARE(connected.count(), 0);
+		QCOMPARE(started.count(), 0);
+		QCOMPARE(updated.count(), 0);
+		QCOMPARE(sample.count(), 0);
+		QCOMPARE(committed.count(), 0);
+		QCOMPARE(retracted.count(), 0);
 	}
 };
 

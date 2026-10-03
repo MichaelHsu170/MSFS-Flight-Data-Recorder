@@ -9,6 +9,7 @@
 #include <QListWidget>
 #include <QMouseEvent>
 #include <QThread>
+#include <QToolTip>
 #include <QtTest>
 
 using namespace TestSupport;
@@ -146,6 +147,52 @@ private slots:
 		emit sim.bridge().eventsRetracted({ 41, 999 });
 		QVERIFY(!lines(panel).contains("Event: GEAR_UP"));
 		QVERIFY(lines(panel).contains("Event: FLAPS_UP"));
+	}
+
+	void blankEventTextAddsNoLine() {
+		FlightDriver sim;
+		LiveStatusPanel panel(sim.bridge());
+		const int tripId = sim.startTrip();
+		const int before = history(panel)->count();
+		emit sim.bridge().eventCommitted(tripId, 5, "   ");
+		QCOMPARE(history(panel)->count(), before);
+	}
+
+	// Seq 1's line scrolls out of the capped history; retracting it later
+	// must not remove (or touch) anything still shown.
+	void retractingAnEventPrunedByTheCapRemovesNothing() {
+		FlightDriver sim;
+		LiveStatusPanel panel(sim.bridge());
+		const int tripId = sim.startTrip();
+		emit sim.bridge().eventCommitted(tripId, 1, "Event: OLDEST");
+		for (int i = 0; i < 300; ++i)
+			emit sim.bridge().logMessage(QString::number(i));
+		emit sim.bridge().eventCommitted(tripId, 2, "Event: KEPT");
+		for (int i = 300; i < 600; ++i)
+			emit sim.bridge().logMessage(QString::number(i));
+		QVERIFY(!lines(panel).contains("Event: OLDEST"));
+		QVERIFY(lines(panel).contains("Event: KEPT"));
+		const QStringList shown = lines(panel);
+		emit sim.bridge().eventsRetracted({ 1 });
+		QCOMPARE(lines(panel), shown);
+		emit sim.bridge().eventsRetracted({ 2 });
+		QVERIFY(!lines(panel).contains("Event: KEPT"));
+		QCOMPARE(history(panel)->count(), 499);
+	}
+
+	void hoveringTheToggleShowsItsTooltipAtOnce() {
+		FlightDriver sim;
+		LiveStatusPanel panel(sim.bridge());
+		panel.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&panel));
+		QWidget* toggle = recordingToggle(panel);
+		QEnterEvent enter(QPointF(5, 5), toggle->mapToGlobal(QPointF(5, 5)), toggle->mapToGlobal(QPointF(5, 5)));
+		QCoreApplication::sendEvent(toggle, &enter);
+		QVERIFY(QToolTip::isVisible());
+		QCOMPARE(QToolTip::text(), QStringLiteral("Click to disable automatic recording."));
+		QEvent leave(QEvent::Leave);
+		QCoreApplication::sendEvent(toggle, &leave);
+		QVERIFY(waitFor([] { return !QToolTip::isVisible(); }, 2000));
 	}
 
 	void staleTripEndedIsIgnored() {

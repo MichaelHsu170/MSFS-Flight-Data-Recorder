@@ -75,3 +75,7 @@ flight_data.db
 # Exported KML / map images saved to the repo root during manual testing
 /*.kml
 /*.png
+
+# OpenCppCoverage reports (regenerate with .vscode\scripts\coverage.ps1)
+/coverage.xml
+/coverage_report/

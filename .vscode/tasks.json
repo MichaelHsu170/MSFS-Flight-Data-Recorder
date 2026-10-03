@@ -47,6 +47,27 @@
       }
     },
     {
+      "label": "Coverage",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\.vscode\\scripts\\coverage.ps1"
+      ],
+      "group": {
+        "kind": "build"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "clear": true,
+        "panel": "shared"
+      }
+    },
+    {
       "label": "Clean",
       "type": "shell",
       "command": "powershell",

@@ -70,16 +70,40 @@ private slots:
 		QVERIFY(!text.contains("c trace"));
 	}
 
+	void cShimDropsLevelsBeyondProfile() {
+		log_cf(5, "DB", "beyond profile");
+		QVERIFY(!logText().contains("beyond profile"));
+	}
+
 	void crashLoggingWritesToo() {
 		Logger::logCrashf(Logger::Fatal, "Crash", "code %d", 5);
 		QVERIFY(logText().contains("[FATAL] [Crash   ] code 5\n"));
 	}
 
-	void secondInitIsIgnored() {
+	void crashLoggingIsFilteredByLevelToo() {
+		Logger::logCrashf(Logger::Trace, "Crash", "crash trace %d", 1);
+		Logger::logCrash(Logger::Profile, "Crash", "crash profile");
+		const QString text = logText();
+		QVERIFY(!text.contains("crash trace"));
+		QVERIFY(!text.contains("crash profile"));
+	}
+
+	// The file stays the first one, but the later call's level applies.
+	void secondInitKeepsTheFileButTakesTheNewLevel() {
 		Logger::init(Logger::Profile, dir_.filePath("other.log"));
 		QVERIFY(!QFile::exists(dir_.filePath("other.log")));
 		Logger::log(Logger::Info, "Test", "still here");
-		QVERIFY(logText().contains("still here"));
+		Logger::log(Logger::Trace, "Test", "now traced");
+		Logger::log(Logger::Profile, "Test", "now profiled");
+		const QString text = logText();
+		QVERIFY(text.contains("still here"));
+		QVERIFY(text.contains("[TRACE] [Test    ] now traced\n"));
+		QVERIFY(text.contains("[PROF ] [Test    ] now profiled\n"));
+	}
+
+	void outOfRangeLevelFromTheCShimIsTaggedUnknown() {
+		log_c(-1, "DB", "odd level");
+		QVERIFY(logText().contains("[?    ] [DB      ] odd level\n"));
 	}
 
 	void levelNames_data() {

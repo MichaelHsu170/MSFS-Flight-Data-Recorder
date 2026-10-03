@@ -163,6 +163,29 @@ private slots:
 		QVERIFY(qAbs(touchdown.candidates[0].distances_percent[0] - 400.0 / 2500) < 0.001);
 	}
 
+	void northPrimaryEndStoredAsZeroIsReportedAs360() {
+		RunwaySpec north = eastWest();
+		north.heading = 0;
+		TestAirport a({ north });
+		const RUNWAY_MATCH m = match(a.airport, pointOnRunway(north, 1500, 5), 0.5, false);
+		QCOMPARE(m.candidates.size(), size_t(1));
+		QVERIFY(m.candidates[0].is_primary);
+		QCOMPARE(m.candidates[0].heading, 360);
+	}
+
+	// Offsets that leave no landing distance (3500 m of a 3000 m runway):
+	// the percentage falls back to the full physical length.
+	void thresholdsLongerThanTheRunwayFallBackToItsLength() {
+		RunwaySpec r = eastWest();
+		r.primaryThresholdM = 2000;
+		r.secondaryThresholdM = 1500;
+		r.thresholdEnable = 1;
+		TestAirport a({ r });
+		const RUNWAY_MATCH m = match(a.airport, pointOnRunway(r, 2500, 5), 90, true);
+		QVERIFY(qAbs(m.candidates[0].distances[0] - 500 * kFeetPerMeter) < 2);
+		QVERIFY(qAbs(m.candidates[0].distances_percent[0] - 500.0 / 3000) < 0.001);
+	}
+
 	void thresholdDataIgnoredWhenDisabled() {
 		RunwaySpec r = eastWest();
 		r.primaryThresholdM = 300;

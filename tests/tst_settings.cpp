@@ -4,7 +4,9 @@
 
 #include "app_settings.h"
 
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QSettings>
 #include <QtTest>
 
@@ -133,6 +135,38 @@ private slots:
 		QCOMPARE(s.tripHistoryColumnWidths(), (QMap<QString, int>{ { "OnlyColumn", 90 } }));
 		writeSettingsFile("[table_column_width]\ntrip_history_column_widths=120,TitleColumn=abc,GroupColumn=70\n");
 		QCOMPARE(s.tripHistoryColumnWidths(), (QMap<QString, int>{ { "GroupColumn", 70 } }));
+	}
+
+	void sectionHeaderWithATrailingCommentIsUpdatedInPlace() {
+		writeSettingsFile("[layout] ; edited by hand\nright_panel_width=260\n[other] # too\nkeep=me\n");
+		AppSettings::instance().setRightPanelWidth(300);
+		QCOMPARE(readSettingsFile(), QStringLiteral("[layout] ; edited by hand\nright_panel_width=300\n[other] # too\nkeep=me\n"));
+	}
+
+	void unreadableFileIsNotOverwritten() {
+		removeSettings();
+		// A directory exists at the path but can't be opened as a file.
+		QVERIFY(QDir().mkpath(AppSettings::filePath()));
+		AppSettings::instance().setRightPanelWidth(300);
+		QVERIFY(QFileInfo(AppSettings::filePath()).isDir());
+		QVERIFY(QDir().rmdir(AppSettings::filePath()));
+	}
+
+	void readOnlyFileIsLeftUnchanged() {
+		writeSettingsFile("[layout]\nright_panel_width=260\n");
+		QFile::setPermissions(AppSettings::filePath(), QFile::ReadOwner | QFile::ReadUser);
+		AppSettings::instance().setRightPanelWidth(300);
+		const QString text = readSettingsFile();
+		QFile::setPermissions(AppSettings::filePath(), QFile::ReadOwner | QFile::WriteOwner | QFile::ReadUser | QFile::WriteUser);
+		QCOMPARE(text, QStringLiteral("[layout]\nright_panel_width=260\n"));
+		QCOMPARE(AppSettings::instance().rightPanelWidth(), 260);
+	}
+
+	void logLevelIsReadVerbatimWithInfoAsDefault() {
+		writeSettingsFile("[logging]\nverbose=trace\n");
+		QCOMPARE(AppSettings::logLevel(), QStringLiteral("trace"));
+		removeSettings();
+		QCOMPARE(AppSettings::logLevel(), QStringLiteral("INFO"));
 	}
 
 	void recordingEnabledRoundTrip() {

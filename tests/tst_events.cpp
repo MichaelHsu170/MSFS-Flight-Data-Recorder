@@ -178,6 +178,54 @@ private slots:
 		QCOMPARE(allEventRows(), 0);
 	}
 
+	// event_write_worker's own catch block (as opposed to commit_event's
+	// WHERE EXISTS no-op exercised above): the write fails outright, so it
+	// must be logged and the occurrence pulled back out of the Live Status
+	// list via eventsRetracted, without taking the worker thread down.
+	void eventInsertFailureIsLoggedAndRetractedFromTheUi() {
+		FlightDriver sim;
+		const int tripId = sim.startTrip();
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		QSignalSpy retracted(&sim.bridge(), &RecorderBridge::eventsRetracted);
+		sqlite3* db = connect_db_readwrite();
+		QVERIFY(db);
+		sqlite3_exec(db, "DROP TABLE trip_events", nullptr, nullptr, nullptr);
+		sqlite3_close(db);
+		sim.simEvent(EVENT_GEAR_UP);
+		quiet(sim, 600);
+		const QString expected = QStringLiteral("event_write_worker: dropped one event for trip %1").arg(tripId);
+		QVERIFY(waitFor([&log, &expected] {
+			for (const QList<QVariant>& call : log)
+				if (call.at(0).toString().contains(expected))
+					return true;
+			return false;
+		}));
+		QCOMPARE(retracted.count(), 1);
+		QCOMPARE(retracted.at(0).at(0).value<QList<quint64>>().size(), 1);
+	}
+
+	void slowFloodRetractionFailureIsLogged() {
+		FlightDriver sim;
+		sim.startTrip();
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		sqlite3* db = connect_db_readwrite();
+		QVERIFY(db);
+		sqlite3_exec(db, "DROP TABLE trip_events", nullptr, nullptr, nullptr);
+		sqlite3_close(db);
+		// Same three-occurrence slow flood as slowRepeatsAreRetracted... above:
+		// its Delete reaches the worker after the three failed Inserts.
+		for (int i = 0; i < 3; ++i) {
+			sim.simEvent(EVENT_AP_HDG_HOLD);
+			quiet(sim, 600);
+		}
+		QVERIFY(waitFor([&log] {
+			for (const QList<QVariant>& call : log)
+				if (call.at(0).toString().startsWith(QStringLiteral("event_write_worker: failed to retract 3 event(s): ")))
+					return true;
+			return false;
+		}));
+	}
+
 	void crashIsLoggedNotRecorded() {
 		FlightDriver sim;
 		sim.startTrip();

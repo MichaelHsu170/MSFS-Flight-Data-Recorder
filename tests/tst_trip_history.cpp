@@ -7,6 +7,7 @@
 #include "db_groups.h"
 #include "trip_history_panel.h"
 
+#include <QApplication>
 #include <QComboBox>
 #include <QLabel>
 #include <QMenu>
@@ -114,6 +115,7 @@ private slots:
 		t.departureIcao = "AAAA";
 		t.departureName = "Alpha";
 		t.destinationIcao = "BBBB";
+		t.destinationRegion = "BB";
 		t.departureRwy = "09";
 		TripHistoryModel model;
 		model.setTrips({ t });
@@ -126,11 +128,26 @@ private slots:
 		QCOMPARE(text(TripHistoryModel::DepartureRwyColumn), QStringLiteral("09"));
 		QCOMPARE(text(TripHistoryModel::DestinationRwyColumn), QStringLiteral("-"));
 		QCOMPARE(text(TripHistoryModel::DepartureRegionColumn), QStringLiteral("-"));
+		QCOMPARE(text(TripHistoryModel::DestinationRegionColumn), QStringLiteral("BB"));
 		QCOMPARE(text(TripHistoryModel::DepartureTimeColumn), QString::fromLatin1(kDep));
+		QCOMPARE(text(TripHistoryModel::DestinationTimeColumn), QString::fromLatin1(kArr));
 		QCOMPARE(model.index(0, TripHistoryModel::DepartureColumn).data(Qt::ToolTipRole).toString(), QStringLiteral("AAAA [Alpha]"));
 		QCOMPARE(model.headerData(TripHistoryModel::TitleColumn, Qt::Horizontal, Qt::DisplayRole).toString(), QStringLiteral("Aircraft"));
 		QCOMPARE(model.headerData(TripHistoryModel::DurationColumn, Qt::Horizontal, Qt::DisplayRole).toString(), QStringLiteral("Duration"));
 		QCOMPARE(model.columnCount(), (int)TripHistoryModel::ColumnCount);
+		// Out-of-enum section/column, wrong orientation: all fall through to the
+		// shared "nothing to show" return rather than a matching case.
+		QVERIFY(!model.headerData(TripHistoryModel::ColumnCount, Qt::Horizontal, Qt::DisplayRole).isValid());
+		QVERIFY(!model.headerData(TripHistoryModel::TitleColumn, Qt::Vertical, Qt::DisplayRole).isValid());
+	}
+
+	void dataAndFlagsAreEmptyForInvalidOrOutOfRangeIndex() {
+		TripHistoryModel model;
+		model.setTrips({ summary(1, kDep, kArr) });
+		QVERIFY(!model.data(QModelIndex(), Qt::DisplayRole).isValid());
+		QVERIFY(!model.data(model.index(1, TripHistoryModel::TitleColumn), Qt::DisplayRole).isValid());
+		QCOMPARE(model.flags(QModelIndex()), Qt::ItemFlags());
+		QCOMPARE(model.flags(model.index(1, TripHistoryModel::TitleColumn)), Qt::ItemFlags());
 	}
 
 	void groupNameShownOnlyForGroupedTrips() {
@@ -151,6 +168,12 @@ private slots:
 		QCOMPARE(model.index(2, 0).data(Qt::BackgroundRole).value<QBrush>().color(), QColor(220, 230, 245));
 		QVERIFY(!(model.flags(model.index(0, 0)) & Qt::ItemIsSelectable));
 		QVERIFY(model.flags(model.index(1, 0)) & Qt::ItemIsSelectable);
+
+		// Re-hovering the same row is a no-op: no extra dataChanged for either
+		// the old or the new row (both are the same row here).
+		QSignalSpy changed(&model, &QAbstractItemModel::dataChanged);
+		model.setHoveredRow(2);
+		QCOMPARE(changed.count(), 0);
 	}
 
 	void groupFilterAndTotals() {
@@ -369,6 +392,88 @@ private slots:
 
 		QSignalSpy deselected(&panel, &TripHistoryPanel::tripDeselected);
 		onNextModal([](QWidget* menu) { chooseMenuItem(menu, "Deselect"); });
+		openRowMenu(view(panel), rowOfTrip(view(panel), 1));
+		QCOMPARE(deselected.count(), 1);
+		QVERIFY(view(panel)->selectionModel()->selectedRows().isEmpty());
+	}
+
+	void contextMenuIsSuppressedWhileLoading() {
+		FlightDriver sim;
+		insertTrip(1, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
+		panel.selectTripById(1); // starts loading
+		openRowMenu(view(panel), rowOfTrip(view(panel), 1)); // suppressed: a load is already in progress
+		QVERIFY(!QApplication::activePopupWidget());
+		QVERIFY(waitFor([&ready] { return ready.count() == 1; }));
+		panel.setLoadingFinished();
+	}
+
+	void callingSetLoadingFinishedTwiceIsHarmless() {
+		FlightDriver sim;
+		insertTrip(1, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
+		panel.selectTripById(1);
+		QVERIFY(waitFor([&ready] { return ready.count() == 1; }));
+		panel.setLoadingFinished();
+		QVERIFY(view(panel)->isEnabled());
+		panel.setLoadingFinished(); // already finished: no-op
+		QVERIFY(view(panel)->isEnabled());
+	}
+
+	void reentrantSelectTripByIdWhileLoadingIsIgnored() {
+		FlightDriver sim;
+		insertTrip(1, kDep, kArr);
+		insertTrip(2, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
+		panel.selectTripById(1); // starts loading trip 1
+		panel.selectTripById(2); // ignored: a load is already in progress
+		QVERIFY(waitFor([&ready] { return ready.count() == 1; }));
+		QCOMPARE(ready.at(0).at(0).value<std::shared_ptr<TripDataset>>()->tripId, 1);
+		panel.setLoadingFinished();
+		QTest::qWait(200);
+		QCOMPARE(ready.count(), 1);
+	}
+
+	void groupRankFallsBackToZeroForAnUnknownGroupId() {
+		FlightDriver sim;
+		insertTrip(1, kDep, kArr, 999); // references a group that was never created
+		TripHistoryPanel panel(sim.bridge());
+		auto* model = static_cast<TripHistoryModel*>(view(panel)->model());
+		QCOMPARE(model->trips()[0].groupRank, 0);
+	}
+
+	void selectionSurvivesARefreshTriggeredWhileSelected() {
+		FlightDriver sim;
+		insertTrip(1, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
+		panel.selectTripById(1);
+		QVERIFY(waitFor([&ready] { return ready.count() == 1; }));
+		panel.setLoadingFinished();
+		QCOMPARE(view(panel)->selectionModel()->selectedRows().value(0).row(), rowOfTrip(view(panel), 1));
+
+		sim.startTrip(); // recordingStateChanged -> refreshTrips() while trip 1 is still selected
+		QCOMPARE(view(panel)->selectionModel()->selectedRows().value(0).row(), rowOfTrip(view(panel), 1));
+	}
+
+	void deletingTheSelectedTripClearsItsSelection() {
+		FlightDriver sim;
+		insertTrip(1, kDep, kArr);
+		insertTrip(2, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
+		panel.selectTripById(1);
+		QVERIFY(waitFor([&ready] { return ready.count() == 1; }));
+		panel.setLoadingFinished();
+
+		QSignalSpy deselected(&panel, &TripHistoryPanel::tripDeselected);
+		onNextModal([](QWidget* menu) {
+			onNextModal([](QWidget* confirm) { clickDialogButton(confirm, "Yes"); });
+			chooseMenuItem(menu, "Delete Trip");
+		});
 		openRowMenu(view(panel), rowOfTrip(view(panel), 1));
 		QCOMPARE(deselected.count(), 1);
 		QVERIFY(view(panel)->selectionModel()->selectedRows().isEmpty());

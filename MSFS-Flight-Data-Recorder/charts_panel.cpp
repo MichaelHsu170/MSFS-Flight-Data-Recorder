@@ -32,6 +32,11 @@ void setAxisRange(QValueAxis* axis, std::pair<double, double> range) {
 }
 
 ChartsPanel::ChartsPanel(QWidget* parent) : QWidget(parent) {
+	// fdr_core is a static library: Qt only auto-registers a .qrc's compiled
+	// resource data when it's linked into an executable/shared library
+	// directly, so charts.qrc needs this explicit init here (ran from both
+	// the app and any test linking fdr_core) or qrc:/charts/... 404s.
+	Q_INIT_RESOURCE(charts);
 	view_ = new QQuickWidget(this);
 	view_->setResizeMode(QQuickWidget::SizeRootObjectToView);
 	view_->rootContext()->setContextProperty(QStringLiteral("chartsBridge"), this);

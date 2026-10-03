@@ -225,6 +225,15 @@ private slots:
 		QCOMPARE(p.localTime, livePoint.localTime);
 	}
 
+	void queryTripDataReturnsAnEmptyDatasetWhenTheTableIsMissing() {
+		sqlite3* db = freshDatabase();
+		exec(db, "DROP TABLE trip_data");
+		const TripDataset dataset = queryTripData(db, 1);
+		sqlite3_close(db);
+		QVERIFY(dataset.points.empty());
+		QCOMPARE(dataset.tripId, 1); // set before the query runs, kept on failure
+	}
+
 	// --- Trip History queries ---
 
 	void tripListIsNewestFirstWithStatusAndGroup() {
@@ -263,6 +272,59 @@ private slots:
 		QCOMPARE(done.groupName, QStringLiteral("Training"));
 		QCOMPARE(trips[1].groupId, 0);
 		QCOMPARE(trips[1].groupName, QString());
+	}
+
+	// queryAllTrips() reads from a read-only connection without running
+	// migrate_db() first, so it has to cope with trips tables from before
+	// group_id/departure_name (or even departure_region) existed by falling
+	// back to older SELECT lists -- these two pin that fallback cascade.
+	void queryAllTripsFallsBackToRegionSchemaOnUnmigratedDatabase() {
+		sqlite3* db = nullptr;
+		QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
+		exec(db, "CREATE TABLE trips (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, title VARCHAR(256) NOT NULL, "
+			"atc_airline VARCHAR(64) NOT NULL, atc_flight_number VARCHAR(8) NOT NULL, departure_icao VARCHAR(4), "
+			"departure_region VARCHAR(2), departure_rwy VARCHAR(3), destination_icao VARCHAR(4), destination_region VARCHAR(2), "
+			"destination_rwy VARCHAR(3), departure_zulu_time VARCHAR(32) NOT NULL, destination_zulu_time VARCHAR(32), "
+			"departure_latitude REAL NOT NULL, departure_longitude REAL NOT NULL, destination_latitude REAL, destination_longitude REAL);");
+		exec(db, "INSERT INTO trips (title,atc_airline,atc_flight_number,departure_icao,departure_region,departure_rwy,"
+			"destination_icao,destination_region,destination_rwy,departure_zulu_time,destination_zulu_time,"
+			"departure_latitude,departure_longitude,destination_latitude,destination_longitude) VALUES "
+			"('Old','AIR','1','AAAA','AA','09','BBBB','BB','27','2026-01-01T10:00:00.000+00:00_4',"
+			"'2026-01-01T11:00:00.000+00:00_4',1.5,2.5,3.5,4.5);");
+		const std::vector<TripSummary> trips = queryAllTrips(db, 0);
+		sqlite3_close(db);
+		QCOMPARE(trips.size(), size_t(1));
+		QCOMPARE(trips[0].departureIcao, QStringLiteral("AAAA"));
+		QCOMPARE(trips[0].departureRegion, QStringLiteral("AA"));
+		QCOMPARE(trips[0].departureRwy, QStringLiteral("09"));
+		QCOMPARE(trips[0].destinationRegion, QStringLiteral("BB"));
+		QCOMPARE(trips[0].departureLat, 1.5);
+		QCOMPARE(trips[0].destinationLng, 4.5);
+		// group_id and departure_name don't exist at this schema tier.
+		QCOMPARE(trips[0].departureName, QString());
+		QCOMPARE(trips[0].groupId, 0);
+	}
+
+	void queryAllTripsFallsBackToLegacySchemaOnVeryOldDatabase() {
+		sqlite3* db = nullptr;
+		QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
+		exec(db, "CREATE TABLE trips (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, title VARCHAR(256) NOT NULL, "
+			"atc_airline VARCHAR(64) NOT NULL, atc_flight_number VARCHAR(8) NOT NULL, departure_icao VARCHAR(4), "
+			"departure_rwy VARCHAR(3), destination_icao VARCHAR(4), destination_rwy VARCHAR(3), "
+			"departure_zulu_time VARCHAR(32) NOT NULL, destination_zulu_time VARCHAR(32), "
+			"departure_latitude REAL NOT NULL, departure_longitude REAL NOT NULL, destination_latitude REAL, destination_longitude REAL);");
+		exec(db, "INSERT INTO trips (title,atc_airline,atc_flight_number,departure_icao,departure_rwy,"
+			"destination_icao,destination_rwy,departure_zulu_time,destination_zulu_time,"
+			"departure_latitude,departure_longitude,destination_latitude,destination_longitude) VALUES "
+			"('Oldest','AIR','1','AAAA','09','BBBB','27','2026-01-01T10:00:00.000+00:00_4',NULL,1.5,2.5,0,0);");
+		const std::vector<TripSummary> trips = queryAllTrips(db, 0);
+		sqlite3_close(db);
+		QCOMPARE(trips.size(), size_t(1));
+		QCOMPARE(trips[0].departureIcao, QStringLiteral("AAAA"));
+		QCOMPARE(trips[0].departureRwy, QStringLiteral("09"));
+		QCOMPARE(trips[0].destinationIcao, QStringLiteral("BBBB"));
+		QVERIFY(trips[0].status == TripStatus::Open); // destination_zulu_time is NULL
+		QCOMPARE(trips[0].departureRegion, QString());
 	}
 
 	void liftoffAndTouchdownRowsReadBack() {
@@ -312,6 +374,17 @@ private slots:
 		QCOMPARE(tds[0].analysisReport, QString());
 	}
 
+	void liftoffsAndTouchdownsReturnEmptyWhenTheirTablesAreMissing() {
+		sqlite3* db = freshDatabase();
+		exec(db, "DROP TABLE trip_liftoffs");
+		exec(db, "DROP TABLE trip_touchdowns");
+		const std::vector<LiftoffPoint> los = queryLiftoffs(db, 1);
+		const std::vector<TouchdownPoint> tds = queryTouchdowns(db, 1);
+		sqlite3_close(db);
+		QVERIFY(los.empty());
+		QVERIFY(tds.empty());
+	}
+
 	void eventListSkipsBrakesAndKeepsOrder() {
 		sqlite3* db = freshDatabase();
 		exec(db, "INSERT INTO trip_events (trip,event,time_zulu,time_local,event_seq) VALUES "
@@ -322,6 +395,14 @@ private slots:
 		QCOMPARE(events[0].event, QStringLiteral("GEAR_UP"));
 		QCOMPARE(events[0].zuluTime, QStringLiteral("z2"));
 		QCOMPARE(events[1].event, QStringLiteral("FLAPS_UP"));
+	}
+
+	void queryEventsReturnsAnEmptyListWhenTheTableIsMissing() {
+		sqlite3* db = freshDatabase();
+		exec(db, "DROP TABLE trip_events");
+		const std::vector<TripEvent> events = queryEvents(db, 1);
+		sqlite3_close(db);
+		QVERIFY(events.empty());
 	}
 
 	void eventPositionsComeFromTheFirstSampleAtOrAfterTheEvent() {
@@ -385,6 +466,20 @@ private slots:
 		QVERIFY(deleteTripData(db, tripId));
 		sqlite3_close(db);
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data").toInt(), 0);
+	}
+
+	void deleteTripDataRollsBackWhenAChildTableIsMissing() {
+		sqlite3* db = freshDatabase();
+		exec(db, "INSERT INTO trips (id,title,atc_airline,atc_flight_number,atc_id,atc_model,atc_type,departure_latitude,"
+			"departure_longitude,departure_zulu_time,departure_local_time) VALUES (1,'T','A','1','I','M','T',0,0,'z','l');");
+		exec(db, "INSERT INTO trip_events (trip,event,time_zulu,time_local) VALUES (1,'GEAR_UP','z','l');");
+		exec(db, "DROP TABLE trip_liftoffs");
+		QVERIFY(!deleteTripData(db, 1));
+		// trip_data and trip_events delete before the missing trip_liftoffs
+		// table fails -- the whole transaction must roll back, not just stop.
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trips").toInt(), 1);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_events WHERE trip=1").toInt(), 1);
+		sqlite3_close(db);
 	}
 
 	// --- Recorder write API (db_insert_trip() etc.) ---
@@ -568,6 +663,34 @@ private slots:
 		// The connection is usable again: no transaction was left open.
 		db_set_trip_destination_position(w.status(), trip, COORDINATE());
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM trips").toInt(), 1);
+	}
+
+	// db_write_worker runs on its own thread (started by connect_db(), unlike
+	// Writer's synchronous status->sql above), so this needs a real
+	// FlightDriver to reach its catch block: a sample pushed to
+	// sample_write_queue that fails must be logged and dropped without taking
+	// the worker thread down, or every later sample would silently stop being
+	// written for the rest of the process.
+	void writeWorkerLogsAndKeepsDrainingWhenASampleWriteFails() {
+		FlightDriver sim;
+		const int tripId = sim.startTrip();
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		sqlite3* db = connect_db_readwrite();
+		QVERIFY(db);
+		exec(db, "DROP TABLE trip_data");
+		sqlite3_close(db);
+		sim.tick();
+		const QString expected = QStringLiteral("db_write_worker: dropped one sample for trip %1").arg(tripId);
+		QVERIFY(waitFor([&log, &expected] {
+			for (const QList<QVariant>& call : log)
+				if (call.at(0).toString().contains(expected))
+					return true;
+			return false;
+		}));
+		// The worker thread survived the failure and is still draining the
+		// queue: ending the trip still reaches the "Recording stopped" sentinel.
+		sim.endTrip();
+		QVERIFY(!sim.bridge().isRecording());
 	}
 
 	// --- UI connections and analysis reports ---

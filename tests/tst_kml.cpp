@@ -125,6 +125,17 @@ private slots:
 		QVERIFY(!kml.contains("<b>Local:</b> <br/>"));
 	}
 
+	void noAirportMeansNoAirportRow() {
+		TripDataset d = fullDataset();
+		d.liftoffPoints[0].icao.clear();
+		d.liftoffPoints[0].runway.clear();
+		d.touchdowns.clear();
+		const QString kml = exportToString(d);
+		QVERIFY(kml.contains("<Placemark><name>Liftoff</name>"));
+		QVERIFY(!kml.contains("<b>Airport:</b>"));
+		QVERIFY(!kml.contains("Test Field"));
+	}
+
 	void noRunwayMeansNoThresholdRows() {
 		TripDataset d = fullDataset();
 		d.liftoffPoints[0].runway.clear();

@@ -6,9 +6,11 @@
 #include "db_groups.h"
 #include "manage_groups_dialog.h"
 
+#include <QDropEvent>
 #include <QInputDialog>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QMimeData>
 #include <QPushButton>
 #include <QtTest>
 
@@ -45,6 +47,35 @@ private:
 		sqlite3_close(db);
 		return id;
 	}
+	static void exec(const char* sql) {
+		sqlite3* db = connect_db_readwrite();
+		QVERIFY(db);
+		QCOMPARE(sqlite3_exec(db, sql, nullptr, nullptr, nullptr), SQLITE_OK);
+		sqlite3_close(db);
+	}
+	// Stores the text of the next message box in *message and closes it.
+	static void captureNextMessage(QString* message) {
+		onNextModal([message](QWidget* box) {
+			*message = static_cast<QMessageBox*>(box)->text();
+			clickDialogButton(box, "OK");
+		});
+	}
+	// Moves the last item to the top, as a drag would, then delivers the drop.
+	// Qt only routes drop events to the target of a real drag session, so
+	// dropEvent() is called directly (through a member pointer, which a
+	// using-declaration makes public).
+	struct DropAccess : ReorderableListWidget {
+		using ReorderableListWidget::dropEvent;
+	};
+	static void dragLastItemToTop(ManageGroupsDialog& d) {
+		auto* l = d.findChild<ReorderableListWidget*>();
+		QVERIFY(l);
+		l->insertItem(0, l->takeItem(l->count() - 1));
+		QMimeData mime; // nothing the model accepts: the move above is the drop's effect
+		QDropEvent drop(QPointF(5, 5), Qt::MoveAction, &mime, Qt::LeftButton, Qt::NoModifier);
+		void (ReorderableListWidget::*deliver)(QDropEvent*) = &DropAccess::dropEvent;
+		(l->*deliver)(&drop);
+	}
 
 private slots:
 	void initTestCase() { isolateFiles(); }
@@ -80,10 +111,7 @@ private slots:
 		ManageGroupsDialog dialog;
 		QString message;
 		onNextModal([&message](QWidget* input) {
-			onNextModal([&message](QWidget* box) {
-				message = static_cast<QMessageBox*>(box)->text();
-				clickDialogButton(box, "OK");
-			});
+			captureNextMessage(&message);
 			static_cast<QInputDialog*>(input)->setTextValue("TRAINING");
 			clickDialogButton(input, "OK");
 		});
@@ -117,10 +145,7 @@ private slots:
 		ManageGroupsDialog dialog;
 		QSignalSpy changed(&dialog, &ManageGroupsDialog::groupsChanged);
 		QString message;
-		onNextModal([&message](QWidget* box) {
-			message = static_cast<QMessageBox*>(box)->text();
-			clickDialogButton(box, "OK");
-		});
+		captureNextMessage(&message);
 		list(dialog)->item(0)->setText("OPS");
 		QCOMPARE(message, QStringLiteral("A group named \"OPS\" already exists."));
 		QCOMPARE(dbGroups(), (QStringList{ "Training", "Ops" }));
@@ -133,10 +158,7 @@ private slots:
 		removeDatabase(); // the write connection can't be opened now
 		QString message;
 		onNextModal([&message](QWidget* input) {
-			onNextModal([&message](QWidget* box) {
-				message = static_cast<QMessageBox*>(box)->text();
-				clickDialogButton(box, "OK");
-			});
+			captureNextMessage(&message);
 			static_cast<QInputDialog*>(input)->setTextValue("New One");
 			clickDialogButton(input, "OK");
 		});
@@ -166,17 +188,95 @@ private slots:
 		QCOMPARE(items(dialog), QStringList{ "Ops" });
 	}
 
-	void reorderingIsSaved() {
+	void deleteWithoutASelectionDoesNothing() {
+		addGroup("Training");
+		ManageGroupsDialog dialog;
+		QVERIFY(!list(dialog)->currentItem());
+		button(dialog, "Delete")->click(); // no confirmation box would be answered
+		QCOMPARE(dbGroups(), QStringList{ "Training" });
+	}
+
+	void failedDeleteShowsAnErrorAndKeepsTheGroup() {
+		addGroup("Training");
+		exec("CREATE TRIGGER block_delete BEFORE DELETE ON trip_groups BEGIN SELECT RAISE(ABORT, 'blocked'); END;");
+		ManageGroupsDialog dialog;
+		QSignalSpy changed(&dialog, &ManageGroupsDialog::groupsChanged);
+		list(dialog)->setCurrentRow(0);
+		QString message;
+		onNextModal([&message](QWidget* box) {
+			captureNextMessage(&message);
+			clickDialogButton(box, "Yes");
+		});
+		button(dialog, "Delete")->click();
+		QCOMPARE(message, QStringLiteral("Failed to delete group."));
+		QCOMPARE(dbGroups(), QStringList{ "Training" });
+		QCOMPARE(changed.count(), 0);
+	}
+
+	void deleteWithoutAWritableDatabaseShowsAnError() {
+		addGroup("Training");
+		ManageGroupsDialog dialog;
+		list(dialog)->setCurrentRow(0);
+		removeDatabase();
+		QString message;
+		onNextModal([&message](QWidget* box) {
+			captureNextMessage(&message);
+			clickDialogButton(box, "Yes");
+		});
+		button(dialog, "Delete")->click();
+		QCOMPARE(message, QStringLiteral("Could not open the database for writing."));
+	}
+
+	void renameWithoutAWritableDatabaseShowsAnErrorAndReloads() {
+		addGroup("Training");
+		ManageGroupsDialog dialog;
+		QSignalSpy changed(&dialog, &ManageGroupsDialog::groupsChanged);
+		removeDatabase();
+		QString message;
+		captureNextMessage(&message);
+		list(dialog)->item(0)->setText("Renamed");
+		QCOMPARE(message, QStringLiteral("Could not open the database for writing."));
+		QVERIFY(items(dialog).isEmpty()); // reloaded from the (now missing) database
+		QCOMPARE(changed.count(), 0);
+	}
+
+	void droppingAnItemSavesTheNewOrder() {
 		addGroup("A");
 		addGroup("B");
 		addGroup("C");
 		ManageGroupsDialog dialog;
-		QListWidget* l = list(dialog);
-		QListWidgetItem* c = l->takeItem(2);
-		l->insertItem(0, c);
-		// What ReorderableListWidget::dropEvent() does after an internal move.
-		QMetaObject::invokeMethod(l, "reordered");
+		QSignalSpy changed(&dialog, &ManageGroupsDialog::groupsChanged);
+		dragLastItemToTop(dialog);
 		QCOMPARE(dbGroups(), (QStringList{ "C", "A", "B" }));
+		QCOMPARE(items(dialog), (QStringList{ "C", "A", "B" }));
+		QCOMPARE(changed.count(), 1);
+	}
+
+	void failedReorderShowsAnErrorAndRestoresTheOrder() {
+		addGroup("A");
+		addGroup("B");
+		exec("CREATE TRIGGER block_update BEFORE UPDATE ON trip_groups BEGIN SELECT RAISE(ABORT, 'blocked'); END;");
+		ManageGroupsDialog dialog;
+		QSignalSpy changed(&dialog, &ManageGroupsDialog::groupsChanged);
+		QString message;
+		captureNextMessage(&message);
+		dragLastItemToTop(dialog);
+		QCOMPARE(message, QStringLiteral("Failed to save the new group order."));
+		QCOMPARE(dbGroups(), (QStringList{ "A", "B" }));
+		QCOMPARE(items(dialog), (QStringList{ "A", "B" }));
+		QCOMPARE(changed.count(), 0);
+	}
+
+	void reorderWithoutAWritableDatabaseShowsAnError() {
+		addGroup("A");
+		addGroup("B");
+		ManageGroupsDialog dialog;
+		removeDatabase();
+		QString message;
+		captureNextMessage(&message);
+		dragLastItemToTop(dialog);
+		QCOMPARE(message, QStringLiteral("Could not open the database for writing."));
+		QVERIFY(items(dialog).isEmpty());
 	}
 };
 

@@ -67,12 +67,15 @@ set(CORE_SOURCES
     ${SRC_DIR}/app_paths.cpp
     ${SRC_DIR}/app_settings.cpp
     ${SRC_DIR}/logger.cpp
+    # charts_panel.cpp loads qrc:/charts/charts_panel.qml and map_widget.cpp
+    # loads qrc:/map/map.html -- compiled in here (rather than SOURCES below)
+    # so the tests, which link fdr_core, can load them too.
+    ${SRC_DIR}/resources/charts.qrc
+    ${SRC_DIR}/resources/map.qrc
 )
 
 set(SOURCES
     ${SRC_DIR}/main.cpp
-    ${SRC_DIR}/resources/charts.qrc
-    ${SRC_DIR}/resources/map.qrc
     ${SRC_DIR}/resources/app.qrc
     ${SRC_DIR}/resources/app.rc
 )

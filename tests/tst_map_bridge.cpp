@@ -59,6 +59,16 @@ private slots:
 		bridge.saveTouchdownAnalysisReport(-1, "x");
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_liftoffs WHERE analysis_report IS NOT NULL").toInt(), 0);
 	}
+
+	void reportIsDroppedWithoutADatabase() {
+		removeDatabase();
+		MapBridge bridge;
+		bridge.saveTouchdownAnalysisReport(6, "Grade: B");
+		// The read-write connection doesn't create the file.
+		sqlite3* db = connect_db_readwrite();
+		QVERIFY(!db);
+		sqlite3_close(db);
+	}
 };
 
 QTEST_MAIN(TstMapBridge)

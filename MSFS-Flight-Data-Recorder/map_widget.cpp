@@ -149,6 +149,11 @@ private:
 }
 
 MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
+	// fdr_core is a static library: Qt only auto-registers a .qrc's compiled
+	// resource data when it's linked into an executable/shared library
+	// directly, so map.qrc needs this explicit init here (ran from both
+	// the app and any test linking fdr_core) or qrc:/map/... 404s.
+	Q_INIT_RESOURCE(map);
 	// OSM's tile usage policy requires a valid User-Agent identifying the
 	// application -- QtWebEngine's default UA is a generic Chromium string
 	// that doesn't, which tile servers can reject.

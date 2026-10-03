@@ -7,6 +7,8 @@
 #include "trip_data_fields.h"
 
 #include <QCheckBox>
+#include <QClipboard>
+#include <QGuiApplication>
 #include <QHeaderView>
 #include <QTableWidget>
 #include <QtTest>
@@ -199,6 +201,34 @@ private slots:
 		emit t->horizontalHeader()->sectionClicked(0);
 		QCOMPARE(AppSettings::instance().dataTableHiddenFields(), QStringList());
 		QVERIFY(!t->isRowHidden(row(t, "G Force")));
+	}
+
+	// Only a non-empty value cell offers Copy. A menu opened anywhere else
+	// would take the one answer below, and the clipboard would differ.
+	void rightClickOnAValueCopiesIt() {
+		DataTablePanel panel;
+		panel.resize(400, 600);
+		panel.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&panel));
+		QTableWidget* t = table(panel);
+		QGuiApplication::clipboard()->setText("untouched");
+		int menus = 0;
+		onNextModal([&menus](QWidget* menu) {
+			++menus;
+			chooseMenuItem(menu, "Copy");
+		});
+		const QPoint label = t->visualItemRect(t->item(0, 0)).center();
+		const QPoint value = t->visualItemRect(t->item(0, 1)).center();
+		emit t->customContextMenuRequested(label);
+		emit t->customContextMenuRequested(value); // still empty
+		emit t->customContextMenuRequested(QPoint(-5, -5)); // no cell
+		QCOMPARE(menus, 0);
+		TripDataset d;
+		d.points = { makePoint(1, "2026-01-02T10:00:00Z") };
+		panel.setDataset(&d);
+		emit t->customContextMenuRequested(t->visualItemRect(t->item(0, 1)).center());
+		QCOMPARE(menus, 1);
+		QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("2026-01-02T10:00:00Z"));
 	}
 
 	void fieldColumnWidthIsPersisted() {
