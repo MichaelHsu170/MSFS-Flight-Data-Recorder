@@ -581,8 +581,7 @@ private slots:
 		sqlite3* db = freshDatabase();
 		for (int trip : { 1, 2 }) {
 			const QByteArray t = QByteArray::number(trip);
-			exec(db, "INSERT INTO trips (id,title,atc_airline,atc_flight_number,atc_id,atc_model,atc_type,departure_latitude,"
-				"departure_longitude,departure_zulu_time,departure_local_time) VALUES (" + t + ",'T','A','1','I','M','T',0,0,'z','l');");
+			addTrip(trip);
 			exec(db, "INSERT INTO trip_events (trip,event,time_zulu,time_local) VALUES (" + t + ",'GEAR_UP','z','l');");
 			exec(db, "INSERT INTO trip_liftoffs (trip,airspeed_indicated,vertical_speed,plane_pitch_degrees,plane_bank_degrees,"
 				"heading_indicator,plane_latitude,plane_longitude,time_zulu,time_local) VALUES (" + t + ",0,0,0,0,0,0,0,'z','l');");
@@ -616,8 +615,7 @@ private slots:
 
 	void deleteTripDataRollsBackWhenAChildTableIsMissing() {
 		sqlite3* db = freshDatabase();
-		exec(db, "INSERT INTO trips (id,title,atc_airline,atc_flight_number,atc_id,atc_model,atc_type,departure_latitude,"
-			"departure_longitude,departure_zulu_time,departure_local_time) VALUES (1,'T','A','1','I','M','T',0,0,'z','l');");
+		addTrip(1);
 		exec(db, "INSERT INTO trip_events (trip,event,time_zulu,time_local) VALUES (1,'GEAR_UP','z','l');");
 		exec(db, "DROP TABLE trip_liftoffs");
 		QVERIFY(!deleteTripData(db, 1));

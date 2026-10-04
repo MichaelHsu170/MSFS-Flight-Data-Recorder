@@ -69,6 +69,9 @@ void exec(sqlite3* db, const char* sql);
 // Runs sql on a fresh read-write connection to flight_data.db (one beside the
 // code under test's own); a failure fails the current test.
 void exec(const char* sql);
+// Adds a trips row with only the required columns filled, in the group
+// groupId (0: none), through exec().
+void addTrip(int id, int groupId = 0);
 // Creates flight_data.db with only a trip_data from before engine_speed/
 // engine_load: N1/N2 of engines 1-2 in their own columns, 5 rows.
 void createLegacyTripData();

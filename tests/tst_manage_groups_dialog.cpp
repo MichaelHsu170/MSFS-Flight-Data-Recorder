@@ -79,11 +79,18 @@ private slots:
 	}
 
 	void listsGroupsInOrderWithTripCounts() {
-		addGroup("Training");
-		addGroup("Ops");
+		const int training = addGroup("Training");
+		const int ops = addGroup("Ops");
+		addGroup("Empty");
+		addTrip(1, training);
+		addTrip(2, ops);
+		addTrip(3, ops);
+		addTrip(4);
 		ManageGroupsDialog dialog;
-		QCOMPARE(items(dialog), (QStringList{ "Training", "Ops" }));
-		QCOMPARE(list(dialog)->item(0)->toolTip(), QStringLiteral("0 trips"));
+		QCOMPARE(items(dialog), (QStringList{ "Training", "Ops", "Empty" }));
+		QCOMPARE(list(dialog)->item(0)->toolTip(), QStringLiteral("1 trip"));
+		QCOMPARE(list(dialog)->item(1)->toolTip(), QStringLiteral("2 trips"));
+		QCOMPARE(list(dialog)->item(2)->toolTip(), QStringLiteral("0 trips"));
 	}
 
 	void addsAGroup() {

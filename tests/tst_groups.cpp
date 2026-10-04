@@ -14,12 +14,6 @@ class TstGroups : public QObject {
 private:
 	sqlite3* db_ = nullptr;
 
-	void addTrip(int id) {
-		const QByteArray sql = "INSERT INTO trips (id,title,atc_airline,atc_flight_number,atc_id,atc_model,atc_type,departure_latitude,"
-			"departure_longitude,departure_zulu_time,departure_local_time) VALUES (" + QByteArray::number(id) + ",'T','A','1','I','M','T',0,0,'z','l');";
-		QCOMPARE(sqlite3_exec(db_, sql.constData(), nullptr, nullptr, nullptr), SQLITE_OK);
-	}
-
 	QVariant groupOfTrip(int id) {
 		return queryValue(QStringLiteral("SELECT group_id FROM trips WHERE id=%1").arg(id));
 	}

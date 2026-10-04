@@ -177,6 +177,13 @@ void exec(const char* sql) {
 	sqlite3_close(db);
 }
 
+void addTrip(int id, int groupId) {
+	const QByteArray group = groupId ? QByteArray::number(groupId) : QByteArray("NULL");
+	exec(("INSERT INTO trips (id,title,atc_airline,atc_flight_number,atc_id,atc_model,atc_type,departure_latitude,"
+		"departure_longitude,departure_zulu_time,departure_local_time,group_id) VALUES ("
+		+ QByteArray::number(id) + ",'T','A','1','I','M','T',0,0,'z','l'," + group + ");").constData());
+}
+
 void createLegacyTripData() {
 	sqlite3* db = nullptr;
 	QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
