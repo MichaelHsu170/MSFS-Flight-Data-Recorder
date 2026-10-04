@@ -91,13 +91,7 @@ verification machine.
     over), and nothing else ever re-sources or tears down `view_`
     independently of `ChartsPanel` itself. So `rootObject()` is already
     non-null by the time the constructor returns and stays that way for the
-    object's whole life. (An earlier version of a test tried to exercise
-    this path by constructing a `ChartsPanel` without calling `show()`; it
-    turned out `setSource()` doesn't need a shown window to finish loading,
-    so the root was already ready, `setDataset()` took the async
-    background-compute path instead of the intended sync early-return, and
-    the test's premise didn't hold -- removed rather than kept as a
-    flaky/misleading pass.)
+    object's whole life, even when the panel is never shown.
   - A specific named child missing from an otherwise-ready root
     (`setAxisRange()`'s `!axis`, `loadFullSlice()`'s `!series`): every series and axis object name `buildSeriesCache()` looks up
     is always present in the real `charts_panel.qml`, so these guard a QML
@@ -162,8 +156,9 @@ verification machine.
   `db_bind_engine_values()`'s and
   `sqlite3_reset()`/`COMMIT`/`BEGIN`'s error branches and the
   finalize-after-commit log in `db_insert_update_table()` (need SQLite to
-  fail at that exact step, not at prepare); the writer threads'
-  `catch (...)` blocks (every write throws only `db_exception`);
+  fail at that exact step, not at prepare); the "unknown exception"
+  branch of `current_exception_message()`, which the writer threads use
+  (every write throws only `db_exception`);
   `db_delete_events()`'s empty-list return (the flood filter never retracts
   zero events); `migrate_db()`/`create_schema()`/`create_db_indexes()`/
   `migrate_table_columns()` failure logging (needs a corrupt or locked

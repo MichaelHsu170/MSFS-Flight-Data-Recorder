@@ -102,6 +102,7 @@ SIMCONNECTAPI SimConnect_RequestFacilitiesList_EX1(HANDLE, SIMCONNECT_FACILITY_L
 }
 
 SIMCONNECTAPI SimConnect_RequestFacilityData_EX1(HANDLE, SIMCONNECT_DATA_DEFINITION_ID, SIMCONNECT_DATA_REQUEST_ID, const char* ICAO, const char* Region, char) {
-	FakeSim::state().facilityDataRequests.push_back({ nextSendId(), ICAO, Region ? Region : "" });
+	nextSendId();
+	FakeSim::state().facilityDataRequests.push_back({ ICAO, Region ? Region : "" });
 	return S_OK;
 }

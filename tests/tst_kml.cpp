@@ -95,7 +95,7 @@ private slots:
 		const QString kml = exportToString(fullDataset());
 		QVERIFY(kml.startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<kml xmlns=\"http://www.opengis.net/kml/2.2\""));
 		QVERIFY(kml.contains("<name>TEST-DEST</name>"));
-		QVERIFY(kml.trimmed().endsWith("</Document>\n</kml>") || kml.trimmed().endsWith("</kml>"));
+		QVERIFY(kml.endsWith("</Document>\n</kml>\n"));
 	}
 
 	void flightPathAndTrackInMeters() {

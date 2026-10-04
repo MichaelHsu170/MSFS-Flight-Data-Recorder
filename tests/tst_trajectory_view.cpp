@@ -147,7 +147,6 @@ private slots:
 		QTRY_COMPARE_WITH_TIMEOUT(mapZoom(view_), fitted, 5000);
 	}
 
-
 	void setRightPanelWidthResizesTheMapTableSplitter() {
 		QSplitter* splitter = splitterWithOrientation(*view_, Qt::Horizontal);
 		QVERIFY(splitter);

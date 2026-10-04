@@ -98,7 +98,6 @@ struct RunwaySpec {
 	float primaryThresholdM = 0;
 	float secondaryThresholdM = 0;
 	int thresholdEnable = 0;   // PAVEMENT ENABLE flag for both ends
-	bool sendPavement = true;  // whether PAVEMENT child records are sent at all
 };
 
 struct AirportSpec {

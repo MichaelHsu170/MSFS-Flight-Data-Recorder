@@ -24,7 +24,6 @@ struct MappedEvent {
 };
 
 struct FacilityDataRequest {
-	DWORD sendId;
 	std::string icao;
 	std::string region;
 };

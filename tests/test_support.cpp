@@ -487,10 +487,8 @@ void FlightDriver::serviceLookups() {
 					const RunwaySpec& runway = airport.runways[i];
 					const DWORD uniqueId = static_cast<DWORD>(100 + i);
 					FakeSim::queue(facilityRunwayPacket(static_cast<DWORD>(i), uniqueId, runway));
-					if (runway.sendPavement) {
-						FakeSim::queue(facilityPavementPacket(uniqueId, runway.primaryThresholdM, runway.widthM, runway.thresholdEnable));
-						FakeSim::queue(facilityPavementPacket(uniqueId, runway.secondaryThresholdM, runway.widthM, runway.thresholdEnable));
-					}
+					FakeSim::queue(facilityPavementPacket(uniqueId, runway.primaryThresholdM, runway.widthM, runway.thresholdEnable));
+					FakeSim::queue(facilityPavementPacket(uniqueId, runway.secondaryThresholdM, runway.widthM, runway.thresholdEnable));
 				}
 				break;
 			}
