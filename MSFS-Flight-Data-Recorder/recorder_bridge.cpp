@@ -171,16 +171,19 @@ void RecorderBridge::shutdown() {
 	watcher->setFuture(stopFuture_);
 }
 
+// The RecorderBridge that owns status, or null when there's none to notify.
+static RecorderBridge* bridgeOf(struct STATUS* status) {
+	return status ? static_cast<RecorderBridge*>(status->gui_context) : nullptr;
+}
+
 void gui_notify_log(struct STATUS* status, GuiLogLevel level, const char* text) {
 	Logger::log(static_cast<Logger::Level>(level), "Recorder", QString::fromUtf8(text));
 	// Only forward Info-and-below to the LiveStatusPanel UI feed.
 	// Profile messages (e.g. SIMCONNECT_RECV_SIMOBJECT_DATA spam) stay log-only.
 	if (level > GUI_LOG_INFO)
 		return;
-	if (!status || !status->gui_context)
-		return;
-	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
-	emit bridge->logMessage(QString::fromUtf8(text));
+	if (RecorderBridge* bridge = bridgeOf(status))
+		emit bridge->logMessage(QString::fromUtf8(text));
 }
 
 void gui_log_printf(struct STATUS* status, GuiLogLevel level, const char* fmt, ...) {
@@ -194,17 +197,15 @@ void gui_log_printf(struct STATUS* status, GuiLogLevel level, const char* fmt, .
 
 void gui_notify_connection_changed(struct STATUS* status, bool connected) {
 	Logger::logf(Logger::Trace, "Recorder", "connection changed: connected=%d", connected ? 1 : 0);
-	if (!status || !status->gui_context)
-		return;
-	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
-	emit bridge->connectionChanged(connected);
+	if (RecorderBridge* bridge = bridgeOf(status))
+		emit bridge->connectionChanged(connected);
 }
 
 void gui_notify_recording_changed(struct STATUS* status, bool recording, int tripId) {
 	Logger::logf(Logger::Trace, "Recorder", "recording changed: recording=%d, trip=%d", recording ? 1 : 0, tripId);
-	if (!status || !status->gui_context)
+	RecorderBridge* bridge = bridgeOf(status);
+	if (!bridge)
 		return;
-	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
 	if (recording)
 		emit bridge->recordingStateChanged(tripId);
 	else
@@ -212,18 +213,16 @@ void gui_notify_recording_changed(struct STATUS* status, bool recording, int tri
 }
 
 void gui_notify_trip_updated(struct STATUS* status) {
-	if (!status || !status->gui_context)
+	RecorderBridge* bridge = bridgeOf(status);
+	if (!bridge)
 		return;
 	Logger::logf(Logger::Trace, "Recorder", "trip updated: trip=%d", status->id_trip);
-	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
 	emit bridge->tripUpdated(status->id_trip);
 }
 
 void gui_notify_sample(struct STATUS* status) {
-	if (!status || !status->gui_context)
-		return;
-	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
-	emit bridge->sampleUpdated();
+	if (RecorderBridge* bridge = bridgeOf(status))
+		emit bridge->sampleUpdated();
 }
 
 void gui_notify_event_committed(struct STATUS* status, int tripId, unsigned long long seq, const char* name) {
@@ -232,9 +231,9 @@ void gui_notify_event_committed(struct STATUS* status, int tripId, unsigned long
 	// Logged directly (not via gui_notify_log) so msfs_fdr_debug.log still
 	// gets this line even when gui_context is null.
 	Logger::log(Logger::Info, "Recorder", QString::fromUtf8(buf));
-	if (!status || !status->gui_context)
+	RecorderBridge* bridge = bridgeOf(status);
+	if (!bridge)
 		return;
-	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
 	// Deliberately its own signal rather than logMessage: LiveStatusPanel
 	// needs to record seq -> QListWidgetItem atomically with adding the line,
 	// which a generic text-only logMessage plus a separately-ordered seq
@@ -243,9 +242,9 @@ void gui_notify_event_committed(struct STATUS* status, int tripId, unsigned long
 }
 
 void gui_notify_events_retracted(struct STATUS* status, const unsigned long long* seqs, size_t count) {
-	if (!status || !status->gui_context)
+	RecorderBridge* bridge = bridgeOf(status);
+	if (!bridge)
 		return;
-	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
 	QList<quint64> list;
 	list.reserve((int)count);
 	for (size_t i = 0; i < count; i++)
