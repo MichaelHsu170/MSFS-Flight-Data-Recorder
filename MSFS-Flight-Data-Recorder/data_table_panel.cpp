@@ -20,6 +20,12 @@
 
 namespace {
 
+// The two columns shown together in the "GPS Position" row, not in rows of
+// their own.
+bool isGpsPositionColumn(QLatin1String column) {
+	return column == QLatin1String("gps_position_lat") || column == QLatin1String("gps_position_lon");
+}
+
 // "Time (Zulu)"/"Time (Local)" get their own dedicated rows ahead of the
 // generic field list (formatted as plain timestamps, not numbers/booleans),
 // then the single "GPS Position" row that combines gps_position_lat and
@@ -33,7 +39,7 @@ QStringList buildFieldRowLabels() {
 	QStringList labels = { QStringLiteral("Time (Zulu)"), QStringLiteral("Time (Local)"), QStringLiteral("GPS Position") };
 
 #define TRIP_NUM_FIELD(dbColumn, memberExpr, sqlType) \
-	if (QLatin1String(#dbColumn) != QLatin1String("gps_position_lat") && QLatin1String(#dbColumn) != QLatin1String("gps_position_lon")) \
+	if (!isGpsPositionColumn(QLatin1String(#dbColumn))) \
 		labels.append(tripFieldLabel(#dbColumn));
 	TRIP_DATA_NUM_FIELDS(TRIP_NUM_FIELD)
 #undef TRIP_NUM_FIELD
@@ -158,8 +164,7 @@ void DataTablePanel::setCursorIndex(int index) {
 	if (dataset_ && index >= 0 && index < (int)dataset_->points.size())
 		showPoint(dataset_->points[index]);
 	else if (dataset_ && !dataset_->points.empty())
-		// index < 0 means the map/chart cursor was cleared -- per this class's
-		// documented contract, fall back to the trip's most recent point
+		// No such point (e.g. -1): the trip's last point, as with no cursor,
 		// instead of leaving whatever was last shown stuck on screen.
 		showPoint(dataset_->points.back());
 }
@@ -257,7 +262,7 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 		// row stays within the table.
 		int ni = 0, row = 3;
 #define TRIP_NUM_DISP(dbColumn, memberExpr, sqlType) \
-		if (QLatin1String(#dbColumn) != QLatin1String("gps_position_lat") && QLatin1String(#dbColumn) != QLatin1String("gps_position_lon")) { \
+		if (!isGpsPositionColumn(QLatin1String(#dbColumn))) { \
 			QString v = ni < (int)point.rawNums.size() \
 				? QString::number(point.rawNums[ni], 'g', 6) : QString(); \
 			table_->item(row, 1)->setText(v); \

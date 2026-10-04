@@ -21,7 +21,7 @@ public:
 	static QString logLevel();
 
 	// Field names (DataTablePanel's row labels) the user has unchecked in the
-	// "Fields…" dialog -- everything not listed here stays visible.
+	// Visible Fields dialog -- everything not listed here stays visible.
 	QStringList dataTableHiddenFields() const;
 	void setDataTableHiddenFields(const QStringList& fields);
 

@@ -52,8 +52,9 @@ void gui_notify_event_committed(struct STATUS* status, int tripId, unsigned long
 // for deletion from trip_events (db_delete_events()) -- see event_filter.h.
 // Also fired from event_write_worker() (db.cpp) when a queued Insert's DB
 // write fails, to pull that one occurrence back out since it never actually
-// made it into trip_events. Unlike every other gui_notify_*() function, that
-// second caller runs on the event-write worker thread, not the SimConnect
-// dispatch thread -- safe only because this ends in a Qt signal emit, which
-// auto-queues across threads.
+// made it into trip_events. That second caller runs on the event-write worker
+// thread, as do some gui_log_printf() calls and db_write_worker()'s
+// gui_notify_recording_changed(), not the thread SimConnect dispatches on --
+// safe because each of these ends in a Qt signal emit, which queues across
+// threads.
 void gui_notify_events_retracted(struct STATUS* status, const unsigned long long* seqs, size_t count);
