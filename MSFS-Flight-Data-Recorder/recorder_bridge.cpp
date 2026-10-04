@@ -228,8 +228,9 @@ void gui_notify_sample(struct STATUS* status) {
 void gui_notify_event_committed(struct STATUS* status, int tripId, unsigned long long seq, const char* name) {
 	char buf[300];
 	snprintf(buf, sizeof(buf), "Event: %s", name);
-	// Logged directly (not via gui_notify_log) so msfs_fdr_debug.log still
-	// gets this line even when gui_context is null.
+	// Logged directly, not via gui_notify_log: that would also emit it as a
+	// logMessage, and the eventCommitted below already adds it to the
+	// LiveStatusPanel feed.
 	Logger::log(Logger::Info, "Recorder", QString::fromUtf8(buf));
 	RecorderBridge* bridge = bridgeOf(status);
 	if (!bridge)
