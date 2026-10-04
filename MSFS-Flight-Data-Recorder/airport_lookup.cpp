@@ -263,10 +263,9 @@ void lookup_on_facility_data(struct STATUS* status, SIMCONNECT_RECV_FACILITY_DAT
 		// UniqueRequestId is logged here (and echoed by the FACILITY_DATA_PAVEMENT
 		// case below on every match) specifically so a captured debug log can be
 		// used to confirm SimConnect actually hands out a distinct id per nested
-		// RUNWAY record -- see the correlation assumption noted in pending_request_id's
-		// declaration in types.h. If every runway at a multi-runway airport logs the
-		// same UniqueRequestId here, that assumption is false and PAVEMENT matching
-		// below is unreliable.
+		// RUNWAY record, which the PAVEMENT matching below assumes. If every runway
+		// at a multi-runway airport logs the same UniqueRequestId here, that
+		// assumption is false and PAVEMENT matching is unreliable.
 		gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_RUNWAY: %s slot, ItemIndex=%lu, n_runways=%d, UniqueRequestId=%lu",
 			facility_lookup_target_label(status, apt), pWxData->ItemIndex, apt->n_runways, pWxData->UniqueRequestId);
 		// apt->n_runways is guaranteed >= 0 (clamped in FACILITY_DATA_AIRPORT

@@ -178,8 +178,8 @@ static RecorderBridge* bridgeOf(struct STATUS* status) {
 
 void gui_notify_log(struct STATUS* status, GuiLogLevel level, const char* text) {
 	Logger::log(static_cast<Logger::Level>(level), "Recorder", QString::fromUtf8(text));
-	// Only forward Info-and-below to the LiveStatusPanel UI feed.
-	// Profile messages (e.g. SIMCONNECT_RECV_SIMOBJECT_DATA spam) stay log-only.
+	// Only forward Fatal, Warning and Info to the LiveStatusPanel UI feed.
+	// Trace lines (e.g. the airport/runway lookup detail) stay log-only.
 	if (level > GUI_LOG_INFO)
 		return;
 	if (RecorderBridge* bridge = bridgeOf(status))
