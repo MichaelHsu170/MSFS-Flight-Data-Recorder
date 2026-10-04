@@ -200,14 +200,13 @@ void stop_recording(struct STATUS* status) {
 	status->sample_write_queue.push(NULL, ended_trip_id);
 }
 
-// Called whenever the shared facility-lookup slot becomes free (from the tail
-// end of any terminal SIMCONNECT_RECV_ID_AIRPORT_LIST/FACILITY_DATA_END
-// outcome, with lookup.pending already cleared). If a liftoff
-// event or touchdown happened while a previous lookup was still in flight, its own
-// SimConnect_RequestFacilitiesList_EX1 call was skipped to avoid racing the
-// in-flight one (see lookup.pending in types.h) -- this picks it
-// back up immediately. Departure takes priority since it always happens
-// first within a trip; touchdowns are then matched in the same FIFO order
+// Starts the next waiting lookup unless one is already in flight (only one
+// may be -- see lookup.pending in types.h). Called right after a liftoff
+// marker or touchdown is recorded, and by end_lookup() (airport_lookup.cpp)
+// once the in-flight lookup ends, so a record that happened while another
+// lookup was in flight is picked up then. A deferred departure takes
+// priority since it always happens first within a trip; liftoff markers and
+// touchdowns are then matched in the same FIFO order
 // on_lookup_resolved() uses to attach a resolved lookup to a touchdown row,
 // which requires strict in-order resolution -- skipping straight to a later
 // touchdown here would attribute its resolved airport/runway to an earlier,

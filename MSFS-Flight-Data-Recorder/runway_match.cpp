@@ -28,8 +28,8 @@ void tracef(const std::function<void(const char*)>& trace, const char* fmt, ...)
 // extending length along runway_heading and width/2 to either side. Sets
 // distance (anchor to point, meters) and limit (how far the rectangle reaches
 // in that direction); the point is inside when distance <= limit. Templated on
-// the dimension type so the strict check keeps computing in float, exactly as
-// it did inline.
+// the dimension type so the strict check computes in RUNWAY's float and the
+// margin check in double.
 template <typename Length>
 void footprint(COORDINATE anchor, float runway_heading, Length length, Length width, const COORDINATE& point,
 	double& distance, double& limit) {

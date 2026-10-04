@@ -496,7 +496,7 @@ struct AIRPORT_LOOKUP {
 	// trip's one departure) lookup -- mirrors STATUS::destination's scratch role
 	// for a touchdown lookup, but kept as its own field rather than
 	// sharing destination: even though the two are never populated
-	// concurrently (same single-flight guarantee as above), they mean
+	// concurrently (only one lookup is in flight -- see pending below), they mean
 	// different things -- destination is the trip's actual destination
 	// airport, this is a transient candidate for whichever liftoff marker is
 	// currently being resolved -- and collapsing them into one field would
@@ -510,8 +510,8 @@ struct AIRPORT_LOOKUP {
 	// becoming airborne or touchdown) and cleared once the async facility lookup it
 	// starts (AIRPORT_LIST -> optional FACILITY_DATA(s) -> FACILITY_DATA_END)
 	// terminates. Only one such lookup may be in flight at a time -- overlapping
-	// lookups would race on the departure/destination scratch objects above
-	// (see airport_lookup.cpp). trip_id records
+	// lookups would race on the STATUS::departure/STATUS::destination and
+	// liftoff_scratch scratch objects (see airport_lookup.cpp). trip_id records
 	// which trip issued the in-flight lookup, so a response that arrives after
 	// that trip has already ended (id_trip changed) can be recognized as stale
 	// and dropped instead of being applied to whatever trip is active when it
@@ -628,7 +628,7 @@ struct FLIGHT_PHASE {
 	bool airborne = FALSE;
 	// Every moment this trip's aircraft actually became airborne, as a marker
 	// occurrence (touch-and-goes included), independent of the trip's single
-	// permanent departure_db_id/departure below -- see LIFTOFF_DATA. NOT
+	// permanent departure_db_id below/STATUS::departure -- see LIFTOFF_DATA. NOT
 	// populated for the trip's first liftoff, which only ever updates
 	// departure_db_id/STATUS::departure (see flight_on_sample()'s liftoff
 	// detection).

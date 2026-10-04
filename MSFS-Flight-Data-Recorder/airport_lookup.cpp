@@ -106,10 +106,10 @@ static void facility_lookup_request_candidate(struct STATUS* status, int idx) {
 
 namespace {
 
-// Ends the in-flight lookup: clears lookup.pending and picks up a liftoff/
-// touchdown that happened while it was in flight and had its own request
-// skipped (see request_next_touchdown_facility_lookup() in flight_phase.cpp;
-// a no-op if the trip has ended or nothing is queued).
+// Ends the in-flight lookup: clears lookup.pending and starts the next
+// waiting one -- a deferred departure, or a liftoff/touchdown that happened
+// while this one was in flight (see request_next_touchdown_facility_lookup()
+// in flight_phase.cpp; a no-op if the trip has ended or nothing is waiting).
 void end_lookup(struct STATUS* status) {
 	status->lookup.pending = FALSE;
 	request_next_touchdown_facility_lookup(status);
