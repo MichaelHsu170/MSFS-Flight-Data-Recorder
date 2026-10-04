@@ -6,7 +6,6 @@
 
 #include <QDir>
 #include <QFile>
-#include <QSettings>
 #include <QtTest>
 
 using namespace TestSupport;

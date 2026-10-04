@@ -3,7 +3,6 @@
 #include "logger.h"
 #include "logger_c.h"
 
-#include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QtTest>
