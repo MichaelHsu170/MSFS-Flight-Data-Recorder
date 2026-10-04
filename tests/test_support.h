@@ -67,6 +67,10 @@ void clickDialogButton(QWidget* dialog, const QString& text);
 // Runs sql on a fresh read-only connection to flight_data.db.
 QList<QVariantMap> queryRows(const QString& sql);
 QVariant queryValue(const QString& sql);
+// Opens flight_data.db read-write, creating it if missing (unlike the app's
+// connect_db_readwrite()), so a test can build a database in any state;
+// nullptr if that fails. Caller must sqlite3_close().
+sqlite3* openDatabaseFile();
 // Runs sql on db; a failure fails the current test.
 void exec(sqlite3* db, const char* sql);
 // Runs sql on a fresh read-write connection to flight_data.db (one beside the

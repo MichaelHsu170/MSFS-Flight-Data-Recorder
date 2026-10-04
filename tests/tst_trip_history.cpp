@@ -3,7 +3,7 @@
 #include "test_support.h"
 
 #include "app_settings.h"
-#include "db.h"
+#include "db_connection.h"
 #include "db_groups.h"
 #include "trip_history_panel.h"
 

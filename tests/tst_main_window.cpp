@@ -15,7 +15,6 @@
 #include "main_window.h"
 #include "test_support.h"
 #include "trip_history_panel.h"
-#include "db.h"
 
 #include <QApplication>
 #include <QFutureWatcher>
@@ -35,8 +34,8 @@ sqlite3* lockedLegacyDatabase() {
 	removeDatabase();
 	createLegacyTripData();
 	addLegacyJetRows(200000);
-	sqlite3* lock = nullptr;
-	if (sqlite3_open(db_file_path().c_str(), &lock) != SQLITE_OK)
+	sqlite3* lock = openDatabaseFile();
+	if (!lock)
 		qFatal("can't open the test database");
 	exec(lock, "BEGIN EXCLUSIVE;");
 	return lock;

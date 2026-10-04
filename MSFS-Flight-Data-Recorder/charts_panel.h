@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QVariantMap>
 #include <array>
+#include <climits>
 #include <optional>
 #include <utility>
 #include <vector>

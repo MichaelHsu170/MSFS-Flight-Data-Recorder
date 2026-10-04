@@ -121,8 +121,8 @@ private slots:
 	}
 
 	void migrateAddsColumnsMissingFromOlderDatabases() {
-		sqlite3* db = nullptr;
-		QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
+		sqlite3* db = openDatabaseFile();
+		QVERIFY(db);
 		exec(db, "CREATE TABLE trips (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, title VARCHAR(256) NOT NULL);");
 		exec(db, "INSERT INTO trips (title) VALUES ('Old Trip');");
 		sqlite3_close(db);
@@ -230,8 +230,8 @@ private slots:
 	// Whether trip_data still has the legacy columns can't be told, so the
 	// migration fails rather than let recording start.
 	void migrateFailsWhenTripDatasColumnsCantBeRead() {
-		sqlite3* db = nullptr;
-		QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
+		sqlite3* db = openDatabaseFile();
+		QVERIFY(db);
 		// CREATE TABLE IF NOT EXISTS leaves it alone, and its columns can't be
 		// listed: the table it reads is gone.
 		exec(db, "CREATE TABLE gone (x);");
@@ -244,8 +244,8 @@ private slots:
 	// Every write and query names the current columns, so one that can't be
 	// added fails the migration; it's added by the next one.
 	void migrateFailsWhenAColumnCantBeAdded() {
-		sqlite3* db = nullptr;
-		QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
+		sqlite3* db = openDatabaseFile();
+		QVERIFY(db);
 		// CREATE TABLE IF NOT EXISTS leaves the view alone, and a view can't
 		// take a column: the ALTER fails to prepare.
 		exec(db, "CREATE VIEW trip_groups AS SELECT 1 AS id, 'x' AS name;");
@@ -263,8 +263,8 @@ private slots:
 		exec("ALTER TABLE trip_groups DROP COLUMN sort_order;");
 		// Another connection's write transaction: the ALTER prepares but its
 		// step stays busy (after migrate_db()'s 5 s busy timeout).
-		sqlite3* locker = nullptr;
-		QCOMPARE(sqlite3_open(db_file_path().c_str(), &locker), SQLITE_OK);
+		sqlite3* locker = openDatabaseFile();
+		QVERIFY(locker);
 		exec(locker, "BEGIN IMMEDIATE;");
 		const bool ok = migrate_db();
 		sqlite3_close(locker);
@@ -460,8 +460,8 @@ private slots:
 	// group_id/departure_name (or even departure_region) existed by falling
 	// back to older SELECT lists -- these two pin that fallback cascade.
 	void queryAllTripsFallsBackToRegionSchemaOnUnmigratedDatabase() {
-		sqlite3* db = nullptr;
-		QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
+		sqlite3* db = openDatabaseFile();
+		QVERIFY(db);
 		exec(db, "CREATE TABLE trips (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, title VARCHAR(256) NOT NULL, "
 			"atc_airline VARCHAR(64) NOT NULL, atc_flight_number VARCHAR(8) NOT NULL, departure_icao VARCHAR(4), "
 			"departure_region VARCHAR(2), departure_rwy VARCHAR(3), destination_icao VARCHAR(4), destination_region VARCHAR(2), "
@@ -487,8 +487,8 @@ private slots:
 	}
 
 	void queryAllTripsFallsBackToLegacySchemaOnVeryOldDatabase() {
-		sqlite3* db = nullptr;
-		QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
+		sqlite3* db = openDatabaseFile();
+		QVERIFY(db);
 		exec(db, "CREATE TABLE trips (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, title VARCHAR(256) NOT NULL, "
 			"atc_airline VARCHAR(64) NOT NULL, atc_flight_number VARCHAR(8) NOT NULL, departure_icao VARCHAR(4), "
 			"departure_rwy VARCHAR(3), destination_icao VARCHAR(4), destination_rwy VARCHAR(3), "

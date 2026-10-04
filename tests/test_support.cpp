@@ -172,6 +172,16 @@ QList<QVariantMap> queryRows(const QString& sql) {
 	return rows;
 }
 
+sqlite3* openDatabaseFile() {
+	sqlite3* db = nullptr;
+	if (sqlite3_open(db_file_path().c_str(), &db) != SQLITE_OK) {
+		// sqlite3_open() hands back a handle even when it fails.
+		sqlite3_close(db);
+		return nullptr;
+	}
+	return db;
+}
+
 void exec(sqlite3* db, const char* sql) {
 	char* err = nullptr;
 	if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
@@ -198,8 +208,8 @@ void addTrip(int id, int groupId, const char* departureZulu, const char* destina
 }
 
 void createLegacyTripData() {
-	sqlite3* db = nullptr;
-	QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
+	sqlite3* db = openDatabaseFile();
+	QVERIFY(db);
 	// retired_field stands for a column the current code no longer names.
 	exec(db, "CREATE TABLE trip_data (trip INTEGER NOT NULL, retired_field REAL,"
 		" engine_type INTEGER NOT NULL, number_of_engines INTEGER NOT NULL,"

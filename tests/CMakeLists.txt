@@ -14,7 +14,7 @@ set(FDR_TEST_OUTPUT_DIR "${PROJECT_BINARY_DIR}/tests")
 
 function(fdr_add_test_common name)
     add_executable(${name} ${name}.cpp)
-    target_link_libraries(${name} PRIVATE fdr_test_support fdr_core Qt${QT_VERSION_MAJOR}::Test)
+    target_link_libraries(${name} PRIVATE fdr_test_support)
     # $<1:...> stops multi-config generators from appending a per-config subdirectory.
     set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<1:${FDR_TEST_OUTPUT_DIR}>")
     if(EXISTS "${SQLITE3_DIR}/sqlite3.dll")
