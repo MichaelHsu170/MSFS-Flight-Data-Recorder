@@ -6,7 +6,6 @@
 
 #include <QDir>
 #include <QFile>
-#include <QFileInfo>
 #include <QSettings>
 #include <QtTest>
 
@@ -144,12 +143,15 @@ private slots:
 	}
 
 	void unreadableFileIsNotOverwritten() {
-		removeSettings();
-		// A directory exists at the path but can't be opened as a file.
-		QVERIFY(QDir().mkpath(AppSettings::filePath()));
+		writeSettingsFile("[layout]\nright_panel_width=260\n[other]\nkeep=me\n");
+		// Locked by another handle that shares writing but not reading: the
+		// file can't be read, but could still be truncated and rewritten.
+		HANDLE lock = CreateFileW(reinterpret_cast<LPCWSTR>(QDir::toNativeSeparators(AppSettings::filePath()).utf16()),
+			GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+		QVERIFY(lock != INVALID_HANDLE_VALUE);
 		AppSettings::instance().setRightPanelWidth(300);
-		QVERIFY(QFileInfo(AppSettings::filePath()).isDir());
-		QVERIFY(QDir().rmdir(AppSettings::filePath()));
+		CloseHandle(lock);
+		QCOMPARE(readSettingsFile(), QStringLiteral("[layout]\nright_panel_width=260\n[other]\nkeep=me\n"));
 	}
 
 	void readOnlyFileIsLeftUnchanged() {
