@@ -664,19 +664,22 @@ static std::vector<TableColumn>::const_iterator find_column(const std::vector<Ta
 }
 
 // For each column in fields_def (comma-separated column definitions) that is
-// absent from table_name, run ALTER TABLE ADD COLUMN. Called from
+// absent from table_name, run ALTER TABLE ADD COLUMN. False if the table's
+// columns couldn't be read or one couldn't be added (logged): every write
+// and query names them, so the database can't be used. Called from
 // create_schema() on a write connection, never from the readonly path.
-static void migrate_table_columns(sqlite3* sql, const char* table_name, const char* fields_def) {
+static bool migrate_table_columns(sqlite3* sql, const char* table_name, const char* fields_def) {
 	const std::vector<TableColumn> existing = table_columns(sql, table_name);
 	if (existing.empty())
-		return; // unreadable -- don't re-add every column
+		return false; // unreadable -- don't re-add every column
 
 	// Walk fields_def, splitting by comma while respecting parentheses.
 	int flen = (int)strlen(fields_def);
 	char* buf = (char*)malloc((size_t)(flen + 1));
-	if (!buf) return;
+	if (!buf) return false;
 	memcpy(buf, fields_def, (size_t)(flen + 1));
 
+	bool ok = true;
 	int depth = 0, seg_start = 0;
 	for (int i = 0; i <= flen; i++) {
 		char c = buf[i];
@@ -701,12 +704,15 @@ static void migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 					if (sqlite3_prepare_v2(sql, alter_sql, -1, &alter_stmt, nullptr) == SQLITE_OK) {
 						int step_ret = sqlite3_step(alter_stmt);
 						sqlite3_finalize(alter_stmt);
-						if (step_ret == SQLITE_DONE)
+						if (step_ret == SQLITE_DONE) {
 							log_cf(2, "DB", "Schema migration: %s — added column %s", table_name, col_name.c_str());
-						else
+						} else {
 							log_cf(0, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
+							ok = false;
+						}
 					} else {
-						log_cf(1, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
+						log_cf(0, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
+						ok = false;
 					}
 				}
 			}
@@ -715,6 +721,7 @@ static void migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 		}
 	}
 	free(buf);
+	return ok;
 }
 
 // engine_pack(number_of_engines, value1, value2): a legacy trip_data row's
@@ -960,9 +967,9 @@ static void create_db_indexes(sqlite3* sql) {
 		sqlite3_stmt* stmt = nullptr;
 		if (sqlite3_prepare_v2(sql, index_stmts[i], -1, &stmt, nullptr) == SQLITE_OK) {
 			if (sqlite3_step(stmt) != SQLITE_DONE)
-				log_cf(0, "DB", "Failed to create index \"%s\": %s", index_stmts[i], sqlite3_errmsg(sql));
+				log_cf(1, "DB", "Failed to create index \"%s\": %s", index_stmts[i], sqlite3_errmsg(sql));
 		} else {
-			log_cf(0, "DB", "Failed to prepare index \"%s\": %s", index_stmts[i], sqlite3_errmsg(sql));
+			log_cf(1, "DB", "Failed to prepare index \"%s\": %s", index_stmts[i], sqlite3_errmsg(sql));
 		}
 		sqlite3_finalize(stmt);
 	}
@@ -988,7 +995,8 @@ static bool create_schema(sqlite3* sql, const MigrationProgress& progress, const
 		sqlite3_finalize(stmt);
 	}
 	for (const TableDef& table : database_tables())
-		migrate_table_columns(sql, table.name, table.fields.c_str());
+		if (!migrate_table_columns(sql, table.name, table.fields.c_str()))
+			ok = false;
 	StepProgress rebuild_progress(progress, kRebuildStepWeights);
 	bool rebuilt = false;
 	if (!migrate_legacy_engine_columns(sql, rebuild_progress, cancelled, rebuilt))

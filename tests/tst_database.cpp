@@ -241,6 +241,40 @@ private slots:
 		QVERIFY(!migrate_db());
 	}
 
+	// Every write and query names the current columns, so one that can't be
+	// added fails the migration; it's added by the next one.
+	void migrateFailsWhenAColumnCantBeAdded() {
+		sqlite3* db = nullptr;
+		QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
+		// CREATE TABLE IF NOT EXISTS leaves the view alone, and a view can't
+		// take a column: the ALTER fails to prepare.
+		exec(db, "CREATE VIEW trip_groups AS SELECT 1 AS id, 'x' AS name;");
+		sqlite3_close(db);
+		QVERIFY(!migrate_db());
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='trips'").toInt(), 1);
+
+		exec("DROP VIEW trip_groups;");
+		QVERIFY(migrate_db());
+		QVERIFY(queryRows("SELECT * FROM pragma_table_info('trip_groups') WHERE name='sort_order'").size() == 1);
+	}
+
+	void migrateFailsWhenAddingAColumnFails() {
+		QVERIFY(migrate_db());
+		exec("ALTER TABLE trip_groups DROP COLUMN sort_order;");
+		// Another connection's write transaction: the ALTER prepares but its
+		// step stays busy (after migrate_db()'s 5 s busy timeout).
+		sqlite3* locker = nullptr;
+		QCOMPARE(sqlite3_open(db_file_path().c_str(), &locker), SQLITE_OK);
+		exec(locker, "BEGIN IMMEDIATE;");
+		const bool ok = migrate_db();
+		sqlite3_close(locker);
+		QVERIFY(!ok);
+		QVERIFY(queryRows("SELECT * FROM pragma_table_info('trip_groups') WHERE name='sort_order'").isEmpty());
+
+		QVERIFY(migrate_db());
+		QVERIFY(queryRows("SELECT * FROM pragma_table_info('trip_groups') WHERE name='sort_order'").size() == 1);
+	}
+
 	void aCancelledLegacyEngineRebuildIsRolledBackAndRedoneNextTime() {
 		createLegacyTripData();
 		// 5 rows, one per batch: asked after each of the 5 batches, then once
