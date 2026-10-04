@@ -231,7 +231,7 @@ void ensureSettingsFileExists() {
 		"\n"
 		"[data_table]\n"
 		"; Comma-separated list of field labels hidden in the Data Table panel via the\n"
-		"; Fields dialog. Absent or empty means all fields are visible.\n"
+		"; Visible Fields dialog. Absent or empty means all fields are visible.\n"
 		"hidden_fields=\n"
 		"\n"
 		"; Auto-managed by the app. Persisted column widths for the tables in the\n"
@@ -275,7 +275,7 @@ void AppSettings::setDataTableHiddenFields(const QStringList& fields) {
 		fields.join(','),
 		QStringLiteral("Auto-managed by the app."),
 		QStringLiteral("Comma-separated list of field labels hidden in the Data Table panel via the\n"
-		               "Fields dialog. Absent or empty means all fields are visible.")
+		               "Visible Fields dialog. Absent or empty means all fields are visible.")
 	);
 }
 

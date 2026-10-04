@@ -134,7 +134,7 @@ charts_panel_height=400
 
 [data_table]
 ; Comma-separated list of field labels hidden in the Data Table panel via the
-; Fields dialog. Absent or empty means all fields are visible.
+; Visible Fields dialog. Absent or empty means all fields are visible.
 hidden_fields=
 
 ; Auto-managed by the app. Persisted column widths for the tables in the
