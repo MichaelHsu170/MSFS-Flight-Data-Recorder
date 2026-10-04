@@ -97,6 +97,23 @@ private slots:
 			offsetof(FLIGHT_DATA_RECORD, general_eng_rpm) + expected.size() * MAX_ENGINES * sizeof(double));
 	}
 
+	void engineCombustionSimVarsLandInTheirRecordFields() {
+		FlightDriver sim;
+		const std::vector<FakeSim::DataDefinition>& defs = FakeSim::state().dataDefinitions;
+		const size_t fields[] = { offsetof(FLIGHT_DATA_RECORD, eng_combustion_1), offsetof(FLIGHT_DATA_RECORD, eng_combustion_2),
+			offsetof(FLIGHT_DATA_RECORD, eng_combustion_3), offsetof(FLIGHT_DATA_RECORD, eng_combustion_4) };
+		for (int engine = 1; engine <= MAX_ENGINES; ++engine) {
+			const std::string name = "ENG COMBUSTION:" + std::to_string(engine);
+			size_t offset = 0;
+			auto it = defs.begin();
+			for (; it != defs.end() && it->datumName != name; ++it)
+				offset += wireBytes(it->datumType);
+			QVERIFY2(it != defs.end(), name.c_str());
+			QCOMPARE(it->unitsName, std::string("Bool"));
+			QCOMPARE(offset, fields[engine - 1]);
+		}
+	}
+
 	void everyMappedEventJoinsTheNotificationGroup() {
 		FlightDriver sim;
 		const FakeSim::State& fake = FakeSim::state();
@@ -207,11 +224,30 @@ private slots:
 		QCOMPARE(tripCount(), 0);
 	}
 
-	void eitherEngineStartsATrip() {
+	void anyOfTheAircraftsEnginesStartsATrip_data() {
+		QTest::addColumn<double>("engines");
+		QTest::addColumn<int>("running"); // the one engine (1-4) with combustion
+		QTest::addColumn<int>("trips");
+		QTest::newRow("twin, engine 1") << 2.0 << 1 << 1;
+		QTest::newRow("twin, engine 2") << 2.0 << 2 << 1;
+		QTest::newRow("quad, engine 3") << 4.0 << 3 << 1;
+		QTest::newRow("quad, engine 4") << 4.0 << 4 << 1;
+		QTest::newRow("twin, engine 3 is not one of its engines") << 2.0 << 3 << 0;
+		QTest::newRow("three engines, engine 4") << 3.0 << 4 << 0;
+		QTest::newRow("no engines") << 0.0 << 1 << 0;
+		QTest::newRow("more than four engines, engine 4") << 6.0 << 4 << 1;
+	}
+	void anyOfTheAircraftsEnginesStartsATrip() {
+		QFETCH(double, engines);
+		QFETCH(int, running);
+		QFETCH(int, trips);
 		FlightDriver sim;
-		sim.record.eng_combustion_2 = 1;
+		sim.record.number_of_engines = engines;
+		double* combustion[] = { &sim.record.eng_combustion_1, &sim.record.eng_combustion_2,
+			&sim.record.eng_combustion_3, &sim.record.eng_combustion_4 };
+		*combustion[running - 1] = 1;
 		sim.tick();
-		QCOMPARE(tripCount(), 1);
+		QCOMPARE(tripCount(), trips);
 	}
 
 	void disablingRecordingPreventsTripAndPersists() {
@@ -385,6 +421,20 @@ private slots:
 		// Arrival time is the last recorded sample's time (the tick before shutdown).
 		QCOMPARE(trip["destination_zulu_time"].toString(), QStringLiteral("2026-01-02T10:00:01.500+00:00_5"));
 		QCOMPARE(trip["destination_local_time"].toString(), QStringLiteral("2026-01-02T10:00:01.500+00:00_5"));
+	}
+
+	void aQuadKeepsRecordingUntilAllFourEnginesAreOff() {
+		FlightDriver sim;
+		sim.record.number_of_engines = 4;
+		sim.startTrip();
+		sim.record.eng_combustion_1 = 0;
+		sim.record.eng_combustion_2 = 0;
+		sim.record.eng_combustion_3 = 0;
+		sim.tick();
+		QVERIFY(sim.bridge().isRecording());
+		sim.record.eng_combustion_4 = 0;
+		sim.tick();
+		QVERIFY(!sim.bridge().isRecording());
 	}
 
 	void tripEndStopsBeforeSampling() {

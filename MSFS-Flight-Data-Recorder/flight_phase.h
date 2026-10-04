@@ -3,8 +3,8 @@
 #include "types.h"
 
 // The trip's life, driven by the simulator's samples: a trip starts when
-// engine 1 or 2 runs on the ground (and recording is enabled), stops when
-// both are off on the ground; while it records, the first liftoff is its departure,
+// any of the aircraft's engines runs on the ground (and recording is enabled),
+// stops when all are off on the ground; while it records, the first liftoff is its departure,
 // later liftoffs (touch-and-goes) and every touchdown are markers, each
 // written to the database the moment it happens and resolved to an airport/
 // runway afterwards by the airport lookup (airport_lookup.h), one at a time

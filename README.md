@@ -164,7 +164,7 @@ trip_history_column_widths=
 | `trip_touchdowns` | One row per touchdown: airport, runway (plus its real facility heading — usually a few degrees off the runway number), airspeed, vertical speed, g-force, pitch/bank/heading, wind direction/speed, lateral/longitudinal distance from the runway threshold and centreline, and the stored AI analysis report |
 | `trip_groups` | User-defined trip groups: name and list order (`trips.group_id` references a row here; NULL = ungrouped) |
 
-Recording starts automatically when engine 1 or 2 is running on the ground (unless automatic recording is disabled via the **Recording** indicator in the Live Status panel) and stops when both engines 1 and 2 are shut down on the ground or the simulator leaves the flight. A trip that ends abnormally (simulator crash or process kill before engine shutdown) is marked as **Open** in the UI.
+Recording starts automatically when any of the aircraft's engines (up to its first four) is running on the ground (unless automatic recording is disabled via the **Recording** indicator in the Live Status panel) and stops when all of them are shut down on the ground or the simulator leaves the flight. A trip that ends abnormally (simulator crash or process kill before engine shutdown) is marked as **Open** in the UI.
 
 ## SimConnect
 

@@ -81,7 +81,7 @@ void addLegacyJetRows(int count);
 
 // A sample with every field zeroed except what the recorder needs to treat
 // the aircraft as sitting in a loaded flight: on the ground at the test
-// airport, engines off, 2026-01-02 10:00:00Z.
+// airport, a twin with its engines off, 2026-01-02 10:00:00Z.
 FLIGHT_DATA_RECORD makeRecord();
 
 std::vector<char> recvPacket(DWORD id, size_t size);
@@ -149,6 +149,7 @@ public:
 	void ticks(int count, double seconds = 0.5);
 
 	void setOnGround(bool onGround);
+	// Sets ENG COMBUSTION of all MAX_ENGINES engines.
 	void setEngines(bool running);
 	void moveTo(const COORDINATE& position);
 	void setHeading(double magneticDegrees);

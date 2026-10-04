@@ -219,6 +219,10 @@ struct FLIGHT_DATA_RECORD {
 	double eng_anti_ice_2;
 	double eng_combustion_1;
 	double eng_combustion_2;
+	// Read only to start/stop the trip (flight_phase.cpp); trip_data's bool
+	// groups have no free bit to store them in.
+	double eng_combustion_3;
+	double eng_combustion_4;
 	double eng_exhaust_gas_temperature_1;
 	double eng_exhaust_gas_temperature_2;
 	double eng_failed_1;

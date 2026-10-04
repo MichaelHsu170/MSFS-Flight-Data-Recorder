@@ -1,6 +1,7 @@
 #include "flight_phase.h"
 #include "airport_lookup.h"
 #include "db.h"
+#include "engine_power.h"
 #include "gui_notify.h"
 #include "simconnect_defs.h"
 
@@ -430,7 +431,7 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 	if (status->sim_running && !status->paused && tmp.surface_type != 255) {
 		status->in_sim = TRUE;
 		if ((bool)tmp.sim_on_ground) {
-			if ((bool)tmp.eng_combustion_1 || (bool)tmp.eng_combustion_2) {
+			if (anyEngineCombusting(tmp)) {
 				if (!status->recording && status->recording_enabled) {
 					status->recording = TRUE;
 					gui_log_printf(status, GUI_LOG_INFO, "Recording started");

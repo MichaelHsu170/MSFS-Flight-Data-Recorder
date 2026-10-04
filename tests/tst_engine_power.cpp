@@ -1,5 +1,6 @@
 // Engine power (engine_power.cpp): which SimVars each engine type records as
-// its speed/load, the engine count, and reading the stored values back.
+// its speed/load, the engine count, which engines' combustion counts, and
+// reading the stored values back.
 #include "engine_power.h"
 #include "simconnect_defs.h"
 
@@ -101,6 +102,30 @@ private slots:
 		QCOMPARE(enginePowerFromRecord(record(1, 0)).count, 0);
 		QCOMPARE(enginePowerFromRecord(record(1, -1)).count, 0);
 		QCOMPARE(enginePowerFromRecord(record(1, 6)).speed[3], 53.0f);
+	}
+
+	void engineCountIsClampedToTheRecordedEngines() {
+		QCOMPARE(engineCount(record(2, 3)), 3);
+		QCOMPARE(engineCount(record(2, 6)), 4);
+		QCOMPARE(engineCount(record(2, -1)), 0);
+		QCOMPARE(engineCount(record(2, std::numeric_limits<double>::quiet_NaN())), 0);
+		QCOMPARE(engineCount(record(2, 1e300)), 0);
+	}
+
+	void onlyTheAircraftsEnginesCountAsCombusting() {
+		FLIGHT_DATA_RECORD r = record(1, 4);
+		QVERIFY(!anyEngineCombusting(r));
+		r.eng_combustion_4 = 1;
+		QVERIFY(anyEngineCombusting(r));
+		r.number_of_engines = 3; // engine 4 isn't one of its engines
+		QVERIFY(!anyEngineCombusting(r));
+		r.eng_combustion_3 = 1;
+		QVERIFY(anyEngineCombusting(r));
+		r = record(1, 2);
+		r.eng_combustion_1 = 1;
+		QVERIFY(anyEngineCombusting(r));
+		r.number_of_engines = 0;
+		QVERIFY(!anyEngineCombusting(r));
 	}
 
 	void packWritesTheRecordedEnginesAsLittleEndianFloats() {

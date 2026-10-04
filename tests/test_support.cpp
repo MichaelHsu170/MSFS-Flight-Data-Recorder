@@ -221,6 +221,7 @@ FLIGHT_DATA_RECORD makeRecord() {
 	memset(static_cast<void*>(&r), 0, sizeof(r));
 	r.surface_type = 4;
 	r.sim_on_ground = 1;
+	r.number_of_engines = 2;
 	r.plane_coordinate.latitude = 43.0;
 	r.plane_coordinate.longitude = 1.0;
 	r.plane_heading_degrees_magnetic = 90;
@@ -433,8 +434,8 @@ void FlightDriver::setOnGround(bool onGround) {
 }
 
 void FlightDriver::setEngines(bool running) {
-	record.eng_combustion_1 = running ? 1 : 0;
-	record.eng_combustion_2 = running ? 1 : 0;
+	for (double* combustion : { &record.eng_combustion_1, &record.eng_combustion_2, &record.eng_combustion_3, &record.eng_combustion_4 })
+		*combustion = running ? 1 : 0;
 }
 
 void FlightDriver::moveTo(const COORDINATE& position) {

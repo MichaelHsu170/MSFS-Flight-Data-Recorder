@@ -42,9 +42,17 @@ struct EnginePower {
 	std::array<float, MAX_ENGINES> load{};
 };
 
+// The aircraft's NUMBER OF ENGINES, clamped to 0..MAX_ENGINES; 0 for a
+// value no int holds (NaN, out of range).
+int engineCount(const FLIGHT_DATA_RECORD& r);
+
+// Whether ENG COMBUSTION is set for any of engines 1..engineCount(r), which
+// is what keeps a trip recording (flight_phase.cpp).
+bool anyEngineCombusting(const FLIGHT_DATA_RECORD& r);
+
 // Picks the SimVars that enginePowerSpec(r.engine_type) names, for engines
-// 1..NUMBER OF ENGINES (clamped to 0..MAX_ENGINES). An ENGINE TYPE that no
-// int holds (NaN, out of range) reads as -1, such an engine count as 0.
+// 1..engineCount(r). An ENGINE TYPE that no int holds (NaN, out of range)
+// reads as -1.
 EnginePower enginePowerFromRecord(const FLIGHT_DATA_RECORD& r);
 
 // trip_data.engine_speed/engine_load store engines 1..count as consecutive

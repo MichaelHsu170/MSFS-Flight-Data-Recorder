@@ -44,6 +44,15 @@ int simVarInt(double value, int fallback) {
 
 }
 
+int engineCount(const FLIGHT_DATA_RECORD& r) {
+	return std::clamp(simVarInt(r.number_of_engines, 0), 0, MAX_ENGINES);
+}
+
+bool anyEngineCombusting(const FLIGHT_DATA_RECORD& r) {
+	const double combustion[MAX_ENGINES] = { r.eng_combustion_1, r.eng_combustion_2, r.eng_combustion_3, r.eng_combustion_4 };
+	return std::any_of(combustion, combustion + engineCount(r), [](double c) { return c != 0; });
+}
+
 const EnginePowerSpec* enginePowerSpec(int engineType) {
 	const EngineTypeEntry* entry = findEngineType(engineType);
 	return entry ? &entry->spec : nullptr;
@@ -55,7 +64,7 @@ EnginePower enginePowerFromRecord(const FLIGHT_DATA_RECORD& r) {
 	const EngineTypeEntry* entry = findEngineType(power.engineType);
 	if (!entry)
 		return power;
-	power.count = std::clamp(simVarInt(r.number_of_engines, 0), 0, MAX_ENGINES);
+	power.count = engineCount(r);
 	for (int i = 0; i < power.count; ++i) {
 		power.speed[i] = (float)(r.*entry->speed)[i];
 		power.load[i] = (float)(r.*entry->load)[i];
