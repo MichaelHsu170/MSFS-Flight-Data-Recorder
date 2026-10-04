@@ -253,7 +253,8 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 #undef TRIP_NUM_INDEX
 		}
 		QString gpsPos;
-		if (gpsLatIdx < (int)point.rawNums.size() && gpsLonIdx < (int)point.rawNums.size())
+		if (gpsLatIdx >= 0 && gpsLonIdx >= 0
+				&& gpsLatIdx < (int)point.rawNums.size() && gpsLonIdx < (int)point.rawNums.size())
 			gpsPos = formatDMS(point.rawNums[gpsLatIdx], point.rawNums[gpsLonIdx]);
 		table_->item(2, 1)->setText(gpsPos);
 		table_->item(2, 1)->setToolTip(gpsPos);

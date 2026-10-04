@@ -151,6 +151,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	if (dataset.points.empty()) {
 		Logger::log(Logger::Trace, "Charts", QStringLiteral("setDataset: empty dataset (Deselect/overview, or a trip with no point); clearing every series"));
 		pointTimesMs_.clear();
+		full_ = {};
 		root->setProperty("engineSpec", QVariant());
 		root->setProperty("noDataText", dataset.tripId >= 0 ? QStringLiteral("No data recorded") : QStringLiteral("No trip selected"));
 		buildSeriesCache();
@@ -192,16 +193,8 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		ChartSeriesData data = watcher->result();
 
 		QElapsedTimer applyTimer; applyTimer.start();
+		// Not null: setDataset() found it, and only the constructor sets the source.
 		QQuickItem* root = view_->rootObject();
-		if (root == nullptr) {
-			// Matches the synchronous early-return above: always emit seriesLoaded()
-			// so TrajectoryView::pendingRenders_ reaches 0 even if the QML root was
-			// torn down while this background computation was in flight, instead of
-			// leaving the trip table permanently disabled with a stuck loading spinner.
-			Logger::log(Logger::Trace, "Charts", QStringLiteral("setDataset: QML root torn down while computing series (bg); discarding result, emitting seriesLoaded"));
-			emit seriesLoaded();
-			return;
-		}
 
 		pointTimesMs_ = std::move(data.pointTimesMs);
 		const int pointCount = (int)pointTimesMs_.size();
@@ -256,10 +249,8 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 	buildSeriesCache();
 	if (!cache_.valid || !cache_.xAxis)
 		return;
-
+	// Not null: the cache was resolved from it, and only the constructor sets the source.
 	QQuickItem* root = view_->rootObject();
-	if (root == nullptr)
-		return;
 
 	// Loading: kept for when the lines are in (see loading_).
 	if (loading_) {

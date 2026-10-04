@@ -330,6 +330,24 @@ private slots:
 		QCOMPARE(event, QStringLiteral("Event• A & <i>B</i><i>z</i>|0"));
 	}
 
+	// With no runway matched the stored distances read back as 0 and mean
+	// nothing, so neither the popup nor the AI prompt shows them; with one
+	// matched, both do.
+	void distancesShowOnlyWithAMatchedRunway() {
+		const QString js = QStringLiteral(
+			"(function (runway) { var t = {icao: 'EGLL', runway: runway, runwayHeading: -1, lat: 1, lng: 2, airspeed: 140,"
+			"    verticalSpeed: 0, pitchDegrees: 0, bankDegrees: 0, headingDegrees: 90, distanceLength: 0, distanceWidth: 0,"
+			"    distanceLengthPercent: 0, distanceWidthPercent: 0, windDirection: 0, windVelocity: 0, zuluTime: 'z'};"
+			"  var d = document.createElement('div');"
+			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Liftoff', null, 'f', 'L').html;"
+			"  var keys = Array.prototype.map.call(d.querySelectorAll('.td-key'), function (k) { return k.textContent; });"
+			"  return keys.join(',') + '|' + /Centerline offset/.test(buildLiftoffPrompt(t)); })(%1)");
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("''"))).toString(),
+			QStringLiteral("Airport,Coordinate,Airspeed,V/S,Pitch,Bank,Heading,Wind,Zulu|false"));
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("'09'"))).toString(),
+			QStringLiteral("Airport,Runway,Coordinate,Airspeed,V/S,Pitch,Bank,Heading,Threshold,Centerline,Wind,Zulu|true"));
+	}
+
 	// The map's touchdown popup and the KML export's placemark description
 	// are built separately (map.html, kml_export.cpp) but list the same
 	// fields with the same values; only the popup adds the coordinate, which

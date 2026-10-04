@@ -56,9 +56,9 @@ struct RunwayContactPoint {
 	QString airportName;
 	// The four distances below only mean something when runway is set: with no
 	// runway matched their columns are NULL and read back as 0.
-	double distanceLength = -1;   // feet from threshold (negative = before it)
+	double distanceLength = 0;    // feet from threshold (negative = before it)
 	double distanceWidth = 0;     // feet from centerline (+right/-left)
-	double distanceLengthPercent = -1;  // distanceLength as a fraction of runway length (may be < 0 or > 1)
+	double distanceLengthPercent = 0;   // distanceLength as a fraction of runway length (may be < 0 or > 1)
 	double distanceWidthPercent = 0;    // distanceWidth as a signed fraction of runway half-width
 	int windDirection = 0;   // degrees true, 0 if unknown
 	int windVelocity = 0;    // knots

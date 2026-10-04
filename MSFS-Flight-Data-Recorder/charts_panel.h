@@ -120,7 +120,8 @@ private:
 	EnginePower engine_;
 
 	// Full-resolution points of every series, parallel to pointTimesMs_: both
-	// are replaced together once a load's lines are in. setVisibleRange
+	// are replaced together once a load's lines are in, and cleared together
+	// by an empty dataset. setVisibleRange
 	// slices this to give Qt Graphs only the points it needs to render,
 	// avoiding ~938K-point iteration per frame.
 	static constexpr int kDisplayPoints = 2500;
