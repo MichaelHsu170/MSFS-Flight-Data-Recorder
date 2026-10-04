@@ -18,7 +18,6 @@
 #include "db.h"
 
 #include <QApplication>
-#include <QFile>
 #include <QFutureWatcher>
 #include <QLabel>
 #include <QPointer>
@@ -166,7 +165,7 @@ private slots:
 	}
 
 	void aFailedMigrationSaysSoAndLeavesTheSimulatorAlone() {
-		QVERIFY(QFile::remove(QString::fromStdString(db_file_path())));
+		removeDatabase();
 		createLegacyTripData();
 		// Fails the rebuild's rename (see tst_database's failed-migration test).
 		exec("CREATE VIEW blocks_rebuild AS SELECT turb_eng_n2_2 FROM trip_data;");
