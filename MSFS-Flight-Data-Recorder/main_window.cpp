@@ -25,14 +25,14 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 	auto* notice = new QLabel(QStringLiteral("Checking the database…"), this);
 	notice->setObjectName(QStringLiteral("migrationNotice"));
 	notice->setAlignment(Qt::AlignCenter);
-	liveStatusPanel_ = new LiveStatusPanel(bridge, this);
+	auto* liveStatusPanel = new LiveStatusPanel(bridge, this);
 	trajectoryView_ = new TrajectoryView(this);
 
-	liveStatusPanel_->setMaximumWidth(kRightPanelWidth);
+	liveStatusPanel->setMaximumWidth(kRightPanelWidth);
 
 	topSplitter_ = new QSplitter(Qt::Horizontal, this);
 	topSplitter_->addWidget(notice);
-	topSplitter_->addWidget(liveStatusPanel_);
+	topSplitter_->addWidget(liveStatusPanel);
 	topSplitter_->setStretchFactor(0, 4);
 	topSplitter_->setStretchFactor(1, 1);
 	topSplitter_->setSizes({ 1000, AppSettings::instance().rightPanelWidth() });
@@ -121,19 +121,19 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 }
 
 void MainWindow::addTripHistory(RecorderBridge& bridge) {
-	tripHistoryPanel_ = new TripHistoryPanel(bridge, this);
-	delete topSplitter_->replaceWidget(0, tripHistoryPanel_);
+	auto* tripHistoryPanel = new TripHistoryPanel(bridge, this);
+	delete topSplitter_->replaceWidget(0, tripHistoryPanel);
 	topSplitter_->setStretchFactor(0, 4);
 
-	connect(tripHistoryPanel_, &TripHistoryPanel::tripDatasetReady,  trajectoryView_, &TrajectoryView::setDataset);
-	connect(tripHistoryPanel_, &TripHistoryPanel::tripDeselected,   trajectoryView_, &TrajectoryView::clearAndShowOverview);
-	connect(tripHistoryPanel_, &TripHistoryPanel::zoomResetRequested, trajectoryView_, &TrajectoryView::resetZoom);
-	connect(trajectoryView_, &TrajectoryView::renderingFinished, tripHistoryPanel_, &TripHistoryPanel::setLoadingFinished);
-	connect(trajectoryView_, &TrajectoryView::overviewTripClicked, tripHistoryPanel_, &TripHistoryPanel::selectTripById);
+	connect(tripHistoryPanel, &TripHistoryPanel::tripDatasetReady,  trajectoryView_, &TrajectoryView::setDataset);
+	connect(tripHistoryPanel, &TripHistoryPanel::tripDeselected,   trajectoryView_, &TrajectoryView::clearAndShowOverview);
+	connect(tripHistoryPanel, &TripHistoryPanel::zoomResetRequested, trajectoryView_, &TrajectoryView::resetZoom);
+	connect(trajectoryView_, &TrajectoryView::renderingFinished, tripHistoryPanel, &TripHistoryPanel::setLoadingFinished);
+	connect(trajectoryView_, &TrajectoryView::overviewTripClicked, tripHistoryPanel, &TripHistoryPanel::selectTripById);
 
 	// Show departure→destination arcs for all trips on the initial map load.
 	// If the WebEngine page isn't ready yet, MapWidget stores the trips and
 	// re-sends them when onLoadFinished fires via refreshProvider.
 	Logger::log(Logger::Trace, "MainWin", QStringLiteral("Requesting initial trip overview on map"));
-	tripHistoryPanel_->showInitialOverview();
+	tripHistoryPanel->showInitialOverview();
 }

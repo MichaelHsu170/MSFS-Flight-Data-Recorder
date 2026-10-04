@@ -5,8 +5,6 @@
 #include <QPointer>
 
 class RecorderBridge;
-class LiveStatusPanel;
-class TripHistoryPanel;
 class TrajectoryView;
 class QSplitter;
 
@@ -40,8 +38,6 @@ private:
 	// finished handler). Cancelling it before that handler runs -- even after
 	// the migration itself returned -- makes the handler start nothing.
 	QPointer<QFutureWatcher<bool>> migration_;
-	LiveStatusPanel* liveStatusPanel_ = nullptr;
-	TripHistoryPanel* tripHistoryPanel_ = nullptr;
 	TrajectoryView* trajectoryView_ = nullptr;
 	QSplitter* topSplitter_ = nullptr;
 };

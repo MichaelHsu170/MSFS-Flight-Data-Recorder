@@ -140,7 +140,7 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 	// Default QVBoxLayout spacing (~9-11px per style) compounds across four
 	// stacked rows into a visibly large gap above the history list -- pull it
 	// in tight since these rows are all one cohesive status block. Left margin
-	// is also thinned to match tripHistoryPanel_'s right margin, since the two
+	// is also thinned to match TripHistoryPanel's right margin, since the two
 	// panels sit side by side in MainWindow's splitter.
 	layout->setContentsMargins(0, 4, 4, 4);
 	layout->setSpacing(0);
