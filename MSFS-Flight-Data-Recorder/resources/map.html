@@ -157,8 +157,9 @@
 <div id="map"></div>
 <script>
 // OSM/Leaflet map. currentProvider exposes: setTrajectory(data),
-// setCursorIndex(index),
-// setLiftoffs(points), setTouchdowns(points), setEvents(points), setEventsVisible(visible).
+// setCursorIndex(index), setLiftoffs(points), setTouchdowns(points),
+// setEvents(points), setEventsVisible(visible), setOverview(segments),
+// resetZoom().
 var currentProvider = null;
 var mapBridge = null;
 // The Leaflet map instance currentProvider's closures wrap, so it can be
@@ -1012,8 +1013,12 @@ function initLeafletProvider() {
             for (var i = 0; i < n; i++)
                 trajectoryLatLngs[i] = [data.lats[i], data.lngs[i]];
             polyline.setLatLngs(trajectoryLatLngs);
-            if (n === 0)
+            if (n === 0) {
+                // No point to put the cursor on: drop the previous trip's
+                // marker, which dragging would otherwise snap to nothing.
+                if (marker !== null) { map.removeLayer(marker); marker = null; }
                 return;
+            }
 
             // Animated so switching trips visibly pans/zooms rather than
             // jump-cutting -- zoomend/moveend (and so the rangeChanged() IPC

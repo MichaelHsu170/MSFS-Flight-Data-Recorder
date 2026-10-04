@@ -184,6 +184,23 @@ private slots:
 		widget_->resetZoom();
 		QTRY_COMPARE_WITH_TIMEOUT(mapZoom(widget_), fitted, 5000);
 	}
+
+	// A trip with no samples has nowhere to put the cursor, so the previous
+	// trip's draggable cursor marker must not stay on the map.
+	void aTripWithNoSamplesRemovesThePreviousCursorMarker() {
+		QSignalSpy spy(widget_, &MapWidget::trajectoryLoaded);
+		TripDataset withPoints;
+		withPoints.points = { samplePoint(10, 20), samplePoint(11, 21) };
+		widget_->setDataset(withPoints);
+		QVERIFY(spy.wait(10000));
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "leaflet-marker-draggable"), 1, 5000);
+
+		TripDataset empty;
+		empty.tripId = 9;
+		widget_->setDataset(empty);
+		QVERIFY(spy.wait(10000));
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "leaflet-marker-draggable"), 0, 5000);
+	}
 };
 
 int main(int argc, char* argv[]) {
