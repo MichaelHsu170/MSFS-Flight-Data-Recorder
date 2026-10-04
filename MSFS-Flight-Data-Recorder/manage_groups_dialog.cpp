@@ -142,13 +142,6 @@ void ManageGroupsDialog::deleteSelectedGroup() {
 }
 
 void ManageGroupsDialog::onListReordered() {
-	// reload()'s own clear()+re-populate never goes through
-	// ReorderableListWidget::dropEvent(), so this guard is only a defensive
-	// mirror of onItemChanged's -- kept for the same reason: cheap insurance
-	// against ever reacting to reload()'s own writes.
-	if (updating_)
-		return;
-
 	std::vector<int> orderedIds;
 	orderedIds.reserve(list_->count());
 	for (int i = 0; i < list_->count(); i++)

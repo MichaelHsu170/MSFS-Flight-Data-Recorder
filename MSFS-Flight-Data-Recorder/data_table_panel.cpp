@@ -21,15 +21,14 @@
 namespace {
 
 // "Time (Zulu)"/"Time (Local)" get their own dedicated rows ahead of the
-// generic field list (formatted as plain timestamps, not numbers/booleans);
-// every other trip_data column follows in TRIP_DATA_NUM_FIELDS then
-// TRIP_DATA_BOOL_FIELDS order, matching the rawNums/boolGroup layout in
-// TripSamplePoint so showPoint's macro expansion maps row N+3 → rawNums[N]
-// (N+2 for gps_position_lat/gps_position_lon, which are combined into the
-// single "GPS Position" row at index 2 instead of getting their own rows --
-// see showPoint()). Between the two come MAX_ENGINES "Engine Speed N" rows
-// then MAX_ENGINES "Engine Load N" rows (TripSamplePoint::engine, see
-// engine_power.h).
+// generic field list (formatted as plain timestamps, not numbers/booleans),
+// then the single "GPS Position" row that combines gps_position_lat and
+// gps_position_lon. Every other trip_data column follows from row 3 in
+// TRIP_DATA_NUM_FIELDS then TRIP_DATA_BOOL_FIELDS order, matching the
+// rawNums/boolGroup layout in TripSamplePoint, so showPoint() fills the rows
+// by walking the same macros. Between the two come MAX_ENGINES
+// "Engine Speed N" rows then MAX_ENGINES "Engine Load N" rows
+// (TripSamplePoint::engine, see engine_power.h).
 QStringList buildFieldRowLabels() {
 	QStringList labels = { QStringLiteral("Time (Zulu)"), QStringLiteral("Time (Local)"), QStringLiteral("GPS Position") };
 
@@ -249,22 +248,21 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 #undef TRIP_NUM_INDEX
 		}
 		QString gpsPos;
-		if (gpsLatIdx >= 0 && gpsLonIdx >= 0
-		    && gpsLatIdx < (int)point.rawNums.size() && gpsLonIdx < (int)point.rawNums.size())
+		if (gpsLatIdx < (int)point.rawNums.size() && gpsLonIdx < (int)point.rawNums.size())
 			gpsPos = formatDMS(point.rawNums[gpsLatIdx], point.rawNums[gpsLonIdx]);
 		table_->item(2, 1)->setText(gpsPos);
 		table_->item(2, 1)->setToolTip(gpsPos);
 
+		// The rows were built from the same macros (buildFieldRowLabels()), so
+		// row stays within the table.
 		int ni = 0, row = 3;
 #define TRIP_NUM_DISP(dbColumn, memberExpr, sqlType) \
 		if (QLatin1String(#dbColumn) != QLatin1String("gps_position_lat") && QLatin1String(#dbColumn) != QLatin1String("gps_position_lon")) { \
-			if (row < table_->rowCount()) { \
-				QString v = ni < (int)point.rawNums.size() \
-					? QString::number(point.rawNums[ni], 'g', 6) : QString(); \
-				table_->item(row, 1)->setText(v); \
-				table_->item(row, 1)->setToolTip(v); \
-				++row; \
-			} \
+			QString v = ni < (int)point.rawNums.size() \
+				? QString::number(point.rawNums[ni], 'g', 6) : QString(); \
+			table_->item(row, 1)->setText(v); \
+			table_->item(row, 1)->setToolTip(v); \
+			++row; \
 		} \
 		++ni;
 		TRIP_DATA_NUM_FIELDS(TRIP_NUM_DISP)
@@ -272,14 +270,14 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 		const EnginePowerSpec* spec = enginePowerSpec(point.engine.engineType);
 		for (const auto& [quantity, values] : { std::pair{ spec ? &spec->speed : nullptr, &point.engine.speed },
 		                                        std::pair{ spec ? &spec->load : nullptr, &point.engine.load } }) {
-			for (int i = 0; i < MAX_ENGINES && row < table_->rowCount(); ++i, ++row) {
+			for (int i = 0; i < MAX_ENGINES; ++i, ++row) {
 				const QString v = formatEngineValue(quantity, *values, i, point.engine.count);
 				table_->item(row, 1)->setText(v);
 				table_->item(row, 1)->setToolTip(v);
 			}
 		}
 #define TRIP_BOOL_DISP(name, group, bit) \
-		if (row < table_->rowCount()) { \
+		{ \
 			uint32_t bg = (group) == 1 ? point.boolGroup1 \
 						: (group) == 2 ? point.boolGroup2 : point.boolGroup3; \
 			QString v = (bg >> (bit)) & 1u ? QStringLiteral("Yes") : QStringLiteral("No"); \

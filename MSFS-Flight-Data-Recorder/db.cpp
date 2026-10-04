@@ -161,7 +161,6 @@ const std::vector<TableDef>& database_tables() {
 
 }
 
-
 // Logs and throws db_exception for a failed statement: an SQLite error code
 // (sql_ret != 0) and/or an error message from sqlite3_exec (freed here).
 static void db_error(const char* stmt_txt, int sql_ret, char** errmsg) {

@@ -302,7 +302,9 @@ QString MapWidget::defaultBaseFileName() const {
 }
 
 void MapWidget::exportKml() {
-	if (!dataset_) return; // overview mode / nothing loaded -- action shouldn't really fire, but guard anyway
+	// The menu only offers this with a trip loaded, but it's a non-modal
+	// popup: the map can switch to the overview while it's still open.
+	if (!dataset_) return;
 	const QString fileName = QFileDialog::getSaveFileName(this, QStringLiteral("Export to KML"),
 		defaultBaseFileName() + QStringLiteral(".kml"), QStringLiteral("KML File (*.kml)"));
 	if (fileName.isEmpty()) return;
@@ -328,8 +330,6 @@ void MapWidget::onLoadFinished(bool ok) {
 }
 
 void MapWidget::refreshProvider() {
-	if (!pageReady_)
-		return;
 	runJs(QStringLiteral("initProvider();"));
 	// initProvider() rebuilds the JS-side map state, which would otherwise
 	// silently reset event-marker visibility to its default -- re-apply

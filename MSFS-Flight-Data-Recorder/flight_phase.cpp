@@ -153,7 +153,7 @@ void stop_recording(struct STATUS* status) {
 		// touchdown_data, resetting id_trip, pushing the end-of-trip barrier)
 		// must still run even if this UPDATE fails, or the next trip to start
 		// inherits this one's dangling touchdown list/id_trip. Two of this
-		// function's three callers (RecorderBridge destructor/shutdown()) have
+		// function's four callers (RecorderBridge destructor/shutdown()) have
 		// no try/catch of their own, so an uncaught db_exception here would
 		// otherwise crash the app on quit instead of just losing one UPDATE.
 		try {

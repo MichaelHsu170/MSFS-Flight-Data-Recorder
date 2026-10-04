@@ -11,10 +11,8 @@
 // Latitude": DataTablePanel's row label for each field below.
 inline QString tripFieldLabel(const char* name) {
 	QStringList words = QString::fromLatin1(name).split('_', Qt::SkipEmptyParts);
-	for (QString& word : words) {
-		if (!word.isEmpty())
-			word[0] = word[0].toUpper();
-	}
+	for (QString& word : words)
+		word[0] = word[0].toUpper();
 	return words.join(' ');
 }
 

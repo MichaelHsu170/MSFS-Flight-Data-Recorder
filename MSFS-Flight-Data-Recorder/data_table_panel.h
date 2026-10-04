@@ -13,7 +13,8 @@ class QTableWidget;
 // sample at whatever index is currently designated -- the dragged map/chart
 // cursor if one has been set, otherwise the trip's last point. Row labels
 // are fixed at construction time (same field list/order every point
-// produces, see trip_data_fields.h), so the table is built once and only the value column is refreshed per point. A filter icon
+// produces, see trip_data_fields.h), so the table is built once and only the
+// value column is refreshed per point. A filter icon
 // embedded in the "Field" header cell (Excel-style) opens a dialog of
 // checkboxes to choose which rows are visible (the long field list can
 // otherwise take a lot of scrolling); the chosen set is persisted via

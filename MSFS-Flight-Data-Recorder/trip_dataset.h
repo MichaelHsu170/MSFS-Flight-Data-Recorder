@@ -80,9 +80,9 @@ struct TouchdownPoint : RunwayContactPoint {
 
 // One discrete cockpit event (gear/flaps/spoilers/etc. toggled) logged during
 // the trip (trip_events). trip_events only stores a timestamp, not a
-// position -- latitude/longitude/sampleIndex are resolved after loading by
-// matching zuluTime against the nearest TripSamplePoint (see
-// resolveEventPositions() in db_history.h).
+// position -- latitude/longitude/sampleIndex are resolved after loading from
+// the first TripSamplePoint at or after zuluTime, or the last point for an
+// event after the final sample (see resolveEventPositions() in db_history.h).
 struct TripEvent {
 	QString event;
 	QString zuluTime;

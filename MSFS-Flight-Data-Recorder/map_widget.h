@@ -29,9 +29,6 @@ public:
 	// Refits the map to the current trajectory bounds — same view as right
 	// after a trip was loaded.
 	void resetZoom();
-	// Re-inits the Leaflet map and re-pushes the current trajectory.
-	// Called internally from onLoadFinished.
-	void refreshProvider();
 	// Shows/hides the cockpit-event markers pushed by setDataset() -- the
 	// liftoff/touchdown markers are always shown regardless of this setting.
 	// Wired internally to the floating events-toggle icon button.
@@ -63,6 +60,10 @@ private slots:
 	void onLoadFinished(bool ok);
 
 private:
+	// Re-inits the Leaflet map and re-pushes whatever is shown (the overview
+	// or the trip's trajectory, liftoffs, touchdowns and events). Called from
+	// onLoadFinished() each time the page (re)loads.
+	void refreshProvider();
 	void pushTrajectory();
 	void pushLiftoffs();
 	void pushTouchdownsAndEvents();
@@ -130,8 +131,8 @@ private:
 	// (via MapBridge::cursorIndexChanged), or -1 if the cursor has never been
 	// pinned for the current dataset. setTrajectory() on the JS side always
 	// snaps the marker back to the first point, so without reapplying this
-	// after every rebuild of the JS-side map state (refreshProvider(), e.g. a
-	// provider switch or the WebEngine page reloading), a pinned cursor would
+	// after every rebuild of the JS-side map state (refreshProvider(), i.e.
+	// the WebEngine page reloading), a pinned cursor would
 	// silently jump back to the trip start. Reset to -1 by setDataset() and
 	// showOverview() -- a genuinely new dataset has no pinned cursor of its
 	// own to restore.

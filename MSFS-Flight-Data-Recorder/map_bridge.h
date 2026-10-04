@@ -8,7 +8,8 @@
 // QObject exposed to the embedded map page's JavaScript via QWebChannel
 // (registered as "mapBridge" in map.html). JS calls markerMoved() when the
 // user drags the trajectory marker; MapWidget re-emits that as
-// cursorIndexChanged() for TrajectoryView to relay to ChartsPanel. JS calls
+// cursorIndexChanged() for TrajectoryView to relay to ChartsPanel and
+// DataTablePanel. JS calls
 // rangeChanged() after the map's viewport settles (zoom/pan), with the
 // version of the trajectory it was measured on (mapSetTrajectoryJs()),
 // re-emitted as visibleRangeChanged() for MapWidget to pass on to
