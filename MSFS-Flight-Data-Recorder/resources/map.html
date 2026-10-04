@@ -232,7 +232,7 @@ function startAnalysisPrompt(intro, dataTitle, t, aircraft) {
         var airport = t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
         lines.push('  Airport: ' + airport);
     }
-    if (t.runway) lines.push('  Runway: ' + t.runway + (t.runwayHeading != null && t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
+    if (t.runway) lines.push('  Runway: ' + t.runway + (t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
     lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
     return lines;
 }
@@ -248,7 +248,7 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, consider) {
     // a meaningless "0 ft (0%)" as if a runway had been determined -- while a
     // touchdown before the marked/displaced threshold legitimately reports a
     // negative distance, which is real data, not the "-1 = unknown" sentinel.
-    if (t.runway && t.distanceLength != null) {
+    if (t.runway) {
         lines.push('  ' + distanceLabel + ': ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of ' + lengthOf + ') [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
         var side = t.distanceWidth >= 0 ? 'right' : 'left';
         lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
@@ -554,7 +554,7 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
         var airportLabel = t.icao + (t.airportName ? ' – ' + t.airportName : '');
         leftHtml += row('Airport', airportLabel);
     }
-    if (t.runway) leftHtml += row('Runway', t.runway + (t.runwayHeading != null && t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
+    if (t.runway) leftHtml += row('Runway', t.runway + (t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
     leftHtml += row('Coordinate', formatDMS(Number(t.lat), Number(t.lng)));
 
     leftHtml += div;
@@ -566,7 +566,7 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
     leftHtml += row('Heading', t.headingDegrees + '°');
 
     // Gated on t.runway, not "distanceLength >= 0" -- see finishAnalysisPrompt().
-    if (t.runway && t.distanceLength != null) {
+    if (t.runway) {
         leftHtml += div;
         leftHtml += row('Threshold', Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '%)');
         var cSide = t.distanceWidth >= 0 ? 'R' : 'L';
