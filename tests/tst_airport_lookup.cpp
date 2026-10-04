@@ -307,7 +307,7 @@ private slots:
 		// The trip's own destination write ran before the failing one.
 		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
 		QVERIFY(touchdowns(tripId).value(0)["icao"].isNull());
-		// The slot is free: the next touchdown gets its own lookup.
+		// The slot is free: the next liftoff gets its own lookup.
 		liftOff(sim, onRunway(rwy, 1800));
 		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(3));
 	}
