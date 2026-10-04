@@ -468,6 +468,20 @@ void db_delete_events(STATUS* status, const std::vector<unsigned long long>& seq
 		});
 }
 
+// The message of the exception being handled: a db_exception's own text, or
+// "unknown exception" for anything else. Call only inside a catch block.
+static std::string current_exception_message() {
+	try {
+		throw;
+	}
+	catch (const db_exception& e) {
+		return e.message;
+	}
+	catch (...) {
+		return "unknown exception";
+	}
+}
+
 // Runs on the single persistent event-write worker thread (started in
 // connect_db(), joined in wait_for_db_writers()) draining
 // STATUS::event_write_queue. Moves db_insert_event's/db_delete_events'
@@ -486,30 +500,23 @@ static void event_write_worker(STATUS* status) {
 			else
 				db_delete_events(status, item.delete_seqs);
 		}
-		catch (const db_exception& e) {
+		catch (...) {
+			const std::string message = current_exception_message();
 			// item.trip_id is only ever set for Insert items (see
 			// EVENT_QUEUE_ITEM::trip_id in types.h) and a Delete can retract more
 			// than one row at once, so the two kinds need distinct messages here.
-			if (item.kind == EVENT_QUEUE_ITEM::Kind::Insert)
-				gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: dropped one event for trip %d: %s", item.trip_id, e.message.c_str());
-			else
-				gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: failed to retract %zu event(s): %s", item.delete_seqs.size(), e.message.c_str());
-			// A dropped Insert was already shown in the Live Status list (see
-			// commit_event() in recorder.cpp, which notifies the UI before this
-			// write is even queued) -- pull it back out so the panel doesn't
-			// keep showing an occurrence that never made it into trip_events.
-			// Not needed for a dropped Delete: nothing was ever added to the UI
-			// for a retraction, only removed, so there's nothing to undo.
-			if (item.kind == EVENT_QUEUE_ITEM::Kind::Insert)
+			if (item.kind == EVENT_QUEUE_ITEM::Kind::Insert) {
+				gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: dropped one event for trip %d: %s", item.trip_id, message.c_str());
+				// A dropped Insert was already shown in the Live Status list (see
+				// commit_event() in recorder.cpp, which notifies the UI before this
+				// write is even queued) -- pull it back out so the panel doesn't
+				// keep showing an occurrence that never made it into trip_events.
+				// Not needed for a dropped Delete: nothing was ever added to the UI
+				// for a retraction, only removed, so there's nothing to undo.
 				gui_notify_events_retracted(status, &item.seq, 1);
-		}
-		catch (...) {
-			if (item.kind == EVENT_QUEUE_ITEM::Kind::Insert)
-				gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: dropped one event for trip %d: unknown exception", item.trip_id);
-			else
-				gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: failed to retract %zu event(s): unknown exception", item.delete_seqs.size());
-			if (item.kind == EVENT_QUEUE_ITEM::Kind::Insert)
-				gui_notify_events_retracted(status, &item.seq, 1);
+			} else {
+				gui_log_printf(status, GUI_LOG_WARNING, "event_write_worker: failed to retract %zu event(s): %s", item.delete_seqs.size(), message.c_str());
+			}
 		}
 	}
 	log_cf(3, "DB", "event_write_worker: queue stopped; thread exiting");
@@ -564,18 +571,13 @@ static void db_write_worker(STATUS* status) {
 					db_bind(stmt, stmt_txt, index++, pS->time_local.format_date_time().c_str());
 				});
 		}
-		catch (const db_exception& e) {
+		catch (...) {
 			// Drop just this one sample and keep draining the queue, rather
 			// than stalling every later sample (this trip's and any future
-			// trip's) behind one bad row.
-			gui_log_printf(status, GUI_LOG_WARNING, "db_write_worker: dropped one sample for trip %d: %s", item.trip_id, e.message.c_str());
-		}
-		catch (...) {
-			// db_insert_update_table's own catch is now catch(...) too (a bound
-			// callback could throw anything), so this must be as well -- otherwise
-			// a non-db_exception would escape the worker thread and terminate
-			// the app instead of just dropping one sample.
-			gui_log_printf(status, GUI_LOG_WARNING, "db_write_worker: dropped one sample for trip %d: unknown exception", item.trip_id);
+			// trip's) behind one bad row. Any exception, not just db_exception:
+			// a bound callback could throw anything, and one escaping this
+			// thread would terminate the app.
+			gui_log_printf(status, GUI_LOG_WARNING, "db_write_worker: dropped one sample for trip %d: %s", item.trip_id, current_exception_message().c_str());
 		}
 		free(pS);
 	}
