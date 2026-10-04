@@ -85,7 +85,8 @@ verification machine.
   related families, both unreachable with the real, working
   `charts_panel.qml` compiled into the binary.
   - `root == nullptr` checks (`buildSeriesCache()`, both in `setDataset()`,
-    `setCursorIndex()`, `setVisibleRange()`). `view_->setSource()` is called
+    `setCursorIndex()`, `setVisibleRange()`, `setAllXAxisRange()`,
+    `setEngine()`). `view_->setSource()` is called
     exactly once, synchronously, from the constructor, against a QML file
     compiled into the binary's own `.qrc` (no network fetch to go async
     over), and nothing else ever re-sources or tears down `view_`
@@ -217,8 +218,6 @@ verification machine.
     ENGINES: MSVC's unguarded cast gives `INT_MIN` for those, which the clamp
     turns into the same 0 count. A test with NaN and 1e300 passed with the
     guard removed and was dropped (the same guard on ENGINE TYPE is covered).
-  - `ManageGroupsDialog::onListReordered()`'s `updating_` guard: `reload()`
-    never emits `reordered`.
   - `LiveStatusPanel::eventFilter()`'s non-toggle branch: the filter is only
     installed on the toggle.
   - `MapWidget::resetZoom()`'s `pageReady_` guard: without it the call runs
