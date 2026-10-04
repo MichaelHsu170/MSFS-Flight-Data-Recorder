@@ -3,7 +3,6 @@
 #include "test_support.h"
 
 #include "app_settings.h"
-#include "db.h"
 #include "gui_notify.h"
 
 #include <QSettings>
