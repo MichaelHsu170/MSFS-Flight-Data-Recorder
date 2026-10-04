@@ -18,15 +18,14 @@ set(CMAKE_AUTORCC ON)
 # Quick/QuickWidgets: Qt Graphs' 2D chart surface (GraphsView) has no public
 # C++/QWidget header in this Qt version, only QML -- see charts_panel.h --
 # so charts_panel.qml is hosted via QQuickWidget.
-# WebEngineWidgets/WebChannel: the trajectory map embeds Leaflet/OSM (and,
-# from step 6, Google Maps) via QWebEngineView, bridged to C++ over
-# QWebChannel -- see map_widget.h.
+# WebEngineWidgets/WebChannel: the trajectory map embeds Leaflet/OSM via
+# QWebEngineView, bridged to C++ over QWebChannel -- see map_widget.h.
 # CoreTools: pulls in the Qt6::windeployqt imported target used below to copy
 # Qt's runtime (DLLs, QML modules, WebEngine's process/resources/translations)
 # next to the exe -- needed for VS Code's F5 launch, which doesn't inherit
 # Qt's bin directory on PATH the way a manual terminal build might.
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Graphs GraphsWidgets Concurrent Quick QuickWidgets QuickControls2 WebEngineWidgets WebChannel CoreTools)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Graphs GraphsWidgets Concurrent Quick QuickWidgets QuickControls2 WebEngineWidgets WebChannel CoreTools)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Graphs Concurrent Quick QuickWidgets QuickControls2 WebEngineWidgets WebChannel CoreTools)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Graphs Concurrent Quick QuickWidgets QuickControls2 WebEngineWidgets WebChannel CoreTools)
 
 # Source
 set(SRC_DIR "${PROJECT_SOURCE_DIR}/MSFS-Flight-Data-Recorder")
@@ -93,7 +92,7 @@ endif()
 
 add_library(fdr_core STATIC ${CORE_SOURCES})
 target_include_directories(fdr_core PUBLIC ${GENERATED_DIR} ${SRC_DIR})
-target_link_libraries(fdr_core PUBLIC Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Graphs Qt${QT_VERSION_MAJOR}::GraphsWidgets Qt${QT_VERSION_MAJOR}::Concurrent Qt${QT_VERSION_MAJOR}::Quick Qt${QT_VERSION_MAJOR}::QuickWidgets Qt${QT_VERSION_MAJOR}::QuickControls2 Qt${QT_VERSION_MAJOR}::WebEngineWidgets Qt${QT_VERSION_MAJOR}::WebChannel)
+target_link_libraries(fdr_core PUBLIC Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Graphs Qt${QT_VERSION_MAJOR}::Concurrent Qt${QT_VERSION_MAJOR}::Quick Qt${QT_VERSION_MAJOR}::QuickWidgets Qt${QT_VERSION_MAJOR}::QuickControls2 Qt${QT_VERSION_MAJOR}::WebEngineWidgets Qt${QT_VERSION_MAJOR}::WebChannel)
 
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES})
 target_link_libraries(${PROJECT_NAME} PRIVATE fdr_core)
@@ -107,9 +106,9 @@ else()
     message(WARNING "sqlite3.lib not found in ${SQLITE3_DIR}. Configure your system sqlite or provide sqlite3.lib.")
 endif()
 
-# Windows system libraries used by the original project
+# Windows system library for MessageBoxW (main.cpp)
 if (WIN32)
-    target_link_libraries(fdr_core PUBLIC shlwapi.lib user32.lib Ws2_32.lib)
+    target_link_libraries(fdr_core PUBLIC user32.lib)
 endif()
 
 # SimConnect: allow user to set SIMCONNECT_DIR or leave unset
