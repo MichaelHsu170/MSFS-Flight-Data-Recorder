@@ -26,12 +26,11 @@ void start_facility_lookup(struct STATUS* status, LOOKUP_TARGET target, const CO
 // Resolves which AIRPORT slot the in-flight facility lookup (AIRPORT_LIST /
 // FACILITY_DATA / FACILITY_DATA_END / EXCEPTION) targets. Deliberately reads
 // only lookup.target -- captured once, by start_facility_lookup() --
-// rather than any live/mutable state such as status->departure.runway_act.index.
-// That field used to be used for this instead, but it can be reset to -1 by
-// a *later* trip's status->departure.clear() while an older trip's liftoff-
-// marker or destination lookup is still in flight, which would misattribute
-// the stale response to &status->departure. See lookup.target in
-// types.h for the full history.
+// rather than any live/mutable state such as status->departure.runway_act.index,
+// which a *later* trip's status->departure.clear() can reset to -1 while an
+// older trip's liftoff-marker or destination lookup is still in flight,
+// misattributing the stale response to &status->departure. See lookup.target
+// in types.h.
 AIRPORT* facility_lookup_target(struct STATUS* status) {
 	if (status->lookup.target == LOOKUP_TARGET::DEPARTURE)
 		return &status->departure;

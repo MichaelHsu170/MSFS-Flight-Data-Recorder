@@ -4,8 +4,8 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdio>
 #include <deque>
-#include <iostream>
 #include <mutex>
 #include <set>
 #include <string>
@@ -32,7 +32,6 @@ public:
 	double timezone_offset;
 
 	DATETIME() { clear(); }
-	~DATETIME() { clear(); }
 
 	void clear() {
 		year = 0;
@@ -76,7 +75,6 @@ public:
 	double longitude;
 
 	COORDINATE() { clear(); }
-	~COORDINATE() { clear(); }
 
 	void clear() {
 		latitude = 360;
@@ -271,12 +269,8 @@ public:
 		memcpy(icao, src->icao, sizeof(src->icao));
 		memcpy(region, src->region, sizeof(src->region));
 		magvar = src->magvar;
-		// Free any buffer this AIRPORT already owns before reassigning --
-		// otherwise a copy() onto an already-populated AIRPORT (unlike this
-		// header's two current callers, which both copy onto a freshly
-		// clear()'d LIFTOFF_DATA/TOUCHDOWN_DATA node airport -- see
-		// FACILITY_DATA_END's liftoff-marker and touchdown branches) would
-		// leak it.
+		// Free any buffer this AIRPORT already owns before reassigning, so a
+		// copy() onto an already-populated AIRPORT doesn't leak it.
 		if (runways != NULL) {
 			free(runways);
 			runways = NULL;
@@ -418,9 +412,9 @@ struct SAMPLE_QUEUE_ITEM {
 // (db_write_worker in db.cpp). Every producer -- the SimConnect dispatch
 // callback appending samples, and stop_recording() pushing an end-of-trip
 // barrier -- just pushes onto this queue; only the worker thread ever touches
-// STATUS::sql for sample flushes. This removes the detached per-batch writer
-// threads that used to race each other and the queue-reset code that ran when
-// a new trip started while a previous trip's flush was still in flight.
+// STATUS::sql for sample flushes, so writes never race each other and a new
+// trip starting while a previous trip's flush is still in flight needs no
+// queue reset.
 class SampleWriteQueue : public WorkQueue<SAMPLE_QUEUE_ITEM> {
 public:
 	void push(struct FLIGHT_DATA_RECORD* data, int trip_id) {
@@ -528,14 +522,14 @@ struct AIRPORT_LOOKUP {
 	// start_facility_lookup() in airport_lookup.cpp) and read by every
 	// AIRPORT_LIST/FACILITY_DATA/FACILITY_DATA_END/EXCEPTION handler through
 	// facility_lookup_target(): the trip's one departure, a later liftoff
-	// (touch-and-go marker) or a touchdown. It used to be re-derived at each
-	// callback from "departure.runway_act.index == -1", which breaks across a
-	// trip boundary: if a liftoff-marker or destination lookup is still in
-	// flight when its trip ends, the new trip's STATUS::departure.clear()
-	// resets runway_act.index to -1 out from under it, so the stale response
-	// gets misattributed to &STATUS::departure instead of its real target,
-	// leaking that target's runways buffer (freed on the wrong object by
-	// FacilityLookupCleanup in FACILITY_DATA_END).
+	// (touch-and-go marker) or a touchdown. Not re-derived per callback from
+	// "departure.runway_act.index == -1", which breaks across a trip
+	// boundary: if a liftoff-marker or destination lookup is still in flight
+	// when its trip ends, the new trip's STATUS::departure.clear() resets
+	// runway_act.index to -1 out from under it, so the stale response would
+	// be misattributed to &STATUS::departure, leaking its real target's
+	// runways buffer (lookup_on_facility_data_end() frees the buffer of the
+	// slot facility_lookup_target() names).
 	LOOKUP_TARGET target = LOOKUP_TARGET::TOUCHDOWN;
 	// SendID of the most recent SimConnect_RequestFacilitiesList_EX1/
 	// RequestFacilityData_EX1 call belonging to the in-flight lookup (see
@@ -671,16 +665,13 @@ struct FLIGHT_PHASE {
 	// airport -- wherever that first liftoff happened -- so this must stay
 	// TRUE for the rest of the trip, including through any number of later
 	// touch-and-goes or full-stop taxi-back-and-liftoffs, none of which are a
-	// new departure. Using departure.runway_act.index == -1 for this same
-	// purpose used to be racy: that field only flips once the async lookup
+	// new departure. departure.runway_act.index == -1 would be racy for this
+	// same purpose: that field only flips once the async lookup
 	// actually *resolves*, so becoming airborne before a slow (e.g.
 	// multi-chunk AIRPORT_LIST) departure lookup resolves would still see -1
 	// and be mistaken for a fresh departure, overwriting the captured liftoff
-	// coordinate/heading and eventually misrouting that stale lookup's
-	// response into the destination slot once the real departure resolves.
-	// Reset only at true trip boundaries: trip start and RecorderBridge::
-	// tryConnect()'s carry-over reset (same places facility_lookup_departure_
-	// needed etc. are reset), never on landing.
+	// coordinate/heading. Reset only at true trip boundaries (trip start and
+	// RecorderBridge::tryConnect()'s carry-over reset), never on landing.
 	bool departure_lookup_initiated = FALSE;
 	// What the trip's departure (first liftoff) recorded at the moment it
 	// became airborne -- position, heading, time, speeds -- captured whether
@@ -699,7 +690,7 @@ struct STATUS {
 	// User-facing gate on automatic recording start, toggled via the Recording
 	// indicator in LiveStatusPanel and persisted through AppSettings. Distinct
 	// from `recording` (which trip is actually mid-flight right now): this only
-	// suppresses the auto-start-on-liftoff check in flight_phase.cpp, so flipping it
+	// suppresses the start-on-engine-start check in flight_on_sample(), so flipping it
 	// while a trip is already recording has no effect on that trip.
 	bool recording_enabled = TRUE;
 	bool quit = FALSE;
@@ -743,7 +734,7 @@ struct STATUS {
 	AIRPORT departure;
 	// The trip's destination airport, filled in once a touchdown's facility
 	// lookup resolves (copied from here into the matching TOUCHDOWN_DATA
-	// node -- see FACILITY_DATA_END). Also doubles as scratch space for that
+	// node -- see on_lookup_resolved()). Also doubles as scratch space for that
 	// same lookup while it's still in flight (the in-progress AIRPORT_LIST
 	// candidate search, before a specific runway is known to be the match),
 	// which is safe because only one facility lookup is ever in flight at a
@@ -760,10 +751,9 @@ struct STATUS {
 	EventFloodFilter event_filter;
 	// Per-event-name last-logged time for the "Event ignored (no active
 	// trip)" TRACE line -- see EVENT_NO_TRIP_LOG_COOLDOWN and commit_event()
-	// in recorder.cpp. Purely a log rate-limit, not a suppression: unlike the
-	// no_trip_events_logged blacklist this replaces, an entry never blocks an
-	// occurrence from committing and needs no trip-boundary reset -- it just
-	// ages out naturally once EVENT_NO_TRIP_LOG_COOLDOWN elapses.
+	// in recorder.cpp. Purely a log rate-limit, not a suppression: an entry
+	// never blocks an occurrence from committing and needs no trip-boundary
+	// reset -- it just ages out once EVENT_NO_TRIP_LOG_COOLDOWN elapses.
 	std::unordered_map<std::string, std::chrono::steady_clock::time_point> no_trip_log_throttle;
 	void* gui_context = nullptr;
 };

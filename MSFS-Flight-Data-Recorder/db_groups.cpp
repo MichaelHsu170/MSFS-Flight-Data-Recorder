@@ -29,11 +29,11 @@ std::vector<TripGroup> queryAllGroups(sqlite3* sql) {
 bool groupNameExists(sqlite3* sql, const QString& name, int excludeGroupId) {
 	// Comparing in SQL via "COLLATE NOCASE" (as the UNIQUE index backing
 	// trip_groups.name in db.cpp also does) only case-folds ASCII A-Z/a-z --
-	// SQLite has no built-in Unicode-aware collation. That let e.g. "Café" and
-	// "café" (or "MÜNCHEN"/"münchen") both be inserted as distinct groups,
-	// each satisfying the NOCASE index despite being the same name to a user.
-	// Qt's QString::compare(..., Qt::CaseInsensitive) does full Unicode case
-	// folding, so pull every existing name and compare in C++ instead.
+	// SQLite has no built-in Unicode-aware collation, so e.g. "Café" and
+	// "café" (or "MÜNCHEN"/"münchen") would both satisfy the NOCASE index
+	// despite being the same name to a user. Qt's QString::compare(...,
+	// Qt::CaseInsensitive) does full Unicode case folding, so pull every
+	// existing name and compare in C++ instead.
 	// Fails open (reports "no duplicate") on a prepare error, which is safe:
 	// the caller's subsequent INSERT/UPDATE will still hit the COLLATE NOCASE
 	// UNIQUE index and fail instead of succeeding wrongly, for any duplicate
@@ -55,10 +55,11 @@ bool groupNameExists(sqlite3* sql, const QString& name, int excludeGroupId) {
 int insertGroup(sqlite3* sql, const QString& name) {
 	QString trimmed = name.trimmed();
 	// Blank and duplicate (case-insensitive) names are rejected here, not just
-	// by the current UI caller (manage_groups_dialog.cpp): trip_groups.name has
-	// no UNIQUE/CHECK constraint of its own, so without this check two groups
-	// named "Vacation" and "vacation" would both silently succeed and then be
-	// indistinguishable in the group filter combo and per-trip "Set Group" menu.
+	// by the current UI caller (manage_groups_dialog.cpp): the database has no
+	// blank-name constraint and its UNIQUE index only folds ASCII case (see
+	// groupNameExists()), so without this check e.g. "Café" and "café" would
+	// both succeed and be indistinguishable in the group filter combo and
+	// per-trip "Set Group" menu.
 	if (trimmed.isEmpty() || groupNameExists(sql, trimmed, 0)) {
 		Logger::log(Logger::Trace, "DB", QStringLiteral("insertGroup: rejected (blank or duplicate name)"));
 		return 0;

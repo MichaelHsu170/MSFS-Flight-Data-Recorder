@@ -6,7 +6,6 @@
 #include "flight_phase.h"
 #include "sim_link.h"
 #include <chrono>
-#include <thread>
 
 // Rate-limits the "Event ignored (no active trip)" TRACE line in
 // commit_event() below -- independent of EventFloodFilter's tiers, and it
@@ -26,9 +25,8 @@ static const std::chrono::milliseconds EVENT_NO_TRIP_LOG_COOLDOWN(5000);
 // occurrence happened (a new trip may be live by the time a held-back one
 // commits). seq is the filter's id for it, stored in the DB row (if one is
 // written) so a slow flood can be retracted precisely later -- see
-// db_delete_events() in db.cpp. Returns true if the occurrence was written to
-// trip_events and shown in the Live Status list, false if it was dropped.
-static bool commit_event(struct STATUS* status, const std::string& name, int trip_id, const std::string& time_zulu, const std::string& time_local, unsigned long long seq) {
+// db_delete_events() in db.cpp.
+static void commit_event(struct STATUS* status, const std::string& name, int trip_id, const std::string& time_zulu, const std::string& time_local, unsigned long long seq) {
 	if (trip_id <= 0) {
 		auto now = std::chrono::steady_clock::now();
 		auto& last_logged = status->no_trip_log_throttle[name];
@@ -36,11 +34,10 @@ static bool commit_event(struct STATUS* status, const std::string& name, int tri
 			gui_log_printf(status, GUI_LOG_TRACE, "Event ignored (no active trip): %s", name.c_str());
 			last_logged = now;
 		}
-		return false;
+		return;
 	}
 	gui_notify_event_committed(status, trip_id, seq, name.c_str());
 	status->event_write_queue.push(trip_id, name, time_zulu, time_local, seq);
-	return true;
 }
 
 // Wires the flood filter's output to this trip-aware commit and to the DB/UI
@@ -120,7 +117,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 					status->data.time_zulu.format_date_time(), status->data.time_local.format_date_time(),
 					event_output(status));
 			} else {
-				gui_log_printf(status, GUI_LOG_WARNING, "Unknown event ID: %ld", evt->uEventID);
+				gui_log_printf(status, GUI_LOG_WARNING, "Unknown event ID: %lu", evt->uEventID);
 			}
 			break;
 		}
@@ -141,7 +138,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		}
 		break;
 		default:
-			gui_log_printf(status, GUI_LOG_WARNING, "SIMCONNECT_RECV_SIMOBJECT_DATA: %d", pObjData->dwRequestID);
+			gui_log_printf(status, GUI_LOG_WARNING, "SIMCONNECT_RECV_SIMOBJECT_DATA: %lu", pObjData->dwRequestID);
 			break;
 		}
 	}
@@ -177,7 +174,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContex
 		break;
 	}
 	default:
-		gui_log_printf(status, GUI_LOG_WARNING, "SIMCONNECT_RECV: %d", pData->dwID);
+		gui_log_printf(status, GUI_LOG_WARNING, "SIMCONNECT_RECV: %lu", pData->dwID);
 		break;
 	}
 	} catch (const db_exception& e) {

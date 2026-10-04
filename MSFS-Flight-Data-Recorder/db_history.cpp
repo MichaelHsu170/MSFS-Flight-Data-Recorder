@@ -13,17 +13,14 @@
 namespace {
 
 // Shared prepare/bind(trip)/step/finalize skeleton for queryLiftoffs() and
-// queryTouchdowns() below -- the two used to duplicate this in full and only
-// actually differ in table/column layout (touchdowns adds a g_force column,
-// shifting every later column index by 1) and the target struct type.
-// extractRow runs once per SQLITE_ROW to build one T from the current row.
-// callerName/itemWord/itemWordPlural exist only to keep each caller's log
-// text byte-for-byte identical to what it logged before this was shared
-// (e.g. "queryLiftoffs(trip %d): loading liftoff points" / "... loaded %d
-// liftoff points"), since callers of this code may already filter logs on
-// those exact strings.
+// queryTouchdowns() below, which differ only in table/column layout
+// (touchdowns adds a g_force column, shifting every later column index by 1)
+// and the target struct type. extractRow runs once per SQLITE_ROW to build
+// one T from the current row. callerName/itemWord/itemWordPlural name the
+// caller and its rows in the log lines (e.g. "queryLiftoffs(trip %d):
+// loading liftoff points" / "... loaded %d liftoff points").
 template <typename T>
-std::vector<T> queryFacilityPoints(sqlite3* sql, int tripId, const char* stmtText,
+std::vector<T> queryContactPoints(sqlite3* sql, int tripId, const char* stmtText,
 	const char* callerName, const char* itemWord, const char* itemWordPlural,
 	const std::function<T(sqlite3_stmt*)>& extractRow) {
 	std::vector<T> items;
@@ -306,7 +303,7 @@ std::vector<LiftoffPoint> queryLiftoffs(sqlite3* sql, int tripId) {
 	// migrate_db() at app startup ensures all columns exist before any query runs.
 	const char* stmt_txt =
 		"SELECT " CONTACT_POINT_COLUMNS " FROM trip_liftoffs WHERE trip = ? ORDER BY id";
-	return queryFacilityPoints<LiftoffPoint>(sql, tripId, stmt_txt, "queryLiftoffs", "liftoff", "liftoff points",
+	return queryContactPoints<LiftoffPoint>(sql, tripId, stmt_txt, "queryLiftoffs", "liftoff", "liftoff points",
 		[](sqlite3_stmt* stmt) {
 			LiftoffPoint point;
 			readContactPoint(stmt, point);
@@ -318,7 +315,7 @@ std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 	// migrate_db() at app startup ensures all columns exist before any query runs.
 	const char* stmt_txt =
 		"SELECT " CONTACT_POINT_COLUMNS ", g_force FROM trip_touchdowns WHERE trip = ? ORDER BY id";
-	return queryFacilityPoints<TouchdownPoint>(sql, tripId, stmt_txt, "queryTouchdowns", "touchdown", "touchdowns",
+	return queryContactPoints<TouchdownPoint>(sql, tripId, stmt_txt, "queryTouchdowns", "touchdown", "touchdowns",
 		[](sqlite3_stmt* stmt) {
 			TouchdownPoint point;
 			readContactPoint(stmt, point);

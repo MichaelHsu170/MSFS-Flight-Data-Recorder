@@ -30,9 +30,8 @@ const char* const ENGINE_POWER_SIMVARS[][2] = {
 
 // Logs the dwSendID SimConnect actually assigned to this request, so a later
 // SIMCONNECT_RECV_ID_EXCEPTION's dwSendID can be matched back to a specific
-// event/name by reading the log instead of manually counting call order
-// (which is error-prone -- see the FLIGHT_LEVEL_CHANGE misdiagnosis this
-// replaced).
+// event/name by reading the log instead of manually counting call order,
+// which is error-prone.
 void map_client_event(HANDLE hSimConnect, EVENT_ID id, const char* name) {
 	SimConnect_MapClientEventToSimEvent(hSimConnect, id, name);
 	DWORD sendId = 0;

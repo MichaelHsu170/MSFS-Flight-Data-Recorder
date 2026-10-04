@@ -186,8 +186,9 @@ void stop_recording(struct STATUS* status) {
 		status->flushing_trip_ids.insert(ended_trip_id);
 	}
 	// Reset id_trip synchronously (not from the worker thread) so a new trip
-	// starting right after this one can never have its dispatch-callback event
-	// logging (see the id_trip > 0 gate above) mistaken for the ended trip's.
+	// starting right after this one can never have its events committed under
+	// the ended trip's id (commit_event() in recorder.cpp drops an event whose
+	// captured id_trip is <= 0).
 	status->id_trip = -1;
 	// Push an end-of-trip barrier instead of flushing here: the worker thread
 	// still has this trip's earlier samples queued ahead of this entry, and
@@ -207,7 +208,7 @@ void stop_recording(struct STATUS* status) {
 // in-flight one (see lookup.pending in types.h) -- this picks it
 // back up immediately. Departure takes priority since it always happens
 // first within a trip; touchdowns are then matched in the same FIFO order
-// FACILITY_DATA_END uses to attach a resolved lookup to a touchdown row,
+// on_lookup_resolved() uses to attach a resolved lookup to a touchdown row,
 // which requires strict in-order resolution -- skipping straight to a later
 // touchdown here would attribute its resolved airport/runway to an earlier,
 // still-unresolved one instead.
@@ -228,7 +229,7 @@ void request_next_touchdown_facility_lookup(struct STATUS* status) {
 	// their own tail), but interleaved with each other -- e.g. a touch-and-go
 	// produces liftoff, touchdown, liftoff in that order. seq (shared across
 	// both lists, see types.h) picks whichever of the two earliest-unresolved
-	// candidates actually happened first, so FACILITY_DATA_END's strict
+	// candidates actually happened first, so on_lookup_resolved()'s strict
 	// in-order-resolution assumption still holds across the combined stream.
 	bool pick_liftoff = next_td == NULL || (next_lo != NULL && next_lo->seq < next_td->seq);
 	gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up queued %s lookup (trip %d)",
@@ -405,9 +406,10 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 	status->data.time_zulu = tmp.time_zulu;
 	status->data.time_local = tmp.time_local;
 	// Only touchdown/destination runway-end matching uses this -- see
-	// the bearing_tra computation in FACILITY_DATA_END below for why
-	// departure/liftoff never can (their only candidate crossing of
-	// this band happens during climb-out, after liftoff, not before).
+	// the bearing_tra computation in lookup_on_facility_data_end()
+	// (airport_lookup.cpp) for why departure/liftoff never can (their
+	// only candidate crossing of this band happens during climb-out,
+	// after liftoff, not before).
 	if (tmp.radio_height > 50 && tmp.radio_height < 100) {
 		status->flight.loc_dh.latitude = tmp.plane_coordinate.latitude;
 		status->flight.loc_dh.longitude = tmp.plane_coordinate.longitude;
@@ -421,8 +423,8 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 		// once per climb-out rather than every frame for the rest of the time
 		// spent above 100ft -- most of the flight. If this trip's next descent
 		// happens to skip resampling inside the 50-100ft band (a sim-frame
-		// hitch/stall), FACILITY_DATA_END's loc_dh_source->latitude != 360
-		// check below then falls back to heading-based bearing instead of
+		// hitch/stall), lookup_on_facility_data_end()'s approach.latitude
+		// != 360 check then falls back to heading-based bearing instead of
 		// silently reusing this now-cleared, stale position.
 		status->flight.loc_dh.clear();
 	}
@@ -446,28 +448,22 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 
 					status->departure.clear();
 					status->destination.clear();
-					// Also cleared here (unlike departure/destination above, this
-					// wasn't previously): if a liftoff-marker lookup targeting this
-					// object is still in flight when this trip ends, the flag reset
-					// below makes facility_lookup_target() resolve that lookup's late
-					// response to &status->destination instead once it arrives,
-					// leaking this object's runways buffer since nothing then frees
-					// it. Unconditionally free+null-ing it here up front, the same as
-					// departure/destination, closes that regardless of which slot the
-					// stale response ends up misattributed to.
+					// Cleared too, like departure/destination: if a liftoff-marker
+					// lookup targeting this object is still in flight when this trip
+					// ends, the target reset below makes facility_lookup_target()
+					// resolve that lookup's late response to &status->destination
+					// instead, and nothing else would free this object's runways
+					// buffer.
 					status->lookup.liftoff_scratch.clear();
 					// Flood-detection state (status->event_filter) is deliberately
 					// NOT reset here -- it isn't trip-scoped. Each entry's own
 					// quiet period resolves it regardless of trip boundaries,
 					// and each held occurrence keeps the trip it happened in.
 					status->flight.departure_lookup_initiated = FALSE;
-					// Not a fix for an observed bug on its own -- every call site that
-					// starts a lookup already sets both of these fresh before use (see
-					// lookup.target in types.h) -- but a lookup still in
-					// flight when this trip boundary is crossed reads them again when
-					// its (possibly stale) response arrives later; see the
-					// liftoff_scratch.clear() above for why that case needs its target
-					// AIRPORT cleared here too, not just these flags.
+					// Every call site that starts a lookup sets the target fresh (see
+					// lookup.target in types.h), but a lookup still in flight when
+					// this trip boundary is crossed reads it again when its stale
+					// response arrives; see the liftoff_scratch.clear() above.
 					status->lookup.target = LOOKUP_TARGET::TOUCHDOWN;
 					status->flight.departure_db_id = -1;
 					// A go-around or bounced landing from a previous trip can leave
