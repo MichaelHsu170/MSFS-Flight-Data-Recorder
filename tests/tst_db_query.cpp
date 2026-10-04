@@ -1,17 +1,24 @@
 // Statement plumbing (db_query.cpp) on its own: success and genuine SQLite
 // failure paths (malformed SQL, constraint violations, a locked database,
-// nested transactions) for every helper, driven against a real sqlite3
-// connection rather than a mock.
+// nested transactions, a failing commit) for every helper, driven against a
+// real sqlite3 connection rather than a mock. Each failure must also log a
+// warning that starts with the caller's context.
+#include "test_support.h"
+
 #include "db_query.h"
+#include "logger.h"
 
 #include "sqlite3.h"
 
 #include <QDir>
 #include <QFile>
+#include <QTemporaryDir>
 #include <QThread>
 #include <QtTest>
 
 #include <vector>
+
+using TestSupport::exec;
 
 namespace {
 
@@ -21,8 +28,13 @@ sqlite3* openMemoryDb() {
 	return db;
 }
 
-void exec(sqlite3* db, const char* sql) {
-	sqlite3_exec(db, sql, nullptr, nullptr, nullptr);
+int countRows(sqlite3* db) {
+	sqlite3_stmt* check = nullptr;
+	sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM t", -1, &check, nullptr);
+	sqlite3_step(check);
+	const int count = sqlite3_column_int(check, 0);
+	sqlite3_finalize(check);
+	return count;
 }
 
 }
@@ -30,7 +42,33 @@ void exec(sqlite3* db, const char* sql) {
 class TstDbQuery : public QObject {
 	Q_OBJECT
 
+	QTemporaryDir logDir_;
+	QString logPath_;
+
+	// Whether a warning line containing every one of parts was logged.
+	bool warningLogged(const QStringList& parts) {
+		QFile f(logPath_);
+		if (!f.open(QIODevice::ReadOnly))
+			return false;
+		for (const QString& line : QString::fromUtf8(f.readAll()).split('\n')) {
+			if (!line.contains(QStringLiteral("[WARN ]")))
+				continue;
+			bool all = true;
+			for (const QString& part : parts)
+				all = all && line.contains(part);
+			if (all)
+				return true;
+		}
+		return false;
+	}
+
 private slots:
+	// Logger::init() takes effect once per process, so it runs here.
+	void initTestCase() {
+		logPath_ = logDir_.filePath(QStringLiteral("db_query.log"));
+		Logger::init(Logger::Warning, logPath_);
+	}
+
 	void columnTextReadsTextOrNull() {
 		sqlite3* db = openMemoryDb();
 		exec(db, "CREATE TABLE t (a TEXT, b TEXT)");
@@ -44,19 +82,23 @@ private slots:
 		sqlite3_close(db);
 	}
 
-	void prepareStatementSucceeds() {
+	void prepareStatementGivesARunnableStatement() {
 		sqlite3* db = openMemoryDb();
 		exec(db, "CREATE TABLE t (a TEXT)");
+		exec(db, "INSERT INTO t VALUES ('row')");
 		sqlite3_stmt* stmt = prepareStatement(db, "SELECT a FROM t", QStringLiteral("ctx"));
 		QVERIFY(stmt != nullptr);
+		QCOMPARE(sqlite3_step(stmt), SQLITE_ROW);
+		QCOMPARE(columnText(stmt, 0), QStringLiteral("row"));
 		sqlite3_finalize(stmt);
 		sqlite3_close(db);
 	}
 
-	void prepareStatementFailsOnMalformedSql() {
+	void prepareStatementFailsOnMalformedSqlAndLogs() {
 		sqlite3* db = openMemoryDb();
-		sqlite3_stmt* stmt = prepareStatement(db, "NOT VALID SQL", QStringLiteral("ctx"));
+		sqlite3_stmt* stmt = prepareStatement(db, "NOT VALID SQL", QStringLiteral("prepareCtx"));
 		QVERIFY(stmt == nullptr);
+		QVERIFY(warningLogged({ QStringLiteral("prepareCtx"), QStringLiteral("prepare failed") }));
 		sqlite3_close(db);
 	}
 
@@ -72,7 +114,7 @@ private slots:
 			return true;
 		});
 		QCOMPARE(seen, (std::vector<int>{ 1, 2, 3 }));
-		sqlite3_close(db);
+		QCOMPARE(sqlite3_close(db), SQLITE_OK); // SQLITE_BUSY if stmt were left unfinalized
 	}
 
 	void forEachRowStopsEarlyWhenOnRowReturnsFalse() {
@@ -82,15 +124,16 @@ private slots:
 		sqlite3_stmt* stmt = nullptr;
 		sqlite3_prepare_v2(db, "SELECT a FROM t ORDER BY a", -1, &stmt, nullptr);
 		std::vector<int> seen;
-		forEachRow(db, stmt, QStringLiteral("ctx"), [&seen](sqlite3_stmt* s) {
+		forEachRow(db, stmt, QStringLiteral("stopCtx"), [&seen](sqlite3_stmt* s) {
 			seen.push_back(sqlite3_column_int(s, 0));
 			return seen.size() < 2;
 		});
 		QCOMPARE(seen, (std::vector<int>{ 1, 2 }));
-		sqlite3_close(db);
+		QVERIFY(!warningLogged({ QStringLiteral("stopCtx") })); // stopping early isn't a failure
+		QCOMPARE(sqlite3_close(db), SQLITE_OK);
 	}
 
-	void forEachRowLogsOnAGenuineStepFailure() {
+	void forEachRowLogsAndFinalizesOnAGenuineStepFailure() {
 		// A second connection holding an EXCLUSIVE lock on the same file-backed
 		// db makes the first connection's step fail with SQLITE_BUSY instead
 		// of SQLITE_ROW/DONE -- a real failure, not a simulated one.
@@ -108,15 +151,16 @@ private slots:
 		sqlite3_stmt* stmt = nullptr;
 		sqlite3_prepare_v2(db, "SELECT a FROM t", -1, &stmt, nullptr);
 		bool onRowCalled = false;
-		forEachRow(db, stmt, QStringLiteral("ctx"), [&onRowCalled](sqlite3_stmt*) {
+		forEachRow(db, stmt, QStringLiteral("stepCtx"), [&onRowCalled](sqlite3_stmt*) {
 			onRowCalled = true;
 			return true;
 		});
 		QVERIFY(!onRowCalled);  // the very first step failed with SQLITE_BUSY
+		QVERIFY(warningLogged({ QStringLiteral("stepCtx"), QStringLiteral("step failed") }));
 
 		exec(locker, "ROLLBACK");
 		sqlite3_close(locker);
-		sqlite3_close(db);
+		QCOMPARE(sqlite3_close(db), SQLITE_OK);
 		QFile::remove(path);
 	}
 
@@ -136,30 +180,37 @@ private slots:
 		sqlite3_close(db);
 	}
 
-	void execStatementSucceeds() {
+	void execStatementRunsTheBoundStatement() {
 		sqlite3* db = openMemoryDb();
 		exec(db, "CREATE TABLE t (a TEXT)");
 		const bool ok = execStatement(db, "INSERT INTO t VALUES (?)", QStringLiteral("ctx"),
 			[](sqlite3_stmt* stmt) { bindText(stmt, 1, QStringLiteral("x")); });
 		QVERIFY(ok);
-		sqlite3_close(db);
+		sqlite3_stmt* check = nullptr;
+		sqlite3_prepare_v2(db, "SELECT a FROM t", -1, &check, nullptr);
+		QCOMPARE(sqlite3_step(check), SQLITE_ROW);
+		QCOMPARE(columnText(check, 0), QStringLiteral("x"));
+		sqlite3_finalize(check);
+		QCOMPARE(sqlite3_close(db), SQLITE_OK);
 	}
 
-	void execStatementFailsOnMalformedSql() {
+	void execStatementFailsOnMalformedSqlAndLogs() {
 		sqlite3* db = openMemoryDb();
-		const bool ok = execStatement(db, "NOT VALID SQL", QStringLiteral("ctx"), [](sqlite3_stmt*) {});
+		const bool ok = execStatement(db, "NOT VALID SQL", QStringLiteral("execPrepareCtx"), [](sqlite3_stmt*) {});
 		QVERIFY(!ok);
+		QVERIFY(warningLogged({ QStringLiteral("execPrepareCtx"), QStringLiteral("NOT VALID SQL") }));
 		sqlite3_close(db);
 	}
 
-	void execStatementFailsOnConstraintViolation() {
+	void execStatementFailsOnConstraintViolationAndLogs() {
 		sqlite3* db = openMemoryDb();
 		exec(db, "CREATE TABLE t (a TEXT UNIQUE)");
 		exec(db, "INSERT INTO t VALUES ('dup')");
-		const bool ok = execStatement(db, "INSERT INTO t VALUES (?)", QStringLiteral("ctx"),
+		const bool ok = execStatement(db, "INSERT INTO t VALUES (?)", QStringLiteral("execStepCtx"),
 			[](sqlite3_stmt* stmt) { bindText(stmt, 1, QStringLiteral("dup")); });
 		QVERIFY(!ok);
-		sqlite3_close(db);
+		QVERIFY(warningLogged({ QStringLiteral("execStepCtx"), QStringLiteral("INSERT INTO t VALUES (?)") }));
+		QCOMPARE(sqlite3_close(db), SQLITE_OK);
 	}
 
 	void inTransactionCommitsOnSuccess() {
@@ -169,11 +220,8 @@ private slots:
 			return execStatement(db, "INSERT INTO t VALUES (1)", QStringLiteral("ctx"), [](sqlite3_stmt*) {});
 		});
 		QVERIFY(ok);
-		sqlite3_stmt* check = nullptr;
-		sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM t", -1, &check, nullptr);
-		sqlite3_step(check);
-		QCOMPARE(sqlite3_column_int(check, 0), 1);
-		sqlite3_finalize(check);
+		QCOMPARE(countRows(db), 1);
+		QVERIFY(sqlite3_get_autocommit(db) != 0); // the transaction is closed
 		sqlite3_close(db);
 	}
 
@@ -185,21 +233,39 @@ private slots:
 			return false;
 		});
 		QVERIFY(!ok);
-		sqlite3_stmt* check = nullptr;
-		sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM t", -1, &check, nullptr);
-		sqlite3_step(check);
-		QCOMPARE(sqlite3_column_int(check, 0), 0);  // rolled back
-		sqlite3_finalize(check);
+		QCOMPARE(countRows(db), 0);  // rolled back
+		QVERIFY(sqlite3_get_autocommit(db) != 0);
 		sqlite3_close(db);
 	}
 
-	void inTransactionFailsWhenAlreadyInOne() {
+	void inTransactionRollsBackAndLogsWhenTheCommitFails() {
+		// A deferred foreign key is only checked at COMMIT, so the commit
+		// itself fails genuinely.
+		sqlite3* db = openMemoryDb();
+		exec(db, "PRAGMA foreign_keys = ON");
+		exec(db, "CREATE TABLE p (id INTEGER PRIMARY KEY)");
+		exec(db, "CREATE TABLE t (a INTEGER REFERENCES p(id) DEFERRABLE INITIALLY DEFERRED)");
+		const bool ok = inTransaction(db, QStringLiteral("commitCtx"), [&db]() {
+			exec(db, "INSERT INTO t VALUES (5)");
+			return true;
+		});
+		QVERIFY(!ok);
+		QVERIFY(warningLogged({ QStringLiteral("commitCtx"), QStringLiteral("COMMIT") }));
+		QVERIFY(sqlite3_get_autocommit(db) != 0); // not left open
+		QCOMPARE(countRows(db), 0);
+		sqlite3_close(db);
+	}
+
+	void inTransactionFailsAndLogsWhenAlreadyInOne() {
 		sqlite3* db = openMemoryDb();
 		exec(db, "BEGIN TRANSACTION");
 		// The real sqlite3_exec("BEGIN TRANSACTION", ...) call inside
 		// inTransaction() fails genuinely: a transaction is already active.
-		const bool ok = inTransaction(db, QStringLiteral("ctx"), []() { return true; });
+		bool bodyRan = false;
+		const bool ok = inTransaction(db, QStringLiteral("beginCtx"), [&bodyRan]() { bodyRan = true; return true; });
 		QVERIFY(!ok);
+		QVERIFY(!bodyRan);
+		QVERIFY(warningLogged({ QStringLiteral("beginCtx"), QStringLiteral("BEGIN") }));
 		exec(db, "ROLLBACK");
 		sqlite3_close(db);
 	}

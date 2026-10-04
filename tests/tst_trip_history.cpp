@@ -301,7 +301,9 @@ private slots:
 		const int tripId = sim.startTrip(); // recordingStateChanged refreshes the table
 		QTableView* v = view(panel);
 		QCOMPARE(v->model()->rowCount(), 2);
-		const int row = rowOfTrip(v, tripId) < 0 ? 0 : rowOfTrip(v, tripId);
+		// The live trip is the row titled with the sim's aircraft (makeRecord()).
+		const int row = cell(v, 0, TripHistoryModel::TitleColumn) == QStringLiteral("Test Aircraft") ? 0 : 1;
+		QCOMPARE(cell(v, row, TripHistoryModel::TitleColumn), QStringLiteral("Test Aircraft"));
 		QCOMPARE(v->model()->index(row, 0).data(Qt::BackgroundRole).value<QBrush>().color(), QColor(200, 255, 200));
 		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
 		clickRow(v, row);

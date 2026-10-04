@@ -20,11 +20,14 @@
 // establishes readiness shares that one instance instead of making its own.
 #include "map_bridge.h"
 #include "map_widget.h"
+#include "test_support.h"
 
 #include <QApplication>
 #include <QSignalSpy>
 #include <QTimer>
 #include <QtTest>
+
+using namespace TestSupport;
 
 namespace {
 
@@ -79,8 +82,8 @@ private slots:
 		widget_->appendLivePoint(samplePoint(1, 2));
 		QVERIFY(!liveTimer_->isActive()); // no dataset pushed yet: nothing to flush
 
-		widget_->resetZoom();              // early-return branch; must not crash
-		widget_->setEventsVisible(false);  // early-return branch; must not crash
+		// Remembered and applied once the page loads (checked in the next slot).
+		widget_->setEventsVisible(false);
 
 		QSignalSpy spy(widget_, &MapWidget::trajectoryLoaded);
 		TripDataset dataset;
@@ -96,7 +99,7 @@ private slots:
 		QCOMPARE(spy.count(), 1);
 	}
 
-	void afterPageReadyIsReadySetDatasetPushesEverythingAndEmitsOnce() {
+	void afterPageReadySetDatasetDrawsEverythingAndEmitsOnce() {
 		QSignalSpy spy(widget_, &MapWidget::trajectoryLoaded);
 		TripDataset dataset;
 		dataset.points = { samplePoint(1, 2), samplePoint(3, 4) };
@@ -109,6 +112,19 @@ private slots:
 
 		QVERIFY(spy.wait(10000));
 		QCOMPARE(spy.count(), 1);
+		QCOMPARE(mapTrajectoryPointCount(widget_), 2);
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "liftoff-icon"), 1, 5000);
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "touchdown-icon"), 1, 5000);
+
+		// Events were hidden before the page loaded (previous slot): the page
+		// keeps them off the map until they're shown again.
+		QTest::qWait(500); // the events push runs alongside the two above
+		QCOMPARE(mapElementCount(widget_, "event-icon"), 0);
+		widget_->setEventsVisible(true);
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "event-icon"), 1, 5000);
+		widget_->setEventsVisible(false);
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "event-icon"), 0, 5000);
+		widget_->setEventsVisible(true); // later slots expect the default
 	}
 
 	void aSupersededSetDatasetIsDiscardedWithoutEmittingTrajectoryLoadedTwice() {
@@ -125,13 +141,17 @@ private slots:
 		QCOMPARE(spy.count(), 1); // the superseded load never emits
 	}
 
-	void appendLivePointAfterPageReadyStartsTheTimerAndFlushStopsItWhenDrained() {
+	void appendLivePointAfterPageReadyExtendsTheLineAndFlushStopsTheTimerWhenDrained() {
+		const int before = mapTrajectoryPointCount(widget_);
+		QVERIFY(before > 0);
 		QVERIFY(!liveTimer_->isActive());
 		widget_->appendLivePoint(samplePoint(5, 6));
 		QVERIFY(liveTimer_->isActive());
 		// flushLivePoints() fires every 250ms and stops the timer once the
 		// pending-point queue is drained.
 		QVERIFY(QTest::qWaitFor([this]() { return !liveTimer_->isActive(); }, 2000));
+		QTRY_COMPARE_WITH_TIMEOUT(mapTrajectoryPointCount(widget_), before + 1, 5000);
+		QCOMPARE(mapTrajectoryLastPoint(widget_), (QVariantList{ 5.0, 6.0 }));
 	}
 
 	void aVisibleRangeIsForwardedOnlyForTheCurrentTrajectory() {
@@ -170,9 +190,20 @@ private slots:
 		QCOMPARE(widget_->defaultMapImageFileName(), QStringLiteral("trips.png"));
 	}
 
-	void resetZoomAndSetEventsVisibleAfterPageReadyRunWithoutCrashing() {
+	void resetZoomRefitsTheMapToTheTrajectory() {
+		QSignalSpy spy(widget_, &MapWidget::trajectoryLoaded);
+		TripDataset dataset;
+		dataset.points = { samplePoint(10, 20), samplePoint(11, 21) };
+		widget_->setDataset(dataset);
+		QVERIFY(spy.wait(10000));
+		QTest::qWait(1500); // let the animated fit (0.75 s) settle
+		const int fitted = mapZoom(widget_);
+		QVERIFY(fitted > 2);
+
+		evalPageJs(widget_, QStringLiteral("leafletMapInstance.setZoom(2, {animate: false})"));
+		QCOMPARE(mapZoom(widget_), 2);
 		widget_->resetZoom();
-		widget_->setEventsVisible(true);
+		QTRY_COMPARE_WITH_TIMEOUT(mapZoom(widget_), fitted, 5000);
 	}
 };
 

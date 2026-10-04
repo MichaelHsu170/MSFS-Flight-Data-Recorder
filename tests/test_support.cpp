@@ -15,7 +15,10 @@
 #include <QMetaObject>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QWebEnginePage>
+#include <QWebEngineView>
 
+#include <algorithm>
 #include <cstring>
 
 namespace TestSupport {
@@ -45,6 +48,53 @@ bool waitFor(const std::function<bool()>& cond, int timeoutMs) {
 		QThread::msleep(5);
 	}
 	return true;
+}
+
+QString lastLogWith(const QSignalSpy& log, const QStringList& parts) {
+	QString found;
+	for (const QList<QVariant>& args : log) {
+		const QString line = args.value(0).toString();
+		if (std::all_of(parts.begin(), parts.end(), [&line](const QString& part) { return line.contains(part); }))
+			found = line;
+	}
+	return found;
+}
+
+QVariant evalPageJs(QWidget* owner, const QString& js) {
+	// Shared so a callback arriving after the timeout writes somewhere valid.
+	auto result = std::make_shared<std::pair<bool, QVariant>>(false, QVariant());
+	owner->findChild<QWebEngineView*>()->page()->runJavaScript(js,
+		[result](const QVariant& v) { *result = { true, v }; });
+	if (!waitFor([result] { return result->first; }, 5000))
+		return QVariant();
+	return result->second;
+}
+
+int mapZoom(QWidget* owner) {
+	return evalPageJs(owner, QStringLiteral("leafletMapInstance.getZoom()")).toInt();
+}
+
+// The trajectory is the blue polyline (canvas-drawn, so not in the DOM):
+// runs body with it as l, -1/null if absent.
+static QVariant evalOnTrajectory(QWidget* owner, const char* body) {
+	return evalPageJs(owner, QStringLiteral(
+		"(function(){var r=null;leafletMapInstance.eachLayer(function(l){"
+		"if(l instanceof L.Polyline&&l.options.color==='blue'){var a=l.getLatLngs();%1}});return r;})()")
+		.arg(QLatin1String(body)));
+}
+
+int mapTrajectoryPointCount(QWidget* owner) {
+	const QVariant v = evalOnTrajectory(owner, "r=a.length;");
+	return v.isValid() ? v.toInt() : -1;
+}
+
+QVariantList mapTrajectoryLastPoint(QWidget* owner) {
+	return evalOnTrajectory(owner, "if(a.length)r=[a[a.length-1].lat,a[a.length-1].lng];").toList();
+}
+
+int mapElementCount(QWidget* owner, const char* className) {
+	return evalPageJs(owner, QStringLiteral("document.querySelectorAll('.%1').length")
+		.arg(QLatin1String(className))).toInt();
 }
 
 void onNextModal(const std::function<void(QWidget*)>& action) {

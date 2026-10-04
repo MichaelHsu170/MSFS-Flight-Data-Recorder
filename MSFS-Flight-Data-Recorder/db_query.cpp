@@ -12,7 +12,6 @@ sqlite3_stmt* prepareStatement(sqlite3* sql, const char* stmtText, const QString
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(sql, stmtText, -1, &stmt, nullptr) != SQLITE_OK) {
 		Logger::logf(Logger::Warning, "DB", "%s: prepare failed: %s", qUtf8Printable(context), sqlite3_errmsg(sql));
-		sqlite3_finalize(stmt);
 		return nullptr;
 	}
 	return stmt;
@@ -43,7 +42,6 @@ bool execStatement(sqlite3* sql, const char* stmtText, const QString& context,
 	if (sqlite3_prepare_v2(sql, stmtText, -1, &stmt, nullptr) != SQLITE_OK) {
 		Logger::logf(Logger::Warning, "DB", "%s: prepare failed for \"%s\": %s",
 			qUtf8Printable(context), stmtText, sqlite3_errmsg(sql));
-		sqlite3_finalize(stmt);
 		return false;
 	}
 	bind(stmt);

@@ -834,12 +834,8 @@ private slots:
 		exec(db, "DROP TABLE trip_data");
 		sqlite3_close(db);
 		sim.tick();
-		const QString expected = QStringLiteral("db_write_worker: dropped one sample for trip %1").arg(tripId);
-		QVERIFY(waitFor([&log, &expected] {
-			for (const QList<QVariant>& call : log)
-				if (call.at(0).toString().contains(expected))
-					return true;
-			return false;
+		QVERIFY(waitFor([&log, tripId] {
+			return !lastLogWith(log, { QStringLiteral("db_write_worker"), QStringLiteral("trip %1").arg(tripId) }).isEmpty();
 		}));
 		// The worker thread survived the failure and is still draining the
 		// queue: ending the trip still reaches the "Recording stopped" sentinel.
@@ -879,8 +875,6 @@ private slots:
 		QVERIFY(saveAnalysisReport(w.status()->sql, CONTACT_TABLE::TOUCHDOWNS, td, "second"));
 		QCOMPARE(queryValue(QStringLiteral("SELECT analysis_report FROM trip_liftoffs WHERE id=%1").arg(lo)).toString(), text);
 		QCOMPARE(queryValue(QStringLiteral("SELECT analysis_report FROM trip_touchdowns WHERE id=%1").arg(td)).toString(), QStringLiteral("second"));
-		// Each table only gets its own report.
-		QVERIFY(queryValue(QStringLiteral("SELECT analysis_report FROM trip_liftoffs WHERE id=%1").arg(lo)).toString() != QStringLiteral("second"));
 	}
 
 	void analysisReportForInvalidRowIsIgnored() {

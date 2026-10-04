@@ -13,15 +13,21 @@
 // built in a process reliably finishes loading.
 #include "trajectory_view.h"
 #include "app_settings.h"
+#include "charts_panel.h"
 #include "data_table_panel.h"
+#include "test_support.h"
 
 #include <QApplication>
 #include <QCoreApplication>
 #include <QMouseEvent>
+#include <QQuickItem>
+#include <QQuickWidget>
 #include <QSignalSpy>
 #include <QSplitter>
 #include <QTableWidget>
 #include <QtTest>
+
+using namespace TestSupport;
 
 namespace {
 
@@ -114,8 +120,33 @@ private slots:
 		QCOMPARE(zuluShown(*view_), QString());
 	}
 
-	void resetZoomRunsAgainstTheMapAndChartsWithoutCrashing() {
+	void resetZoomRefitsTheMapAndShowsTheChartsFullRange() {
+		auto dataset = std::make_shared<TripDataset>();
+		dataset->tripId = 8;
+		dataset->points = {
+			samplePoint(10, 20, QStringLiteral("2026-04-01T10:30:00.000+00:00_8")),
+			samplePoint(10.5, 20.5, QStringLiteral("2026-04-01T10:30:01.000+00:00_8")),
+			samplePoint(11, 21, QStringLiteral("2026-04-01T10:30:02.000+00:00_8")),
+		};
+		QSignalSpy spy(view_, &TrajectoryView::renderingFinished);
+		view_->setDataset(dataset);
+		QVERIFY(spy.wait(15000));
+		QTest::qWait(1500); // let the map's animated fit (0.75 s) settle
+		const int fitted = mapZoom(view_);
+		QVERIFY(fitted > 2);
+
+		// Zoom both out of their full view: the map directly on the page (its
+		// range report reaches the charts), then the charts to a slice.
+		evalPageJs(view_, QStringLiteral("leafletMapInstance.setZoom(2, {animate: false})"));
+		QTest::qWait(300);
+		ChartsPanel* charts = view_->findChild<ChartsPanel*>();
+		QQuickItem* chartsRoot = charts->findChild<QQuickWidget*>()->rootObject();
+		charts->setVisibleRange(0, 1);
+		QCOMPARE(chartsRoot->property("isFullRangeVisible").toBool(), false);
+
 		view_->resetZoom();
+		QCOMPARE(chartsRoot->property("isFullRangeVisible").toBool(), true);
+		QTRY_COMPARE_WITH_TIMEOUT(mapZoom(view_), fitted, 5000);
 	}
 
 	void appendLivePointInFollowModeAppendsToTheDatasetAndEveryPanel() {

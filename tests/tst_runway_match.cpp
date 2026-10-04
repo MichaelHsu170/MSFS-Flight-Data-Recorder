@@ -6,6 +6,8 @@
 
 #include <QtTest>
 
+#include <algorithm>
+
 using namespace TestSupport;
 
 namespace {
@@ -200,16 +202,24 @@ private slots:
 		r.primaryDesignator = 1;
 		r.secondaryDesignator = 2;
 		TestAirport a({ r });
+		// The trace's key facts (which runway, which end, the verdict), not its
+		// exact wording.
 		QStringList lines;
+		const auto hasLine = [&lines](const QStringList& parts) {
+			return std::any_of(lines.begin(), lines.end(), [&parts](const QString& line) {
+				return std::all_of(parts.begin(), parts.end(), [&line](const QString& p) { return line.contains(p); });
+			});
+		};
 		match(a.airport, pointOnRunway(r, 1000, 5), 90, true, &lines);
-		QVERIFY(lines.size() >= 3);
-		QVERIFY(lines.filter("Runway candidate 1/1: 09L/27R margin-rectangle hit").size() == 1);
-		QVERIFY(lines.filter(QRegularExpression("Runway candidate 1/1: 09L/27R \\(heading=90\\.0, len=3000, width=45\\).* -> pass$")).size() == 1);
-		QVERIFY(lines.filter("touchdown threshold correction: end=primary").size() == 1);
-		QVERIFY(lines.filter("accepted, is_primary=1").size() == 1);
+		QVERIFY(hasLine({ "09L/27R", "hit" }));
+		QVERIFY(hasLine({ "09L/27R", "pass" }));
+		QVERIFY(hasLine({ "threshold", "primary" }));
+		QVERIFY(hasLine({ "accepted", "is_primary=1" }));
+		QVERIFY(!hasLine({ "fail" }));
 		lines.clear();
 		match(a.airport, pointOnRunway(r, 1000, 500), 90, false, &lines);
-		QVERIFY(lines.filter("fail (outside runway footprint)").size() == 1);
+		QVERIFY(hasLine({ "09L/27R", "fail", "outside" }));
+		QVERIFY(!hasLine({ "accepted" }));
 	}
 };
 

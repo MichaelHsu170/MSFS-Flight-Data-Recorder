@@ -85,15 +85,6 @@ QList<QVariantMap> touchdowns(int tripId) {
 	return queryRows(QStringLiteral("SELECT * FROM trip_touchdowns WHERE trip=%1 ORDER BY id").arg(tripId));
 }
 
-// The last logged line containing text, or an empty string.
-QString lastLogContaining(const QSignalSpy& log, const QString& text) {
-	QString line;
-	for (const QList<QVariant>& args : log)
-		if (args.value(0).toString().contains(text))
-			line = args.value(0).toString();
-	return line;
-}
-
 // Runs sql on the recorder's connection. The sample writer thread shares it,
 // so hold its lock like every recorder write does (db_insert_update_table()
 // in db.cpp).
@@ -207,10 +198,7 @@ private slots:
 			QVERIFY(laterTime != liftoffTime);
 			QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 			sim.serviceLookups();
-			QString line;
-			for (const QList<QVariant>& args : log)
-				if (args.value(0).toString().contains(QStringLiteral("Liftoff from")))
-					line = args.value(0).toString();
+			const QString line = lastLogWith(log, { QStringLiteral("Liftoff from") });
 			QVERIFY2(line.contains(withAirport ? QStringLiteral("runway 09 at ") : QStringLiteral(" at ")), qPrintable(line));
 			QVERIFY2(line.endsWith(QStringLiteral(" at ") + liftoffTime), qPrintable(line));
 		}
@@ -235,11 +223,8 @@ private slots:
 		// A touch-and-go: the waiting touchdown is looked up first, then the liftoff.
 		liftOff(sim, onRunway(rwy, 1800));
 		sim.serviceLookups();
-		QString warning;
-		for (const QList<QVariant>& args : log)
-			if (args.value(0).toString().contains(QStringLiteral("row was never inserted")))
-				warning = args.value(0).toString();
-		QCOMPARE(warning, QStringLiteral("Touchdown at Test Field (TEST) runway 09: trip_touchdowns row was never inserted; dropping this resolution"));
+		QVERIFY(!lastLogWith(log, { QStringLiteral("(TEST) runway 09"), QStringLiteral("trip_touchdowns"),
+			QStringLiteral("never inserted") }).isEmpty());
 		// The trip still gets its destination, and the lookups carry on.
 		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
 		QCOMPARE(liftoffs(tripId).value(1)["icao"].toString(), QStringLiteral("TEST"));
@@ -260,8 +245,10 @@ private slots:
 		touchDown(sim, onRunway(rwy, 3100));
 		liftOff(sim, onRunway(rwy, 3150));
 		sim.serviceLookups();
-		QCOMPARE(lastLogContaining(log, QStringLiteral("never inserted")),
-			QStringLiteral("Touchdown at Test Field (TEST): trip_touchdowns row was never inserted; dropping this resolution"));
+		const QString warning = lastLogWith(log, { QStringLiteral("(TEST)"), QStringLiteral("trip_touchdowns"),
+			QStringLiteral("never inserted") });
+		QVERIFY(!warning.isEmpty());
+		QVERIFY2(!warning.contains(QStringLiteral("runway 09")), qPrintable(warning)); // resolved without a runway
 		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
 		QVERIFY(!sim.status().lookup.pending);
 	}
@@ -278,8 +265,8 @@ private slots:
 		failUpdates(sim, "trips");
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		touchDown(sim, onRunway(rwy, 500));
-		const QString warning = lastLogContaining(log, QStringLiteral("failed to update trip destination"));
-		QVERIFY2(warning.startsWith(QStringLiteral("Landing (trip %1): failed to update trip destination: ").arg(tripId)), qPrintable(warning));
+		QVERIFY(!lastLogWith(log, { QStringLiteral("trip %1").arg(tripId), QStringLiteral("failed"),
+			QStringLiteral("destination") }).isEmpty());
 		QCOMPARE(touchdowns(tripId).size(), 1);
 		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(2));
 		QVERIFY(trip(tripId)["destination_latitude"].isNull());
@@ -303,7 +290,7 @@ private slots:
 		failUpdates(sim, "trip_touchdowns");
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		sim.serviceLookups();
-		QVERIFY(!lastLogContaining(log, QStringLiteral("Database error in dispatch: ")).isEmpty());
+		QVERIFY(!lastLogWith(log, { QStringLiteral("Database error") }).isEmpty());
 		QVERIFY(!sim.status().lookup.pending);
 		// The trip's own destination write ran before the failing one.
 		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
@@ -348,17 +335,9 @@ private slots:
 		// The next touchdown's lookup runs the marker's first; it's skipped.
 		touchDown(sim, onRunway(rwy, 500));
 		sim.serviceLookups();
-		QString insertFailed, neverInserted;
-		for (const QList<QVariant>& args : log) {
-			const QString line = args.value(0).toString();
-			if (line.contains(QStringLiteral("trip_liftoffs insert failed")))
-				insertFailed = line;
-			if (line.contains(QStringLiteral("row was never inserted")))
-				neverInserted = line;
-		}
-		QVERIFY2(insertFailed.startsWith(QStringLiteral("Liftoff (trip %1, subsequent): trip_liftoffs insert failed, "
-			"this liftoff marker will not be recorded: ").arg(tripId)), qPrintable(insertFailed));
-		QCOMPARE(neverInserted, QStringLiteral("Liftoff (subsequent) from Test Field (TEST) runway 09: trip_liftoffs row was never inserted; dropping this resolution"));
+		QVERIFY(!lastLogWith(log, { QStringLiteral("trip %1").arg(tripId), QStringLiteral("trip_liftoffs insert failed") }).isEmpty());
+		QVERIFY(!lastLogWith(log, { QStringLiteral("(TEST) runway 09"), QStringLiteral("trip_liftoffs"),
+			QStringLiteral("never inserted") }).isEmpty());
 		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
 	}
 
@@ -377,14 +356,8 @@ private slots:
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		liftOff(sim, onRunway(rwy, 1800));
 		QVERIFY(FakeSim::state().facilitiesListRequests.empty());
-		QString insertFailed;
-		for (const QList<QVariant>& args : log) {
-			const QString line = args.value(0).toString();
-			if (line.contains(QStringLiteral("trip_liftoffs insert failed")))
-				insertFailed = line;
-		}
-		QVERIFY2(insertFailed.startsWith(QStringLiteral("Liftoff detected (trip %1): trip_liftoffs insert failed, "
-			"will retry on next liftoff: ").arg(tripId)), qPrintable(insertFailed));
+		QVERIFY(!lastLogWith(log, { QStringLiteral("trip %1").arg(tripId), QStringLiteral("trip_liftoffs insert failed"),
+			QStringLiteral("retry") }).isEmpty());
 		// Land, restore the table, then take off again: since the first attempt
 		// never flipped departure_lookup_initiated TRUE, this liftoff is
 		// retried as the trip's departure, not recorded as a touch-and-go marker.
@@ -904,8 +877,8 @@ private slots:
 		sim.send(header);
 		sim.send(facilityRunwayPacket(0, 100, rwy));
 		sim.send(facilityEndPacket());
-		QVERIFY(!lastLogContaining(log, "FACILITY_DATA_AIRPORT: negative n_runways=-1 from sim; treating as 0 runways").isEmpty());
-		QVERIFY(!lastLogContaining(log, "FACILITY_DATA_RUNWAY: no runways buffer for ItemIndex=0; dropping").isEmpty());
+		QVERIFY(!lastLogWith(log, { QStringLiteral("n_runways=-1") }).isEmpty());
+		QVERIFY(!lastLogWith(log, { QStringLiteral("FACILITY_DATA_RUNWAY"), QStringLiteral("ItemIndex=0") }).isEmpty());
 		// No runways, but the airport is right here: its identity, no runway.
 		QCOMPARE(trip(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
 		QVERIFY(trip(tripId)["departure_rwy"].isNull());
@@ -923,7 +896,7 @@ private slots:
 		sim.send(facilityAirportPacket(airport));
 		sim.send(facilityRunwayPacket(1, 101, rwy)); // slot 0 never arrives
 		sim.send(facilityEndPacket());
-		QVERIFY(!lastLogContaining(log, "FACILITY_DATA_RUNWAY: no runways buffer for ItemIndex=1; dropping").isEmpty());
+		QVERIFY(!lastLogWith(log, { QStringLiteral("FACILITY_DATA_RUNWAY"), QStringLiteral("ItemIndex=1") }).isEmpty());
 		QCOMPARE(trip(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
 		QVERIFY(trip(tripId)["departure_rwy"].isNull());
 	}
@@ -996,17 +969,36 @@ private slots:
 		VERIFY_NEAR(touchdowns(second).value(0)["distance_length"], 600 * kFeetPerMeter, 2);
 	}
 
+	// A new SimConnect connection starts with no lookup in flight and an empty
+	// facility definition table, so after a reconnect the next liftoff must
+	// get its own lookup and register the runway definition again.
 	void reconnectResetsLookupState() {
 		FlightDriver sim;
 		const RunwaySpec rwy = eastWestRunway();
+		sim.airports = { testAirport(rwy) };
 		startOnRunway(sim, rwy);
 		liftOff(sim, onRunway(rwy, 1800));
+		sim.serviceLookups();
+		const size_t definitionFields = FakeSim::state().facilityDefinitionFields.size();
+		QVERIFY(definitionFields > 0);
+		touchDown(sim, onRunway(rwy, 500)); // left in flight
 		QVERIFY(sim.status().lookup.pending);
+		const size_t listRequests = FakeSim::state().facilitiesListRequests.size();
+
 		sim.send(recvPacket(SIMCONNECT_RECV_ID_QUIT, sizeof(SIMCONNECT_RECV)));
 		sim.pump();
 		QVERIFY(waitFor([] { return FakeSim::state().openCalls == 2; }, 5000));
 		QVERIFY(!sim.status().lookup.pending);
 		QVERIFY(!sim.status().lookup.runway_definition_added);
+
+		sim.send(recvPacket(SIMCONNECT_RECV_ID_OPEN, sizeof(SIMCONNECT_RECV)));
+		sim.simEvent(EVENT_SIM, 1);
+		const int second = startOnRunway(sim, rwy);
+		liftOff(sim, onRunway(rwy, 1700));
+		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), listRequests + 1);
+		sim.serviceLookups();
+		QCOMPARE(FakeSim::state().facilityDefinitionFields.size(), 2 * definitionFields);
+		QCOMPARE(trip(second)["departure_icao"].toString(), QStringLiteral("TEST"));
 	}
 };
 

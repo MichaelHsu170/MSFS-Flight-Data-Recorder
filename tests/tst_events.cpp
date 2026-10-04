@@ -193,12 +193,8 @@ private slots:
 		sqlite3_close(db);
 		sim.simEvent(EVENT_GEAR_UP);
 		quiet(sim, 600);
-		const QString expected = QStringLiteral("event_write_worker: dropped one event for trip %1").arg(tripId);
-		QVERIFY(waitFor([&log, &expected] {
-			for (const QList<QVariant>& call : log)
-				if (call.at(0).toString().contains(expected))
-					return true;
-			return false;
+		QVERIFY(waitFor([&log, tripId] {
+			return !lastLogWith(log, { QStringLiteral("event_write_worker"), QStringLiteral("trip %1").arg(tripId) }).isEmpty();
 		}));
 		QCOMPARE(retracted.count(), 1);
 		QCOMPARE(retracted.at(0).at(0).value<QList<quint64>>().size(), 1);
@@ -219,10 +215,7 @@ private slots:
 			quiet(sim, 600);
 		}
 		QVERIFY(waitFor([&log] {
-			for (const QList<QVariant>& call : log)
-				if (call.at(0).toString().startsWith(QStringLiteral("event_write_worker: failed to retract 3 event(s): ")))
-					return true;
-			return false;
+			return !lastLogWith(log, { QStringLiteral("retract"), QStringLiteral("3 event") }).isEmpty();
 		}));
 	}
 
@@ -231,7 +224,7 @@ private slots:
 		sim.startTrip();
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		sim.simEvent(EVENT_CRASHED);
-		QVERIFY(log.contains(QVariantList{ QStringLiteral("Plane crashed!") }));
+		QVERIFY(!lastLogWith(log, { QStringLiteral("crashed") }).isEmpty());
 		drainWrites(sim);
 		QCOMPARE(allEventRows(), 0);
 	}
@@ -240,7 +233,7 @@ private slots:
 		FlightDriver sim;
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		sim.simEvent(999);
-		QVERIFY(log.contains(QVariantList{ QStringLiteral("Unknown event ID: 999") }));
+		QVERIFY(!lastLogWith(log, { QStringLiteral("Unknown event"), QStringLiteral("999") }).isEmpty());
 	}
 };
 

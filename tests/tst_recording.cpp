@@ -24,13 +24,6 @@ private:
 	static int sampleCount(int tripId) {
 		return queryValue(QStringLiteral("SELECT COUNT(*) FROM trip_data WHERE trip=%1").arg(tripId)).toInt();
 	}
-	// The first logged line starting with prefix, or an empty string.
-	static QString firstLogStartingWith(const QSignalSpy& log, const QString& prefix) {
-		for (const QList<QVariant>& call : log)
-			if (call.at(0).toString().startsWith(prefix))
-				return call.at(0).toString();
-		return QString();
-	}
 	// Bytes SimConnect sends for one registered datum; 0 for a type the
 	// recorder never registers.
 	static size_t wireBytes(SIMCONNECT_DATATYPE type) {
@@ -165,7 +158,7 @@ private slots:
 		QCOMPARE(connected.count(), 1);
 		QCOMPARE(connected.at(0).at(0).toBool(), false);
 		QCOMPARE(log.count(), 1);
-		QCOMPARE(log.at(0).at(0).toString(), QStringLiteral("Disconnected from Microsoft Flight Simulator"));
+		QVERIFY(!lastLogWith(log, { QStringLiteral("Disconnected") }).isEmpty());
 		sim.pump();
 		QCOMPARE(FakeSim::state().closeCalls, 1);
 	}
@@ -265,7 +258,7 @@ private slots:
 		QCOMPARE(sim.bridge().currentTripId(), tripId);
 		QCOMPARE(started.count(), 1);
 		QCOMPARE(started.at(0).at(0).toInt(), tripId);
-		QVERIFY(log.contains(QVariantList{ QStringLiteral("Recording started") }));
+		QVERIFY(!lastLogWith(log, { QStringLiteral("Recording started") }).isEmpty());
 
 		const QVariantMap trip = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(tripId)).value(0);
 		QCOMPARE(trip["title"].toString(), QStringLiteral("Test Aircraft"));
@@ -410,7 +403,7 @@ private slots:
 		QCOMPARE(sim.bridge().currentTripId(), -1);
 		QVERIFY(waitFor([&ended] { return ended.count() == 1; }));
 		QCOMPARE(ended.at(0).at(0).toInt(), tripId);
-		QVERIFY(waitFor([&log] { return log.contains(QVariantList{ QStringLiteral("Recording stopped") }); }));
+		QVERIFY(waitFor([&log] { return !lastLogWith(log, { QStringLiteral("Recording stopped") }).isEmpty(); }));
 		const QVariantMap trip = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(tripId)).value(0);
 		// Arrival time is the last recorded sample's time (the tick before shutdown).
 		QCOMPARE(trip["destination_zulu_time"].toString(), QStringLiteral("2026-01-02T10:00:01.500+00:00_5"));
@@ -482,7 +475,7 @@ private slots:
 		FlightDriver sim;
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		sim.send(recvPacket(SIMCONNECT_RECV_ID_ASSIGNED_OBJECT_ID, sizeof(SIMCONNECT_RECV)));
-		QVERIFY(log.contains(QVariantList{ QStringLiteral("SIMCONNECT_RECV: %1").arg((int)SIMCONNECT_RECV_ID_ASSIGNED_OBJECT_ID) }));
+		QVERIFY(!lastLogWith(log, { QStringLiteral("SIMCONNECT_RECV"), QString::number((int)SIMCONNECT_RECV_ID_ASSIGNED_OBJECT_ID) }).isEmpty());
 	}
 
 	// --- Database failures while recording ---
@@ -499,7 +492,7 @@ private slots:
 		QVERIFY(!sim.bridge().isRecording());
 		QCOMPARE(started.count(), 0);
 		QCOMPARE(tripCount(), 0);
-		QVERIFY(!firstLogStartingWith(log, QStringLiteral("Recording start failed (trip insert): ")).isEmpty());
+		QVERIFY(!lastLogWith(log, { QStringLiteral("Recording start failed"), QStringLiteral("trip insert") }).isEmpty());
 		// Engines still running: the next sample retries the start.
 		exec("DROP TRIGGER fail_insert");
 		sim.tick();
@@ -517,7 +510,7 @@ private slots:
 		QVERIFY(!sim.bridge().isRecording());
 		QCOMPARE(sim.bridge().currentTripId(), -1);
 		QVERIFY(waitFor([&ended] { return ended.count() == 1; }));
-		QVERIFY(!firstLogStartingWith(log, QStringLiteral("stop_recording: failed to write destination time (trip %1): ").arg(tripId)).isEmpty());
+		QVERIFY(!lastLogWith(log, { QStringLiteral("destination time"), QStringLiteral("trip %1").arg(tripId) }).isEmpty());
 		QVERIFY(queryValue(QStringLiteral("SELECT destination_zulu_time FROM trips WHERE id=%1").arg(tripId)).isNull());
 	}
 

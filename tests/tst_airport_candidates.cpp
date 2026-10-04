@@ -53,7 +53,6 @@ private slots:
 		Candidates top;
 		add_nearest_airports(top, reference(), nullptr, 0);
 		QVERIFY(idents(top).empty());
-		QCOMPARE(top[0].distance, 1e9);
 	}
 
 	void keepsTheNearestFiveInOrder() {

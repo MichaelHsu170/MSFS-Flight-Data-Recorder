@@ -4,7 +4,9 @@
 #include "recorder_bridge.h"
 
 #include <QList>
+#include <QSignalSpy>
 #include <QString>
+#include <QStringList>
 #include <QVariant>
 #include <QVariantMap>
 #include <QWidget>
@@ -31,6 +33,24 @@ void removeSettings();
 // Polls cond (processing Qt events in between) until it returns true or
 // timeoutMs elapses. Returns cond()'s final value.
 bool waitFor(const std::function<bool()>& cond, int timeoutMs = 10000);
+
+// The last line in log (a spy on a QString signal such as
+// RecorderBridge::logMessage) that contains every one of parts, or an empty
+// string. Tests match a message's key facts (ids, counts, names), not its
+// exact wording.
+QString lastLogWith(const QSignalSpy& log, const QStringList& parts);
+
+// Runs js on the page of the QWebEngineView inside owner (e.g. a MapWidget)
+// and waits up to 5 s for its result; an invalid QVariant if none came.
+QVariant evalPageJs(QWidget* owner, const QString& js);
+// The map page's Leaflet zoom level, and the point count and last [lat, lng]
+// of its trajectory line, read back from the page itself.
+int mapZoom(QWidget* owner);
+int mapTrajectoryPointCount(QWidget* owner);
+QVariantList mapTrajectoryLastPoint(QWidget* owner);
+// How many elements with this CSS class (a marker's divIcon class) the map
+// page shows.
+int mapElementCount(QWidget* owner, const char* className);
 
 // Runs action on the next modal dialog or popup menu to appear (e.g. one the
 // code under test opens with exec()), from the event loop that exec() runs.

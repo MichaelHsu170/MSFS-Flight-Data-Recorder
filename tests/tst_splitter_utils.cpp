@@ -7,6 +7,8 @@
 #include <QSplitter>
 #include <QtTest>
 
+#include <memory>
+
 namespace {
 
 // Installed on the handle *before* connectSplitterHandleReleased() runs, so
@@ -68,13 +70,18 @@ private slots:
 	}
 
 	void filterIsDestroyedWithTheHandle() {
-		// Parented to the handle, so the splitter's destructor must be able
-		// to tear it down without crashing or leaking.
+		// Parented to the handle, so deleting the splitter frees the filter
+		// and the callback it holds: the callback's captured state goes too.
 		auto* splitter = new QSplitter(Qt::Horizontal);
 		splitter->addWidget(new QWidget(splitter));
 		splitter->addWidget(new QWidget(splitter));
-		connectSplitterHandleReleased(splitter, 1, []() {});
+		auto captured = std::make_shared<int>(0);
+		const std::weak_ptr<int> watch = captured;
+		connectSplitterHandleReleased(splitter, 1, [captured]() {});
+		captured.reset();
+		QVERIFY(!watch.expired()); // held by the filter
 		delete splitter;
+		QVERIFY(watch.expired());
 	}
 };
 
