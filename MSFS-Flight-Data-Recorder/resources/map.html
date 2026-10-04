@@ -247,7 +247,7 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, consider) {
     // back as 0 via sqlite3_column_double, which would pass ">= 0" and show
     // a meaningless "0 ft (0%)" as if a runway had been determined -- while a
     // touchdown before the marked/displaced threshold legitimately reports a
-    // negative distance, which is real data, not the "-1 = unknown" sentinel.
+    // negative distance, which is real data and so can't mark "unknown" either.
     if (t.runway) {
         lines.push('  ' + distanceLabel + ': ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of ' + lengthOf + ') [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
         var side = t.distanceWidth >= 0 ? 'right' : 'left';

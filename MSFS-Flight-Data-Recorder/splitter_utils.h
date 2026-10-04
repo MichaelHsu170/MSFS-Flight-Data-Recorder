@@ -8,7 +8,8 @@
 #include <utility>
 
 // Installs an event filter on one of splitter's handles so onRelease fires
-// once when the user releases the mouse after dragging it, instead of once
+// once each time the user releases the mouse on it (e.g. after dragging it,
+// though a plain click fires it too), instead of once
 // per pixel of movement the way QSplitter::splitterMoved does -- needed for
 // handlers that persist to disk (e.g. rewriting settings.ini), where firing
 // on every intermediate move causes visible stutter and disk churn

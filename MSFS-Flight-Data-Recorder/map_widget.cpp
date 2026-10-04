@@ -32,8 +32,9 @@
 namespace {
 
 // Routes the page's JS console (including Leaflet's tileerror/tileload and
-// our own console.log/error calls in map.html) to qDebug so failures are
-// visible without opening Chromium DevTools by hand.
+// our own console.log/error calls in map.html) to the debug log -- errors and
+// warnings as WARNING, everything else as INFO -- so failures are visible
+// without opening Chromium DevTools by hand.
 class LoggingPage : public QWebEnginePage {
 public:
 	explicit LoggingPage(QObject* parent = nullptr) : QWebEnginePage(parent) {}
