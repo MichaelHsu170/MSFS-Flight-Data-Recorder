@@ -270,11 +270,30 @@ private slots:
 		QCOMPARE(touchdowns(tripId).size(), 1);
 		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(2));
 		QVERIFY(trip(tripId)["destination_latitude"].isNull());
-		// Served with the trigger gone: see suspected bug 5 in tests/README.md
-		// for what a still-failing trips UPDATE does to the lookup.
+		// Served with the trigger gone, so the touchdown's own row gets its
+		// airport (a still-failing trips UPDATE throws before that write).
 		stopFailingUpdates(sim, "trips");
 		sim.serviceLookups();
 		QCOMPARE(touchdowns(tripId).value(0)["icao"].toString(), QStringLiteral("TEST"));
+	}
+
+	// A trips UPDATE that keeps failing ends the touchdown's lookup once,
+	// rather than asking for the same touchdown again on every answer.
+	void persistentlyFailingTripWriteEndsTheTouchdownLookupOnce() {
+		FlightDriver sim;
+		const RunwaySpec rwy = eastWestRunway();
+		sim.airports = { testAirport(rwy) };
+		startOnRunway(sim, rwy);
+		liftOff(sim, onRunway(rwy, 1800));
+		sim.serviceLookups();
+		failUpdates(sim, "trips");
+		touchDown(sim, onRunway(rwy, 500));
+		sim.serviceLookups();
+		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(2));
+		QVERIFY(!sim.status().lookup.pending);
+		// The next liftoff gets its own lookup.
+		liftOff(sim, onRunway(rwy, 1800));
+		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(3));
 	}
 
 	// A db_exception thrown by a resolved lookup's writes reaches the
@@ -302,7 +321,7 @@ private slots:
 
 	// A failing trips UPDATE when the touchdown has no airport at all, so the
 	// lookup ends inside the AIRPORT_LIST handler instead of
-	// FACILITY_DATA_END. Suspected bug 4 in tests/README.md.
+	// FACILITY_DATA_END.
 	void failedTripWriteOnACoordinateOnlyTouchdownStillFinishesTheLookup() {
 		FlightDriver sim;
 		const RunwaySpec rwy = eastWestRunway();
@@ -312,8 +331,11 @@ private slots:
 		failUpdates(sim, "trips");
 		touchDown(sim, onRunway(rwy, 500));
 		sim.serviceLookups();
-		QEXPECT_FAIL("", "Suspected bug 4: lookup.pending stays set when the coordinate-only write throws", Continue);
+		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(2));
 		QVERIFY(!sim.status().lookup.pending);
+		// The next liftoff gets its own lookup.
+		liftOff(sim, onRunway(rwy, 1800));
+		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(3));
 	}
 
 	void liftoffMarkerWhoseInsertFailsIsLoggedAndSkipped() {

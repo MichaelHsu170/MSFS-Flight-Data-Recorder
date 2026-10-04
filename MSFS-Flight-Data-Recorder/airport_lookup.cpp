@@ -105,6 +105,44 @@ static void facility_lookup_request_candidate(struct STATUS* status, int idx) {
 	SimConnect_GetLastSentPacketID(status->hSimConnect, &status->lookup.send_id);
 }
 
+namespace {
+
+// Ends the in-flight lookup: clears lookup.pending and picks up a liftoff/
+// touchdown that happened while it was in flight and had its own request
+// skipped (see request_next_touchdown_facility_lookup() in flight_phase.cpp;
+// a no-op if the trip has ended or nothing is queued).
+void end_lookup(struct STATUS* status) {
+	status->lookup.pending = FALSE;
+	request_next_touchdown_facility_lookup(status);
+}
+
+// Frees the slot's runways buffer and ends the lookup however the handler
+// exits -- including a db_exception thrown by one of the db_* writes in
+// on_lookup_resolved(), which would otherwise unwind straight past the
+// cleanup to MyDispatchProc's catch, leaking the runways and leaving
+// lookup.pending stuck true.
+struct LookupEnd {
+	struct STATUS* status;
+	AIRPORT* rep;  // whose runways to free; nullptr if none were requested
+	// Set to advance the multi-candidate walk to lookup.top[]'s next entry
+	// (see the no-strict-match handling in lookup_on_facility_data_end()) --
+	// the walk is still the same logical lookup, so lookup.pending must stay
+	// TRUE and the queue must not be drained until the walk actually
+	// finishes (a strict match, a cached margin/identity/coordinate-only
+	// fallback, or exhausting the list).
+	bool more_candidates_pending = false;
+	~LookupEnd() {
+		if (rep != nullptr && rep->runways != NULL) {
+			free(rep->runways);
+			rep->runways = NULL;
+		}
+		if (!more_candidates_pending)
+			end_lookup(status);
+	}
+};
+
+}
+
 void add_nearest_airports(AIRPORT_LOOKUP::CANDIDATE (&top)[AIRPORT_LOOKUP::TOP_N], COORDINATE position,
 	const SIMCONNECT_DATA_FACILITY_AIRPORT* airports, int count) {
 	for (int i = 0; i < count; i++) {
@@ -143,13 +181,11 @@ void lookup_on_airport_list(struct STATUS* status, SIMCONNECT_RECV_AIRPORT_LIST*
 	// earlier chunk's cleanup can't race a lookup it just started back into
 	// "not pending" while that new lookup is genuinely still in flight.
 	if (status->lookup.trip_id != status->id_trip) {
-		if (pWxData->dwEntryNumber + 1 == pWxData->dwOutOf) {
-			status->lookup.pending = FALSE;
-			// Same reason as every other terminal path below: a touchdown/departure
-			// lookup may have been queued behind this (now-stale) one and would
-			// otherwise sit stranded until some unrelated lookup happens to drain it.
-			request_next_touchdown_facility_lookup(status);
-		}
+		// Like every other terminal path below: a touchdown/departure lookup
+		// may have been queued behind this (now-stale) one and would otherwise
+		// sit stranded until some unrelated lookup happens to drain it.
+		if (pWxData->dwEntryNumber + 1 == pWxData->dwOutOf)
+			end_lookup(status);
 		return;
 	}
 	// SimConnect splits a large facility list (e.g. every airport in loaded
@@ -185,11 +221,10 @@ void lookup_on_airport_list(struct STATUS* status, SIMCONNECT_RECV_AIRPORT_LIST*
 		facility_lookup_request_candidate(status, 0);
 	} else {
 		gui_log_printf(status, GUI_LOG_TRACE, "AIRPORT_LIST: no airport candidates at all; using coordinate-only fallback");
-		on_lookup_resolved(status, facility_lookup_target(status), LOOKUP_OUTCOME::NO_AIRPORT);
 		// Terminal outcome for this lookup -- no facility data request was made,
-		// so FACILITY_DATA_END will never fire to clear this.
-		status->lookup.pending = FALSE;
-		request_next_touchdown_facility_lookup(status);
+		// so FACILITY_DATA_END will never fire to end it.
+		LookupEnd end{ status, nullptr };
+		on_lookup_resolved(status, facility_lookup_target(status), LOOKUP_OUTCOME::NO_AIRPORT);
 	}
 }
 
@@ -323,36 +358,7 @@ void lookup_on_facility_data(struct STATUS* status, SIMCONNECT_RECV_FACILITY_DAT
 
 void lookup_on_facility_data_end(struct STATUS* status) {
 	AIRPORT* rep = facility_lookup_target(status);
-	// RAII guard: frees rep->runways and clears lookup.pending no
-	// matter how this function exits -- including a db_exception thrown by
-	// one of the db_* writes in on_lookup_resolved(), which would otherwise
-	// unwind straight past the cleanup to MyDispatchProc's catch, leaking the
-	// runways malloc and leaving lookup.pending stuck true.
-	struct FacilityLookupCleanup {
-		AIRPORT* rep;
-		struct STATUS* status;
-		// Set just before returning to advance the multi-candidate
-		// walk to lookup.top[]'s next entry (see the no-strict-match
-		// handling below) -- the walk is still the same logical lookup, so
-		// lookup.pending must stay TRUE and the queue must not be
-		// drained until the walk actually finishes (a strict match, a cached
-		// margin/identity/coordinate-only fallback, or exhausting the list).
-		bool more_candidates_pending = false;
-		~FacilityLookupCleanup() {
-			if (rep->runways != NULL) {
-				free(rep->runways);
-				rep->runways = NULL;
-			}
-			if (more_candidates_pending)
-				return;
-			status->lookup.pending = FALSE;
-			// Pick up a touchdown that landed while this lookup was still in
-			// flight and had its own request skipped -- see
-			// request_next_touchdown_facility_lookup() in flight_phase.cpp. A no-op if the
-			// trip has ended (touchdown_data is freed) or there's nothing queued.
-			request_next_touchdown_facility_lookup(status);
-		}
-	} cleanup_guard{ rep, status };
+	LookupEnd cleanup_guard{ status, rep };
 	// Drop a response for a lookup issued by a trip that has since ended --
 	// see the identical check in lookup_on_airport_list() above. rep
 	// may already belong to a newly-started trip's (freshly cleared) departure/
@@ -478,16 +484,11 @@ void lookup_on_facility_data_end(struct STATUS* status) {
 void lookup_on_exception(struct STATUS* status, DWORD send_id) {
 	if (!status->lookup.pending || send_id != status->lookup.send_id)
 		return;
-	if (status->lookup.trip_id == status->id_trip) {
-		AIRPORT* rep = facility_lookup_target(status);
+	const bool current_trip = status->lookup.trip_id == status->id_trip;
+	AIRPORT* rep = current_trip ? facility_lookup_target(status) : nullptr;
+	LookupEnd end{ status, rep };
+	if (current_trip)
 		on_lookup_resolved(status, rep, LOOKUP_OUTCOME::FAILED);
-		if (rep->runways != NULL) {
-			free(rep->runways);
-			rep->runways = NULL;
-		}
-	}
-	status->lookup.pending = FALSE;
-	request_next_touchdown_facility_lookup(status);
 }
 
 void reset_airport_lookup(struct STATUS* status) {

@@ -455,7 +455,11 @@ void FlightDriver::endTrip() {
 void FlightDriver::serviceLookups() {
 	FakeSim::State& fake = FakeSim::state();
 	bool progressed = true;
-	while (progressed) {
+	for (int round = 0; progressed; ++round) {
+		// A lookup that requests itself again on every answer would otherwise
+		// never let this return.
+		if (round == 100)
+			QFAIL("facility lookups never settle");
 		progressed = false;
 		while (listRequestsServed_ < fake.facilitiesListRequests.size()) {
 			const DWORD sendId = fake.facilitiesListRequests[listRequestsServed_++];

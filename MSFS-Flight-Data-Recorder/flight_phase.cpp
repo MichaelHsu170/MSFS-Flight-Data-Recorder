@@ -329,10 +329,9 @@ void on_lookup_resolved(struct STATUS* status, AIRPORT* slot, LOOKUP_OUTCOME out
 			gui_log_printf(status, GUI_LOG_INFO, text.runway, slot->name, slot->icao, runway, time.c_str());
 		else
 			gui_log_printf(status, GUI_LOG_INFO, text.airport, slot->name, slot->icao, lat.c_str(), lon.c_str(), time.c_str());
-		if (departure)
-			db_set_trip_airport(status, status->id_trip, TRIP_END::DEPARTURE, status->departure, runway);
-		else if (target == LOOKUP_TARGET::TOUCHDOWN)
-			db_set_trip_airport(status, status->id_trip, TRIP_END::DESTINATION, status->destination, runway);
+		// Resolve the record in memory before any write: a write that throws
+		// must not leave it unresolved, or ending this lookup would request
+		// the same record again, for as long as the database error lasts.
 		if (record_airport != nullptr) {
 			if (!departure) {
 				// The list record keeps its own copy: the slot is reused by the
@@ -346,6 +345,12 @@ void on_lookup_resolved(struct STATUS* status, AIRPORT* slot, LOOKUP_OUTCOME out
 			}
 			if (!with_runway)
 				mark_no_runway();
+		}
+		if (departure)
+			db_set_trip_airport(status, status->id_trip, TRIP_END::DEPARTURE, status->departure, runway);
+		else if (target == LOOKUP_TARGET::TOUCHDOWN)
+			db_set_trip_airport(status, status->id_trip, TRIP_END::DESTINATION, status->destination, runway);
+		if (record_airport != nullptr) {
 			if (record_db_id < 0) {
 				// The immediate INSERT when it happened never got a valid rowid
 				// (e.g. it hit SQLITE_BUSY and threw) -- "WHERE id=?" would just
@@ -371,9 +376,9 @@ void on_lookup_resolved(struct STATUS* status, AIRPORT* slot, LOOKUP_OUTCOME out
 		// Coordinate-only: the record's row already has NULL airport fields
 		// from its immediate INSERT.
 		gui_log_printf(status, GUI_LOG_INFO, text.no_airport, lat.c_str(), lon.c_str(), time.c_str());
+		mark_no_runway();  // before the write, as above
 		if (target == LOOKUP_TARGET::TOUCHDOWN)
 			db_clear_trip_destination_airport(status, status->id_trip);
-		mark_no_runway();
 		if (record_airport != nullptr)
 			gui_notify_trip_updated(status);
 		break;

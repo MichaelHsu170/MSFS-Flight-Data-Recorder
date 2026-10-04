@@ -156,7 +156,8 @@ public:
 	void endTrip();
 
 	// Answers every facility request the recorder has made so far (and any it
-	// makes while being answered) from airports.
+	// makes while being answered) from airports; fails the test if the
+	// requests never stop coming.
 	std::vector<AirportSpec> airports;
 	int airportListChunkSize = 0; // 0 = whole list in one AIRPORT_LIST packet
 	// SendIDs of facility-list requests the "sim" rejected with an exception:
