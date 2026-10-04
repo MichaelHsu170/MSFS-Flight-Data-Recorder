@@ -51,7 +51,8 @@ signals:
 	void cursorIndexChanged(int index);
 	// Forwarded from MapBridge once the map's zoom/pan viewport settles.
 	// startIndex/endIndex are sample indices into the current dataset's
-	// points, or (-1, -1) when the full trajectory is back in view.
+	// points, or (-1, -1) when the full trajectory is back in view. A range
+	// the page measured on an earlier dataset's trajectory isn't forwarded.
 	void visibleRangeChanged(int startIndex, int endIndex);
 	// Emitted once the trajectory polyline has been pushed to the Leaflet page.
 	// TrajectoryView uses this to know the map is visually complete.
@@ -118,6 +119,8 @@ private:
 	// Incremented by setDataset and showOverview to invalidate any in-flight
 	// runJsBuiltInBackground() workers so their finished lambdas
 	// don't call setTrajectory() / setTouchdowns() after showOverview() was issued.
+	// Also sent with each trajectory, and returned with the page's visible
+	// ranges, to drop those measured on an earlier one.
 	int datasetVersion_ = 0;
 	// Set when setDataset() emits trajectoryLoaded() early because the page
 	// wasn't ready yet (see setDataset()). Consumed by pushTrajectory()'s

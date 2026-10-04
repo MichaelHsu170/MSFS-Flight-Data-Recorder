@@ -175,7 +175,15 @@ MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
 		lastCursorIndex_ = index;
 		emit cursorIndexChanged(index);
 	});
-	connect(bridge_, &MapBridge::visibleRangeChanged, this, &MapWidget::visibleRangeChanged);
+	connect(bridge_, &MapBridge::visibleRangeChanged, this, [this](int startIndex, int endIndex, int version) {
+		// Measured on a trajectory replaced since (the page sent it before
+		// running the newer setTrajectory()): its indices aren't this trip's.
+		if (version != datasetVersion_) {
+			Logger::logf(Logger::Trace, "Map", "visible range of superseded trajectory v%d (now v%d); ignoring", version, datasetVersion_);
+			return;
+		}
+		emit visibleRangeChanged(startIndex, endIndex);
+	});
 	connect(bridge_, &MapBridge::overviewTripClicked, this, &MapWidget::overviewTripClicked);
 	connect(view_, &QWebEngineView::loadFinished, this, &MapWidget::onLoadFinished);
 
@@ -379,7 +387,7 @@ void MapWidget::pushTrajectory() {
 	// Built off the main thread: a long flight can have 60k+ sample points
 	// (see mapSetTrajectoryJs() for how they're thinned).
 	runJsBuiltInBackground("trajectory", trajCoords_.size(),
-		[coords = trajCoords_]() { return mapSetTrajectoryJs(coords); },
+		[coords = trajCoords_, version = datasetVersion_]() { return mapSetTrajectoryJs(coords, version); },
 		[this]() {
 			// setTrajectory() (just run) always snaps the marker to the first
 			// point -- if a cursor was pinned before this rebuild (a

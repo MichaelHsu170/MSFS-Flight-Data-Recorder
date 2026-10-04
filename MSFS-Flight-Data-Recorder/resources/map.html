@@ -156,7 +156,7 @@
 <body>
 <div id="map"></div>
 <script>
-// OSM/Leaflet map. currentProvider exposes: setTrajectory(points),
+// OSM/Leaflet map. currentProvider exposes: setTrajectory(data),
 // appendPoints(pts), setCursorIndex(index),
 // setLiftoffs(points), setTouchdowns(points), setEvents(points), setEventsVisible(visible).
 var currentProvider = null;
@@ -655,7 +655,9 @@ function nearestIndexIn(latLngs, lat, lng) {
 // enter or exit the viewport are included even though their outer endpoint
 // is not strictly inside bounds. Falls back to the nearest-point segment
 // when no decimated point falls inside the viewport at all.
-function reportVisibleRange(trajectoryLatLngs, origIndices, bounds) {
+// version is the trajectory's (setTrajectory()'s data.version), so C++ can
+// drop a range measured on a trip it has since replaced.
+function reportVisibleRange(trajectoryLatLngs, origIndices, version, bounds) {
     if (!mapBridge || trajectoryLatLngs.length === 0)
         return;
     var n = trajectoryLatLngs.length;
@@ -683,7 +685,7 @@ function reportVisibleRange(trajectoryLatLngs, origIndices, bounds) {
         // than one decimated stride.
         var lo = Math.max(0, bestIdx - 1);
         var hi = Math.min(n - 1, bestIdx + 1);
-        mapBridge.rangeChanged(origIndices[lo], origIndices[hi]);
+        mapBridge.rangeChanged(origIndices[lo], origIndices[hi], version);
         return;
     }
     // Expand by one decimated step on each side: the polyline segment entering
@@ -694,9 +696,9 @@ function reportVisibleRange(trajectoryLatLngs, origIndices, bounds) {
     if (minIdx > 0) minIdx--;
     if (maxIdx < n - 1) maxIdx++;
     if (minIdx <= 0 && maxIdx >= n - 1)
-        mapBridge.rangeChanged(-1, -1);
+        mapBridge.rangeChanged(-1, -1, version);
     else
-        mapBridge.rangeChanged(origIndices[minIdx], origIndices[maxIdx]);
+        mapBridge.rangeChanged(origIndices[minIdx], origIndices[maxIdx], version);
 }
 
 function initProvider() {
@@ -928,11 +930,12 @@ function initLeafletProvider() {
     // For live-appended points origIndices[i] === i (no decimation).
     var trajectoryLatLngs = [];
     var origIndices = [];
+    var trajectoryVersion = 0;
 
     // zoomend/moveend fire once the viewport has settled (not on every
     // intermediate drag/zoom frame), so this stays cheap even on long trips.
     map.on('zoomend moveend', function () {
-        reportVisibleRange(trajectoryLatLngs, origIndices, map.getBounds());
+        reportVisibleRange(trajectoryLatLngs, origIndices, trajectoryVersion, map.getBounds());
     });
 
     var polyline = L.polyline([], { color: 'blue' }).addTo(map);
@@ -1000,12 +1003,13 @@ function initLeafletProvider() {
     currentProvider = {
         setTrajectory: function (data) {
             clearOverview();
-            // data is {lats:[...], lngs:[...], idxs:[...]} -- parallel flat
-            // arrays are more compact JSON and faster to iterate than an array
-            // of {lat, lng, idx} objects.
+            // data is {lats:[...], lngs:[...], idxs:[...], version} -- parallel
+            // flat arrays are more compact JSON and faster to iterate than an
+            // array of {lat, lng, idx} objects.
             var n = data.lats.length;
             trajectoryLatLngs = new Array(n);
             origIndices = data.idxs;
+            trajectoryVersion = data.version;
             for (var i = 0; i < n; i++)
                 trajectoryLatLngs[i] = [data.lats[i], data.lngs[i]];
             polyline.setLatLngs(trajectoryLatLngs);

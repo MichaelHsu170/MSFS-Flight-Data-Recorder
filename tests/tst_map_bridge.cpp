@@ -25,11 +25,12 @@ private slots:
 		QSignalSpy range(&bridge, &MapBridge::visibleRangeChanged);
 		QSignalSpy clicked(&bridge, &MapBridge::overviewTripClicked);
 		bridge.markerMoved(12);
-		bridge.rangeChanged(3, 40);
+		bridge.rangeChanged(3, 40, 5);
 		bridge.overviewSegmentClicked(7);
 		QCOMPARE(cursor.value(0).value(0).toInt(), 12);
 		QCOMPARE(range.value(0).value(0).toInt(), 3);
 		QCOMPARE(range.value(0).value(1).toInt(), 40);
+		QCOMPARE(range.value(0).value(2).toInt(), 5);
 		QCOMPARE(clicked.value(0).value(0).toInt(), 7);
 	}
 

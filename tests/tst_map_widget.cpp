@@ -18,6 +18,7 @@
 // reaches "page ready" (confirmed experimentally -- its load just hangs).
 // A single instance loads and runs fine, so every slot after the one that
 // establishes readiness shares that one instance instead of making its own.
+#include "map_bridge.h"
 #include "map_widget.h"
 
 #include <QApplication>
@@ -131,6 +132,30 @@ private slots:
 		// flushLivePoints() fires every 250ms and stops the timer once the
 		// pending-point queue is drained.
 		QVERIFY(QTest::qWaitFor([this]() { return !liveTimer_->isActive(); }, 2000));
+	}
+
+	void aVisibleRangeIsForwardedOnlyForTheCurrentTrajectory() {
+		MapBridge* bridge = widget_->findChild<MapBridge*>();
+		QVERIFY(bridge);
+		QSignalSpy pageRange(bridge, &MapBridge::visibleRangeChanged);
+		QSignalSpy forwarded(widget_, &MapWidget::visibleRangeChanged);
+		TripDataset dataset;
+		dataset.points = { samplePoint(10, 20), samplePoint(11, 21) };
+		widget_->setDataset(dataset);
+
+		// The page reports the range it fit the new trajectory to, tagged with
+		// that trajectory's version.
+		QVERIFY(pageRange.wait(10000));
+		const int version = pageRange.last().value(2).toInt();
+		QVERIFY(QTest::qWaitFor([&]() { return forwarded.count() == pageRange.count(); }, 2000));
+
+		forwarded.clear();
+		bridge->rangeChanged(0, 1, version - 1); // measured on the previous trajectory
+		QCOMPARE(forwarded.count(), 0);
+		bridge->rangeChanged(0, 1, version);
+		QCOMPARE(forwarded.count(), 1);
+		QCOMPARE(forwarded.value(0).value(0).toInt(), 0);
+		QCOMPARE(forwarded.value(0).value(1).toInt(), 1);
 	}
 
 	void defaultMapImageFileNameTracksOverviewVsLoadedTripState() {

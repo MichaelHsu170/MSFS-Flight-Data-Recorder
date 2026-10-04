@@ -50,7 +50,7 @@ QString mapSetStringJs(const QString& jsVariable, const QString& value) {
 		QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
 }
 
-QString mapSetTrajectoryJs(const std::vector<std::pair<double, double>>& coords) {
+QString mapSetTrajectoryJs(const std::vector<std::pair<double, double>>& coords, int version) {
 	QJsonArray lats, lngs, idxs;
 	for (int i : decimatedIndices(0, (int)coords.size() - 1, MAP_MAX_TRAJECTORY_POINTS)) {
 		lats.append(coords[i].first);
@@ -61,6 +61,7 @@ QString mapSetTrajectoryJs(const std::vector<std::pair<double, double>>& coords)
 	data[QStringLiteral("lats")] = lats;
 	data[QStringLiteral("lngs")] = lngs;
 	data[QStringLiteral("idxs")] = idxs;
+	data[QStringLiteral("version")] = version;
 	return call("setTrajectory", QJsonDocument(data));
 }
 

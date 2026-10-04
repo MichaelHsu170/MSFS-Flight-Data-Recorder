@@ -17,12 +17,13 @@ constexpr int MAP_MAX_TRAJECTORY_POINTS = 3000;
 
 // "window._x=...;" -- sets a page global to a string.
 QString mapSetStringJs(const QString& jsVariable, const QString& value);
-// setTrajectory({lats, lngs, idxs}): the (lat, lng) points thinned to at
-// most MAP_MAX_TRAJECTORY_POINTS (see decimatedIndices() in trip_dataset.h), as
-// parallel arrays -- more compact than one object per point and faster to
-// iterate in JS. idxs are the original sample indices, so the page reports
-// correct indices back for the cursor and visible range.
-QString mapSetTrajectoryJs(const std::vector<std::pair<double, double>>& coords);
+// setTrajectory({lats, lngs, idxs, version}): the (lat, lng) points thinned
+// to at most MAP_MAX_TRAJECTORY_POINTS (see decimatedIndices() in
+// trip_dataset.h), as parallel arrays -- more compact than one object per
+// point and faster to iterate in JS. idxs are the original sample indices, so
+// the page reports correct indices back for the cursor and visible range;
+// version comes back with each visible range (see MapBridge::rangeChanged()).
+QString mapSetTrajectoryJs(const std::vector<std::pair<double, double>>& coords, int version);
 // appendPoints([{lat, lng}, ...]): live points added to the trajectory.
 QString mapAppendPointsJs(const std::vector<std::pair<double, double>>& coords);
 QString mapSetLiftoffsJs(const std::vector<LiftoffPoint>& liftoffs);

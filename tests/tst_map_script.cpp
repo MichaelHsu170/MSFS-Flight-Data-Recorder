@@ -91,7 +91,8 @@ private slots:
 	}
 
 	void shortTrajectoryIsSentWhole() {
-		const QJsonObject data = argumentOf(mapSetTrajectoryJs(line(5)), QStringLiteral("setTrajectory")).object();
+		const QJsonObject data = argumentOf(mapSetTrajectoryJs(line(5), 9), QStringLiteral("setTrajectory")).object();
+		QCOMPARE(data["version"].toInt(), 9);
 		QCOMPARE(data["lats"].toArray().size(), 5);
 		QCOMPARE(data["lngs"].toArray().size(), 5);
 		QCOMPARE(data["idxs"].toArray(), (QJsonArray{ 0, 1, 2, 3, 4 }));
@@ -101,7 +102,7 @@ private slots:
 
 	void longTrajectoryIsThinnedKeepingIndicesAndEnds() {
 		const auto coords = line(7001);
-		const QJsonObject data = argumentOf(mapSetTrajectoryJs(coords), QStringLiteral("setTrajectory")).object();
+		const QJsonObject data = argumentOf(mapSetTrajectoryJs(coords, 1), QStringLiteral("setTrajectory")).object();
 		const QJsonArray idxs = data["idxs"].toArray();
 		const QJsonArray lats = data["lats"].toArray();
 		QVERIFY(idxs.size() <= MAP_MAX_TRAJECTORY_POINTS + 1);
@@ -116,7 +117,7 @@ private slots:
 	}
 
 	void emptyTrajectory() {
-		const QJsonObject data = argumentOf(mapSetTrajectoryJs({}), QStringLiteral("setTrajectory")).object();
+		const QJsonObject data = argumentOf(mapSetTrajectoryJs({}, 1), QStringLiteral("setTrajectory")).object();
 		QVERIFY(data.contains("lats"));
 		QVERIFY(data["lats"].toArray().isEmpty());
 		QVERIFY(data["idxs"].toArray().isEmpty());

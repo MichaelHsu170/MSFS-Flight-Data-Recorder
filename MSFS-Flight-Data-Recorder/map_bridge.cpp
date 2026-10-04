@@ -9,8 +9,8 @@ void MapBridge::markerMoved(int index) {
 	emit cursorIndexChanged(index);
 }
 
-void MapBridge::rangeChanged(int startIndex, int endIndex) {
-	emit visibleRangeChanged(startIndex, endIndex);
+void MapBridge::rangeChanged(int startIndex, int endIndex, int version) {
+	emit visibleRangeChanged(startIndex, endIndex, version);
 }
 
 void MapBridge::overviewSegmentClicked(int tripId) {
