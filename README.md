@@ -45,6 +45,8 @@ Automated tests run the app's code against a fake SimConnect with made-up flight
 .\.vscode\scripts\build.bat Debug test
 ```
 
+Add `rebuild` (`build.bat Debug test rebuild`) to recompile everything first, so every file's compiler warnings show.
+
 See [tests/README.md](tests/README.md) for what is covered, what still needs a manual check, and suspected bugs the tests exposed.
 
 ## Manual Build (PowerShell)

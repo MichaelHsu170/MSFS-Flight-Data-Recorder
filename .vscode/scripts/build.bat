@@ -1,5 +1,5 @@
 @echo off
-REM build.bat <Debug|Release> [test]
+REM build.bat <Debug|Release> [test [rebuild]]
 REM
 REM Single-process build task driven by VS Code's Ctrl+Shift+B menu (see
 REM ..\tasks.json). It sets up the MSVC x64 environment once, then
@@ -9,7 +9,11 @@ REM keeps repeat Ctrl+Shift+B presses fast -- the generated solution's
 REM ZERO_CHECK project still reruns configure on its own whenever
 REM CMakeLists.txt or other configure inputs actually change. With "test" as
 REM the second argument, a successful build is followed by the automated tests
-REM (ctest.exe, which ships next to cmake.exe -- see tests\README.md).
+REM (ctest.exe, which ships next to cmake.exe -- see tests\README.md). With
+REM "rebuild" as the third argument, everything is recompiled first
+REM (--clean-first), so the output shows every file's compiler warnings, not
+REM just those of the files that were out of date -- the diff review's
+REM warning check (.github\diff-review.md) relies on that.
 
 setlocal enabledelayedexpansion
 
@@ -53,8 +57,10 @@ if not exist "%BUILD_DIR%\CMakeCache.txt" (
   if errorlevel 1 exit /b 1
 )
 
+set "CLEAN_FIRST="
+if /i "%~3"=="rebuild" set "CLEAN_FIRST=--clean-first"
 echo Building %CONFIG% ...
-"%CMAKE%" --build "%BUILD_DIR%" --config %CONFIG%
+"%CMAKE%" --build "%BUILD_DIR%" --config %CONFIG% %CLEAN_FIRST%
 set "BUILD_RESULT=%errorlevel%"
 if not "%BUILD_RESULT%"=="0" endlocal & exit /b %BUILD_RESULT%
 

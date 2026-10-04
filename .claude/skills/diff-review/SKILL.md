@@ -1,6 +1,7 @@
 ---
 name: diff-review
 description: Reviews code changes for bugs, incorrect logic, and suspicious behavior — uncommitted working-tree changes by default, or the diff against a commit/tag/branch the user names (still including any uncommitted changes on top of that ref). Produces a findings report with context and proposed fixes; never edits, stages, or commits anything. Use whenever the user asks to review, check, audit, or sanity-check a diff, recent edits, uncommitted changes, or changes against a ref for bugs, regressions, or suspicious behavior.
+context: fork
 allowed-tools:
   - Read
   - Grep
@@ -12,12 +13,17 @@ allowed-tools:
   - Bash(git rev-parse *)
   - Bash(git ls-files *)
   - Bash(git merge-base *)
+  - PowerShell(cmd /c ".vscode\scripts\build.bat Debug test rebuild")
 ---
 
 # Diff Review
 
-Read [`.github/diff-review.md`](../../../.github/diff-review.md) at the repository root first — it is the single source of truth for this review's scope rules, methodology, and report format (shared with the GitHub Copilot version of this same review). Follow it exactly, including the required Context and Proposed fix fields in the report.
+Read [`.github/diff-review.md`](../../../.github/diff-review.md) at the repository root first — it is the single source of truth for this review's scope rules, methodology, and report format (shared with the GitHub Copilot version of this same review). Follow it exactly, including the code quality compliance check and the required Context and Proposed fix fields in the report.
 
-If a ref (commit/tag/branch) was passed as an argument to `/diff-review` or named in the request, that's the ref referred to in that file's scope-determination step; if none was given, follow its no-ref path (uncommitted changes only).
+This skill runs in a forked subagent (`context: fork` above) that starts without the conversation it was invoked from, which is how it meets that file's "review from zero known context" rule: the reviewer can't lean on design rationale or earlier "this part is fine" conclusions from the chat, even when the same session wrote the code.
 
-This skill's tool access is already locked to read-only file tools and read-only `git` commands (see `allowed-tools` above). Never attempt to Edit, Write, or run a mutating `git`/shell command during this skill, even if asked to "just fix it" mid-review — applying a fix is a separate, explicit follow-up outside this skill's scope.
+Arguments: $ARGUMENTS
+
+If a ref (commit/tag/branch) was given in the arguments above, that's the ref referred to in that file's scope-determination step; if none was given, follow its no-ref path (uncommitted changes only).
+
+This skill's tool access is already locked to read-only file tools, read-only `git` commands, and the build-and-test command the compliance check runs, which writes only to the git-ignored `build/` directory (see `allowed-tools` above). Never attempt to Edit, Write, or run a mutating `git`/shell command during this skill, even if asked to "just fix it" mid-review — applying a fix is a separate, explicit follow-up outside this skill's scope.
