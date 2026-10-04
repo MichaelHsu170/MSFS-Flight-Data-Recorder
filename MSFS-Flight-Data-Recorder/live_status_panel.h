@@ -10,8 +10,8 @@ class QListWidget;
 class QListWidgetItem;
 class RecorderBridge;
 
-// Mirrors what the console build used to printf(): connection state, recording
-// start/stop, liftoff/touchdown/crash messages, and a live flight-data snapshot.
+// Shows connection state, recording start/stop, liftoff/touchdown/crash
+// messages, and a live flight-data snapshot.
 // Connection/recording are shown as small painted dots (green/red, grey for
 // Recording's disabled state -- painted rather than drawn from a Unicode
 // glyph, since glyphs like the power/record symbols get rendered by Windows'
@@ -41,7 +41,6 @@ private slots:
 	void onConnectionChanged(bool connected);
 	void onRecordingStateChanged(int tripId);
 	void onTripEnded(int tripId);
-	void onRecordingEnabledChanged(bool enabled);
 	void onSampleUpdated();
 	// One event occurrence committed to trip_events -- adds its line like
 	// onLogMessage, but also remembers seq -> item so a later retraction (see
@@ -80,11 +79,9 @@ private:
 	void toggleRecordingEnabled();
 
 	RecorderBridge& bridge_;
-	QLabel* versionLabel_;
 	QLabel* connectionIcon_;
 	QLabel* recordingIcon_;
-	QLabel* recordingLabel_;
-	// Container wrapping recordingLabel_ + recordingIcon_ so both share one
+	// Container wrapping the "Recording:" label + recordingIcon_ so both share one
 	// hover highlight and one click target for the enable/disable toggle.
 	QWidget* recordingToggle_;
 	QLabel* snapshotLabel_;

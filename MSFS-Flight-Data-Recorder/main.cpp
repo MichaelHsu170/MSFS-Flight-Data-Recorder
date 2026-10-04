@@ -141,8 +141,8 @@ int main(int argc, char* argv[]) {
 
     RecorderBridge bridge;
     MainWindow window(bridge);
-    // 900x600 was too small to give the charts panel (QQuickWidget, stacked
-    // below the map/table row) enough room to be visible.
+    // Large enough for the charts panel (QQuickWidget, stacked below the
+    // map/table row) to get visible room.
     window.resize(1320, 900);
     window.setMinimumSize(1000, 700);
     window.show();

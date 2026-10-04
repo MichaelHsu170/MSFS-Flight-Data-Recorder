@@ -36,7 +36,6 @@
 #include <QEvent>
 #include <QMouseEvent>
 #include <QStyledItemDelegate>
-#include <QPainter>
 
 namespace {
 
@@ -69,7 +68,7 @@ std::optional<qint64> tripDurationSeconds(const QString& departureZuluTime, cons
 
 // "Dd Hh MMm" once the span reaches a full day (relevant for the summed
 // Total label -- a single trip's own Duration cell never gets this long),
-// otherwise the plain "Hh MMm" used before. Days rather than months/years:
+// otherwise "Hh MMm". Days rather than months/years:
 // a calendar month has no fixed length, which would make a duration (as
 // opposed to a calendar span) imprecise.
 // Rounded up to the minute (not floored/truncated): a display granularity
@@ -249,9 +248,8 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
 	// Airport/runway codes are always short (4-5 letters) -- give those
 	// columns a tight fixed width instead of splitting space evenly with
-	// everything else (ResizeToContents was tried here first, but Qt sized
-	// it wildly wider than the actual cell text for reasons that didn't
-	// trace back to the data), and let the two timestamp columns (by far the
+	// everything else (not ResizeToContents: Qt sizes these columns far
+	// wider than their cell text), and let the two timestamp columns (by far the
 	// widest values) share whatever's left.
 	auto* header = table_->horizontalHeader();
 	header->setStretchLastSection(false);
@@ -361,8 +359,8 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	connect(liftoffTouchdownsWatcher_, &QFutureWatcher<std::pair<std::vector<LiftoffPoint>, std::vector<TouchdownPoint>>>::finished, this, &TripHistoryPanel::tryFinishLoad);
 	connect(eventsWatcher_, &QFutureWatcher<std::vector<TripEvent>>::finished, this, &TripHistoryPanel::tryFinishLoad);
 
-	// A single click selects a trip and loads its data -- the previous
-	// double-click ("activated") requirement felt sluggish for browsing.
+	// A single click (not a double-click) selects a trip and loads its data,
+	// so browsing trips stays quick.
 	connect(table_, &QTableView::clicked, this, &TripHistoryPanel::onRowActivated);
 	// So a newly-started/ended live trip, and its departure→destination
 	// segment, show on the overview map immediately. tripUpdated: a live trip's
@@ -746,8 +744,8 @@ bool TripHistoryPanel::eventFilter(QObject* obj, QEvent* event) {
 			// Right-click must never move the row selection highlight -- only a
 			// left click (via onRowActivated, connected to QTableView::clicked)
 			// actually loads a trip and updates selectedTripId_. Without this,
-			// right-clicking a different, non-Live, not-yet-selected row still
-			// fell through to Qt's default selection handling, which highlights
+			// right-clicking a different, non-Live, not-yet-selected row would
+			// fall through to Qt's default selection handling, which highlights
 			// the clicked row as "selected" without loading its data -- leaving
 			// the table's visual selection out of sync with selectedTripId_ (and
 			// the trajectory view still showing the previously loaded trip) until

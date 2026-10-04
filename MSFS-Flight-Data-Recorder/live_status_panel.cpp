@@ -67,11 +67,11 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 	, bridge_(bridge)
 {
 	// Create version label
-	versionLabel_ = new QLabel(QString("ver. %1").arg(APP_VERSION), this);
-	QFont versionFont = versionLabel_->font();
+	auto* versionLabel = new QLabel(QString("ver. %1").arg(APP_VERSION), this);
+	QFont versionFont = versionLabel->font();
 	versionFont.setPointSize(versionFont.pointSize() - 1);
-	versionLabel_->setFont(versionFont);
-	versionLabel_->setAlignment(Qt::AlignRight);
+	versionLabel->setFont(versionFont);
+	versionLabel->setAlignment(Qt::AlignRight);
 
 	// Create separator line
 	auto* separator = new QFrame(this);
@@ -103,7 +103,7 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 
 	setIndicator(connectionIcon_, false, "Waiting for simulator…");
 
-	recordingLabel_ = new QLabel("Recording:", this);
+	auto* recordingLabel = new QLabel("Recording:", this);
 
 	// Wrap the label + dot in one small container so a hover highlight and
 	// click both cover the pair as a single target, rather than the label and
@@ -120,7 +120,7 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 	auto* recordingToggleLayout = new QHBoxLayout(recordingToggle_);
 	recordingToggleLayout->setContentsMargins(2, 1, 2, 1);
 	recordingToggleLayout->setSpacing(4);
-	recordingToggleLayout->addWidget(recordingLabel_);
+	recordingToggleLayout->addWidget(recordingLabel);
 	recordingToggleLayout->addWidget(recordingIcon_);
 	recordingToggle_->installEventFilter(this);
 
@@ -143,7 +143,7 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 	// panels sit side by side in MainWindow's splitter.
 	layout->setContentsMargins(0, 4, 4, 4);
 	layout->setSpacing(0);
-	layout->addWidget(versionLabel_);
+	layout->addWidget(versionLabel);
 	layout->addSpacing(4);
 	layout->addWidget(separator);
 	layout->addSpacing(4);
@@ -155,7 +155,7 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 	connect(&bridge_, &RecorderBridge::connectionChanged, this, &LiveStatusPanel::onConnectionChanged);
 	connect(&bridge_, &RecorderBridge::recordingStateChanged, this, &LiveStatusPanel::onRecordingStateChanged);
 	connect(&bridge_, &RecorderBridge::tripEnded, this, &LiveStatusPanel::onTripEnded);
-	connect(&bridge_, &RecorderBridge::recordingEnabledChanged, this, &LiveStatusPanel::onRecordingEnabledChanged);
+	connect(&bridge_, &RecorderBridge::recordingEnabledChanged, this, [this](bool) { updateRecordingIndicator(); });
 	connect(&bridge_, &RecorderBridge::sampleUpdated, this, &LiveStatusPanel::onSampleUpdated);
 	connect(&bridge_, &RecorderBridge::eventCommitted, this, &LiveStatusPanel::onEventCommitted);
 	connect(&bridge_, &RecorderBridge::eventsRetracted, this, &LiveStatusPanel::onEventsRetracted);
@@ -246,11 +246,6 @@ void LiveStatusPanel::onTripEnded(int tripId) {
 	}
 	recordingTripId_ = -1;
 	Logger::logf(Logger::Trace, "LiveStat", "Recording indicator -> not recording (trip #%d ended)", tripId);
-	updateRecordingIndicator();
-}
-
-void LiveStatusPanel::onRecordingEnabledChanged(bool enabled) {
-	Q_UNUSED(enabled);
 	updateRecordingIndicator();
 }
 
