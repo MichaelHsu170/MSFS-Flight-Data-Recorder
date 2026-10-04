@@ -338,11 +338,11 @@ struct TOUCHDOWN_DATA : CONTACT_RECORD {
 	// subsequent low-altitude pass (e.g. a go-around's second approach) --
 	// only one facility lookup is in flight at a time, so a touchdown's own
 	// lookup can still be queued (see request_next_touchdown_facility_lookup)
-	// when a later approach's crossing overwrites it. Capturing it here at
-	// touchdown time is safe because a touchdown always passes through
-	// FLIGHT_PHASE::loc_dh's 50-100ft trigger band during its own final approach,
-	// immediately beforehand -- so this field can never be stale for the
-	// touchdown that captures it, unlike the shared field read later.
+	// when a later approach's crossing overwrites it. At touchdown time the
+	// shared field holds this approach's 50-100ft band position, or is unset
+	// (latitude 360) if the descent skipped the band between samples:
+	// flight_on_sample() clears it once the aircraft climbs above 100ft, so it
+	// can't still hold an earlier approach's position.
 	COORDINATE loc_dh;
 	struct TOUCHDOWN_DATA* next = NULL;
 };

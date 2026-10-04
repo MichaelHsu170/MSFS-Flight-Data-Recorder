@@ -470,9 +470,10 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 					// stays well under 100ft, so neither of the two automatic resets above
 					// (a fresh 50-100ft crossing, or climbing back above 100ft -- see the
 					// loc_dh handling at the top of this function) reliably fires during that window.
-					// Without clearing it here, a fast climbout on this new trip that skips
-					// back through the 50-100ft band between samples would attribute this
-					// trip's departure runway bearing to the previous trip's stale position.
+					// Without clearing it here, if this trip's first flight stays below the
+					// 50-100ft band (a low hop), its first touchdown's runway bearing would come from
+					// the previous trip's stale position. (Departure and liftoff lookups
+					// never use loc_dh.)
 					status->flight.loc_dh.clear();
 					status->flight.next_facility_lookup_seq = 0;
 					status->flight.airborne = !(bool)tmp.sim_on_ground;

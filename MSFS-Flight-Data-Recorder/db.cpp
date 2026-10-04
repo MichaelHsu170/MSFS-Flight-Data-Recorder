@@ -420,8 +420,8 @@ void db_set_contact_airport(STATUS* status, CONTACT_TABLE table, int row_id, con
 			db_bind(stmt, stmt_txt, 4, rwy.heading);
 			// A runway is matched, so this is a real, resolved distance. A
 			// touchdown before the marked/displaced threshold legitimately
-			// reports negative and is kept; -1 would collide with its "no runway
-			// matched" meaning. Liftoff distances are stored clamped to -1.
+			// reports negative and is stored as is; a negative liftoff distance
+			// is stored as -1.
 			db_bind(stmt, stmt_txt, 5, !touchdown && rwy.distances[0] < 0 ? -1.0 : rwy.distances[0]);
 			db_bind(stmt, stmt_txt, 6, rwy.distances[1]);
 			db_bind(stmt, stmt_txt, 7, rwy.distances_percent[0]);
