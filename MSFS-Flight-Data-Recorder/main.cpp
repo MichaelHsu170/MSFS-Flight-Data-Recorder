@@ -8,7 +8,7 @@
 #include "logger.h"
 #include "recorder_bridge.h"
 #include "main_window.h"
-#include "types.h"
+#include "version.h"
 
 #include <Windows.h>
 #include <exception>

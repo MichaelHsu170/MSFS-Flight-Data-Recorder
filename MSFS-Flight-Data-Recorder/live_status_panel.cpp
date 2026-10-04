@@ -2,6 +2,7 @@
 #include "recorder_bridge.h"
 #include "types.h"
 #include "logger.h"
+#include "version.h"
 
 #include <QDateTime>
 #include <QFrame>

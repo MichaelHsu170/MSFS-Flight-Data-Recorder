@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.17)
 # Single source of truth for the app version -- generated into version.h
-# below, consumed by types.h (C++, e.g. the Live Status "ver." label and the
-# debug log header) and app.rc (Windows exe file-version metadata).
+# below, consumed by the C++ sources (the Live Status "ver." label, the debug
+# log header and the map's HTTP user agent) and app.rc (Windows exe
+# file-version metadata).
 project(MSFS-Flight-Data-Recorder VERSION 2.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -30,8 +31,8 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Graphs Concurrent
 # Source
 set(SRC_DIR "${PROJECT_SOURCE_DIR}/MSFS-Flight-Data-Recorder")
 
-# Generate version.h from the project() VERSION above so types.h and app.rc
-# both pick up the same number without duplicating it.
+# Generate version.h from the project() VERSION above so the C++ sources and
+# app.rc all pick up the same number without duplicating it.
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 configure_file("${SRC_DIR}/version.h.in" "${GENERATED_DIR}/version.h" @ONLY)
 

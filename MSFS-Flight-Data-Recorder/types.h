@@ -16,7 +16,6 @@
 #include "sqlite3.h"
 
 #include "event_filter.h"
-#include "version.h"
 #define DATABASE_NAME "flight_data"
 #define V_PI 3.14159265358979323846
 #define M_2_FT 3.2808399
