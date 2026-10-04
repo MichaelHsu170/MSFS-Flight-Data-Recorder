@@ -247,7 +247,7 @@ void ChartsPanel::setCursorIndex(int index) {
 		pendingCursorIndex_ = index;
 		return;
 	}
-	double cursorTime =(index >= 0 && index < (int)pointTimesMs_.size()) ? pointTimesMs_[index] : -1.0;
+	double cursorTime = (index >= 0 && index < (int)pointTimesMs_.size()) ? pointTimesMs_[index] : -1.0;
 	root->setProperty("cursorTime", cursorTime);
 }
 

@@ -194,8 +194,8 @@ Item {
                 var fraction = (plotX - pa.x) / pa.width
                 var data = chartsBridge.valueAt(minMs + fraction * (maxMs - minMs))
                 root.tooltipModel  = (data && data.timeStr !== undefined) ? data : null
-                // Set tooltipSeries here too in case onPositionChanged fires before
-                // onEntered when transitioning quickly between adjacent charts.
+                // The hovered chart's own series, so moving onto another chart
+                // switches the tooltip to that chart's lines.
                 root.tooltipSeries = root.tooltipModel ? block.shownSeries : null
                 if (root.tooltipModel) {
                     var p = mapToItem(root, mouse.x, mouse.y)
