@@ -566,6 +566,10 @@ function renderStoredReport(id, report) {
 // A liftoff or touchdown marker's popup: the details on the left, AI
 // analysis on the right. gForceText (touchdowns only) goes after V/S;
 // analyzeFn is the global function the Analyze button calls with id.
+// The details are the same rows, in the same order and format, as the KML
+// export's placemark description (runwayContactDescription() in
+// kml_export.cpp) plus a Coordinate row; keep the two in step
+// (tst_map_widget's touchdownPopupMatchesTheKmlDescription checks it).
 function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabel) {
     function row(key, val) {
         return '<div class="td-row"><span class="td-key">' + key + '</span><span class="td-val">' + escapeHtml(val) + '</span></div>';
@@ -577,7 +581,7 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
         + '<div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:8px">' + title + '</div>';
 
     if (t.icao) {
-        var airportLabel = t.icao + (t.airportName ? ' – ' + t.airportName : '');
+        var airportLabel = t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
         leftHtml += row('Airport', airportLabel);
     }
     if (t.runway) leftHtml += row('Runway', t.runway + (t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));

@@ -19,15 +19,19 @@
 // reaches "page ready" (confirmed experimentally -- its load just hangs).
 // A single instance loads and runs fine, so every slot after the one that
 // establishes readiness shares that one instance instead of making its own.
+#include "kml_export.h"
 #include "map_bridge.h"
 #include "map_widget.h"
 #include "test_support.h"
 
 #include <QApplication>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 #include <QtTest>
 
 using namespace TestSupport;
@@ -324,6 +328,72 @@ private slots:
 			"  d.innerHTML = eventPopupHtml([{event: 'A & <i>B</i>', zuluTime: '<i>z</i>'}]);"
 			"  return d.textContent + '|' + d.querySelectorAll('i').length; })()")).toString();
 		QCOMPARE(event, QStringLiteral("Event• A & <i>B</i><i>z</i>|0"));
+	}
+
+	// The map's touchdown popup and the KML export's placemark description
+	// are built separately (map.html, kml_export.cpp) but list the same
+	// fields with the same values; only the popup adds the coordinate, which
+	// in the KML is the placemark's own position.
+	void touchdownPopupMatchesTheKmlDescription() {
+		TouchdownPoint td;
+		td.latitude = 51.47;
+		td.longitude = -0.45;
+		td.icao = QStringLiteral("EGLL");
+		td.airportName = QStringLiteral("Heathrow");
+		td.runway = QStringLiteral("27L");
+		td.runwayHeading = 270;
+		td.airspeed = 135;
+		td.verticalSpeed = -180;
+		td.gForce = 1.234;
+		td.pitchDegrees = 3.24;
+		td.bankDegrees = -1.46;
+		td.headingDegrees = 271;
+		td.distanceLength = 1234.4;
+		td.distanceLengthPercent = 0.316;
+		td.distanceWidth = -5.6;
+		td.distanceWidthPercent = -0.12;
+		td.windDirection = 250;
+		td.windVelocity = 12;
+		td.zuluTime = QStringLiteral("2024-03-15T10:30:00.000+00:00_5");
+		td.localTime = QStringLiteral("2024-03-15T10:30:00.000+00:00_5");
+		TripDataset dataset;
+		dataset.points = { samplePoint(51.47, -0.45) };
+		dataset.touchdowns = { td };
+		widget_->setDataset(dataset);
+
+		const QString popupRowsJs = QStringLiteral(
+			"(function () { var rows = [];"
+			"  leafletMapInstance.eachLayer(function (l) {"
+			"    if (!(l instanceof L.Marker) || l.options.icon.options.className !== 'touchdown-icon') return;"
+			"    var d = document.createElement('div'); d.innerHTML = l.getPopup().getContent();"
+			"    d.querySelectorAll('.td-row').forEach(function (r) {"
+			"      rows.push(r.querySelector('.td-key').textContent + ': ' + r.querySelector('.td-val').textContent); }); });"
+			"  return rows; })()");
+		QStringList popup;
+		QVERIFY(QTest::qWaitFor([&] {
+			popup = evalPageJs(widget_, popupRowsJs).toStringList();
+			return !popup.isEmpty() && popup.first().startsWith(QStringLiteral("Airport: EGLL"));
+		}, 10000));
+		QCOMPARE(popup.first(), QStringLiteral("Airport: EGLL (Heathrow)"));
+		QVERIFY2(popup.value(2).startsWith(QStringLiteral("Coordinate: ")), qPrintable(popup.value(2)));
+		popup.removeAt(2);
+
+		QTemporaryDir dir;
+		const QString path = dir.filePath(QStringLiteral("trip.kml"));
+		QVERIFY(exportTripDatasetToKmlFile(dataset, path));
+		QFile file(path);
+		QVERIFY(file.open(QIODevice::ReadOnly));
+		const QString kml = QString::fromUtf8(file.readAll());
+		const qsizetype folder = kml.indexOf(QStringLiteral("<name>Touchdowns</name>"));
+		QVERIFY(folder >= 0);
+		const qsizetype start = kml.indexOf(QStringLiteral("<![CDATA["), folder) + 9;
+		const QString description = kml.mid(start, kml.indexOf(QStringLiteral("]]>"), start) - start);
+		QStringList placemark;
+		static const QRegularExpression row(QStringLiteral("<b>(.*?):</b> (.*?)<br/>"));
+		for (const QRegularExpressionMatch& m : row.globalMatch(description))
+			placemark.append(m.captured(1) + QStringLiteral(": ") + m.captured(2));
+
+		QCOMPARE(popup, placemark);
 	}
 
 	// A finished answer from a model that doesn't think is complete: saved

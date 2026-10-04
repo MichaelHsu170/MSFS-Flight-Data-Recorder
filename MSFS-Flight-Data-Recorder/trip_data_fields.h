@@ -285,3 +285,19 @@ std::array<uint32_t, 4> tripBoolGroups(const Record& record) {
 #undef TRIP_BOOL_PACK
 	return groups;
 }
+
+// Where a TRIP_DATA_BOOL_FIELDS member is stored; isSet() reads it from
+// bool_group_<n> values indexed as tripBoolGroups() returns them.
+struct TripBoolBit {
+	int group;
+	int bit;
+	bool isSet(const std::array<uint32_t, 4>& groups) const { return ((groups[group] >> bit) & 1u) != 0; }
+};
+
+// Each TRIP_DATA_BOOL_FIELDS member's TripBoolBit, by name (e.g.
+// TripBoolBits::gear_is_on_ground_0), for code that reads one field.
+namespace TripBoolBits {
+#define TRIP_BOOL_BIT(name, group, bit) constexpr TripBoolBit name{ group, bit };
+	TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_BIT)
+#undef TRIP_BOOL_BIT
+}

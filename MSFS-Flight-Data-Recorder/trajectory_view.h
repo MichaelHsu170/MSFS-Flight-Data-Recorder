@@ -12,11 +12,6 @@ class MapWidget;
 class DataTablePanel;
 class QSplitter;
 
-// Maximum width of the right-side panels (data table and live status), shared
-// so the two columns align. Their actual width is persisted in the config file
-// (AppSettings::rightPanelWidth()) and changes when the user resizes them.
-inline constexpr int kRightPanelWidth = 260;
-
 // Composite "view a trip's trajectory" feature: privately owns MapWidget,
 // DataTablePanel, and ChartsPanel (map + data table side by side, charts
 // spanning full width below), wiring the cursor-index sync between them

@@ -4,6 +4,10 @@
 #include <QString>
 #include <QStringList>
 
+// Default width of the right-side panels (live status and data table) --
+// rightPanelWidth() when unset -- and also the widest they can be dragged.
+inline constexpr int kRightPanelWidth = 260;
+
 // Thin QSettings wrapper -- an INI file in the app's folder (app_file_path(),
 // alongside flight_data.db), not the registry, so settings travel with a
 // portable install.

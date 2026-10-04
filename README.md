@@ -176,7 +176,7 @@ Both Debug and Release link dynamically against `SimConnect.dll`. The DLL is cop
 
 Clicking a liftoff or touchdown marker on the map opens a popup with two panels:
 
-- **Left** — raw telemetry for that liftoff or landing: airport, runway (with its real facility heading in parentheses, when known), airspeed, vertical speed, G-force (landings only), pitch/bank, heading, wind, threshold distance, and centreline offset.
+- **Left** — raw telemetry for that liftoff or landing: airport (ICAO code, with its name in parentheses), runway (with its real facility heading in parentheses, when known), coordinate, airspeed, vertical speed, G-force (landings only), pitch/bank, heading, threshold distance and centreline offset (when a runway was matched), wind, and Zulu/local time. The KML export's placemark descriptions list the same fields, without the coordinate.
 - **Right** — an **Analyze Liftoff** / **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API). The prompt includes the runway's real heading (not just its two-digit number, which can be off by up to ~10°) so the model can calculate an accurate crosswind component.
 
 The analysis is returned in a fixed structure:

@@ -34,6 +34,28 @@ QStringList commaList(const char* key) {
 	return s.isEmpty() ? QStringList{} : s.split(',', Qt::SkipEmptyParts);
 }
 
+// comment (plain text, lines separated by '\n') as "; "-prefixed INI lines.
+QStringList commentLines(const QString& comment) {
+	QStringList out;
+	if (!comment.isEmpty())
+		for (const QString& line : comment.split('\n'))
+			out.append("; " + line);
+	return out;
+}
+
+// Key comments written both into the default settings.ini and when the setter
+// adds the key to an existing file that lacks it.
+QString hiddenFieldsComment() {
+	return QStringLiteral("Comma-separated list of field labels hidden in the Data Table panel via the\n"
+	                      "Visible Fields dialog. Absent or empty means all fields are visible.");
+}
+
+QString rightPanelWidthComment() {
+	return QStringLiteral("Width in pixels of the Live Status panel (top-right) and Data Table panel\n"
+	                      "(bottom-right). Both columns share one value so they stay aligned when\n"
+	                      "either splitter is dragged. Default: %1.").arg(kRightPanelWidth);
+}
+
 // Writes a single key=value in the named INI section, touching only that one
 // line. Every other line — comments, blank lines, other keys, other sections —
 // is preserved exactly.
@@ -116,14 +138,6 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 		else
 			break;
 	}
-
-	auto commentLines = [](const QString& comment) {
-		QStringList out;
-		if (!comment.isEmpty())
-			for (const QString& line : comment.split('\n'))
-				out.append("; " + line);
-		return out;
-	};
 
 	const QString entry = key + '=' + value;
 
@@ -220,18 +234,15 @@ void ensureSettingsFileExists() {
 		"verbose=INFO\n"
 		"\n"
 		"[layout]\n"
-		"; Width in pixels of the Live Status panel (top-right) and Data Table panel\n"
-		"; (bottom-right). Both columns share one value so they stay aligned when\n"
-		"; either splitter is dragged. Default: 260.\n"
-		"right_panel_width=260\n"
+		<< commentLines(rightPanelWidthComment()).join('\n') << "\n"
+		"right_panel_width=" << kRightPanelWidth << "\n"
 		"\n"
 		"; Height in pixels of the Charts panel (below the map). The map takes the\n"
 		"; remaining vertical space. Default: 400.\n"
 		"charts_panel_height=400\n"
 		"\n"
 		"[data_table]\n"
-		"; Comma-separated list of field labels hidden in the Data Table panel via the\n"
-		"; Visible Fields dialog. Absent or empty means all fields are visible.\n"
+		<< commentLines(hiddenFieldsComment()).join('\n') << "\n"
 		"hidden_fields=\n"
 		"\n"
 		"; Auto-managed by the app. Persisted column widths for the tables in the\n"
@@ -274,8 +285,7 @@ void AppSettings::setDataTableHiddenFields(const QStringList& fields) {
 		QStringLiteral("hidden_fields"),
 		fields.join(','),
 		QStringLiteral("Auto-managed by the app."),
-		QStringLiteral("Comma-separated list of field labels hidden in the Data Table panel via the\n"
-		               "Visible Fields dialog. Absent or empty means all fields are visible.")
+		hiddenFieldsComment()
 	);
 }
 
@@ -296,7 +306,7 @@ void AppSettings::setDataTableFieldColumnWidth(int w) {
 }
 
 int AppSettings::rightPanelWidth() const {
-	return positiveInt("layout/right_panel_width", 260);
+	return positiveInt("layout/right_panel_width", kRightPanelWidth);
 }
 
 void AppSettings::setRightPanelWidth(int w) {
@@ -305,9 +315,7 @@ void AppSettings::setRightPanelWidth(int w) {
 		QStringLiteral("right_panel_width"),
 		QString::number(w),
 		QStringLiteral("Auto-managed by the app."),
-		QStringLiteral("Width in pixels of the Live Status panel (top-right) and Data Table panel\n"
-		               "(bottom-right). Both columns share one value so they stay aligned when\n"
-		               "either splitter is dragged. Default: 260.")
+		rightPanelWidthComment()
 	);
 }
 

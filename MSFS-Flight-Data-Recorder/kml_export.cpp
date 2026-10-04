@@ -54,7 +54,10 @@ QString airportLabel(const QString& icao, const QString& airportName) {
 }
 
 // A liftoff or touchdown placemark's description. gForceRow (touchdowns only)
-// goes right after V/S.
+// goes right after V/S. The same rows, in the same order and format, as the
+// map's marker popup (runwayContactPopupHtml() in resources/map.html), which
+// adds a Coordinate row; keep the two in step (tst_map_widget's
+// touchdownPopupMatchesTheKmlDescription checks it).
 QString runwayContactDescription(const RunwayContactPoint& t, const QString& gForceRow = QString()) {
 	QString html;
 	const QString airport = airportLabel(t.icao, t.airportName);
