@@ -1,6 +1,5 @@
 // Charts panel widget (charts_panel.cpp): the QQuickWidget wrapper around
-// the QML chart surface -- setDataset()/appendLivePoint()/setVisibleRange()/
-// valueAt() driving the real QML series objects, not the pure chart-data math
+// the QML chart surface -- setDataset()/setVisibleRange()/valueAt() driving the real QML series objects, not the pure chart-data math
 // (already covered standalone in tst_chart_data.cpp).
 #include "charts_panel.h"
 
@@ -168,33 +167,24 @@ private slots:
 		QVERIFY(!root->findChild<QQuickItem*>(QStringLiteral("endOfTrajectoryLine"))->isVisible());
 	}
 
-	// A trip selected before its first point (a live trip just started) is
-	// blank like no trip, but says it's waiting for data, until a point comes.
-	void aTripWithNoPointYetSaysNoDataYet() {
+	// A trip that recorded no point is blank like no trip, but says it has no
+	// data.
+	void aTripWithNoPointSaysNoDataRecorded() {
 		ChartsPanel panel;
 		panel.resize(400, 300);
 		panel.show();
 		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
 		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
 
-		TripDataset live;
-		live.tripId = 7;
-		panel.setDataset(live);
+		TripDataset empty;
+		empty.tripId = 7;
+		panel.setDataset(empty);
 		QCOMPARE(chartMessages(root), QStringList(9, QStringLiteral("No data recorded")));
 		QCOMPARE(shownAxes(root), 0);
 		QCOMPARE(shownLegends(root), 0);
 
-		QVERIFY(panel.appendLivePoint(samplePoint(1, QStringLiteral("2026-03-04T09:00:00.000+00:00_3"))));
-		QCOMPARE(chartMessages(root), QStringList(9, QString()));
-		QCOMPARE(shownAxes(root), 19);
-
 		panel.setDataset(TripDataset());
 		QCOMPARE(chartMessages(root), QStringList(9, QStringLiteral("No trip selected")));
-	}
-
-	void appendLivePointDropsMalformedTime() {
-		ChartsPanel panel;
-		QVERIFY(!panel.appendLivePoint(samplePoint(1, QStringLiteral("not a time"))));
 	}
 
 	void valueAtIsEmptyWithNoDataset() {
@@ -304,36 +294,6 @@ private slots:
 		QCOMPARE(root->property("cursorTime").toDouble(), -1.0);
 	}
 
-	void appendLivePointGrowsTheAxisAndEveryCachedSeries() {
-		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
-
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
-		QDateTimeAxis* timeAxis = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
-		QVERIFY(timeAxis);
-		// Where each point lands on the time axis: its zulu time read as local time.
-		const auto localMs = [](int second) { return QDateTime(QDate(2026, 3, 5), QTime(16, 0, second)).toMSecsSinceEpoch(); };
-
-		const QString t0 = QStringLiteral("2026-03-05T16:00:00.000+00:00_4");
-		const QString t1 = QStringLiteral("2026-03-05T16:00:01.000+00:00_4");
-		const QString t2 = QStringLiteral("2026-03-05T16:00:02.000+00:00_4");
-		QVERIFY(panel.appendLivePoint(samplePoint(5, t0))); // first point: a second's range ending at it
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMs(0) - 1000);
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMs(0));
-		QVERIFY(panel.appendLivePoint(samplePoint(7, t1))); // later points: from the first to the newest
-		QVERIFY(panel.appendLivePoint(samplePoint(6, t2)));
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMs(0));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMs(2));
-		QCOMPARE(pointsInLines(root), 3 * 25);
-
-		// No dataset was ever loaded, so this exercises valueAt()'s live-mode
-		// fallback (reading straight from the QML series, not full_).
-		QCOMPARE(panel.valueAt(localMs(1))[QStringLiteral("engSpeed1")].toDouble(), 7.0);
-		QCOMPARE(panel.valueAt(localMs(2))[QStringLiteral("alt")].toDouble(), 6.0);
-	}
-
 	void theEnginePowerChartIsLabeledByTheDatasetsEngine() {
 		ChartsPanel panel;
 		panel.resize(400, 300);
@@ -415,50 +375,6 @@ private slots:
 		QVERIFY(!loadAxis->isVisible());
 	}
 
-	void aLivePointLabelsTheChartOnceItsPowerShowsUp() {
-		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
-		QValueAxis* speedAxis = root->findChild<QValueAxis*>(QStringLiteral("engSpeedYAxis"));
-		QVERIFY(speedAxis);
-
-		// A jet reporting no engines yet: no power, so no jet scale either --
-		// niceAxisMax(0) like any empty axis.
-		TripSamplePoint first = samplePoint(1, QStringLiteral("2026-03-05T23:00:00.000+00:00_4"));
-		first.engine = { 1, 0 };
-		QVERIFY(panel.appendLivePoint(first));
-		QCOMPARE(root->property("engineSpec").toMap().value("count").toInt(), 0);
-		QCOMPARE(speedAxis->max(), 1.0);
-
-		TripSamplePoint second = samplePoint(1, QStringLiteral("2026-03-05T23:00:01.000+00:00_4"));
-		second.engine = { 5, 2, { 1800, 1800 }, { 40, 40 } };
-		QVERIFY(panel.appendLivePoint(second));
-		QVariantMap spec = root->property("engineSpec").toMap();
-		QCOMPARE(spec.value("count").toInt(), 2);
-		QCOMPARE(spec.value("speedLabel").toString(), QStringLiteral("Prop RPM"));
-		QCOMPARE(speedAxis->max(), 2500.0);
-
-		// Once labeled, a later point doesn't relabel it.
-		TripSamplePoint third = samplePoint(1, QStringLiteral("2026-03-05T23:00:02.000+00:00_4"));
-		third.engine = { 0, 0 };
-		QVERIFY(panel.appendLivePoint(third));
-		QCOMPARE(root->property("engineSpec").toMap().value("count").toInt(), 2);
-
-		// A new trip starts unlabeled; a jet whose power shows up at idle zero
-		// still gets its N1 label and fixed axis.
-		panel.setDataset(TripDataset());
-		TripSamplePoint unknown = samplePoint(1, QStringLiteral("2026-03-05T23:10:00.000+00:00_4"));
-		unknown.engine = { 0, 0 };
-		QVERIFY(panel.appendLivePoint(unknown));
-		TripSamplePoint jet = samplePoint(1, QStringLiteral("2026-03-05T23:10:01.000+00:00_4"));
-		jet.engine = { 1, 2, { 0, 0 }, { 0, 0 } };
-		QVERIFY(panel.appendLivePoint(jet));
-		QCOMPARE(root->property("engineSpec").toMap().value("speedLabel").toString(), QStringLiteral("N1"));
-		QCOMPARE(speedAxis->max(), 110.0);
-	}
-
 	// The engine power chart's right-hand axis narrows its plot; the other
 	// charts match it so one time lines up across all of them.
 	void everyChartsPlotEndsAtTheSameX() {
@@ -504,6 +420,39 @@ private slots:
 
 		QVariantMap v = panel.valueAt(chartTimeMs(t1));
 		QCOMPARE(v[QStringLiteral("engSpeed1")].toDouble(), 9.0);
+	}
+
+	// The hover readout while a second trip loads: the first trip's lines are
+	// still shown, zoomed to a slice, and it reads their sample under the
+	// pointer -- not one of the second trip's.
+	void valueAtWhileATripLoadsReadsTheShownTrip() {
+		ChartsPanel panel;
+		panel.resize(400, 300);
+		panel.show();
+		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
+
+		const auto at = [](int hour, int second) {
+			return QStringLiteral("2026-03-05T%1:00:%2.000+00:00_4").arg(hour).arg(second, 2, 10, QLatin1Char('0'));
+		};
+		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
+		TripDataset first;
+		for (int i = 0; i < 10; ++i)
+			first.points.push_back(samplePoint(i, at(16, i)));
+		panel.setDataset(first);
+		QVERIFY(spy.wait(5000));
+		panel.setVisibleRange(2, 5);
+
+		TripDataset second;
+		for (int i = 0; i < 10; ++i)
+			second.points.push_back(samplePoint(100 + i, at(17, i)));
+		panel.setDataset(second);
+		QCOMPARE(spy.count(), 1);  // still loading
+		QCOMPARE(panel.valueAt(chartTimeMs(at(16, 4)))[QStringLiteral("alt")].toDouble(), 4.0);
+		// Past the zoomed slice's 4 shown samples.
+		QCOMPARE(panel.valueAt(chartTimeMs(at(16, 8)))[QStringLiteral("alt")].toDouble(), 8.0);
+
+		QVERIFY(spy.wait(5000));
+		QCOMPARE(panel.valueAt(chartTimeMs(at(17, 8)))[QStringLiteral("alt")].toDouble(), 108.0);
 	}
 
 	void setVisibleRangeWithNoTripLeavesTheTimeAxisAlone() {

@@ -27,10 +27,6 @@ class TrajectoryView : public QWidget {
 public:
 	explicit TrajectoryView(QWidget* parent = nullptr);
 
-	// tripId of the dataset currently shown, or -1 if none. MainWindow uses
-	// this to decide whether a RecorderBridge::liveDataPoint belongs here.
-	int currentTripId() const { return currentTripId_; }
-
 signals:
 	// Emitted when BOTH the chart series and the map trajectory have been
 	// rendered — i.e. both async workers finished. TripHistoryPanel listens to
@@ -55,12 +51,6 @@ public slots:
 	// to the full time range, as they were immediately after the trip was loaded.
 	void resetZoom();
 
-	// Live mode: append one point to the map/charts. While unpinned (see
-	// setLiveFollow), points are buffered instead of pushed to the UI, so
-	// "Jump to Live" can catch up in one go without losing samples.
-	void appendLivePoint(const TripSamplePoint& point);
-	void setLiveFollow(bool follow);
-
 	// Called by MainWindow when the live-status splitter is dragged, so both
 	// right-side panels stay in sync.
 	void setRightPanelWidth(int w);
@@ -76,9 +66,6 @@ private:
 	// Owns the trip dataset so sub-panels can hold non-owning pointers into it
 	// rather than each making their own copy.
 	std::shared_ptr<TripDataset> dataset_;
-	int currentTripId_ = -1;
-	bool liveFollow_ = true;
-	std::vector<TripSamplePoint> pendingLivePoints_;
 	// Counts how many async sub-renders (charts worker + map trajectory) are
 	// still outstanding. renderingFinished() is emitted when this hits zero.
 	int pendingRenders_ = 0;

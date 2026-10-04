@@ -12,7 +12,6 @@ class QWebEngineView;
 class QWebChannel;
 class MapBridge;
 class QToolButton;
-class QTimer;
 
 // Trajectory map: QWebEngineView loading bundled resources/map.html, which
 // draws the trip's polyline + a draggable cursor marker via Leaflet/OSM.
@@ -24,8 +23,6 @@ public:
 	explicit MapWidget(QWidget* parent = nullptr);
 
 	void setDataset(const TripDataset& dataset);
-	// Live mode: append one point without re-sending the whole trajectory.
-	void appendLivePoint(const TripSamplePoint& point);
 	// Clears the trajectory and draws departure→destination line segments for
 	// every trip (the default overview shown when no trip is selected).
 	void showOverview(const std::vector<TripSummary>& trips);
@@ -64,7 +61,6 @@ signals:
 
 private slots:
 	void onLoadFinished(bool ok);
-	void flushLivePoints();
 
 private:
 	void pushTrajectory();
@@ -92,7 +88,6 @@ private:
 	QWebChannel* channel_;
 	MapBridge* bridge_;
 	QToolButton* eventsToggle_;
-	QTimer* liveUpdateTimer_ = nullptr;
 	// Lat/lng pairs only -- MapWidget never needs the full TripSamplePoint
 	// (rawNums, boolGroups, etc.), so we copy only coordinates into trajCoords_
 	// rather than storing the whole TripDataset.
@@ -107,8 +102,6 @@ private:
 	// per-point altitude/timestamp that trajCoords_ above doesn't keep.
 	// Set in setDataset(), cleared in showOverview().
 	const TripDataset* dataset_ = nullptr;
-	// Buffered lat/lng pairs waiting for the next liveUpdateTimer_ flush.
-	std::vector<std::pair<double, double>> pendingLiveCoords_;
 	// Stored by showOverview so refreshProvider can re-send them when the
 	// WebEngine page finishes loading (the page may not be ready yet on the
 	// first showOverview call at startup).

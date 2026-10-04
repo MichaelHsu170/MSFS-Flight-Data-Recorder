@@ -170,19 +170,6 @@ private slots:
 		QCOMPARE(value(t, "Time (Zulu)"), QStringLiteral("p2"));
 	}
 
-	void livePointsShowUnlessACursorIsPinned() {
-		DataTablePanel panel;
-		TripDataset d;
-		d.points = { makePoint(1, "p0") };
-		panel.setDataset(&d);
-		QTableWidget* t = table(panel);
-		panel.appendLivePoint(makePoint(9, "live1"));
-		QCOMPARE(value(t, "Time (Zulu)"), QStringLiteral("live1"));
-		panel.setCursorIndex(0);
-		panel.appendLivePoint(makePoint(9, "live2"));
-		QCOMPARE(value(t, "Time (Zulu)"), QStringLiteral("p0"));
-	}
-
 	void clearingTheDatasetEmptiesTheTable() {
 		DataTablePanel panel;
 		TripDataset d;

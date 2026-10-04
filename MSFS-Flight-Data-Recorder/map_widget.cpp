@@ -5,7 +5,6 @@
 #include "map_script.h"
 #include "version.h"
 
-#include <QTimer>
 #include <QWebEngineView>
 #include <QWebEnginePage>
 #include <QWebEngineProfile>
@@ -191,9 +190,8 @@ MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
 	layout->setContentsMargins(0, 0, 0, 0);
 	layout->addWidget(view_);
 
-	// Floats free over the map (not part of the layout above) so it doesn't
-	// take a separate row of vertical space the way a "Show Events" button
-	// above the map used to.
+	// Floats free over the map (not part of the layout above), so it takes no
+	// row of vertical space of its own.
 	eventsToggle_ = new QToolButton(this);
 	eventsToggle_->setText(QStringLiteral("⚑"));
 	eventsToggle_->setCheckable(true);
@@ -208,10 +206,6 @@ MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
 	connect(eventsToggle_, &QToolButton::toggled, this, &MapWidget::setEventsVisible);
 
 	view_->load(QUrl(QStringLiteral("qrc:/map/map.html")));
-
-	liveUpdateTimer_ = new QTimer(this);
-	liveUpdateTimer_->setInterval(250);
-	connect(liveUpdateTimer_, &QTimer::timeout, this, &MapWidget::flushLivePoints);
 }
 
 void MapWidget::resizeEvent(QResizeEvent* event) {
@@ -225,8 +219,6 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 	// A newer load supersedes any earlier one this flag might still refer to.
 	suppressNextTrajectoryLoaded_ = false;
 	inOverviewMode_ = false;
-	liveUpdateTimer_->stop();
-	pendingLiveCoords_.clear();
 	lastCursorIndex_ = -1;
 	// TrajectoryView::dataset_ (shared_ptr) outlives this pointer exactly like
 	// DataTablePanel's own raw dataset_ pointer -- see trajectory_view.cpp's
@@ -268,8 +260,6 @@ void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
 	++datasetVersion_;
 	inOverviewMode_ = true;
 	overviewTrips_ = trips;
-	liveUpdateTimer_->stop();
-	pendingLiveCoords_.clear();
 	lastCursorIndex_ = -1;
 	dataset_ = nullptr;
 	trajCoords_.clear();
@@ -321,24 +311,6 @@ void MapWidget::exportKml() {
 		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to export KML to %1.\n%2").arg(fileName, error));
 }
 
-void MapWidget::appendLivePoint(const TripSamplePoint& point) {
-	trajCoords_.emplace_back(point.latitude, point.longitude);
-	pendingLiveCoords_.emplace_back(point.latitude, point.longitude);
-	if (!pageReady_)
-		return;
-	if (!liveUpdateTimer_->isActive())
-		liveUpdateTimer_->start();
-}
-
-void MapWidget::flushLivePoints() {
-	if (pendingLiveCoords_.empty()) {
-		liveUpdateTimer_->stop();
-		return;
-	}
-	runJs(mapAppendPointsJs(pendingLiveCoords_));
-	pendingLiveCoords_.clear();
-}
-
 void MapWidget::onLoadFinished(bool ok) {
 	if (!ok) {
 		Logger::log(Logger::Warning, "Map", QStringLiteral("map.html failed to load"));
@@ -358,8 +330,6 @@ void MapWidget::onLoadFinished(bool ok) {
 void MapWidget::refreshProvider() {
 	if (!pageReady_)
 		return;
-	liveUpdateTimer_->stop();
-	pendingLiveCoords_.clear();
 	runJs(QStringLiteral("initProvider();"));
 	// initProvider() rebuilds the JS-side map state, which would otherwise
 	// silently reset event-marker visibility to its default -- re-apply

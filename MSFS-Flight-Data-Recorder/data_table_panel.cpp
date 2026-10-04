@@ -74,11 +74,10 @@ DataTablePanel::DataTablePanel(QWidget* parent) : QWidget(parent) {
 	rowLabels_ = buildFieldRowLabels();
 
 	table_ = new QTableWidget(rowLabels_.size(), 2, this);
-	// The filter lives in the header cell itself (a dropdown-style glyph,
-	// clicking anywhere on the "Field" header opens the same checkbox dialog
-	// the old standalone "Fields…" button did) rather than as a separate
-	// button row above the table, mirroring how Excel puts column filters in
-	// the header instead of a toolbar.
+	// The filter lives in the header cell itself (a dropdown-style glyph;
+	// clicking anywhere on the "Field" header opens the checkbox dialog),
+	// mirroring how Excel puts column filters in the header instead of a
+	// toolbar.
 	table_->setHorizontalHeaderLabels({ QStringLiteral("Field ▾"), QStringLiteral("Value") });
 	table_->horizontalHeader()->setCursor(Qt::PointingHandCursor);
 	table_->horizontalHeader()->setToolTip(QStringLiteral("Click to choose visible fields"));
@@ -147,7 +146,6 @@ DataTablePanel::DataTablePanel(QWidget* parent) : QWidget(parent) {
 
 void DataTablePanel::setDataset(const TripDataset* dataset) {
 	dataset_ = dataset;
-	cursorIndex_ = -1;
 	if (dataset_ && !dataset_->points.empty()) {
 		Logger::logf(Logger::Trace, "DataTbl", "Dataset selected: %zu point(s); showing last sample", dataset_->points.size());
 		showPoint(dataset_->points.back());
@@ -158,7 +156,6 @@ void DataTablePanel::setDataset(const TripDataset* dataset) {
 }
 
 void DataTablePanel::setCursorIndex(int index) {
-	cursorIndex_ = index;
 	if (dataset_ && index >= 0 && index < (int)dataset_->points.size())
 		showPoint(dataset_->points[index]);
 	else if (dataset_ && !dataset_->points.empty())
@@ -166,13 +163,6 @@ void DataTablePanel::setCursorIndex(int index) {
 		// documented contract, fall back to the trip's most recent point
 		// instead of leaving whatever was last shown stuck on screen.
 		showPoint(dataset_->points.back());
-}
-
-void DataTablePanel::appendLivePoint(const TripSamplePoint& point) {
-	// The point has already been appended to the owning TripDataset by
-	// TrajectoryView. Just update the display if no cursor is pinned.
-	if (cursorIndex_ == -1)
-		showPoint(point);
 }
 
 void DataTablePanel::openFieldsDialog() {

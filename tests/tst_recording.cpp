@@ -346,36 +346,14 @@ private slots:
 		QCOMPARE(row["plane_touchdown_bank_degrees"].toDouble(), -2.0);
 	}
 
-	void liveSampleSignalsCarryTheSample() {
+	void eachSampleSignalsSampleUpdatedWithItsValuesInCurrentData() {
 		FlightDriver sim;
-		QSignalSpy points(&sim.bridge(), &RecorderBridge::liveDataPoint);
 		QSignalSpy updated(&sim.bridge(), &RecorderBridge::sampleUpdated);
 		sim.record.plane_altitude = 1234.7;
 		sim.record.airspeed_indicated = 140.9;
-		sim.record.ground_velocity = 150;
 		sim.record.vertical_speed = -700;
-		sim.record.engine_type = 1;
-		sim.record.number_of_engines = 2;
-		sim.record.turb_eng_n1[0] = 85.5;
-		sim.record.turb_eng_n2[1] = 92.25;
-		sim.record.gear_is_on_ground_1 = 1;
 		sim.startTrip();
-		QCOMPARE(points.count(), 1);
 		QCOMPARE(updated.count(), 1);
-		const TripSamplePoint p = points.at(0).at(0).value<TripSamplePoint>();
-		QCOMPARE(p.latitude, 43.0);
-		QCOMPARE(p.longitude, 1.0);
-		QCOMPARE(p.altitude, 1234);
-		QCOMPARE(p.airspeed, 140);
-		QCOMPARE(p.groundSpeed, 150);
-		QCOMPARE(p.verticalSpeed, -700);
-		QCOMPARE(p.engine.engineType, 1);
-		QCOMPARE(p.engine.count, 2);
-		QCOMPARE(p.engine.speed[0], 85.5f);
-		QCOMPARE(p.engine.load[1], 92.25f);
-		QCOMPARE(p.gearOnGround[0], false);
-		QCOMPARE(p.gearOnGround[1], true);
-		QCOMPARE(p.zuluTime, QStringLiteral("2026-01-02T10:00:00.500+00:00_5"));
 		const FLIGHT_DATA& data = sim.bridge().currentData();
 		QCOMPARE(data.altitude, 1234);
 		QCOMPARE(data.speed, 140);
@@ -558,7 +536,7 @@ private slots:
 			gui_notify_connection_changed(status, true);
 			gui_notify_recording_changed(status, true, 1);
 			gui_notify_trip_updated(status);
-			gui_notify_sample(status, &sim.record);
+			gui_notify_sample(status);
 			gui_notify_event_committed(status, 1, seq, "GEAR_UP");
 			gui_notify_events_retracted(status, &seq, 1);
 		}

@@ -43,11 +43,10 @@ QString lastLogWith(const QSignalSpy& log, const QStringList& parts);
 // Runs js on the page of the QWebEngineView inside owner (e.g. a MapWidget)
 // and waits up to 5 s for its result; an invalid QVariant if none came.
 QVariant evalPageJs(QWidget* owner, const QString& js);
-// The map page's Leaflet zoom level, and the point count and last [lat, lng]
-// of its trajectory line, read back from the page itself.
+// The map page's Leaflet zoom level and the point count of its trajectory
+// line, read back from the page itself.
 int mapZoom(QWidget* owner);
 int mapTrajectoryPointCount(QWidget* owner);
-QVariantList mapTrajectoryLastPoint(QWidget* owner);
 // How many elements with this CSS class (a marker's divIcon class) the map
 // page shows.
 int mapElementCount(QWidget* owner, const char* className);

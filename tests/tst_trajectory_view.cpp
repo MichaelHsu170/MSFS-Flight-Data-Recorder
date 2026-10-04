@@ -1,8 +1,7 @@
 // Trajectory view (trajectory_view.cpp): the composite map+charts+data-table
 // widget -- setDataset()/clearAndShowOverview()'s fan-out to the three
 // sub-panels, the pendingRenders_ bookkeeping that turns two async subview
-// loads into one renderingFinished(), live-point buffering while unpinned,
-// and the two splitter-width wires (map/table and map+table/charts).
+// loads into one renderingFinished(), and the two splitter-width wires (map/table and map+table/charts).
 //
 // Needs a custom main() and no QT_QPA_PLATFORM=offscreen, exactly like
 // tst_map_widget.cpp: this widget owns a MapWidget (QWebEngineView)
@@ -80,15 +79,6 @@ private slots:
 		delete view_;
 	}
 
-	void startsWithNoTripSelected() {
-		QCOMPARE(view_->currentTripId(), -1);
-	}
-
-	void setDatasetWithANullPointerIsIgnored() {
-		view_->setDataset(nullptr);
-		QCOMPARE(view_->currentTripId(), -1); // ignored, not "loaded a trip with id -1"
-	}
-
 	void setDatasetPushesToEveryPanelAndEmitsRenderingFinishedOnceBothSubviewsLoad() {
 		auto dataset = std::make_shared<TripDataset>();
 		dataset->tripId = 7;
@@ -99,10 +89,19 @@ private slots:
 
 		QSignalSpy spy(view_, &TrajectoryView::renderingFinished);
 		view_->setDataset(dataset);
-		QCOMPARE(view_->currentTripId(), 7);
 
 		QVERIFY(spy.wait(15000)); // both chartsPanel_ and mapWidget_ must finish before this fires
 		QCOMPARE(spy.count(), 1);
+		QCOMPARE(zuluShown(*view_), QStringLiteral("2026-04-01T10:00:01.000+00:00_7"));
+	}
+
+	// Runs right after the load above: the null dataset changes nothing and
+	// starts no render.
+	void setDatasetWithANullPointerKeepsTheShownTrip() {
+		QSignalSpy spy(view_, &TrajectoryView::renderingFinished);
+		view_->setDataset(nullptr);
+		QTest::qWait(300);
+		QCOMPARE(spy.count(), 0);
 		QCOMPARE(zuluShown(*view_), QStringLiteral("2026-04-01T10:00:01.000+00:00_7"));
 	}
 
@@ -114,7 +113,6 @@ private slots:
 		// spuriously fire renderingFinished() on every overview reset.
 		QSignalSpy spy(view_, &TrajectoryView::renderingFinished);
 		view_->clearAndShowOverview({});
-		QCOMPARE(view_->currentTripId(), -1);
 		QTest::qWait(300); // give mapWidget_'s background trajectory-clear a chance to fire trajectoryLoaded too
 		QCOMPARE(spy.count(), 0);
 		QCOMPARE(zuluShown(*view_), QString());
@@ -149,69 +147,6 @@ private slots:
 		QTRY_COMPARE_WITH_TIMEOUT(mapZoom(view_), fitted, 5000);
 	}
 
-	void appendLivePointInFollowModeAppendsToTheDatasetAndEveryPanel() {
-		auto dataset = std::make_shared<TripDataset>();
-		dataset->tripId = 9;
-		dataset->points = { samplePoint(1, 2, QStringLiteral("2026-04-01T11:00:00.000+00:00_9")) };
-		QSignalSpy spy(view_, &TrajectoryView::renderingFinished);
-		view_->setDataset(dataset);
-		QVERIFY(spy.wait(15000));
-
-		view_->appendLivePoint(samplePoint(5, 6, QStringLiteral("2026-04-01T11:00:01.000+00:00_9")));
-		QCOMPARE(dataset->points.size(), size_t(2)); // TrajectoryView shares this shared_ptr, not a copy
-		QCOMPARE(zuluShown(*view_), QStringLiteral("2026-04-01T11:00:01.000+00:00_9"));
-	}
-
-	void appendLivePointDroppedByChartsPanelIsSkippedEverywhere() {
-		auto dataset = std::make_shared<TripDataset>();
-		dataset->tripId = 10;
-		dataset->points = { samplePoint(1, 2, QStringLiteral("2026-04-01T12:00:00.000+00:00_10")) };
-		QSignalSpy spy(view_, &TrajectoryView::renderingFinished);
-		view_->setDataset(dataset);
-		QVERIFY(spy.wait(15000));
-
-		// A malformed zuluTime makes ChartsPanel::appendLivePoint() return
-		// false; TrajectoryView must then skip the dataset/map/table too, or
-		// their point counts would desync from the charts' by one.
-		view_->appendLivePoint(samplePoint(9, 9, QStringLiteral("not a time")));
-		QCOMPARE(dataset->points.size(), size_t(1));
-		QCOMPARE(zuluShown(*view_), QStringLiteral("2026-04-01T12:00:00.000+00:00_10"));
-	}
-
-	void appendLivePointWhileNotFollowingIsBufferedThenFlushedBySetLiveFollowTrue() {
-		auto dataset = std::make_shared<TripDataset>();
-		dataset->tripId = 11;
-		dataset->points = { samplePoint(1, 2, QStringLiteral("2026-04-01T13:00:00.000+00:00_11")) };
-		QSignalSpy spy(view_, &TrajectoryView::renderingFinished);
-		view_->setDataset(dataset);
-		QVERIFY(spy.wait(15000));
-
-		view_->setLiveFollow(false);
-		view_->appendLivePoint(samplePoint(5, 6, QStringLiteral("2026-04-01T13:00:01.000+00:00_11")));
-		QCOMPARE(dataset->points.size(), size_t(1)); // buffered, not yet applied
-		QCOMPARE(zuluShown(*view_), QStringLiteral("2026-04-01T13:00:00.000+00:00_11"));
-
-		view_->setLiveFollow(true); // flushes the buffered point into the dataset/panels
-		QCOMPARE(dataset->points.size(), size_t(2));
-		QCOMPARE(zuluShown(*view_), QStringLiteral("2026-04-01T13:00:01.000+00:00_11"));
-	}
-
-	void aBufferedPointDroppedByChartsPanelIsSkippedWhenFlushedBySetLiveFollowTrue() {
-		auto dataset = std::make_shared<TripDataset>();
-		dataset->tripId = 12;
-		dataset->points = { samplePoint(1, 2, QStringLiteral("2026-04-01T14:00:00.000+00:00_12")) };
-		QSignalSpy spy(view_, &TrajectoryView::renderingFinished);
-		view_->setDataset(dataset);
-		QVERIFY(spy.wait(15000));
-
-		view_->setLiveFollow(false);
-		// Malformed zuluTime: buffered now, and must still be dropped (not
-		// applied to the dataset/map/table) once the flush loop below reaches it.
-		view_->appendLivePoint(samplePoint(9, 9, QStringLiteral("not a time")));
-		view_->setLiveFollow(true);
-		QCOMPARE(dataset->points.size(), size_t(1));
-		QCOMPARE(zuluShown(*view_), QStringLiteral("2026-04-01T14:00:00.000+00:00_12"));
-	}
 
 	void setRightPanelWidthResizesTheMapTableSplitter() {
 		QSplitter* splitter = splitterWithOrientation(*view_, Qt::Horizontal);

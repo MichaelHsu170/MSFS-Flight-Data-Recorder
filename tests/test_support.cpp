@@ -88,10 +88,6 @@ int mapTrajectoryPointCount(QWidget* owner) {
 	return v.isValid() ? v.toInt() : -1;
 }
 
-QVariantList mapTrajectoryLastPoint(QWidget* owner) {
-	return evalOnTrajectory(owner, "if(a.length)r=[a[a.length-1].lat,a[a.length-1].lng];").toList();
-}
-
 int mapElementCount(QWidget* owner, const char* className) {
 	return evalPageJs(owner, QStringLiteral("document.querySelectorAll('.%1').length")
 		.arg(QLatin1String(className))).toInt();

@@ -157,7 +157,7 @@
 <div id="map"></div>
 <script>
 // OSM/Leaflet map. currentProvider exposes: setTrajectory(data),
-// appendPoints(pts), setCursorIndex(index),
+// setCursorIndex(index),
 // setLiftoffs(points), setTouchdowns(points), setEvents(points), setEventsVisible(visible).
 var currentProvider = null;
 var mapBridge = null;
@@ -927,7 +927,6 @@ function initLeafletProvider() {
     // trajectoryLatLngs: decimated [[lat,lng],...] sent to Leaflet for rendering.
     // origIndices: parallel array of original sample indices (idx from C++) so
     // JS can report correct indices back even after decimation.
-    // For live-appended points origIndices[i] === i (no decimation).
     var trajectoryLatLngs = [];
     var origIndices = [];
     var trajectoryVersion = 0;
@@ -1031,17 +1030,6 @@ function initLeafletProvider() {
                 });
             } else {
                 marker.setLatLng(trajectoryLatLngs[0]);
-            }
-        },
-        appendPoints: function (pts) {
-            pts.forEach(function (p) {
-                origIndices.push(origIndices.length);
-                trajectoryLatLngs.push([p.lat, p.lng]);
-                polyline.addLatLng([p.lat, p.lng]);
-            });
-            if (marker !== null && pts.length > 0) {
-                var last = pts[pts.length - 1];
-                marker.setLatLng([last.lat, last.lng]);
             }
         },
         setCursorIndex: function (index) {
@@ -1218,11 +1206,6 @@ function initLeafletProvider() {
 function setTrajectory(points) {
     if (currentProvider)
         currentProvider.setTrajectory(points);
-}
-
-function appendPoints(pts) {
-    if (currentProvider)
-        currentProvider.appendPoints(pts);
 }
 
 function setCursorIndex(index) {

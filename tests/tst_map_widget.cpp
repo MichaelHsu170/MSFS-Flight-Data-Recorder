@@ -1,5 +1,5 @@
 // Map widget (map_widget.cpp): the QWebEngineView wrapper around the
-// Leaflet/OSM trajectory map -- setDataset()/appendLivePoint()/showOverview()/
+// Leaflet/OSM trajectory map -- setDataset()/showOverview()/
 // resetZoom()/setEventsVisible() driving the real page, not the pure JS
 // string-building math (already covered standalone in tst_map_script.cpp).
 //
@@ -24,7 +24,6 @@
 
 #include <QApplication>
 #include <QSignalSpy>
-#include <QTimer>
 #include <QtTest>
 
 using namespace TestSupport;
@@ -56,15 +55,12 @@ class TstMapWidget : public QObject {
 	Q_OBJECT
 
 	MapWidget* widget_ = nullptr;
-	QTimer* liveTimer_ = nullptr;
 
 private slots:
 	void initTestCase() {
 		widget_ = new MapWidget;
 		widget_->resize(400, 300);
 		widget_->show();
-		liveTimer_ = widget_->findChild<QTimer*>();
-		QVERIFY(liveTimer_);
 	}
 
 	void cleanupTestCase() {
@@ -78,10 +74,6 @@ private slots:
 	// has to be exercised here, before anything else gets a chance to wait
 	// for the page to finish loading.
 	void beforePageReadyEveryEarlyReturnBranchIsTakenAndSetDatasetEmitsOnceImmediately() {
-		QVERIFY(!liveTimer_->isActive());
-		widget_->appendLivePoint(samplePoint(1, 2));
-		QVERIFY(!liveTimer_->isActive()); // no dataset pushed yet: nothing to flush
-
 		// Remembered and applied once the page loads (checked in the next slot).
 		widget_->setEventsVisible(false);
 
@@ -139,19 +131,6 @@ private slots:
 		QVERIFY(spy.wait(10000));
 		QTest::qWait(300); // give the superseded watcher a chance to finish too
 		QCOMPARE(spy.count(), 1); // the superseded load never emits
-	}
-
-	void appendLivePointAfterPageReadyExtendsTheLineAndFlushStopsTheTimerWhenDrained() {
-		const int before = mapTrajectoryPointCount(widget_);
-		QVERIFY(before > 0);
-		QVERIFY(!liveTimer_->isActive());
-		widget_->appendLivePoint(samplePoint(5, 6));
-		QVERIFY(liveTimer_->isActive());
-		// flushLivePoints() fires every 250ms and stops the timer once the
-		// pending-point queue is drained.
-		QVERIFY(QTest::qWaitFor([this]() { return !liveTimer_->isActive(); }, 2000));
-		QTRY_COMPARE_WITH_TIMEOUT(mapTrajectoryPointCount(widget_), before + 1, 5000);
-		QCOMPARE(mapTrajectoryLastPoint(widget_), (QVariantList{ 5.0, 6.0 }));
 	}
 
 	void aVisibleRangeIsForwardedOnlyForTheCurrentTrajectory() {

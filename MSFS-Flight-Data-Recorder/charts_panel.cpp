@@ -103,7 +103,6 @@ void ChartsPanel::setYAxes(const ChartExtents& extents) {
 
 void ChartsPanel::setEngine(const EnginePower& engine) {
 	engine_ = engine;
-	engineSet_ = true;
 	if (QQuickItem* root = view_->rootObject())
 		root->setProperty("engineSpec", chartEngineSpec(engine));
 }
@@ -124,8 +123,6 @@ void ChartsPanel::loadFullSlice(int lo, int hi) {
 void ChartsPanel::setDataset(const TripDataset& dataset) {
 	++datasetVersion_;
 	fullExtents_ = ChartExtents();
-	fullReady_       = false;
-	engineSet_       = false;
 	loading_         = false;
 	pendingRange_.reset();  // meant for the trip being replaced
 	lastRangeStart_  = INT_MIN;
@@ -144,18 +141,16 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	// load finishes and replaces both together.
 	setCursorIndex(-1);
 
-	// Empty dataset (Deselect / overview mode, or a trip with no point --
-	// a live one just started, or one that recorded none): drop every line,
-	// and with engineSpec unset the QML hides the axes and shows "No trip
-	// selected" in each chart -- or "No data recorded" for a trip (tripId
-	// set). Clearing doesn't wait on rendering: after a 200,000-sample trip
-	// (62,525 points shown, as each line is thinned to kDisplayPoints) it
-	// took 0.3-0.9 ms of a 10-17 ms deselect, most of which is the QML hiding
+	// Empty dataset (Deselect / overview mode, or a trip with no point): drop
+	// every line, and with engineSpec unset the QML hides the axes and shows
+	// "No trip selected" in each chart -- or "No data recorded" for a trip
+	// (tripId set). Clearing doesn't wait on rendering: after a
+	// 200,000-sample trip (62,525 points shown, as each line is thinned to
+	// kDisplayPoints) it took 0.3-0.9 ms of a 10-17 ms deselect, most of which is the QML hiding
 	// the axes. The Profile "clear" log reports it.
 	if (dataset.points.empty()) {
-		Logger::log(Logger::Trace, "Charts", QStringLiteral("setDataset: empty dataset (Deselect/overview, or a trip with no point yet); clearing every series"));
+		Logger::log(Logger::Trace, "Charts", QStringLiteral("setDataset: empty dataset (Deselect/overview, or a trip with no point); clearing every series"));
 		pointTimesMs_.clear();
-		pointCount_ = 0;
 		root->setProperty("engineSpec", QVariant());
 		root->setProperty("noDataText", dataset.tripId >= 0 ? QStringLiteral("No data recorded") : QStringLiteral("No trip selected"));
 		buildSeriesCache();
@@ -209,7 +204,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		}
 
 		pointTimesMs_ = std::move(data.pointTimesMs);
-		pointCount_ = (int)pointTimesMs_.size();
+		const int pointCount = (int)pointTimesMs_.size();
 
 		buildSeriesCache();
 		setAllXAxisRange(data.axisLo, data.axisHi);
@@ -222,11 +217,10 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		// exact slices on zoom, and load only a thinned view into the series:
 		// Qt Graphs renders every loaded point per frame.
 		full_ = std::move(data.series);
-		fullReady_ = true;
-		loadFullSlice(0, pointCount_ - 1);
+		loadFullSlice(0, pointCount - 1);
 
 		Logger::logf(Logger::Profile, "Charts", "apply (GUI): %lld ms  (%d pts, ~%d pts/series shown)",
-		             applyTimer.nsecsElapsed() / 1000000, pointCount_, qMin(pointCount_, kDisplayPoints));
+		             applyTimer.nsecsElapsed() / 1000000, pointCount, qMin(pointCount, kDisplayPoints));
 		// What was just loaded is what setVisibleRange(-1, -1) shows, so a
 		// full range (sent while loading or after) is a repeat; a zoom isn't.
 		lastRangeStart_ = lastRangeEnd_ = -1;
@@ -249,54 +243,6 @@ void ChartsPanel::setCursorIndex(int index) {
 		return;
 	double cursorTime = (index >= 0 && index < (int)pointTimesMs_.size()) ? pointTimesMs_[index] : -1.0;
 	root->setProperty("cursorTime", cursorTime);
-}
-
-bool ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
-	double t = chartTimeMs(point.zuluTime);
-	if (qIsNaN(t)) {
-		// Every series appended below is indexed by this point's X (time) value;
-		// casting a NaN t to qint64 below is undefined and previously corrupted
-		// the X axis range and pointTimesMs_ (used by setCursorIndex) with
-		// garbage. Historical loads keep NaN entries out of the axis bounds too
-		// (see buildChartSeries()) -- here the whole point is dropped rather than
-		// plotted with a bogus time. Caller must drop it from MapWidget/
-		// DataTablePanel too -- see the bool return in charts_panel.h.
-		Logger::log(Logger::Warning, "Charts", QStringLiteral("appendLivePoint: skipping point with malformed zuluTime"));
-		return false;
-	}
-	fullReady_ = false;  // live points are not in full_; disable zoom-slice path
-	if (!cache_.valid)
-		buildSeriesCache();
-	if (!cache_.valid)
-		return false;
-
-	pointCount_++;
-	pointTimesMs_.push_back(t);
-
-	QDateTime hi = QDateTime::fromMSecsSinceEpoch((qint64)t);
-	if (cache_.xAxis) {
-		if (pointTimesMs_.size() == 1)
-			setAllXAxisRange(hi.addSecs(-1), hi);
-		else
-			setAllXAxisRange(QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.front()), hi);
-	}
-
-	// Labels the chart on the first point, and again once power first shows up
-	// (a live trip can start before the aircraft's engine type is known).
-	const bool engineChanged = !engineSet_ || (engine_.count == 0 && point.engine.count > 0);
-	if (engineChanged)
-		setEngine(point.engine);
-	const ChartValues values = chartValues(point);
-	if (fullExtents_.add(values) || engineChanged)
-		setYAxes(fullExtents_);
-
-	// cache_.valid only checks the first series; any other can independently
-	// be missing from the QML object tree.
-	for (int s = 0; s < CHART_SERIES_COUNT; ++s) {
-		if (cache_.series[s])
-			cache_.series[s]->append(t, values[s]);
-	}
-	return true;
 }
 
 void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
@@ -335,8 +281,7 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 		root->setProperty("isFullRangeVisible", true);
 		setYAxes(fullExtents_);
 		// Replace the zoomed slice with the whole trip's thinned view.
-		if (fullReady_)
-			loadFullSlice(0, pointCount_ - 1);
+		loadFullSlice(0, (int)pointTimesMs_.size() - 1);
 	} else {
 		startIndex = qBound(0, startIndex, (int)pointTimesMs_.size() - 1);
 		endIndex = qBound(0, endIndex, (int)pointTimesMs_.size() - 1);
@@ -353,30 +298,20 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 		// The Y axes fit the visible slice, which is thinned to the same
 		// kDisplayPoints budget as the full view: a large partial viewport
 		// (half the flight) would otherwise load 25k points into each series.
-		if (fullReady_) {
-			Logger::logf(Logger::Trace, "Charts", "setVisibleRange: zoomed slice [%d..%d] (%d pts, target ~%d pts/series)", lo, hi, hi - lo + 1, kDisplayPoints);
-			setYAxes(chartExtents(full_, lo, hi));
-			loadFullSlice(lo, hi);
-		}
+		Logger::logf(Logger::Trace, "Charts", "setVisibleRange: zoomed slice [%d..%d] (%d pts, target ~%d pts/series)", lo, hi, hi - lo + 1, kDisplayPoints);
+		setYAxes(chartExtents(full_, lo, hi));
+		loadFullSlice(lo, hi);
 	}
 	Logger::logf(Logger::Profile, "Charts", "setVisibleRange: %lld µs", rangeTimer.nsecsElapsed() / 1000);
 }
 
 QVariantMap ChartsPanel::valueAt(double timeMs) const {
-	if (pointTimesMs_.empty() || (!fullReady_ && !cache_.valid))
+	if (pointTimesMs_.empty())
 		return {};
 
 	const int idx = nearestSampleIndex(pointTimesMs_, timeMs);
 	ChartValues values{};
-	for (int s = 0; s < CHART_SERIES_COUNT; ++s) {
-		if (fullReady_) {
-			values[s] = idx < full_[s].size() ? full_[s][idx].y() : 0.0;
-		} else if (cache_.series[s]) {
-			// Live mode: series are appended one by one (no thinning), so their
-			// point index matches pointTimesMs_ directly.
-			const QList<QPointF> points = cache_.series[s]->points();
-			values[s] = idx < points.size() ? points[idx].y() : 0.0;
-		}
-	}
+	for (int s = 0; s < CHART_SERIES_COUNT; ++s)
+		values[s] = full_[s][idx].y();
 	return chartValueMap(pointTimesMs_[idx], values);
 }

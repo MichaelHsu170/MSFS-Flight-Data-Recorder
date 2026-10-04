@@ -7,12 +7,11 @@
 
 #include "types.h"
 #include "simconnect_defs.h"
-#include "trip_dataset.h"
 
 class QTimer;
 
 // Owns the STATUS struct and drives SimConnect_CallDispatch() on the Qt main thread
-// (replacing the console main()'s busy while-loop with a timer), retrying
+// from a timer, retrying
 // SimConnect_Open() until the simulator is available. gui_notify_*() free functions
 // (declared in gui_notify.h, implemented in recorder_bridge.cpp) reach back into this
 // object via status->gui_context to turn recorder.cpp's, flight_phase.cpp's and db.cpp's
@@ -58,11 +57,9 @@ signals:
 	void tripEnded(int tripId);
 	void recordingEnabledChanged(bool enabled);
 	void tripUpdated(int tripId);
+	// A sample was just queued for trip_data (see gui_notify_sample);
+	// currentData() has its values.
 	void sampleUpdated();
-	// Same sample just queued for trip_data (see gui_notify_sample), decoded
-	// into the shared TripSamplePoint shape so live and historical data look
-	// identical to TrajectoryView/ChartsPanel/MapWidget.
-	void liveDataPoint(const TripSamplePoint& point);
 	// One event occurrence committed to trip_events, carrying its event_seq
 	// and the trip it was committed under (which can already be stale by the
 	// time this fires) -- see gui_notify_event_committed() in gui_notify.h.

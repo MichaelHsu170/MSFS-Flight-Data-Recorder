@@ -8,10 +8,8 @@
 
 #include "engine_power.h"
 
-// One row of trip_data, decoded into engineering units/booleans. Same shape
-// whether it came from db_history::queryTripData() (history) or was appended
-// live from a FLIGHT_DATA_RECORD while recording (Recording feature) — the
-// Trajectory View doesn't care which.
+// One row of trip_data as db_history::queryTripData() reads it, decoded into
+// engineering units/booleans.
 struct TripSamplePoint {
 	double latitude = 0;
 	double longitude = 0;

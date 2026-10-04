@@ -271,9 +271,7 @@ private slots:
 	void everyTripDataFieldSurvivesWriteAndReadBack() {
 		// Every numeric field gets a distinct non-integral value and the
 		// bools a fixed pattern; the sample is recorded, then read back through
-		// queryTripData(). The live signal's decoding (RecorderBridge) and the
-		// stored/reloaded decoding (db.cpp + db_history.cpp) must agree field
-		// for field -- they are separate code paths over the same field list.
+		// queryTripData(), raw and as its named fields.
 		FlightDriver sim;
 		double value = 1.25;
 #define SET_NUM(dbColumn, memberExpr, sqlType) sim.record.memberExpr = (value += 1.0);
@@ -297,13 +295,10 @@ private slots:
 		}
 		const FLIGHT_DATA_RECORD sent = sim.record;
 
-		QSignalSpy live(&sim.bridge(), &RecorderBridge::liveDataPoint);
 		sim.tick();
 		const int trip = sim.status().id_trip;
 		QVERIFY(trip > 0);
 		sim.endTrip();
-		QCOMPARE(live.count(), 1);
-		const TripSamplePoint livePoint = live.at(0).at(0).value<TripSamplePoint>();
 
 		sqlite3* db = connect_db_readonly();
 		const TripDataset stored = queryTripData(db, trip);
@@ -320,8 +315,7 @@ private slots:
 		expected.plane_touchdown_bank_degrees = -sent.plane_touchdown_bank_degrees;
 		int i = 0;
 #define CHECK_NUM(dbColumn, memberExpr, sqlType) \
-		QVERIFY2(i < (int)p.rawNums.size() && p.rawNums[i] == expected.memberExpr, #dbColumn " (stored)"); \
-		QVERIFY2(i < (int)livePoint.rawNums.size() && livePoint.rawNums[i] == expected.memberExpr, #dbColumn " (live)"); \
+		QVERIFY2(i < (int)p.rawNums.size() && p.rawNums[i] == expected.memberExpr, #dbColumn); \
 		++i;
 		TRIP_DATA_NUM_FIELDS(CHECK_NUM)
 #undef CHECK_NUM
@@ -331,36 +325,34 @@ private slots:
 		QCOMPARE(p.boolGroup1, groups[1]);
 		QCOMPARE(p.boolGroup2, groups[2]);
 		QCOMPARE(p.boolGroup3, groups[3]);
-		QCOMPARE(livePoint.boolGroup1, groups[1]);
-		QCOMPARE(livePoint.boolGroup2, groups[2]);
-		QCOMPARE(livePoint.boolGroup3, groups[3]);
 
-		// The named convenience fields decode identically on both paths.
-		QCOMPARE(p.latitude, livePoint.latitude);
-		QCOMPARE(p.longitude, livePoint.longitude);
-		QCOMPARE(p.altitude, livePoint.altitude);
-		QCOMPARE(p.airspeed, livePoint.airspeed);
-		QCOMPARE(p.groundSpeed, livePoint.groundSpeed);
-		QCOMPARE(p.verticalSpeed, livePoint.verticalSpeed);
-		for (const TripSamplePoint* point : { &p, &livePoint }) {
-			QCOMPARE(point->engine.engineType, 5);
-			QCOMPARE(point->engine.count, 3);
-			QCOMPARE(point->engine.speed, (std::array<float, MAX_ENGINES>{ 2100, 2101, 2102, 0 }));
-			QCOMPARE(point->engine.load, (std::array<float, MAX_ENGINES>{ 25.5f, 26.5f, 27.5f, 0 }));
-		}
-		QCOMPARE(p.gearHandlePosition, livePoint.gearHandlePosition);
-		for (int g = 0; g < 3; ++g) {
-			QCOMPARE(p.gearPosition[g], livePoint.gearPosition[g]);
-			QCOMPARE(p.gearOnGround[g], livePoint.gearOnGround[g]);
-		}
-		QCOMPARE(p.brakeIndicator, livePoint.brakeIndicator);
-		QCOMPARE(p.flapsHandleIndex, livePoint.flapsHandleIndex);
-		QCOMPARE(p.spoilersHandlePosition, livePoint.spoilersHandlePosition);
-		QCOMPARE(p.fuelTotalQuantityWeight, livePoint.fuelTotalQuantityWeight);
-		QCOMPARE(p.pitchDegrees, livePoint.pitchDegrees);
-		QCOMPARE(p.bankDegrees, livePoint.bankDegrees);
-		QCOMPARE(p.zuluTime, livePoint.zuluTime);
-		QCOMPARE(p.localTime, livePoint.localTime);
+		// The named fields, as the map, charts and data table read them.
+		QCOMPARE(p.latitude, expected.plane_coordinate.latitude);
+		QCOMPARE(p.longitude, expected.plane_coordinate.longitude);
+		QCOMPARE(p.altitude, (int)expected.plane_altitude);
+		QCOMPARE(p.airspeed, (int)expected.airspeed_indicated);
+		QCOMPARE(p.groundSpeed, (int)expected.ground_velocity);
+		QCOMPARE(p.verticalSpeed, (int)expected.vertical_speed);
+		QCOMPARE(p.engine.engineType, 5);
+		QCOMPARE(p.engine.count, 3);
+		QCOMPARE(p.engine.speed, (std::array<float, MAX_ENGINES>{ 2100, 2101, 2102, 0 }));
+		QCOMPARE(p.engine.load, (std::array<float, MAX_ENGINES>{ 25.5f, 26.5f, 27.5f, 0 }));
+		QCOMPARE(p.gearHandlePosition, expected.gear_handle_position);
+		QCOMPARE(p.gearPosition[0], (int)expected.gear_position_0);
+		QCOMPARE(p.gearPosition[1], (int)expected.gear_position_1);
+		QCOMPARE(p.gearPosition[2], (int)expected.gear_position_2);
+		QCOMPARE(p.gearOnGround[0], expected.gear_is_on_ground_0 != 0);
+		QCOMPARE(p.gearOnGround[1], expected.gear_is_on_ground_1 != 0);
+		QCOMPARE(p.gearOnGround[2], expected.gear_is_on_ground_2 != 0);
+		QCOMPARE(p.brakeIndicator, (int)expected.brake_indicator);
+		QCOMPARE(p.flapsHandleIndex, (double)expected.flaps_handle_index);
+		QCOMPARE(p.spoilersHandlePosition, expected.spoilers_handle_position);
+		QCOMPARE(p.fuelTotalQuantityWeight, (double)expected.fuel_total_quantity_weight);
+		QCOMPARE(p.pitchDegrees, expected.plane_pitch_degrees);
+		QCOMPARE(p.bankDegrees, expected.plane_bank_degrees);
+		// makeRecord()'s 10:00:00 plus the one 0.5 s tick.
+		QCOMPARE(p.zuluTime, QStringLiteral("2026-01-02T10:00:00.500+00:00_5"));
+		QCOMPARE(p.localTime, QStringLiteral("2026-01-02T10:00:00.500+00:00_5"));
 	}
 
 	void aSampleWithNoEnginePowerStoresNull() {

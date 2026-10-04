@@ -231,7 +231,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── app_paths.h / .cpp        Where settings.ini, flight_data.db and the log live (working dir in Debug, exe folder in Release)
 │   ├── app_settings.h / .cpp     QSettings wrapper for settings.ini
 │   ├── trip_dataset.h            Shared data structs (TripSamplePoint, TripEvent, TripDataset, etc.) and helpers
-│   ├── trip_data_fields.h        X-macro list of all trip_data columns (keeps live and historical paths in sync)
+│   ├── trip_data_fields.h        X-macro list of all trip_data columns (keeps the schema, writes, reads and data table in sync)
 │   ├── engine_power.h / .cpp     Per-engine-type speed/load SimVars, labels and units; engine_speed/engine_load BLOB format
 │   ├── version.h.in              Template for the generated version.h (APP_VERSION from CMakeLists.txt)
 │   ├── main_window.h / .cpp      Top-level QMainWindow shell, startup database migration notice, cross-feature signal wiring

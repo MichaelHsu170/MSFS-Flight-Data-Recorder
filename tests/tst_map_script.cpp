@@ -123,13 +123,6 @@ private slots:
 		QVERIFY(data["idxs"].toArray().isEmpty());
 	}
 
-	void appendPointsSendsEachPoint() {
-		const QJsonArray pts = argumentOf(mapAppendPointsJs(line(2)), QStringLiteral("appendPoints")).array();
-		QCOMPARE(pts.size(), 2);
-		QCOMPARE(pts.at(1).toObject()["lat"].toDouble(), 40.001);
-		QCOMPARE(pts.at(1).toObject()["lng"].toDouble(), -70.001);
-	}
-
 	void liftoffsCarryEveryPopupField() {
 		LiftoffPoint lo;
 		fillRunwayContact(lo);

@@ -94,11 +94,9 @@ void TrajectoryView::setDataset(std::shared_ptr<TripDataset> dataset) {
 	// below, off the main thread, only after every panel has switched over.
 	auto oldDataset = std::move(dataset_);
 	dataset_ = std::move(dataset);
-	currentTripId_ = dataset_ ? dataset_->tripId : -1;
-	pendingLivePoints_.clear();
 	pendingRenders_ = 2;  // chartsPanel_ worker + mapWidget_ trajectory worker
 	genTimer_.start();
-	Logger::logf(Logger::Profile, "TrajView", "--- rendering start: %zu pts ---", dataset_ ? dataset_->points.size() : 0u);
+	Logger::logf(Logger::Profile, "TrajView", "--- rendering start: %zu pts ---", dataset_->points.size());
 	chartsPanel_->setDataset(*dataset_);
 	mapWidget_->setDataset(*dataset_);
 	dataTablePanel_->setDataset(dataset_.get());
@@ -138,8 +136,6 @@ void TrajectoryView::clearAndShowOverview(const std::vector<TripSummary>& trips)
 	// Move the dataset out before anything else so it can be destroyed off the
 	// main thread below, once the panels have switched away from it.
 	auto oldDataset = std::move(dataset_);
-	currentTripId_ = -1;
-	pendingLivePoints_.clear();
 	static const TripDataset kEmpty;
 	chartsPanel_->setDataset(kEmpty);
 	Logger::logf(Logger::Profile, "TrajView", "clearAndShowOverview: chartsPanel done %lld ms", t.nsecsElapsed() / 1000000);
@@ -155,42 +151,8 @@ void TrajectoryView::resetZoom() {
 	chartsPanel_->setVisibleRange(-1, -1);
 }
 
-void TrajectoryView::appendLivePoint(const TripSamplePoint& point) {
-	if (liveFollow_) {
-		// MapWidget/DataTablePanel/dataset_ are cursor-synced to ChartsPanel by
-		// row index (see cursorIndexChanged), so a point ChartsPanel silently
-		// drops (malformed zuluTime, or its QML series cache not ready yet --
-		// see ChartsPanel::appendLivePoint) must be skipped everywhere else too,
-		// or every later index would be permanently off by one against it.
-		if (!chartsPanel_->appendLivePoint(point))
-			return;
-		if (dataset_) dataset_->points.push_back(point);
-		mapWidget_->appendLivePoint(point);
-		dataTablePanel_->appendLivePoint(point);
-	} else {
-		pendingLivePoints_.push_back(point);
-	}
-}
-
 void TrajectoryView::setRightPanelWidth(int w) {
 	auto sizes = mapTableSplitter_->sizes();
 	if (sizes.size() < 2) return;
 	mapTableSplitter_->setSizes({ sizes[0] + sizes[1] - w, w });
-}
-
-void TrajectoryView::setLiveFollow(bool follow) {
-	liveFollow_ = follow;
-
-	if (follow && !pendingLivePoints_.empty()) {
-		Logger::logf(Logger::Trace, "TrajView", "setLiveFollow(true): flushing %zu buffered live points into the views", pendingLivePoints_.size());
-		for (const TripSamplePoint& point : pendingLivePoints_) {
-			// See the identical guard in appendLivePoint() above.
-			if (!chartsPanel_->appendLivePoint(point))
-				continue;
-			if (dataset_) dataset_->points.push_back(point);
-			mapWidget_->appendLivePoint(point);
-			dataTablePanel_->appendLivePoint(point);
-		}
-		pendingLivePoints_.clear();
-	}
 }

@@ -7,7 +7,6 @@
 #include "gui_notify.h"
 #include "logger.h"
 #include "app_settings.h"
-#include "trip_data_fields.h"
 
 #include <QTimer>
 #include <QFutureWatcher>
@@ -15,48 +14,6 @@
 
 #include <cstdarg>
 #include <cstdio>
-
-namespace {
-
-TripSamplePoint toSamplePoint(FLIGHT_DATA_RECORD sample) {
-	TripSamplePoint p;
-	p.latitude = sample.plane_coordinate.latitude;
-	p.longitude = sample.plane_coordinate.longitude;
-	p.altitude = (int)sample.plane_altitude;
-	p.airspeed = (int)sample.airspeed_indicated;
-	p.groundSpeed = (int)sample.ground_velocity;
-	p.verticalSpeed = (int)sample.vertical_speed;
-	p.engine = enginePowerFromRecord(sample);
-	p.gearHandlePosition = sample.gear_handle_position;
-	p.gearPosition[0] = (int)sample.gear_position_0;
-	p.gearPosition[1] = (int)sample.gear_position_1;
-	p.gearPosition[2] = (int)sample.gear_position_2;
-	p.gearOnGround[0] = sample.gear_is_on_ground_0 != 0;
-	p.gearOnGround[1] = sample.gear_is_on_ground_1 != 0;
-	p.gearOnGround[2] = sample.gear_is_on_ground_2 != 0;
-	p.brakeIndicator = (int)sample.brake_indicator;
-	p.flapsHandleIndex = sample.flaps_handle_index;
-	p.spoilersHandlePosition = sample.spoilers_handle_position;
-	p.fuelTotalQuantityWeight = sample.fuel_total_quantity_weight;
-	p.pitchDegrees = sample.plane_pitch_degrees;
-	p.bankDegrees  = sample.plane_bank_degrees;
-	p.zuluTime = QString::fromStdString(sample.time_zulu.format_date_time());
-	p.localTime = QString::fromStdString(sample.time_local.format_date_time());
-
-#define TRIP_NUM_PUSH(dbColumn, memberExpr, sqlType) \
-	p.rawNums.push_back((double)(sample.memberExpr));
-	TRIP_DATA_NUM_FIELDS(TRIP_NUM_PUSH)
-#undef TRIP_NUM_PUSH
-
-	const std::array<uint32_t, 4> boolGroups = tripBoolGroups(sample);
-	p.boolGroup1 = boolGroups[1];
-	p.boolGroup2 = boolGroups[2];
-	p.boolGroup3 = boolGroups[3];
-
-	return p;
-}
-
-}
 
 RecorderBridge::RecorderBridge(QObject* parent)
 	: QObject(parent)
@@ -262,21 +219,18 @@ void gui_notify_trip_updated(struct STATUS* status) {
 	emit bridge->tripUpdated(status->id_trip);
 }
 
-void gui_notify_sample(struct STATUS* status, const struct FLIGHT_DATA_RECORD* sample) {
+void gui_notify_sample(struct STATUS* status) {
 	if (!status || !status->gui_context)
 		return;
 	auto* bridge = static_cast<RecorderBridge*>(status->gui_context);
 	emit bridge->sampleUpdated();
-	if (sample != nullptr)
-		emit bridge->liveDataPoint(toSamplePoint(*sample));
 }
 
 void gui_notify_event_committed(struct STATUS* status, int tripId, unsigned long long seq, const char* name) {
 	char buf[300];
 	snprintf(buf, sizeof(buf), "Event: %s", name);
 	// Logged directly (not via gui_notify_log) so msfs_fdr_debug.log still
-	// gets this line even when gui_context is null (console/headless), same
-	// as every other event previously logged through commit_event().
+	// gets this line even when gui_context is null.
 	Logger::log(Logger::Info, "Recorder", QString::fromUtf8(buf));
 	if (!status || !status->gui_context)
 		return;

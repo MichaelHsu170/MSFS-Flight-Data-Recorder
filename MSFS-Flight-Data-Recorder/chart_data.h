@@ -85,8 +85,8 @@ struct ChartExtents {
 	double engSpeedMax = 0, engLoadMax = 0;
 	double pitchMin = 0, pitchMax = 0;
 	double bankMin = 0, bankMax = 0;
-	// Widens the extents to include values; true if anything changed.
-	bool add(const ChartValues& values);
+	// Widens the extents to include values.
+	void add(const ChartValues& values);
 };
 
 // Every series' points: X = chartTimeMs(), Y = the value. Indexed by

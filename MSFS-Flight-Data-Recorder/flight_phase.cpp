@@ -615,9 +615,8 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 				gui_log_printf(status, GUI_LOG_WARNING, "malloc failed for sample record; dropping this sample");
 				return;
 			}
-			memset(pS, 0, sizeof(struct FLIGHT_DATA_RECORD));
 			memcpy(pS, &tmp, sizeof(struct FLIGHT_DATA_RECORD));
-			gui_notify_sample(status, pS);
+			gui_notify_sample(status);
 			// pS is handed off to the DB-write worker below, which owns it
 			// from here and frees it once flushed. Keep our own copy so the
 			// next delta_s calculation (and stop_recording()'s destination-

@@ -8,9 +8,7 @@
 
 // Turns a trip_data column / FLIGHT_DATA_RECORD member name like
 // "plane_touchdown_latitude" into a display label like "Plane Touchdown
-// Latitude". Shared by both producers below so the label shown in
-// DataTablePanel never depends on whether the point came from a live sample
-// or a historical DB row.
+// Latitude": DataTablePanel's row label for each field below.
 inline QString tripFieldLabel(const char* name) {
 	QStringList words = QString::fromLatin1(name).split('_', Qt::SkipEmptyParts);
 	for (QString& word : words) {
@@ -25,22 +23,21 @@ inline QString tripFieldLabel(const char* name) {
 // (shown in their own DataTablePanel rows) and the `engine_speed`/
 // `engine_load` BLOBs (see engine_power.h)). Expanded via X-macros by every
 // consumer that must agree on the same field set and order: the trip_data
-// schema, INSERT and binds (db.cpp), recorder_bridge.cpp (live path fills
-// TripSamplePoint::rawNums from FLIGHT_DATA_RECORD), db_history.cpp
-// (historical path fills rawNums from sqlite3_column_double), and
+// schema, INSERT and binds (db.cpp), db_history.cpp (fills
+// TripSamplePoint::rawNums from sqlite3_column_double), and
 // data_table_panel.cpp (formats rawNums/boolGroups to display strings in
 // showPoint).
 //
 // TRIP_DATA_NUM_FIELDS(X): X(dbColumn, recordMemberExpr, sqlType) -- a plain
 // numeric trip_data column. recordMemberExpr is the FLIGHT_DATA_RECORD
-// expression (dotted for the COORDINATE-typed fields) that supplies it live;
+// expression (dotted for the COORDINATE-typed fields) that supplies it;
 // sqlType (INTEGER or REAL) is the column's type in the schema.
 //
 // TRIP_DATA_BOOL_FIELDS(X): X(name, boolGroup, bitIndex) -- a boolean that's
 // bit-packed into bool_group_<boolGroup> at bit <bitIndex> for storage (see
 // tripBoolGroups() below); `name` is both the FLIGHT_DATA_RECORD member name
-// (live path reads it as a plain bool) and the storage bit's label
-// (historical path unpacks it from the matching bool_group).
+// and the storage bit's label (data_table_panel.cpp unpacks it from the
+// matching bool_group).
 
 #define TRIP_DATA_NUM_FIELDS(X) \
 	X(eng_exhaust_gas_temperature_1, eng_exhaust_gas_temperature_1, INTEGER) \

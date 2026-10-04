@@ -65,17 +65,6 @@ QString mapSetTrajectoryJs(const std::vector<std::pair<double, double>>& coords,
 	return call("setTrajectory", QJsonDocument(data));
 }
 
-QString mapAppendPointsJs(const std::vector<std::pair<double, double>>& coords) {
-	QJsonArray pts;
-	for (const auto& [lat, lng] : coords) {
-		QJsonObject obj;
-		obj["lat"] = lat;
-		obj["lng"] = lng;
-		pts.append(obj);
-	}
-	return call("appendPoints", QJsonDocument(pts));
-}
-
 QString mapSetLiftoffsJs(const std::vector<LiftoffPoint>& liftoffs) {
 	QJsonArray arr;
 	for (const LiftoffPoint& t : liftoffs)

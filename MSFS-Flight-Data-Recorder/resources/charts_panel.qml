@@ -36,7 +36,7 @@ Item {
     readonly property bool hasData: engineSpec !== undefined
     // Shown over every chart with no data; set by ChartsPanel::setDataset():
     // "Loading…" while a trip loads, "No data recorded" for a trip with no
-    // point (a live trip just started, or one that recorded none).
+    // point.
     property string noDataText: "No trip selected"
 
     // The engine power chart's series descriptors, in its LineSeries order

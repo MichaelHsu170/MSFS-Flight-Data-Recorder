@@ -120,10 +120,10 @@ private slots:
 		QCOMPARE(niceSignedAxisRange(10, 10.5), std::make_pair(8.0, 12.0));
 	}
 
-	void extentsTrackMinMaxAndReportChanges() {
+	void extentsTrackMinMax() {
 		ChartExtents e;
 		QVERIFY(!e.valid);
-		QVERIFY(e.add(valuesWith(-300, 120, 130, 5000, 900, 3, -10)));
+		e.add(valuesWith(-300, 120, 130, 5000, 900, 3, -10));
 		QVERIFY(e.valid);
 		QCOMPARE(e.vsMin, -300.0); QCOMPARE(e.vsMax, -300.0);
 		QCOMPARE(e.speedMax, 130.0);   // the higher of airspeed and ground speed
@@ -131,11 +131,10 @@ private slots:
 		QCOMPARE(e.fuelMax, 900.0);
 		QCOMPARE(e.pitchMin, 3.0); QCOMPARE(e.pitchMax, 3.0);
 		QCOMPARE(e.bankMin, -10.0); QCOMPARE(e.bankMax, -10.0);
-		// Inside the current extents: nothing changes.
-		QVERIFY(!e.add(valuesWith(-300, 100, 100, 4000, 800, 3, -10)));
-		QVERIFY(e.add(valuesWith(700, 100, 100, 4000, 800, 3, -10)));
-		QCOMPARE(e.vsMax, 700.0);
-		QVERIFY(e.add(valuesWith(0, 0, 0, 0, 0, -5, 25)));
+		e.add(valuesWith(700, 100, 100, 4000, 800, 3, -10));
+		QCOMPARE(e.vsMin, -300.0); QCOMPARE(e.vsMax, 700.0);
+		QCOMPARE(e.altMax, 5000.0);   // a lower value keeps the max
+		e.add(valuesWith(0, 0, 0, 0, 0, -5, 25));
 		QCOMPARE(e.pitchMin, -5.0); QCOMPARE(e.bankMax, 25.0);
 		QCOMPARE(e.speedMax, 130.0);
 	}
@@ -148,12 +147,11 @@ private slots:
 		e.add(v);
 		QCOMPARE(e.engSpeedMax, 80.0);
 		QCOMPARE(e.engLoadMax, 30.0);
-		// Only an engine value changed: still reported, so the axes resize.
 		v[CHART_ENG_LOAD_4] = 40;
-		QVERIFY(e.add(v));
+		e.add(v);
 		QCOMPARE(e.engLoadMax, 40.0);
 		v[CHART_ENG_SPEED_2] = 90;
-		QVERIFY(e.add(v));
+		e.add(v);
 		QCOMPARE(e.engSpeedMax, 90.0);
 	}
 

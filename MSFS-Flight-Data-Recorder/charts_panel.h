@@ -35,22 +35,12 @@ public:
 	// Also clears the cursor (see setCursorIndex), which belonged to the
 	// previous dataset. An empty dataset empties every line, and each chart
 	// hides its axes and legend and shows "No trip selected" -- or "No data
-	// recorded" when the dataset has a tripId (a live trip with no point yet,
-	// or a trip that recorded none);
+	// recorded" when the dataset has a tripId (a trip with no point);
 	// seriesLoaded is then emitted before this returns. Loading a trip after
 	// that shows "Loading…" until its lines are in.
 	void setDataset(const TripDataset& dataset);
 	void setCursorIndex(int index);
 
-	// Live mode: append one point without rebuilding every series from
-	// scratch. Uses cached series pointers so there are no findChild
-	// traversals per sample. pointCount_ tracks the next sample index
-	// (reset by setDataset). Returns false if the point was dropped
-	// (malformed zuluTime, or the QML series cache isn't ready yet) instead
-	// of appended -- callers that keep other, index-synced views (MapWidget,
-	// DataTablePanel) in lockstep with this one must skip the point there too
-	// on a false return, or their point counts desync from this panel's.
-	bool appendLivePoint(const TripSamplePoint& point);
 	// Zooms the shared X axis to [startIndex, endIndex] (translated to actual
 	// timestamps), or resets to the full trip span if startIndex < 0. Driven
 	// by MapWidget::visibleRangeChanged so the charts track the map's current
@@ -62,7 +52,8 @@ public:
 	// Called from QML via the "chartsBridge" context property. Finds the sample
 	// nearest to timeMs (epoch ms, same scale as the chart X axis) and returns
 	// all series values at that index as a JS-ready map. Returns an empty map
-	// when no dataset is loaded.
+	// when no dataset is loaded. While a trip loads, it reads the previous
+	// trip, whose lines are still shown.
 	Q_INVOKABLE QVariantMap valueAt(double timeMs) const;
 
 signals:
@@ -90,7 +81,6 @@ private:
 	void loadFullSlice(int lo, int hi);
 
 	QQuickWidget* view_;
-	int pointCount_ = 0;
 	// Parallel to the loaded dataset's points -- epoch milliseconds (see
 	// chartTimeMs()), used to translate a map-driven sample-index range
 	// (setVisibleRange) into an X axis time range and for valueAt().
@@ -101,8 +91,8 @@ private:
 	int lastRangeStart_ = INT_MIN;
 	int lastRangeEnd_   = INT_MIN;
 
-	// Cached QML object pointers -- resolved lazily so the per-sample live
-	// path avoids a findChild tree traversal per series per sample.
+	// Cached QML object pointers -- resolved lazily, once, instead of a
+	// findChild tree traversal per series on every load and zoom.
 	struct SeriesCache {
 		// Indexed by ChartSeriesId.
 		std::array<QLineSeries*, CHART_SERIES_COUNT> series{};
@@ -119,23 +109,18 @@ private:
 		bool valid = false;
 	} cache_;
 
-	// Extents of the whole loaded trip, grown by each live point (reset by
-	// setDataset). setVisibleRange restores the Y axes to these on zoom-out.
+	// Extents of the whole loaded trip. setVisibleRange restores the Y axes to
+	// these on zoom-out.
 	ChartExtents fullExtents_;
-	// What the engine power chart is labeled by (setEngine()); engineSet_ is
-	// false until the loaded dataset's or first live point's is applied.
+	// What the engine power chart is labeled by (setEngine()).
 	EnginePower engine_;
-	bool engineSet_ = false;
 
-	// Full-resolution points of every series. Populated by the setDataset
-	// apply callback; setVisibleRange slices this to give Qt Graphs only the
-	// points it needs to render, avoiding ~938K-point iteration per frame.
-	// Invalidated (fullReady_ = false) at the start of each setDataset call so
-	// a stale slice is never used while a new background compute is in
-	// flight, and by live points, which aren't added to it.
+	// Full-resolution points of every series, parallel to pointTimesMs_: both
+	// are replaced together once a load's lines are in. setVisibleRange
+	// slices this to give Qt Graphs only the points it needs to render,
+	// avoiding ~938K-point iteration per frame.
 	static constexpr int kDisplayPoints = 2500;
 	ChartSeriesLists full_;
-	bool fullReady_ = false;
 
 	// Incremented at the start of each setDataset call. The background worker's
 	// finished lambda captures this value and bails out if it no longer matches,

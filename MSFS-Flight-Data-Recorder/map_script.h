@@ -24,8 +24,6 @@ QString mapSetStringJs(const QString& jsVariable, const QString& value);
 // the page reports correct indices back for the cursor and visible range;
 // version comes back with each visible range (see MapBridge::rangeChanged()).
 QString mapSetTrajectoryJs(const std::vector<std::pair<double, double>>& coords, int version);
-// appendPoints([{lat, lng}, ...]): live points added to the trajectory.
-QString mapAppendPointsJs(const std::vector<std::pair<double, double>>& coords);
 QString mapSetLiftoffsJs(const std::vector<LiftoffPoint>& liftoffs);
 QString mapSetTouchdownsJs(const std::vector<TouchdownPoint>& touchdowns);
 QString mapSetEventsJs(const std::vector<TripEvent>& events);

@@ -127,8 +127,7 @@ std::pair<double, double> niceSignedAxisRange(double minVal, double maxVal) {
 	return { qFloor(lo / step) * step, qCeil(hi / step) * step };
 }
 
-bool ChartExtents::add(const ChartValues& v) {
-	const ChartExtents before = *this;
+void ChartExtents::add(const ChartValues& v) {
 	const double vs = v[CHART_VERTICAL_SPEED];
 	const double pitch = v[CHART_PITCH];
 	const double bank = v[CHART_BANK];
@@ -152,12 +151,6 @@ bool ChartExtents::add(const ChartValues& v) {
 		engSpeedMax = qMax(engSpeedMax, v[CHART_ENG_SPEED_1 + i]);
 		engLoadMax = qMax(engLoadMax, v[CHART_ENG_LOAD_1 + i]);
 	}
-	return !before.valid
-		|| vsMin != before.vsMin || vsMax != before.vsMax
-		|| speedMax != before.speedMax || altMax != before.altMax || fuelMax != before.fuelMax
-		|| engSpeedMax != before.engSpeedMax || engLoadMax != before.engLoadMax
-		|| pitchMin != before.pitchMin || pitchMax != before.pitchMax
-		|| bankMin != before.bankMin || bankMax != before.bankMax;
 }
 
 ChartExtents chartExtents(const ChartSeriesLists& series, int lo, int hi) {
