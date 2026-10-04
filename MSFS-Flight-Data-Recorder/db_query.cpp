@@ -11,7 +11,8 @@ QString columnText(sqlite3_stmt* stmt, int column) {
 sqlite3_stmt* prepareStatement(sqlite3* sql, const char* stmtText, const QString& context) {
 	sqlite3_stmt* stmt = nullptr;
 	if (sqlite3_prepare_v2(sql, stmtText, -1, &stmt, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "%s: prepare failed: %s", qUtf8Printable(context), sqlite3_errmsg(sql));
+		Logger::logf(Logger::Warning, "DB", "%s: prepare failed for \"%s\": %s",
+			qUtf8Printable(context), stmtText, sqlite3_errmsg(sql));
 		return nullptr;
 	}
 	return stmt;
@@ -38,12 +39,9 @@ void bindText(sqlite3_stmt* stmt, int index, const QString& text) {
 
 bool execStatement(sqlite3* sql, const char* stmtText, const QString& context,
 	const std::function<void(sqlite3_stmt*)>& bind) {
-	sqlite3_stmt* stmt = nullptr;
-	if (sqlite3_prepare_v2(sql, stmtText, -1, &stmt, nullptr) != SQLITE_OK) {
-		Logger::logf(Logger::Warning, "DB", "%s: prepare failed for \"%s\": %s",
-			qUtf8Printable(context), stmtText, sqlite3_errmsg(sql));
+	sqlite3_stmt* stmt = prepareStatement(sql, stmtText, context);
+	if (!stmt)
 		return false;
-	}
 	bind(stmt);
 	const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
 	if (!ok)

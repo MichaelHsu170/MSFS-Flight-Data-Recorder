@@ -3,7 +3,9 @@
 
 #include "db.h"
 #include "db_groups.h"
+#include "logger.h"
 
+#include <QTemporaryDir>
 #include <QtTest>
 
 using namespace TestSupport;
@@ -13,6 +15,8 @@ class TstGroups : public QObject {
 
 private:
 	sqlite3* db_ = nullptr;
+	QTemporaryDir logDir_;
+	QString logPath_;
 
 	QVariant groupOfTrip(int id) {
 		return queryValue(QStringLiteral("SELECT group_id FROM trips WHERE id=%1").arg(id));
@@ -26,7 +30,12 @@ private:
 	}
 
 private slots:
-	void initTestCase() { isolateFiles(); }
+	// Logger::init() takes effect once per process, so it runs here.
+	void initTestCase() {
+		isolateFiles();
+		logPath_ = logDir_.filePath(QStringLiteral("groups.log"));
+		Logger::init(Logger::Warning, logPath_);
+	}
 	void init() {
 		removeDatabase();
 		migrate_db();
@@ -59,6 +68,14 @@ private slots:
 		QVERIFY(insertGroup(db_, QString::fromUtf8("München")) > 0);
 		QCOMPARE(insertGroup(db_, QString::fromUtf8("MÜNCHEN")), 0); // non-ASCII case folding too
 		QCOMPARE(groupNames().size(), 2);
+	}
+
+	// Each query insertGroup runs logs its own failure, including the one
+	// that finds where the new group goes.
+	void insertLogsWhenItCantFindWhereTheGroupGoes() {
+		exec(db_, "DROP TABLE trip_groups");
+		QCOMPARE(insertGroup(db_, "Training"), 0);
+		QVERIFY(warningLogged(logPath_, { QStringLiteral("insertGroup"), QStringLiteral("MAX(sort_order)") }));
 	}
 
 	void nameExistsIgnoresCaseAndTheExcludedGroup() {

@@ -126,7 +126,7 @@ void RecorderBridge::pollDispatch() {
 	if (FAILED(hr)) {
 		Logger::logf(Logger::Warning, "Recorder", "SimConnect_CallDispatch failed (hr=0x%08lX); treating as disconnect", hr);
 		gui_notify_log(&status_, GUI_LOG_INFO, "Disconnected from Microsoft Flight Simulator");
-		emit connectionChanged(false);
+		gui_notify_connection_changed(&status_, false);
 		status_.quit = TRUE;
 	}
 }
@@ -178,7 +178,7 @@ static RecorderBridge* bridgeOf(struct STATUS* status) {
 
 void gui_notify_log(struct STATUS* status, GuiLogLevel level, const char* text) {
 	Logger::log(static_cast<Logger::Level>(level), "Recorder", QString::fromUtf8(text));
-	// Only forward Fatal, Warning and Info to the LiveStatusPanel UI feed.
+	// Only forward Warning and Info to the LiveStatusPanel UI feed.
 	// Trace lines (e.g. the airport/runway lookup detail) stay log-only.
 	if (level > GUI_LOG_INFO)
 		return;

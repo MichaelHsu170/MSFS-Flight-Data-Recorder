@@ -16,15 +16,15 @@ namespace {
 // queryTouchdowns() below, which differ only in table/column layout
 // (touchdowns adds a g_force column, shifting every later column index by 1)
 // and the target struct type. extractRow runs once per SQLITE_ROW to build
-// one T from the current row. callerName/itemWord/itemWordPlural name the
-// caller and its rows in the log lines (e.g. "queryLiftoffs(trip %d):
-// loading liftoff points" / "... loaded %d liftoff points").
+// one T from the current row. callerName/itemsWord name the caller and its
+// rows in the log lines (e.g. "queryLiftoffs(trip %d): loading liftoffs" /
+// "... loaded %d liftoffs").
 template <typename T>
 std::vector<T> queryContactPoints(sqlite3* sql, int tripId, const char* stmtText,
-	const char* callerName, const char* itemWord, const char* itemWordPlural,
+	const char* callerName, const char* itemsWord,
 	const std::function<T(sqlite3_stmt*)>& extractRow) {
 	std::vector<T> items;
-	Logger::logf(Logger::Trace, "DB", "%s(trip %d): loading %s points", callerName, tripId, itemWord);
+	Logger::logf(Logger::Trace, "DB", "%s(trip %d): loading %s", callerName, tripId, itemsWord);
 
 	const QString context = QStringLiteral("%1(trip %2)").arg(QLatin1String(callerName)).arg(tripId);
 	sqlite3_stmt* stmt = prepareStatement(sql, stmtText, context);
@@ -35,7 +35,7 @@ std::vector<T> queryContactPoints(sqlite3* sql, int tripId, const char* stmtText
 		items.push_back(extractRow(row));
 		return true;
 	});
-	Logger::logf(Logger::Trace, "DB", "%s(trip %d): loaded %d %s", callerName, tripId, (int)items.size(), itemWordPlural);
+	Logger::logf(Logger::Trace, "DB", "%s(trip %d): loaded %d %s", callerName, tripId, (int)items.size(), itemsWord);
 	return items;
 }
 
@@ -301,7 +301,7 @@ std::vector<LiftoffPoint> queryLiftoffs(sqlite3* sql, int tripId) {
 	// migrate_db() at app startup ensures all columns exist before any query runs.
 	const char* stmt_txt =
 		"SELECT " CONTACT_POINT_COLUMNS " FROM trip_liftoffs WHERE trip = ? ORDER BY id";
-	return queryContactPoints<LiftoffPoint>(sql, tripId, stmt_txt, "queryLiftoffs", "liftoff", "liftoff points",
+	return queryContactPoints<LiftoffPoint>(sql, tripId, stmt_txt, "queryLiftoffs", "liftoffs",
 		[](sqlite3_stmt* stmt) {
 			LiftoffPoint point;
 			readContactPoint(stmt, point);
@@ -313,7 +313,7 @@ std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 	// migrate_db() at app startup ensures all columns exist before any query runs.
 	const char* stmt_txt =
 		"SELECT " CONTACT_POINT_COLUMNS ", g_force FROM trip_touchdowns WHERE trip = ? ORDER BY id";
-	return queryContactPoints<TouchdownPoint>(sql, tripId, stmt_txt, "queryTouchdowns", "touchdown", "touchdowns",
+	return queryContactPoints<TouchdownPoint>(sql, tripId, stmt_txt, "queryTouchdowns", "touchdowns",
 		[](sqlite3_stmt* stmt) {
 			TouchdownPoint point;
 			readContactPoint(stmt, point);
@@ -400,6 +400,6 @@ bool saveAnalysisReport(sqlite3* sql, CONTACT_TABLE table, int rowId, const QStr
 			sqlite3_bind_int(stmt, 2, rowId);
 		});
 	if (ok)
-		Logger::logf(Logger::Trace, "DB", "saveAnalysisReport(%s %d): analysis report saved (%d chars)", what, rowId, (int)report.toUtf8().size());
+		Logger::logf(Logger::Trace, "DB", "saveAnalysisReport(%s %d): analysis report saved (%d bytes)", what, rowId, (int)report.toUtf8().size());
 	return ok;
 }

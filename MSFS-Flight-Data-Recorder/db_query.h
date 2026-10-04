@@ -14,8 +14,8 @@ struct sqlite3_stmt;
 // A text column as a QString; empty for NULL.
 QString columnText(sqlite3_stmt* stmt, int column);
 
-// Prepares stmtText; nullptr (logged as "<context>: prepare failed: ...") on
-// failure.
+// Prepares stmtText; nullptr (logged as "<context>: prepare failed for
+// "<stmtText>": ...") on failure.
 sqlite3_stmt* prepareStatement(sqlite3* sql, const char* stmtText, const QString& context);
 
 // Steps a prepared, bound stmt through its rows, calling onRow for each until

@@ -60,6 +60,17 @@ QString lastLogWith(const QSignalSpy& log, const QStringList& parts) {
 	return found;
 }
 
+bool warningLogged(const QString& logPath, const QStringList& parts) {
+	QFile f(logPath);
+	if (!f.open(QIODevice::ReadOnly))
+		return false;
+	const QStringList lines = QString::fromUtf8(f.readAll()).split('\n');
+	return std::any_of(lines.begin(), lines.end(), [&parts](const QString& line) {
+		return line.contains(QStringLiteral("[WARN ]"))
+			&& std::all_of(parts.begin(), parts.end(), [&line](const QString& part) { return line.contains(part); });
+	});
+}
+
 QVariant evalPageJs(QWidget* owner, const QString& js) {
 	// Shared so a callback arriving after the timeout writes somewhere valid.
 	auto result = std::make_shared<std::pair<bool, QVariant>>(false, QVariant());

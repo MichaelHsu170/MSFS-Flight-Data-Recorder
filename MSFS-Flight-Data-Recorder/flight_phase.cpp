@@ -552,9 +552,9 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 			// recorded purely as a liftoff *marker* occurrence -- same
 			// immediate-INSERT-then-async-UPDATE pattern as a touchdown, but
 			// with no trips.* update (a trip has exactly one departure).
-			gui_log_printf(status, GUI_LOG_TRACE, "Liftoff detected (trip %d, subsequent): lat=%.6f, lon=%.6f, heading=%.1f",
+			gui_log_printf(status, GUI_LOG_TRACE, "Liftoff detected (trip %d, subsequent): lat=%.6f, lon=%.6f, heading=%d",
 				status->id_trip, tmp.plane_coordinate.latitude, tmp.plane_coordinate.longitude,
-				tmp.plane_heading_degrees_magnetic);
+				(int)tmp.plane_heading_degrees_magnetic);
 			bool inserted = false;
 			record_contact(status, status->flight.liftoff_data, status->flight.liftoff_data_end,
 				CONTACT_TABLE::LIFTOFFS, tmp, LIFTOFF_TEXT, inserted);

@@ -45,22 +45,7 @@ class TstDbQuery : public QObject {
 	QTemporaryDir logDir_;
 	QString logPath_;
 
-	// Whether a warning line containing every one of parts was logged.
-	bool warningLogged(const QStringList& parts) {
-		QFile f(logPath_);
-		if (!f.open(QIODevice::ReadOnly))
-			return false;
-		for (const QString& line : QString::fromUtf8(f.readAll()).split('\n')) {
-			if (!line.contains(QStringLiteral("[WARN ]")))
-				continue;
-			bool all = true;
-			for (const QString& part : parts)
-				all = all && line.contains(part);
-			if (all)
-				return true;
-		}
-		return false;
-	}
+	bool warningLogged(const QStringList& parts) { return TestSupport::warningLogged(logPath_, parts); }
 
 private slots:
 	// Logger::init() takes effect once per process, so it runs here.
@@ -98,7 +83,7 @@ private slots:
 		sqlite3* db = openMemoryDb();
 		sqlite3_stmt* stmt = prepareStatement(db, "NOT VALID SQL", QStringLiteral("prepareCtx"));
 		QVERIFY(stmt == nullptr);
-		QVERIFY(warningLogged({ QStringLiteral("prepareCtx"), QStringLiteral("prepare failed") }));
+		QVERIFY(warningLogged({ QStringLiteral("prepareCtx"), QStringLiteral("prepare failed"), QStringLiteral("NOT VALID SQL") }));
 		sqlite3_close(db);
 	}
 

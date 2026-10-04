@@ -66,15 +66,16 @@ int insertGroup(sqlite3* sql, const QString& name) {
 	}
 	// New groups go after every existing one rather than at sort_order 0 (which
 	// would otherwise bury them at the top of an already-customized order).
+	// If that can't be read (logged), the group still gets created, at 0.
+	const QString context = QStringLiteral("insertGroup");
 	int nextSortOrder = 0;
-	sqlite3_stmt* maxStmt = nullptr;
-	if (sqlite3_prepare_v2(sql, "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM trip_groups", -1, &maxStmt, nullptr) == SQLITE_OK) {
-		if (sqlite3_step(maxStmt) == SQLITE_ROW)
-			nextSortOrder = sqlite3_column_int(maxStmt, 0);
-		sqlite3_finalize(maxStmt);
-	}
+	if (sqlite3_stmt* maxStmt = prepareStatement(sql, "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM trip_groups", context))
+		forEachRow(sql, maxStmt, context, [&](sqlite3_stmt* row) {
+			nextSortOrder = sqlite3_column_int(row, 0);
+			return false;
+		});
 
-	const bool ok = execStatement(sql, "INSERT INTO trip_groups (name, sort_order) VALUES (?, ?)", QStringLiteral("insertGroup"),
+	const bool ok = execStatement(sql, "INSERT INTO trip_groups (name, sort_order) VALUES (?, ?)", context,
 		[&](sqlite3_stmt* stmt) {
 			bindText(stmt, 1, trimmed);
 			sqlite3_bind_int(stmt, 2, nextSortOrder);

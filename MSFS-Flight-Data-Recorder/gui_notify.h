@@ -11,12 +11,13 @@ struct STATUS;
 
 // C-compatible log level. Integer values match Logger::Level in logger.h so
 // recorder_bridge.cpp can cast directly with no runtime conversion table.
+// Only the levels the recording core uses: its fatal paths run before there's
+// a STATUS to report through (they log with log_cf, logger_c.h), and it takes
+// no timing measurements.
 typedef enum GuiLogLevel {
-    GUI_LOG_FATAL   = 0,
     GUI_LOG_WARNING = 1,
     GUI_LOG_INFO    = 2,
-    GUI_LOG_TRACE   = 3,
-    GUI_LOG_PROFILE = 4
+    GUI_LOG_TRACE   = 3
 } GuiLogLevel;
 
 void gui_notify_log(struct STATUS* status, GuiLogLevel level, const char* text);

@@ -39,6 +39,9 @@ bool waitFor(const std::function<bool()>& cond, int timeoutMs = 10000);
 // string. Tests match a message's key facts (ids, counts, names), not its
 // exact wording.
 QString lastLogWith(const QSignalSpy& log, const QStringList& parts);
+// Whether the log file at logPath (one the test passed to Logger::init) has a
+// Warning line that contains every one of parts.
+bool warningLogged(const QString& logPath, const QStringList& parts);
 
 // Runs js on the page of the QWebEngineView inside owner (e.g. a MapWidget)
 // and waits up to 5 s for its result; an invalid QVariant if none came.
