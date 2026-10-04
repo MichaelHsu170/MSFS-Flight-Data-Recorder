@@ -1,5 +1,6 @@
-// Splitter handle-release helper (splitter_utils.h): the callback fires once
-// per release on the given handle and is unaffected by other event types.
+// Splitter helpers (splitter_utils.h): the handle-release callback fires once
+// per release on the given handle and is unaffected by other event types;
+// setSecondSectionSize() resizes the second section keeping the total.
 #include "splitter_utils.h"
 
 #include <QCoreApplication>
@@ -82,6 +83,21 @@ private slots:
 		QVERIFY(!watch.expired()); // held by the filter
 		delete splitter;
 		QVERIFY(watch.expired());
+	}
+
+	void setSecondSectionSizeKeepsTheTotal() {
+		QSplitter splitter(Qt::Horizontal);
+		splitter.addWidget(new QWidget(&splitter));
+		splitter.addWidget(new QWidget(&splitter));
+		splitter.setHandleWidth(4);
+		splitter.resize(1004, 100);  // 1000 px for the two sections
+		splitter.show();
+		splitter.setSizes({ 700, 300 });
+		QCOMPARE(splitter.sizes(), QList<int>({ 700, 300 }));
+		setSecondSectionSize(&splitter, 250);
+		QCOMPARE(splitter.sizes(), QList<int>({ 750, 250 }));
+		setSecondSectionSize(&splitter, 400);
+		QCOMPARE(splitter.sizes(), QList<int>({ 600, 400 }));
 	}
 };
 

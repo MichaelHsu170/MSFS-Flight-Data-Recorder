@@ -151,7 +151,5 @@ void TrajectoryView::resetZoom() {
 }
 
 void TrajectoryView::setRightPanelWidth(int w) {
-	auto sizes = mapTableSplitter_->sizes();
-	if (sizes.size() < 2) return;
-	mapTableSplitter_->setSizes({ sizes[0] + sizes[1] - w, w });
+	setSecondSectionSize(mapTableSplitter_, w);
 }

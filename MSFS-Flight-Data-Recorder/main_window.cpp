@@ -50,9 +50,7 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 		AppSettings::instance().setRightPanelWidth(topSplitter_->sizes().last());
 	});
 	connect(trajectoryView_, &TrajectoryView::rightPanelWidthChanged, this, [this](int w) {
-		auto sizes = topSplitter_->sizes();
-		if (sizes.size() >= 2)
-			topSplitter_->setSizes({ sizes[0] + sizes[1] - w, w });
+		setSecondSectionSize(topSplitter_, w);
 	});
 
 	// Without explicit sizes, QSplitter divides initial space by each child's

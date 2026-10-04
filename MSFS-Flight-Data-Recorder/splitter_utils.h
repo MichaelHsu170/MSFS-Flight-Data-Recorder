@@ -31,3 +31,11 @@ inline void connectSplitterHandleReleased(QSplitter* splitter, int handleIndex, 
 	QWidget* handle = splitter->handle(handleIndex);
 	handle->installEventFilter(new ReleaseFilter(handle, std::move(onRelease)));
 }
+
+// Sets a two-section splitter's second section to size, giving the first
+// section whatever that frees or takes, so the total stays the same. Used to
+// keep the two right-side panels, in different splitters, the same width.
+inline void setSecondSectionSize(QSplitter* splitter, int size) {
+	const QList<int> sizes = splitter->sizes();
+	splitter->setSizes({ sizes[0] + sizes[1] - size, size });
+}
