@@ -150,9 +150,21 @@ private slots:
 		const QString kml = exportToString(fullDataset());
 		QVERIFY(kml.contains("<name>Events (2)</name>"));
 		QVERIFY(kml.contains("<name>SPOILERS_ARM_ON</name>"));
-		// Placemark names are XML-escaped; CDATA descriptions are not.
-		QVERIFY(kml.contains("<b>FLAPS_UP & <more>:</b>"));
+		// The CDATA description is HTML, so the name is escaped there too.
+		QVERIFY(kml.contains("<b>FLAPS_UP &amp; &lt;more&gt;:</b>"));
 		QCOMPARE(kml.count("<styleUrl>#eventStyle</styleUrl>"), 2);
+	}
+
+	void descriptionValuesShowLiterallyAndKeepTheCdataClosed() {
+		TripDataset d = fullDataset();
+		d.liftoffPoints[0].airportName = "A]]><b>&B";
+		d.touchdowns.clear();
+		d.events.clear();
+		const QString kml = exportToString(d);
+		QVERIFY(kml.contains("<b>Airport:</b> TEST (A]]&gt;&lt;b&gt;&amp;B)<br/>"));
+		// The only "]]>" is the one that closes the liftoff's description.
+		QCOMPARE(kml.count("]]>"), 1);
+		QVERIFY(kml.contains("<br/>]]></description>"));
 	}
 
 	void placemarkNamesAreXmlEscaped() {

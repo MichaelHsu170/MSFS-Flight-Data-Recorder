@@ -322,16 +322,21 @@ function processStreamBuffer(buf, onChunk) {
     return buf.substring(lastEnd);
 }
 
+// text (any value) as HTML that shows it literally, for every value the
+// page puts into HTML it builds as a string.
+function escapeHtml(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
 function appendHtml(el, text) {
     // Strip leading blank lines on the very first append to any element.
     if (!el.hasChildNodes()) text = text.replace(/^[\n\r]+/, '');
     if (!text) return;
-    var escaped = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/\n/g, '<br>');
-    el.insertAdjacentHTML('beforeend', escaped);
+    el.insertAdjacentHTML('beforeend', escapeHtml(text).replace(/\n/g, '<br>'));
     el.scrollTop = el.scrollHeight;
 }
 
@@ -448,7 +453,7 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
                     guidance = '<br><span style="color:#555">Check that <code>gemini_api_key</code> under <code>[ai]</code> in settings.ini is correct and has Gemini API access enabled.</span>';
                 }
                 finalDiv.innerHTML = '<i style="color:#a00">API error ' + res.status
-                    + (apiMsg ? ': ' + apiMsg.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '')
+                    + (apiMsg ? ': ' + escapeHtml(apiMsg) : '')
                     + '</i>' + guidance;
                 console.error('Gemini API error:', res.status, errBody);
                 fatalError = true;
@@ -542,7 +547,7 @@ function renderStoredReport(id, report) {
 // analyzeFn is the global function the Analyze button calls with id.
 function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabel) {
     function row(key, val) {
-        return '<div class="td-row"><span class="td-key">' + key + '</span><span class="td-val">' + val + '</span></div>';
+        return '<div class="td-row"><span class="td-key">' + key + '</span><span class="td-val">' + escapeHtml(val) + '</span></div>';
     }
     var div = '<div class="td-divider"></div>';
 
@@ -625,8 +630,8 @@ function touchdownPopupHtml(t) {
 function eventPopupHtml(events) {
     var header = events.length === 1 ? '<b>Event</b>' : '<b>Events (' + events.length + ')</b>';
     var items = events.map(function (e) {
-        return '<div style="margin:3px 0">• ' + e.event
-            + '<br><span style="color:#888;margin-left:12px">' + e.zuluTime + '</span></div>';
+        return '<div style="margin:3px 0">• ' + escapeHtml(e.event)
+            + '<br><span style="color:#888;margin-left:12px">' + escapeHtml(e.zuluTime) + '</span></div>';
     }).join('');
     return header + '<div style="margin:10px 0">' + items + '</div>';
 }

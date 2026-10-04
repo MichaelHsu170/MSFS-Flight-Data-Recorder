@@ -40,11 +40,11 @@ QString whenFromZulu(const QString& zuluTime) {
 	return dt.isValid() ? dt.toUTC().toString(Qt::ISODateWithMs) : QString();
 }
 
-// One "<b>key:</b> value<br/>" line for a CDATA-wrapped <description> body --
-// content lands inside a CDATA section, so it's written as literal HTML/text,
-// not XML-escaped (that would visibly double-escape "&", "<", ">").
+// One "<b>key:</b> value<br/>" line for a CDATA-wrapped <description> body.
+// The viewer renders that body as HTML, so key and value are HTML-escaped to
+// show literally; with ">" escaped they can't contain "]]>" and end the CDATA.
 QString descRow(const QString& key, const QString& value) {
-	return QStringLiteral("<b>%1:</b> %2<br/>").arg(key, value);
+	return QStringLiteral("<b>%1:</b> %2<br/>").arg(xmlEscape(key), xmlEscape(value));
 }
 
 QString airportLabel(const QString& icao, const QString& airportName) {

@@ -248,6 +248,25 @@ private slots:
 		QVERIFY(spy.wait(10000));
 		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "leaflet-marker-draggable"), 0, 5000);
 	}
+
+	// Recorded names and times show in the popups as typed: markup in them is
+	// text, not elements.
+	void popupValuesShowLiterally() {
+		const QString contact = evalPageJs(widget_, QStringLiteral(
+			"(function () { var d = document.createElement('div');"
+			"  d.innerHTML = runwayContactPopupHtml('x', {icao: 'T&<i>X</i>', lat: 1, lng: 2, airspeed: 1, verticalSpeed: 0,"
+			"    pitchDegrees: 0, bankDegrees: 0, headingDegrees: 0, windDirection: 0, windVelocity: 0, zuluTime: '<i>z</i>'},"
+			"    'Liftoff', null, 'f', 'L').html;"
+			"  var v = d.querySelectorAll('.td-val');"
+			"  return [v[0].textContent, v[v.length - 1].textContent, d.querySelectorAll('i').length].join('|'); })()")).toString();
+		QCOMPARE(contact, QStringLiteral("T&<i>X</i>|<i>z</i>|0"));
+
+		const QString event = evalPageJs(widget_, QStringLiteral(
+			"(function () { var d = document.createElement('div');"
+			"  d.innerHTML = eventPopupHtml([{event: 'A & <i>B</i>', zuluTime: '<i>z</i>'}]);"
+			"  return d.textContent + '|' + d.querySelectorAll('i').length; })()")).toString();
+		QCOMPARE(event, QStringLiteral("Event• A & <i>B</i><i>z</i>|0"));
+	}
 };
 
 int main(int argc, char* argv[]) {
