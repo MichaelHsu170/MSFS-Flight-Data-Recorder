@@ -18,7 +18,7 @@ class QValueAxis;
 
 // Stacked timeline charts (engine power -- N1/N2, RPM/manifold pressure etc.
 // by engine type, see setEngine() -- vertical speed, speed, altitude, gear,
-// brake/flaps/spoiler, fuel weight) sharing one X axis of real Zulu
+// brake/flaps/spoiler, fuel weight, pitch, bank) sharing one X axis of real Zulu
 // timestamps (matching the database's zulu_time column), each with titled axes.
 //
 // Qt Graphs' 2D chart surface (GraphsView) has no public C++/QWidget header
@@ -96,7 +96,8 @@ private:
 	struct SeriesCache {
 		// Indexed by ChartSeriesId.
 		std::array<QLineSeries*, CHART_SERIES_COUNT> series{};
-		// Driver axis -- C++ calls setMin/setMax here; per-chart axes bind to it.
+		// Driver axis -- the range the QML cursor line and hover readout map
+		// against; setAllXAxisRange() sets it along with every per-chart axis.
 		QDateTimeAxis* xAxis = nullptr;
 		QValueAxis* engSpeedYAxis = nullptr;
 		QValueAxis* engLoadYAxis  = nullptr;

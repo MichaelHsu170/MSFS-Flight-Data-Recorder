@@ -245,11 +245,12 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	table_->setSelectionBehavior(QAbstractItemView::SelectRows);
 	table_->setSelectionMode(QAbstractItemView::SingleSelection);
 	table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-	// Airport/runway codes are always short (4-5 letters) -- give those
-	// columns a tight fixed width instead of splitting space evenly with
-	// everything else (not ResizeToContents: Qt sizes these columns far
-	// wider than their cell text), and let the two timestamp columns (by far the
-	// widest values) share whatever's left.
+	// Group, region and runway values are short -- give those columns a
+	// tight starting width instead of splitting space evenly with everything
+	// else (not ResizeToContents: Qt sizes these columns far wider than their
+	// cell text), size the timestamp and duration columns to fit their
+	// values, and let the From/To columns (airport code plus name) share
+	// whatever's left.
 	auto* header = table_->horizontalHeader();
 	header->setStretchLastSection(false);
 	header->setSectionResizeMode(TripHistoryModel::GroupColumn, QHeaderView::Interactive);

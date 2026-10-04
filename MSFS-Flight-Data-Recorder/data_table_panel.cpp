@@ -120,7 +120,7 @@ DataTablePanel::DataTablePanel(QWidget* parent) : QWidget(parent) {
 		});
 		menu.exec(table_->viewport()->mapToGlobal(pos));
 	});
-	// Long values (e.g. full ISO timestamps) get clipped at the fixed 20px row
+	// Long values (e.g. full ISO timestamps) would be clipped at a fixed row
 	// height with no wrap -- wrap them instead and let each row grow to fit,
 	// with the full value always available via tooltip regardless.
 	table_->setWordWrap(true);
