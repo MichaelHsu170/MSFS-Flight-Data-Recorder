@@ -177,11 +177,13 @@ void exec(const char* sql) {
 	sqlite3_close(db);
 }
 
-void addTrip(int id, int groupId) {
-	const QByteArray group = groupId ? QByteArray::number(groupId) : QByteArray("NULL");
-	exec(("INSERT INTO trips (id,title,atc_airline,atc_flight_number,atc_id,atc_model,atc_type,departure_latitude,"
-		"departure_longitude,departure_zulu_time,departure_local_time,group_id) VALUES ("
-		+ QByteArray::number(id) + ",'T','A','1','I','M','T',0,0,'z','l'," + group + ");").constData());
+void addTrip(int id, int groupId, const char* departureZulu, const char* destinationZulu) {
+	const QString sql = QStringLiteral("INSERT INTO trips (id,title,atc_airline,atc_flight_number,atc_id,atc_model,atc_type,"
+		"departure_latitude,departure_longitude,departure_zulu_time,departure_local_time,destination_zulu_time,group_id) "
+		"VALUES (%1,'Trip %1','A','1','I','M','T',0,0,'%2','l',%3,%4);")
+		.arg(id).arg(departureZulu).arg(destinationZulu ? QStringLiteral("'%1'").arg(destinationZulu) : QStringLiteral("NULL"))
+		.arg(groupId ? QString::number(groupId) : QStringLiteral("NULL"));
+	exec(sql.toUtf8().constData());
 }
 
 void createLegacyTripData() {

@@ -32,15 +32,6 @@ TripSummary summary(int id, const char* dep, const char* dest, TripStatus status
 	return t;
 }
 
-void insertTrip(int id, const char* dep, const char* dest, int groupId = 0) {
-	const QString sql = QStringLiteral("INSERT INTO trips (id,title,atc_airline,atc_flight_number,atc_id,atc_model,atc_type,"
-		"departure_latitude,departure_longitude,departure_zulu_time,departure_local_time,destination_zulu_time,group_id) "
-		"VALUES (%1,'Trip %1','AIR','%1','I','M','T',0,0,'%2','l',%3,%4);")
-		.arg(id).arg(dep).arg(dest ? QStringLiteral("'%1'").arg(dest) : QStringLiteral("NULL"))
-		.arg(groupId ? QString::number(groupId) : QStringLiteral("NULL"));
-	exec(sql.toUtf8().constData());
-}
-
 const char* kDep = "2026-01-01T10:00:00.000+00:00_4";
 const char* kArr = "2026-01-01T11:00:00.000+00:00_4";
 
@@ -197,8 +188,8 @@ private slots:
 
 	void listsTripsNewestFirstWithTotal() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
-		insertTrip(2, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
+		addTrip(2, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		QTableView* v = view(panel);
 		QCOMPARE(v->model()->rowCount(), 2);
@@ -208,7 +199,7 @@ private slots:
 
 	void initialOverviewCarriesEveryTrip() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		QSignalSpy deselected(&panel, &TripHistoryPanel::tripDeselected);
 		panel.showInitialOverview();
@@ -222,8 +213,8 @@ private slots:
 		const int training = insertGroup(db, "Training");
 		insertGroup(db, "Ops");
 		sqlite3_close(db);
-		insertTrip(1, kDep, kArr, training);
-		insertTrip(2, kDep, kArr);
+		addTrip(1, training, kDep, kArr);
+		addTrip(2, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		QComboBox* combo = groupCombo(panel);
 		QStringList items;
@@ -277,8 +268,8 @@ private slots:
 
 	void selectTripByIdLoadsOnlySelectableNewTrips() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
-		insertTrip(2, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
+		addTrip(2, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
 		panel.selectTripById(99); // not listed
@@ -294,7 +285,7 @@ private slots:
 
 	void liveTripAppearsAndCannotBeLoaded() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		const int tripId = sim.startTrip(); // recordingStateChanged refreshes the table
 		QTableView* v = view(panel);
@@ -314,8 +305,8 @@ private slots:
 
 	void deleteFromTheRowMenuAfterConfirming() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
-		insertTrip(2, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
+		addTrip(2, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		QSignalSpy deselected(&panel, &TripHistoryPanel::tripDeselected);
 		onNextModal([](QWidget* menu) {
@@ -330,7 +321,7 @@ private slots:
 
 	void cancellingDeleteKeepsTheTrip() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		onNextModal([](QWidget* menu) {
 			onNextModal([](QWidget* confirm) { clickDialogButton(confirm, "Cancel"); });
@@ -345,7 +336,7 @@ private slots:
 		sqlite3* db = connect_db_readwrite();
 		const int training = insertGroup(db, "Training");
 		sqlite3_close(db);
-		insertTrip(1, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		onNextModal([](QWidget* menu) {
 			onNextModal([](QWidget* submenu) { chooseMenuItem(submenu, "Training"); });
@@ -365,8 +356,8 @@ private slots:
 
 	void deselectAndResetZoomOnlyForTheSelectedTrip() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
-		insertTrip(2, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
+		addTrip(2, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
 		panel.selectTripById(1);
@@ -399,7 +390,7 @@ private slots:
 
 	void contextMenuIsSuppressedWhileLoading() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
 		panel.selectTripById(1); // starts loading
@@ -411,7 +402,7 @@ private slots:
 
 	void callingSetLoadingFinishedTwiceIsHarmless() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
 		panel.selectTripById(1);
@@ -424,8 +415,8 @@ private slots:
 
 	void reentrantSelectTripByIdWhileLoadingIsIgnored() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
-		insertTrip(2, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
+		addTrip(2, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
 		panel.selectTripById(1); // starts loading trip 1
@@ -439,7 +430,7 @@ private slots:
 
 	void groupRankFallsBackToZeroForAnUnknownGroupId() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr, 999); // references a group that was never created
+		addTrip(1, 999, kDep, kArr); // references a group that was never created
 		TripHistoryPanel panel(sim.bridge());
 		auto* model = static_cast<TripHistoryModel*>(view(panel)->model());
 		QCOMPARE(model->trips()[0].groupRank, 0);
@@ -447,7 +438,7 @@ private slots:
 
 	void selectionSurvivesARefreshTriggeredWhileSelected() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
 		panel.selectTripById(1);
@@ -461,8 +452,8 @@ private slots:
 
 	void deletingTheSelectedTripClearsItsSelection() {
 		FlightDriver sim;
-		insertTrip(1, kDep, kArr);
-		insertTrip(2, kDep, kArr);
+		addTrip(1, 0, kDep, kArr);
+		addTrip(2, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
 		panel.selectTripById(1);
