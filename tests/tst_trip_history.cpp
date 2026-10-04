@@ -12,6 +12,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QTableView>
+#include <QThread>
 #include <QtTest>
 
 using namespace TestSupport;
@@ -32,15 +33,12 @@ TripSummary summary(int id, const char* dep, const char* dest, TripStatus status
 }
 
 void insertTrip(int id, const char* dep, const char* dest, int groupId = 0) {
-	sqlite3* db = connect_db_readwrite();
-	QVERIFY(db);
 	const QString sql = QStringLiteral("INSERT INTO trips (id,title,atc_airline,atc_flight_number,atc_id,atc_model,atc_type,"
 		"departure_latitude,departure_longitude,departure_zulu_time,departure_local_time,destination_zulu_time,group_id) "
 		"VALUES (%1,'Trip %1','AIR','%1','I','M','T',0,0,'%2','l',%3,%4);")
 		.arg(id).arg(dep).arg(dest ? QStringLiteral("'%1'").arg(dest) : QStringLiteral("NULL"))
 		.arg(groupId ? QString::number(groupId) : QStringLiteral("NULL"));
-	QCOMPARE(sqlite3_exec(db, sql.toUtf8().constData(), nullptr, nullptr, nullptr), SQLITE_OK);
-	sqlite3_close(db);
+	exec(sql.toUtf8().constData());
 }
 
 const char* kDep = "2026-01-01T10:00:00.000+00:00_4";

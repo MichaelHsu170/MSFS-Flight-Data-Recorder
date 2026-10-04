@@ -33,7 +33,7 @@ namespace {
 // to see progress, held locked so the migration waits at its first read
 // until unlock(). Unlock within its 5 s busy timeout (migrate_db()).
 sqlite3* lockedLegacyDatabase() {
-	QFile::remove(QString::fromStdString(db_file_path()));
+	removeDatabase();
 	createLegacyTripData();
 	addLegacyJetRows(200000);
 	sqlite3* lock = nullptr;
@@ -133,7 +133,7 @@ private slots:
 	// A small rebuild's steps all finish within Qt's progress throttling
 	// interval (40 ms), so only a signal reaching the maximum gets through.
 	void aQuickRebuildStillReportsItsLast100Percent() {
-		QFile::remove(QString::fromStdString(db_file_path()));
+		removeDatabase();
 		createLegacyTripData();
 		FakeSim::reset();
 		RecorderBridge bridge;

@@ -209,13 +209,8 @@ private slots:
 		const int tripId = startOnRunway(sim, rwy);
 		liftOff(sim, onRunway(rwy, 1800));
 		sim.serviceLookups();
-		// The touchdown's immediate INSERT fails, so it has no row. The sample
-		// writer thread shares this connection, so hold its lock like every
-		// recorder write does (db_insert_update_table() in db.cpp).
-		{
-			std::lock_guard<std::mutex> lock(sim.status().mutex_db_commit);
-			QCOMPARE(sqlite3_exec(sim.status().sql, "DROP TABLE trip_touchdowns", nullptr, nullptr, nullptr), SQLITE_OK);
-		}
+		// The touchdown's immediate INSERT fails, so it has no row.
+		execOnRecorder(sim, QStringLiteral("DROP TABLE trip_touchdowns"));
 		touchDown(sim, onRunway(rwy, 500));
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		// A touch-and-go: the waiting touchdown is looked up first, then the liftoff.
@@ -346,10 +341,7 @@ private slots:
 		touchDown(sim, onRunway(rwy, 500));
 		sim.serviceLookups();
 		// The touch-and-go's liftoff marker INSERT fails, so it has no row.
-		{
-			std::lock_guard<std::mutex> lock(sim.status().mutex_db_commit);
-			QCOMPARE(sqlite3_exec(sim.status().sql, "DROP TABLE trip_liftoffs", nullptr, nullptr, nullptr), SQLITE_OK);
-		}
+		execOnRecorder(sim, QStringLiteral("DROP TABLE trip_liftoffs"));
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		liftOff(sim, onRunway(rwy, 1800));
 		// The next touchdown's lookup runs the marker's first; it's skipped.
@@ -369,10 +361,7 @@ private slots:
 		// The departure's own immediate INSERT fails (distinct code path from
 		// record_contact(), which the sibling tests above exercise for
 		// subsequent markers/touchdowns).
-		{
-			std::lock_guard<std::mutex> lock(sim.status().mutex_db_commit);
-			QCOMPARE(sqlite3_exec(sim.status().sql, "DROP TABLE trip_liftoffs", nullptr, nullptr, nullptr), SQLITE_OK);
-		}
+		execOnRecorder(sim, QStringLiteral("DROP TABLE trip_liftoffs"));
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		liftOff(sim, onRunway(rwy, 1800));
 		QVERIFY(FakeSim::state().facilitiesListRequests.empty());

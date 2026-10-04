@@ -1,6 +1,7 @@
 // Charts panel widget (charts_panel.cpp): the QQuickWidget wrapper around
-// the QML chart surface -- setDataset()/setVisibleRange()/valueAt() driving the real QML series objects, not the pure chart-data math
-// (already covered standalone in tst_chart_data.cpp).
+// the QML chart surface -- setDataset()/setVisibleRange()/valueAt() driving the
+// real QML series objects, not the pure chart-data math (already covered
+// standalone in tst_chart_data.cpp).
 #include "charts_panel.h"
 
 #include <QDateTimeAxis>
@@ -15,6 +16,14 @@
 #include <algorithm>
 
 namespace {
+
+// Shows the panel and waits for its QML root to load; nullptr if it doesn't.
+QQuickItem* shownRoot(ChartsPanel& panel, QSize size = QSize(400, 300)) {
+	panel.resize(size);
+	panel.show();
+	QQuickWidget* view = panel.findChild<QQuickWidget*>();
+	return QTest::qWaitFor([view]() { return view->rootObject() != nullptr; }, 5000) ? view->rootObject() : nullptr;
+}
 
 TripSamplePoint samplePoint(double base, const QString& zulu) {
 	TripSamplePoint p;
@@ -105,16 +114,12 @@ private slots:
 			QTest::ignoreMessage(QtWarningMsg, sharedAxis);
 		QTest::failOnWarning(sharedAxis);
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
+		QVERIFY(shownRoot(panel));
 	}
 
 	void setDatasetEmitsSeriesLoaded() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
+		QVERIFY(shownRoot(panel));
 
 		TripDataset dataset;
 		dataset.points = {
@@ -131,10 +136,8 @@ private slots:
 	// legend, and every chart says so -- then "Loading…" until a trip loads.
 	void withNoTripEveryChartIsBlankAndSaysNoTripSelected() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
 		const QStringList noTrip(9, QStringLiteral("No trip selected"));
 		QCOMPARE(chartMessages(root), noTrip);
 		QCOMPARE(shownAxes(root), 0);
@@ -171,10 +174,8 @@ private slots:
 	// data.
 	void aTripWithNoPointSaysNoDataRecorded() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
 
 		TripDataset empty;
 		empty.tripId = 7;
@@ -195,10 +196,8 @@ private slots:
 	// A second trip replaces the first's lines and values entirely.
 	void loadingASecondDatasetReplacesTheFirst() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
 		QDateTimeAxis* timeAxis = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
 		QVERIFY(timeAxis);
 
@@ -223,9 +222,7 @@ private slots:
 
 	void aSupersededDatasetLoadIsDiscardedWithoutEmittingSeriesLoaded() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
+		QVERIFY(shownRoot(panel));
 
 		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
 		TripDataset first;
@@ -241,9 +238,8 @@ private slots:
 
 	void setCursorIndexSetsOrClearsTheQmlCursorTimeProperty() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
 
 		const QString t0 = QStringLiteral("2026-03-05T15:00:00.000+00:00_4");
 		const QString t1 = QStringLiteral("2026-03-05T15:00:01.000+00:00_4");
@@ -253,7 +249,6 @@ private slots:
 		panel.setDataset(dataset);
 		QVERIFY(spy.wait(5000));
 
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
 		// t1 on the time axis: its zulu time read as local time.
 		const double t1Ms = (double)QDateTime(QDate(2026, 3, 5), QTime(15, 0, 1)).toMSecsSinceEpoch();
 		panel.setCursorIndex(1);
@@ -265,9 +260,8 @@ private slots:
 
 	void setDatasetClearsTheCursorOfThePreviousDataset() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
 
 		const QString t0 = QStringLiteral("2026-03-05T15:30:00.000+00:00_4");
 		const QString t1 = QStringLiteral("2026-03-05T15:30:01.000+00:00_4");
@@ -276,7 +270,6 @@ private slots:
 		dataset.points = { samplePoint(1, t0), samplePoint(2, t1) };
 		panel.setDataset(dataset);
 		QVERIFY(spy.wait(5000));
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
 		const double t1Ms = (double)QDateTime(QDate(2026, 3, 5), QTime(15, 30, 1)).toMSecsSinceEpoch();
 
 		// Reloading the same trip: the old cursor time lies inside the new X
@@ -296,10 +289,8 @@ private slots:
 
 	void theEnginePowerChartIsLabeledByTheDatasetsEngine() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
 		QValueAxis* speedAxis = root->findChild<QValueAxis*>(QStringLiteral("engSpeedYAxis"));
 		QValueAxis* loadAxis = root->findChild<QValueAxis*>(QStringLiteral("engLoadYAxis"));
 		QVERIFY(speedAxis && loadAxis);
@@ -379,10 +370,8 @@ private slots:
 	// charts match it so one time lines up across all of them.
 	void everyChartsPlotEndsAtTheSameX() {
 		ChartsPanel panel;
-		panel.resize(800, 600);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
+		QQuickItem* root = shownRoot(panel, QSize(800, 600));
+		QVERIFY(root);
 		// A trip with engine power: with no trip, the axes are all hidden.
 		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
 		TripDataset dataset;
@@ -406,9 +395,7 @@ private slots:
 
 	void valueAtUsesTheFullResolutionDataAfterADatasetLoad() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
+		QVERIFY(shownRoot(panel));
 
 		const QString t0 = QStringLiteral("2026-03-05T17:00:00.000+00:00_4");
 		const QString t1 = QStringLiteral("2026-03-05T17:00:01.000+00:00_4");
@@ -427,9 +414,7 @@ private slots:
 	// pointer -- not one of the second trip's.
 	void valueAtWhileATripLoadsReadsTheShownTrip() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
+		QVERIFY(shownRoot(panel));
 
 		const auto at = [](int hour, int second) {
 			return QStringLiteral("2026-03-05T%1:00:%2.000+00:00_4").arg(hour).arg(second, 2, 10, QLatin1Char('0'));
@@ -457,10 +442,9 @@ private slots:
 
 	void setVisibleRangeWithNoTripLeavesTheTimeAxisAlone() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
-		QDateTimeAxis* timeAxis = panel.findChild<QQuickWidget*>()->rootObject()->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
+		QDateTimeAxis* timeAxis = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
 		QVERIFY(timeAxis);
 		const QDateTime min = timeAxis->min();
 		const QDateTime max = timeAxis->max();
@@ -474,11 +458,8 @@ private slots:
 
 	void setVisibleRangeWithNegativeIndexAfterALoadReloadsTheFullResolutionView() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
-
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
 		QDateTimeAxis* timeAxis = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
 		QValueAxis* altAxis = root->findChild<QValueAxis*>(QStringLiteral("altYAxis"));
 		QVERIFY(timeAxis && altAxis);
@@ -505,10 +486,8 @@ private slots:
 
 	void setVisibleRangeZoomsToASliceAndIgnoresADuplicateRange() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
 		QDateTimeAxis* timeAxis = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
 		QValueAxis* altAxis = root->findChild<QValueAxis*>(QStringLiteral("altYAxis"));
 		QVERIFY(timeAxis && altAxis);
@@ -550,10 +529,8 @@ private slots:
 	// loaded.
 	void setVisibleRangeWaitsForALoadingTrip() {
 		ChartsPanel panel;
-		panel.resize(400, 300);
-		panel.show();
-		QVERIFY(QTest::qWaitFor([&panel]() { return panel.findChild<QQuickWidget*>()->rootObject() != nullptr; }, 5000));
-		QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
 		QDateTimeAxis* timeAxis = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
 		QValueAxis* speedAxis = root->findChild<QValueAxis*>(QStringLiteral("engSpeedYAxis"));
 		QVERIFY(timeAxis && speedAxis);

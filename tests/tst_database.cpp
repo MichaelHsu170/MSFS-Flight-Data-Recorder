@@ -821,10 +821,7 @@ private slots:
 		FlightDriver sim;
 		const int tripId = sim.startTrip();
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
-		sqlite3* db = connect_db_readwrite();
-		QVERIFY(db);
-		exec(db, "DROP TABLE trip_data");
-		sqlite3_close(db);
+		exec("DROP TABLE trip_data");
 		sim.tick();
 		QVERIFY(waitFor([&log, tripId] {
 			return !lastLogWith(log, { QStringLiteral("db_write_worker"), QStringLiteral("trip %1").arg(tripId) }).isEmpty();

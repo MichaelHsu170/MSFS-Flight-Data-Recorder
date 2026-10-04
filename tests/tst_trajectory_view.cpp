@@ -70,6 +70,7 @@ class TstTrajectoryView : public QObject {
 
 private slots:
 	void initTestCase() {
+		isolateFiles();
 		view_ = new TrajectoryView;
 		view_->resize(1000, 700); // clears both splitters' minimum sizes
 		view_->show();

@@ -8,7 +8,7 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QMouseEvent>
-#include <QThread>
+#include <QRegularExpression>
 #include <QToolTip>
 #include <QtTest>
 
