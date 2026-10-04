@@ -120,7 +120,7 @@ struct ChartSeriesData {
 // it runs on a worker thread.
 ChartSeriesData buildChartSeries(const std::vector<ChartSample>& samples);
 
-// Samples lo..hi of full, thinned to at most maxPoints (see
+// Samples lo..hi of full, thinned to at most maxPoints plus sample hi (see
 // decimatedIndices() in trip_dataset.h). Empty if lo..hi isn't inside full.
 QList<QPointF> decimateSeries(const QList<QPointF>& full, int lo, int hi, int maxPoints);
 

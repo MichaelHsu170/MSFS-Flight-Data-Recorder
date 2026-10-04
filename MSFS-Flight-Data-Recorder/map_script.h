@@ -11,18 +11,20 @@
 // data with no WebEngine involved. Each returns one complete statement; data
 // is passed as compact JSON, so any string is escaped correctly.
 
-// Most trajectory points sent to the page: Leaflet bogs down rendering more
-// than about this many polyline segments.
+// Most trajectory points sent to the page, besides the last one, which is
+// always kept: Leaflet bogs down rendering more than about this many polyline
+// segments.
 constexpr int MAP_MAX_TRAJECTORY_POINTS = 3000;
 
 // "window._x=...;" -- sets a page global to a string.
 QString mapSetStringJs(const QString& jsVariable, const QString& value);
 // setTrajectory({lats, lngs, idxs, version}): the (lat, lng) points thinned
-// to at most MAP_MAX_TRAJECTORY_POINTS (see decimatedIndices() in
+// to at most MAP_MAX_TRAJECTORY_POINTS plus the last (see decimatedIndices() in
 // trip_dataset.h), as parallel arrays -- more compact than one object per
 // point and faster to iterate in JS. idxs are the original sample indices, so
 // the page reports correct indices back for the cursor and visible range;
-// version comes back with each visible range (see MapBridge::rangeChanged()).
+// version comes back with each cursor index and visible range (see
+// MapBridge::markerMoved()/rangeChanged()).
 QString mapSetTrajectoryJs(const std::vector<std::pair<double, double>>& coords, int version);
 QString mapSetLiftoffsJs(const std::vector<LiftoffPoint>& liftoffs);
 QString mapSetTouchdownsJs(const std::vector<TouchdownPoint>& touchdowns);

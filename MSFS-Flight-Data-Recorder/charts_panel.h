@@ -79,8 +79,8 @@ private:
 	// Labels the engine power chart for engine (chartEngineSpec()): its
 	// series, axis titles and, for no recorded power, the no-data message.
 	void setEngine(const EnginePower& engine);
-	// Loads samples lo..hi of full_, thinned to at most kDisplayPoints, into
-	// every series.
+	// Loads samples lo..hi of full_, thinned to at most kDisplayPoints plus
+	// sample hi, into every series.
 	void loadFullSlice(int lo, int hi);
 
 	QQuickWidget* view_;
