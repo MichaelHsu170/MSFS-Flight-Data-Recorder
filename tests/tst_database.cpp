@@ -1,6 +1,7 @@
 // Database layer: schema creation and upgrade, a full write/read round trip
 // of every trip_data field, the recorder's write API (trips, liftoff and
-// touchdown rows), the Trip History queries, event rows and trip deletion.
+// touchdown rows), the Trip History queries, event rows, trip deletion, the
+// UI's connections and AI analysis reports.
 #include "test_support.h"
 
 #include "db.h"
