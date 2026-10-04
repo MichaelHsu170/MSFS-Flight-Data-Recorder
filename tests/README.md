@@ -14,9 +14,10 @@ test), or from a terminal:
 .\.vscode\scripts\build.bat Release test
 ```
 
-`ctest.exe` itself ships with CMake next to `cmake.exe`
-(`...\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\`),
-which isn't on PATH by default; `build.bat` finds it there.
+`ctest.exe` itself ships with CMake next to `cmake.exe`, which needn't be
+on PATH: `build.bat` uses the `cmake.exe` on PATH, else Visual Studio's
+bundled copy (`<VS install>\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\`),
+and runs the `ctest.exe` beside it.
 
 A single test program can also be run directly, e.g.
 `build\Debug\tests\tst_airport_lookup.exe`, optionally with one test

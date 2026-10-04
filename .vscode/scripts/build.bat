@@ -25,7 +25,6 @@ if "%CONFIG%"=="" (
 
 set "ROOT=%~dp0..\.."
 set "BUILD_DIR=%ROOT%\build\%CONFIG%"
-set "CMAKE=C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
 
 REM --- Locate and source the MSVC x64 dev environment (needed by both cmake
 REM     configure's compiler checks and the MSBuild invocation that
@@ -49,6 +48,18 @@ if defined VSINSTALL (
   )
 ) else (
   echo Warning: Visual Studio 18 installation not found; continuing without VS env.
+)
+
+REM --- cmake.exe: the first one on PATH (which the VS env above includes when
+REM     Visual Studio's bundled CMake is installed), else that bundled copy
+REM     directly. ---
+set "CMAKE="
+for /f "delims=" %%C in ('where cmake.exe 2^>nul') do if not defined CMAKE set "CMAKE=%%C"
+set "VS_CMAKE=!VSINSTALL!\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+if not defined CMAKE if defined VSINSTALL if exist "!VS_CMAKE!" set "CMAKE=!VS_CMAKE!"
+if not defined CMAKE (
+  echo Error: cmake.exe not found. Add CMake's bin folder to PATH, or install Visual Studio 18's "C++ CMake tools for Windows".
+  endlocal & exit /b 1
 )
 
 if not exist "%BUILD_DIR%\CMakeCache.txt" (

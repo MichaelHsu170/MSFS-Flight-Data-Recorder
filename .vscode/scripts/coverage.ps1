@@ -26,24 +26,26 @@ param(
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $buildDir = Join-Path $root "build\$Config"
-$cmake = "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
-$ctest = Join-Path (Split-Path $cmake -Parent) "ctest.exe"
+$cache = Join-Path $buildDir "CMakeCache.txt"
 $openCppCoverage = "C:\Program Files\OpenCppCoverage\OpenCppCoverage.exe"
 $sources = Join-Path $root "MSFS-Flight-Data-Recorder"
 $excluded = Join-Path $root "build"
 $reportDir = Join-Path $root "coverage_report"
 $xml = Join-Path $root "coverage.xml"
 
-if (-not (Test-Path $ctest)) {
-    Write-Host "ERROR: ctest.exe not found at $ctest" -ForegroundColor Red
-    exit 1
-}
 if (-not (Test-Path $openCppCoverage)) {
     Write-Host "ERROR: OpenCppCoverage not found at $openCppCoverage (winget install --id OpenCppCoverage.OpenCppCoverage -e)" -ForegroundColor Red
     exit 1
 }
-if (-not (Test-Path (Join-Path $buildDir "CMakeCache.txt"))) {
+if (-not (Test-Path $cache)) {
     Write-Host "ERROR: build\$Config isn't configured yet -- build it first (e.g. .\.vscode\scripts\build.bat $Config test)" -ForegroundColor Red
+    exit 1
+}
+# The ctest.exe of the CMake that configured the build (build.bat's choice).
+$ctestEntry = Select-String -Path $cache -Pattern '^CMAKE_CTEST_COMMAND:INTERNAL=(.+)$' | Select-Object -First 1
+$ctest = if ($ctestEntry) { $ctestEntry.Matches[0].Groups[1].Value } else { $null }
+if (-not $ctest -or -not (Test-Path $ctest)) {
+    Write-Host "ERROR: ctest.exe from build\$Config\CMakeCache.txt not found ($ctest) -- reconfigure by deleting that file and building again" -ForegroundColor Red
     exit 1
 }
 if (-not (Test-Path $sources)) {

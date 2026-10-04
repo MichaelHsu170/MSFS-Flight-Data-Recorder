@@ -13,6 +13,7 @@ A Qt desktop application for Microsoft Flight Simulator 2024 that records teleme
 | Dependency | Version / Path |
 |---|---|
 | Visual Studio Build Tools | 18 (2026) at `C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools` |
+| CMake | on PATH, or Visual Studio's bundled copy ("C++ CMake tools for Windows") |
 | Qt (MSVC 2022 64-bit) | 6.11.1 at `C:\Qt\6.11.1\msvc2022_64` |
 | MSFS 2024 SimConnect SDK | at `C:\MSFS 2024 SDK\SimConnect SDK` |
 
