@@ -952,6 +952,28 @@ function initLeafletProvider() {
     // nothing to fit to there.
     var overviewBounds = null;
 
+    // Leaflet silently drops an animated zoom asked for while another is
+    // still running (Map._tryAnimatedZoom), so a trip selected during the
+    // previous trip's fit would be left at that fit. A fit asked for then
+    // waits for that zoom to end instead; only the latest one is kept.
+    var zoomAnimating = false;
+    var deferredFitBounds = null;
+    function fitMapTo(bounds) {
+        if (zoomAnimating) {
+            deferredFitBounds = bounds;
+            return;
+        }
+        map.fitBounds(bounds, { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
+    }
+    map.on('zoomanim', function () { zoomAnimating = true; });
+    map.on('zoomend', function () {
+        zoomAnimating = false;
+        var bounds = deferredFitBounds;
+        deferredFitBounds = null;
+        if (bounds !== null)
+            fitMapTo(bounds);
+    });
+
     function snapAndReport(decimatedIdx) {
         if (marker !== null)
             marker.setLatLng(trajectoryLatLngs[decimatedIdx]);
@@ -994,6 +1016,7 @@ function initLeafletProvider() {
         overviewLines.forEach(function(l) { map.removeLayer(l); });
         overviewLines = [];
         overviewBounds = null;
+        deferredFitBounds = null;  // a waiting fit is for what was shown before
         if (groupLegendControl) {
             map.removeControl(groupLegendControl);
             groupLegendControl = null;
@@ -1025,7 +1048,7 @@ function initLeafletProvider() {
             // round-trip that syncs the charts panel's visible range) now
             // fire only once the animation settles, a few hundred ms later
             // than an instant fitBounds would.
-            map.fitBounds(polyline.getBounds(), { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
+            fitMapTo(polyline.getBounds());
 
             if (marker === null) {
                 marker = L.marker(trajectoryLatLngs[0], { draggable: true }).addTo(map);
@@ -1193,16 +1216,16 @@ function initLeafletProvider() {
             });
             if (bounds.length > 0) {
                 overviewBounds = L.latLngBounds(bounds);
-                map.fitBounds(overviewBounds, { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
+                fitMapTo(overviewBounds);
             }
             groupLegendControl = buildGroupLegend(legendGroups, map, overviewLines);
         },
         resetZoom: function () {
             map.closePopup();
             if (trajectoryLatLngs.length > 0)
-                map.fitBounds(polyline.getBounds(), { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
+                fitMapTo(polyline.getBounds());
             else if (overviewBounds !== null)
-                map.fitBounds(overviewBounds, { padding: [20, 20], animate: true, duration: MAP_FIT_BOUNDS_DURATION });
+                fitMapTo(overviewBounds);
         }
     };
 

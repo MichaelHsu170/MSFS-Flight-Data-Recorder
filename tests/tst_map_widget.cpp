@@ -170,11 +170,12 @@ private slots:
 	}
 
 	void resetZoomRefitsTheMapToTheTrajectory() {
-		QSignalSpy spy(widget_, &MapWidget::trajectoryLoaded);
 		TripDataset dataset;
 		dataset.points = { samplePoint(10, 20), samplePoint(11, 21) };
 		widget_->setDataset(dataset);
-		QVERIFY(spy.wait(10000));
+		// Waits for this trip on the page, not for trajectoryLoaded: the
+		// previous slot's loads, never waited for, can still emit that late.
+		QTRY_COMPARE_WITH_TIMEOUT(mapTrajectoryPointCount(widget_), 2, 10000);
 		QTest::qWait(1500); // let the animated fit (0.75 s) settle
 		const int fitted = mapZoom(widget_);
 		QVERIFY(fitted > 2);
@@ -183,6 +184,24 @@ private slots:
 		QCOMPARE(mapZoom(widget_), 2);
 		widget_->resetZoom();
 		QTRY_COMPARE_WITH_TIMEOUT(mapZoom(widget_), fitted, 5000);
+	}
+
+	// Leaflet drops an animated zoom asked for during another one, so a trip
+	// selected while the previous trip's fit is still zooming must still be
+	// fitted once that zoom ends.
+	void aTripLoadedDuringTheLastFitsZoomIsStillFitted() {
+		evalPageJs(widget_, QStringLiteral("leafletMapInstance.setView([11, 21], 9, {animate: false})"));
+		// The second trip is loaded once the first one's zoom (9 -> 7) has
+		// started animating.
+		evalPageJs(widget_, QStringLiteral(
+			"leafletMapInstance.once('zoomanim', function () {"
+			"  setTrajectory({lats: [10, 11], lngs: [20, 21], idxs: [0, 1], version: 0});"
+			"});"
+			"setTrajectory({lats: [10, 12], lngs: [20, 22], idxs: [0, 1], version: 0});"));
+		QTest::qWait(1500); // let both fits settle
+		// 1 x 1 degree at 10 N in the 400 x 300 view less 20 px padding:
+		// ~182 px a side at zoom 8, ~364 px (too wide) at zoom 9.
+		QCOMPARE(mapZoom(widget_), 8);
 	}
 
 	// A trip with no samples has nowhere to put the cursor, so the previous
