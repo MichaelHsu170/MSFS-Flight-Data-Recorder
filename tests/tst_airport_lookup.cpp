@@ -418,17 +418,46 @@ private slots:
 	}
 
 	void magneticVariationIsAppliedToHeading() {
-		// Aircraft heading is magnetic; runway heading true. With 10°E
-		// variation the aircraft's magnetic 80° is true 90° -- primary end.
+		// Aircraft heading is magnetic; runway heading true; the sim's MAGVAR
+		// is negative for east variation. With 10°E variation the aircraft's
+		// magnetic 175° is true 185°: more than 90° off runway 09's true 90°,
+		// so the secondary end. Ignoring the variation, or applying it the
+		// wrong way, gives 175° or 165° -- the primary end.
 		FlightDriver sim;
 		const RunwaySpec rwy = eastWestRunway();
 		AirportSpec airport = testAirport(rwy);
 		airport.magvar = -10;
 		sim.airports = { airport };
-		const int tripId = startOnRunway(sim, rwy, 50, 100);
+		const int tripId = startOnRunway(sim, rwy, 50, 175);
 		liftOff(sim, onRunway(rwy, 1500));
 		sim.serviceLookups();
-		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
+		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("27"));
+	}
+
+	void trueHeadingPastNorthIsCompared() {
+		// Magnetic 359° with 6°E variation is true 365°, i.e. 5°. Of two
+		// runways crossing at the liftoff point, true 8° (3° off) is better
+		// aligned than true 0.5° (4.5° off).
+		FlightDriver sim;
+		RunwaySpec a = eastWestRunway();
+		a.heading = 0.5f;
+		a.primaryNumber = 36;
+		a.secondaryNumber = 18;
+		RunwaySpec b = eastWestRunway();
+		b.heading = 8;
+		b.primaryNumber = 1;
+		b.secondaryNumber = 19;
+		AirportSpec airport = testAirport(a);
+		airport.runways = { a, b };
+		airport.magvar = -6;
+		sim.airports = { airport };
+		COORDINATE center;
+		center.latitude = 43.0;
+		center.longitude = 1.0;
+		const int tripId = startOnRunway(sim, a, 50, 359);
+		liftOff(sim, center);
+		sim.serviceLookups();
+		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("01"));
 	}
 
 	void bestAlignedOfCrossingRunwaysIsChosen() {
