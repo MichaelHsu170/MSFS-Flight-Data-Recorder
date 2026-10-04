@@ -31,7 +31,6 @@
 #include <QColor>
 #include <QDateTime>
 #include "logger.h"
-#include <algorithm>
 
 #include <QEvent>
 #include <QMouseEvent>

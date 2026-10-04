@@ -14,7 +14,6 @@
 #include <QtGraphs/qdatetimeaxis.h>
 #include <QtGraphs/qvalueaxis.h>
 
-#include <QtMath>
 
 namespace {
 

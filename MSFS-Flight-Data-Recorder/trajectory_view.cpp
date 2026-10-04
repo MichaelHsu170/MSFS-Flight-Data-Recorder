@@ -10,7 +10,6 @@
 #include <QVBoxLayout>
 #include <QElapsedTimer>
 #include <QThreadPool>
-#include <QtConcurrent/QtConcurrentRun>
 
 namespace {
 
