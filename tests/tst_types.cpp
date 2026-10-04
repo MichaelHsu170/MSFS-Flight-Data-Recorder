@@ -54,6 +54,18 @@ private slots:
 		QVERIFY(qAbs(north.longitude) < 1e-9);
 	}
 
+	void destinationOffTheEquatorMatchesReference() {
+		// The worked example from Chris Veness's "Calculate distance, bearing
+		// and more between Latitude/Longitude points" (movable-type.co.uk),
+		// also with R = 6371 km: from 53°19'14"N 001°43'47"W on bearing
+		// 096°01'18" for 124.8 km lands at 53°11'18"N 000°08'00"E. The
+		// published answer is to the arcsecond (0.00028°).
+		COORDINATE start = at(53 + 19 / 60.0 + 14 / 3600.0, -(1 + 43 / 60.0 + 47 / 3600.0));
+		COORDINATE end = start.destinationWithDistanceAndBearing(124.8, 96 + 1 / 60.0 + 18 / 3600.0);
+		QVERIFY2(qAbs(end.latitude - (53 + 11 / 60.0 + 18 / 3600.0)) < 0.0003, qPrintable(QString::number(end.latitude, 'f', 6)));
+		QVERIFY2(qAbs(end.longitude - 8 / 60.0) < 0.0003, qPrintable(QString::number(end.longitude, 'f', 6)));
+	}
+
 	void destinationRoundTripsAtRunwayScale() {
 		// At the few-kilometre scale the recorder uses it for (runway ends,
 		// margin rectangles), destination -> distance/bearing agrees closely.

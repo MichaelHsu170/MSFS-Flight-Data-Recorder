@@ -129,7 +129,7 @@ public:
 		double lambda = longitude * V_PI / 180.0;
 		double theta = bearing * V_PI / 180.0;
 		ret.latitude = asin(sin(phy) * cos(distance / EARTHRADIUSKM) + cos(phy) * sin(distance / EARTHRADIUSKM) * cos(theta));
-		ret.longitude = lambda + atan2(sin(theta) * sin(distance / EARTHRADIUSKM) * cos(phy), cos(distance / EARTHRADIUSKM) - sin(phy) * sin(phy));
+		ret.longitude = lambda + atan2(sin(theta) * sin(distance / EARTHRADIUSKM) * cos(phy), cos(distance / EARTHRADIUSKM) - sin(phy) * sin(ret.latitude));
 		ret.latitude *= 180.0 / V_PI;
 		ret.longitude *= 180.0 / V_PI;
 		return ret;

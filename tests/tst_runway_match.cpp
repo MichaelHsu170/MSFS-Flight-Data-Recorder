@@ -85,9 +85,11 @@ private slots:
 		QVERIFY(qAbs(m.candidates[0].diff_bearing_tra - 5) < 1e-9);
 		QVERIFY(qAbs(m.candidates[0].distances[0] - 2000 * kFeetPerMeter) < 2);
 		// Now 5 m to the LEFT of the direction of travel. Measured from the far
-		// end, the approximate destinationWithDistanceAndBearing() (types.h)
-		// puts it ~0.2 m (0.7 ft) short, hence the wider tolerance.
-		QVERIFY2(qAbs(m.candidates[0].distances[1] + 5 * kFeetPerMeter) < 1.0, qPrintable(QString::number(m.candidates[0].distances[1])));
+		// end, it comes out ~0.2 m (0.7 ft) short, hence the wider tolerance:
+		// match_runways() measures along the runway's nominal heading there,
+		// but the centerline's great circle bears slightly off it at either
+		// end (meridian convergence: ~0.01 degrees at 43N over 1.5 km).
+		QVERIFY2(qAbs(m.candidates[0].distances[1] + 5 * kFeetPerMeter) < 1.0,qPrintable(QString::number(m.candidates[0].distances[1])));
 	}
 
 	void pointExactlyOnTheCenterlineIsMeasuredFromTheThreshold() {
