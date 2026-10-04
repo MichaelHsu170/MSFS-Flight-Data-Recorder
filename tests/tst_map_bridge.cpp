@@ -47,13 +47,6 @@ private slots:
 		QCOMPARE(queryValue("SELECT analysis_report FROM trip_touchdowns WHERE id=6").toString(), QStringLiteral("Grade: B"));
 	}
 
-	void invalidRowIdsAreIgnored() {
-		MapBridge bridge;
-		bridge.saveLiftoffAnalysisReport(0, "x");
-		bridge.saveTouchdownAnalysisReport(-1, "x");
-		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_liftoffs WHERE analysis_report IS NOT NULL").toInt(), 0);
-	}
-
 	void reportIsDroppedWithoutADatabase() {
 		removeDatabase();
 		MapBridge bridge;

@@ -1,7 +1,7 @@
 // Charts panel widget (charts_panel.cpp): the QQuickWidget wrapper around
-// the QML chart surface -- setDataset()/setVisibleRange()/valueAt() driving the
-// real QML series objects, not the pure chart-data math (already covered
-// standalone in tst_chart_data.cpp).
+// the QML chart surface -- setDataset()/setVisibleRange()/setCursorIndex()/
+// valueAt() driving the real QML series objects, not the pure chart-data math
+// (already covered standalone in tst_chart_data.cpp).
 #include "charts_panel.h"
 
 #include <QDateTimeAxis>

@@ -517,9 +517,10 @@ private slots:
 		QCOMPARE(FakeSim::state().closeCalls, 0);
 	}
 
-	// recorder.cpp/flight_phase.cpp/airport_lookup.cpp/db.cpp call these with whatever STATUS
-	// they were given; one with no RecorderBridge attached (or none at all)
-	// must reach no bridge rather than dereference a null gui_context.
+	// recorder.cpp/flight_phase.cpp/airport_lookup.cpp/db.cpp call these with
+	// whatever STATUS they were given; one with no RecorderBridge attached (or
+	// none at all) must reach no bridge rather than dereference a null
+	// gui_context.
 	void notificationsWithoutAGuiContextReachNoBridge() {
 		FlightDriver sim;
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);

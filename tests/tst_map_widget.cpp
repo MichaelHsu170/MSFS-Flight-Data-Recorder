@@ -1,6 +1,7 @@
 // Map widget (map_widget.cpp): the QWebEngineView wrapper around the
 // Leaflet/OSM trajectory map -- setDataset()/showOverview()/
-// resetZoom()/setEventsVisible() driving the real page, not the pure JS
+// resetZoom()/setEventsVisible() driving the real page, and the page's cursor
+// and range forwarded only for the current trajectory; not the pure JS
 // string-building math (already covered standalone in tst_map_script.cpp).
 //
 // Needs a custom main(), not QTEST_MAIN: QWebEngineView requires
