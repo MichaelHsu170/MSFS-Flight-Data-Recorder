@@ -12,9 +12,9 @@ struct sqlite3;
 // connect_db_readwrite() for writes), same convention as deleteTripData().
 
 // Ordered by the user-customized sort_order (ties broken alphabetically --
-// only relevant for groups that have never been reordered, which all share
-// sort_order 0); each group's tripCount is the number of trips currently
-// assigned to it.
+// only relevant for groups created before the sort_order column existed,
+// which the migration gave sort_order 0, and never reordered since); each
+// group's tripCount is the number of trips currently assigned to it.
 std::vector<TripGroup> queryAllGroups(sqlite3* sql);
 
 // True if a group other than excludeGroupId (0: none) already has name,

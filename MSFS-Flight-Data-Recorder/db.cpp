@@ -921,11 +921,11 @@ static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, 
 // migrate_legacy_engine_columns()' rebuild drops), so Trip History reads stay
 // indexed even when the schema was created/updated by migrate_db() alone (SimConnect
 // never connected this session -- see migrate_db()'s doc comment in db.h).
-// trip_data/trip_events/trip_touchdowns are all queried with "WHERE trip = ?"
-// (db_history.cpp) -- without an index that's a full table scan across every
-// sample ever recorded, for every trip load. trips itself has no such index
-// need: its only query is an unfiltered "ORDER BY id DESC" over the whole
-// table, and id is already the PRIMARY KEY. IF NOT EXISTS makes this safe to
+// trip_data/trip_events/trip_liftoffs/trip_touchdowns are all queried with
+// "WHERE trip = ?" (db_history.cpp) -- without an index that's a full table
+// scan across every sample ever recorded, for every trip load. trips is
+// filtered by group_id when counting a group's trips and when a deleted
+// group's trips are ungrouped (db_groups.cpp). IF NOT EXISTS makes this safe to
 // run on every connect/migrate, same as create_schema()'s CREATE TABLEs; the
 // one-time build cost for an existing large database is paid back on every
 // load after. Failures are logged but never fatal -- a missing index only

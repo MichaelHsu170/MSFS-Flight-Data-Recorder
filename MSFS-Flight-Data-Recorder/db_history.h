@@ -9,7 +9,8 @@ struct sqlite3;
 // Which table a liftoff/touchdown row lives in.
 enum class CONTACT_TABLE { LIFTOFFS, TOUCHDOWNS };
 
-// Queries against the existing trips/trip_data tables -- all read-only except
+// Queries against the trip tables (trips, trip_data, trip_liftoffs,
+// trip_touchdowns, trip_events) -- all read-only except
 // deleteTripData() and saveAnalysisReport() below. Plain sqlite3 in, plain
 // structs out -- no Qt UI dependency, so this is reusable outside the Trip
 // History panel (e.g. from a test).

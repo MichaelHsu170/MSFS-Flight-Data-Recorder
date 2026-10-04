@@ -167,12 +167,10 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 		return columnIndex.value(QString::fromLatin1(name), -1);
 	};
 
-	// A column's position (and a field's label text) is the same on every row
-	// of this prepared statement -- resolving names to indices and building
-	// label strings is one-time per-query setup, not per-row work. Doing it
-	// here instead of inside the row loop below turns a QHash lookup per field +
-	// label rebuilds per row into a handful of direct array reads (and QString
-	// refcount bumps, via Qt's copy-on-write) per row.
+	// A column's position is the same on every row of this prepared statement
+	// -- resolving names to indices is one-time per-query setup, not per-row
+	// work. Doing it here instead of inside the row loop below turns a QHash
+	// lookup per field per row into a direct column read.
 	const int idxBoolGroup1 = indexOf("bool_group_1");
 	const int idxBoolGroup2 = indexOf("bool_group_2");
 	const int idxBoolGroup3 = indexOf("bool_group_3");
