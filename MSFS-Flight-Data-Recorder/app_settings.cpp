@@ -43,8 +43,42 @@ QStringList commentLines(const QString& comment) {
 	return out;
 }
 
-// Key comments written both into the default settings.ini and when the setter
-// adds the key to an existing file that lacks it.
+// Defaults of keys a missing or invalid value falls back to.
+constexpr int kDefaultSampleIntervalMs = 500;
+constexpr int kDefaultChartsPanelHeight = 400;
+constexpr int kDefaultFieldColumnWidth = 140;
+
+// Key and section comments written both into the default settings.ini and
+// when the setter adds the key to an existing file that lacks it.
+QString recordingEnabledComment() {
+	return QStringLiteral("Auto-managed by the app. Whether automatic recording is allowed to start,\n"
+	                      "toggled via the Recording indicator in the Live Status panel. Disabling it\n"
+	                      "only prevents a new trip from starting; it doesn't stop one already in\n"
+	                      "progress. Default: true.");
+}
+
+QString chartsPanelHeightComment() {
+	return QStringLiteral("Height in pixels of the Charts panel (below the map). The map takes the\n"
+	                      "remaining vertical space. Default: %1.").arg(kDefaultChartsPanelHeight);
+}
+
+QString columnWidthsSectionComment() {
+	return QStringLiteral("Auto-managed by the app. Persisted column widths for the tables in the\n"
+	                      "UI that support user resizing.");
+}
+
+QString fieldColumnWidthComment() {
+	return QStringLiteral("Width in pixels of the Field column in the Data Table panel. The Value\n"
+	                      "column always stretches to fill the rest. Default: %1.").arg(kDefaultFieldColumnWidth);
+}
+
+QString tripHistoryColumnWidthsComment() {
+	return QStringLiteral("Column widths in pixels for the Trip History table, as comma-separated\n"
+	                      "key=value pairs keyed by TripHistoryModel::Column enum member name (e.g.\n"
+	                      "TitleColumn=120). Columns using Stretch sizing are never stored. Unknown\n"
+	                      "or missing keys fall back to that column's coded default.");
+}
+
 QString hiddenFieldsComment() {
 	return QStringLiteral("Comma-separated list of field labels hidden in the Data Table panel via the\n"
 	                      "Visible Fields dialog. Absent or empty means all fields are visible.");
@@ -216,10 +250,9 @@ void ensureSettingsFileExists() {
 		"; a larger database and slower trip load times. Must be a positive integer.\n"
 		"; Default: 500  (0.5 s — adequate for all aircraft types including fast jets\n"
 		"; at subsonic speeds; go lower only for supersonic recording needs).\n"
-		"sample_interval_ms=500\n"
+		"sample_interval_ms=" << kDefaultSampleIntervalMs << "\n"
 		"\n"
-		"; Auto-managed by the app. Whether automatic recording is allowed to start,\n"
-		"; toggled via the Recording indicator in the Live Status panel.\n"
+		<< commentLines(recordingEnabledComment()).join('\n') << "\n"
 		"enabled=true\n"
 		"\n"
 		"[logging]\n"
@@ -237,25 +270,19 @@ void ensureSettingsFileExists() {
 		<< commentLines(rightPanelWidthComment()).join('\n') << "\n"
 		"right_panel_width=" << kRightPanelWidth << "\n"
 		"\n"
-		"; Height in pixels of the Charts panel (below the map). The map takes the\n"
-		"; remaining vertical space. Default: 400.\n"
-		"charts_panel_height=400\n"
+		<< commentLines(chartsPanelHeightComment()).join('\n') << "\n"
+		"charts_panel_height=" << kDefaultChartsPanelHeight << "\n"
 		"\n"
 		"[data_table]\n"
 		<< commentLines(hiddenFieldsComment()).join('\n') << "\n"
 		"hidden_fields=\n"
 		"\n"
-		"; Auto-managed by the app. Persisted column widths for the tables in the\n"
-		"; UI that support user resizing.\n"
+		<< commentLines(columnWidthsSectionComment()).join('\n') << "\n"
 		"[table_column_width]\n"
-		"; Width in pixels of the Field column in the Data Table panel. The Value\n"
-		"; column always stretches to fill the rest. Default: 140.\n"
-		"data_table_field_column_width=140\n"
+		<< commentLines(fieldColumnWidthComment()).join('\n') << "\n"
+		"data_table_field_column_width=" << kDefaultFieldColumnWidth << "\n"
 		"\n"
-		"; Column widths in pixels for the Trip History table, as comma-separated\n"
-		"; key=value pairs keyed by TripHistoryModel::Column enum member name (e.g.\n"
-		"; TitleColumn=120). Columns using Stretch sizing are never stored. Unknown\n"
-		"; or missing keys fall back to that column's coded default.\n"
+		<< commentLines(tripHistoryColumnWidthsComment()).join('\n') << "\n"
 		"trip_history_column_widths=\n";
 
 	Logger::logf(Logger::Trace, "Settings", "Default settings.ini created at %s", qUtf8Printable(path));
@@ -290,7 +317,7 @@ void AppSettings::setDataTableHiddenFields(const QStringList& fields) {
 }
 
 int AppSettings::dataTableFieldColumnWidth() const {
-	return positiveInt("table_column_width/data_table_field_column_width", 140);
+	return positiveInt("table_column_width/data_table_field_column_width", kDefaultFieldColumnWidth);
 }
 
 void AppSettings::setDataTableFieldColumnWidth(int w) {
@@ -298,10 +325,8 @@ void AppSettings::setDataTableFieldColumnWidth(int w) {
 		QStringLiteral("table_column_width"),
 		QStringLiteral("data_table_field_column_width"),
 		QString::number(w),
-		QStringLiteral("Auto-managed by the app. Persisted column widths for the tables in the\n"
-		               "UI that support user resizing."),
-		QStringLiteral("Width in pixels of the Field column in the Data Table panel. The Value\n"
-		               "column always stretches to fill the rest. Default: 140.")
+		columnWidthsSectionComment(),
+		fieldColumnWidthComment()
 	);
 }
 
@@ -320,7 +345,7 @@ void AppSettings::setRightPanelWidth(int w) {
 }
 
 int AppSettings::chartsPanelHeight() const {
-	return positiveInt("layout/charts_panel_height", 400);
+	return positiveInt("layout/charts_panel_height", kDefaultChartsPanelHeight);
 }
 
 void AppSettings::setChartsPanelHeight(int h) {
@@ -329,8 +354,7 @@ void AppSettings::setChartsPanelHeight(int h) {
 		QStringLiteral("charts_panel_height"),
 		QString::number(h),
 		{},
-		QStringLiteral("Height in pixels of the Charts panel (below the map). The map takes the\n"
-		               "remaining vertical space. Default: 400.")
+		chartsPanelHeightComment()
 	);
 }
 
@@ -356,12 +380,8 @@ void AppSettings::setTripHistoryColumnWidths(const QMap<QString, int>& widths) {
 		QStringLiteral("table_column_width"),
 		QStringLiteral("trip_history_column_widths"),
 		parts.join(','),
-		QStringLiteral("Auto-managed by the app. Persisted column widths for the tables in the\n"
-		               "UI that support user resizing."),
-		QStringLiteral("Column widths in pixels for the Trip History table, as comma-separated\n"
-		               "key=value pairs keyed by TripHistoryModel::Column enum member name (e.g.\n"
-		               "TitleColumn=120). Columns using Stretch sizing are never stored. Unknown\n"
-		               "or missing keys fall back to that column's coded default.")
+		columnWidthsSectionComment(),
+		tripHistoryColumnWidthsComment()
 	);
 }
 
@@ -380,8 +400,9 @@ int AppSettings::sampleIntervalMs() const {
 		Logger::logf(Logger::Trace, "Settings", "sample_interval_ms=%d read from settings.ini", v);
 		return v;
 	}
-	Logger::logf(Logger::Trace, "Settings", "sample_interval_ms missing or invalid in settings.ini; falling back to default 500");
-	return 500;
+	Logger::logf(Logger::Trace, "Settings", "sample_interval_ms missing or invalid in settings.ini; falling back to default %d",
+		kDefaultSampleIntervalMs);
+	return kDefaultSampleIntervalMs;
 }
 
 bool AppSettings::recordingEnabled() const {
@@ -396,9 +417,6 @@ void AppSettings::setRecordingEnabled(bool enabled) {
 		QStringLiteral("enabled"),
 		enabled ? QStringLiteral("true") : QStringLiteral("false"),
 		{},
-		QStringLiteral("Whether automatic recording is allowed to start, toggled via the\n"
-		               "Recording indicator in the Live Status panel. Disabling it only prevents\n"
-		               "a new trip from starting; it doesn't stop one already in progress.\n"
-		               "Default: true.")
+		recordingEnabledComment()
 	);
 }

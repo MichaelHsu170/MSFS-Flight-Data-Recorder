@@ -109,7 +109,9 @@ gemini_api_key=
 sample_interval_ms=500
 
 ; Auto-managed by the app. Whether automatic recording is allowed to start,
-; toggled via the Recording indicator in the Live Status panel.
+; toggled via the Recording indicator in the Live Status panel. Disabling it
+; only prevents a new trip from starting; it doesn't stop one already in
+; progress. Default: true.
 enabled=true
 
 [logging]
