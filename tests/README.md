@@ -94,7 +94,10 @@ verification machine.
     non-null by the time the constructor returns and stays that way for the
     object's whole life, even when the panel is never shown.
   - A specific named child missing from an otherwise-ready root
-    (`setAxisRange()`'s `!axis`, `loadFullSlice()`'s `!series`): every series and axis object name `buildSeriesCache()` looks up
+    (`setAxisRange()`'s `!axis`, `setYAxes()`'s axis checks,
+    `setVisibleRange()`'s `!cache_.valid || !cache_.xAxis`, and the
+    `series` checks in `loadFullSlice()` and `setDataset()`'s clearing
+    loop): every series and axis object name `buildSeriesCache()` looks up
     is always present in the real `charts_panel.qml`, so these guard a QML
     typo/renumbering that would also fail loudly elsewhere, not a state any
     test can reach standalone.
