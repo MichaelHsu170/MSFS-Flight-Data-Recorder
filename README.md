@@ -269,6 +269,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── settings.json             Keeps the CMake Tools extension, if installed, from auto-configuring
 │   └── scripts/
 │       ├── build.bat             Sources vcvarsall.bat once, configures (if needed), builds, optionally runs the tests
-│       └── clean.ps1             Removes the build/ directory
+│       ├── clean.ps1             Removes the build/ directory
+│       └── coverage.ps1          Runs the tests under OpenCppCoverage and writes a line-coverage report
 └── CMakeLists.txt                fdr_core library (all app code but main.cpp), the app, and tests/
 ```
