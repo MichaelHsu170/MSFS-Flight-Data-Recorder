@@ -108,7 +108,7 @@ endif()
 
 # Windows system library for MessageBoxW (main.cpp)
 if (WIN32)
-    target_link_libraries(fdr_core PUBLIC user32.lib)
+    target_link_libraries(${PROJECT_NAME} PRIVATE user32.lib)
 endif()
 
 # SimConnect: allow user to set SIMCONNECT_DIR or leave unset
