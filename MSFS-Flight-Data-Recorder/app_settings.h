@@ -4,9 +4,9 @@
 #include <QString>
 #include <QStringList>
 
-// Thin QSettings wrapper -- an INI file next to the executable (alongside
-// flight_data.db), not the registry, so settings travel with a portable
-// install.
+// Thin QSettings wrapper -- an INI file in the app's folder (app_file_path(),
+// alongside flight_data.db), not the registry, so settings travel with a
+// portable install.
 class AppSettings {
 public:
 	static AppSettings& instance();

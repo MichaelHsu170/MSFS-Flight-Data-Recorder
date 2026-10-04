@@ -23,6 +23,17 @@ int positiveInt(const char* key, int fallback) {
 	return (ok && v > 0) ? v : fallback;
 }
 
+// key's comma-separated value as a list. QSettings' ini reader returns a
+// value containing a comma as a QStringList rather than a QString (and
+// QVariant::toString() on a multi-element list is empty), so take both forms.
+QStringList commaList(const char* key) {
+	const QVariant raw = makeSettings().value(QLatin1String(key));
+	if (raw.typeId() == QMetaType::QStringList)
+		return raw.toStringList();
+	const QString s = raw.toString();
+	return s.isEmpty() ? QStringList{} : s.split(',', Qt::SkipEmptyParts);
+}
+
 // Writes a single key=value in the named INI section, touching only that one
 // line. Every other line — comments, blank lines, other keys, other sections —
 // is preserved exactly.
@@ -253,14 +264,7 @@ AppSettings& AppSettings::instance() {
 }
 
 QStringList AppSettings::dataTableHiddenFields() const {
-	QSettings settings = makeSettings();
-	const QVariant raw = settings.value(QStringLiteral("data_table/hidden_fields"));
-	// QSettings may have written a native QStringList (legacy); our custom writer
-	// stores a plain comma-separated string — handle both.
-	if (raw.typeId() == QMetaType::QStringList)
-		return raw.toStringList();
-	const QString s = raw.toString();
-	return s.isEmpty() ? QStringList{} : s.split(',', Qt::SkipEmptyParts);
+	return commaList("data_table/hidden_fields");
 }
 
 void AppSettings::setDataTableHiddenFields(const QStringList& fields) {
@@ -323,19 +327,8 @@ void AppSettings::setChartsPanelHeight(int h) {
 }
 
 QMap<QString, int> AppSettings::tripHistoryColumnWidths() const {
-	QSettings settings = makeSettings();
-	const QVariant raw = settings.value(QStringLiteral("table_column_width/trip_history_column_widths"));
-	// QSettings' ini reader auto-detects a comma-separated value as a list and
-	// returns it typed as QStringList rather than QString -- QVariant::toString()
-	// on a multi-element QStringList yields an empty string, silently discarding
-	// every saved width. Same issue as dataTableHiddenFields(); handle both forms.
-	QStringList parts;
-	if (raw.typeId() == QMetaType::QStringList)
-		parts = raw.toStringList();
-	else if (!raw.toString().isEmpty())
-		parts = raw.toString().split(',', Qt::SkipEmptyParts);
 	QMap<QString, int> widths;
-	for (const QString& part : parts) {
+	for (const QString& part : commaList("table_column_width/trip_history_column_widths")) {
 		const int eq = part.indexOf('=');
 		if (eq < 0)
 			continue; // e.g. leftover from the old positional format -- ignore
