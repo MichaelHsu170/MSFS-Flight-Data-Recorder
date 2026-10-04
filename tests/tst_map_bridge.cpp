@@ -12,14 +12,6 @@ using namespace TestSupport;
 class TstMapBridge : public QObject {
 	Q_OBJECT
 
-private:
-	static void exec(const char* sql) {
-		sqlite3* db = connect_db_readwrite();
-		QVERIFY(db);
-		QCOMPARE(sqlite3_exec(db, sql, nullptr, nullptr, nullptr), SQLITE_OK);
-		sqlite3_close(db);
-	}
-
 private slots:
 	void initTestCase() { isolateFiles(); }
 	void init() {

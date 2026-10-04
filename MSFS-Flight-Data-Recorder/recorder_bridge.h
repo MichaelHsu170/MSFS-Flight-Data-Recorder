@@ -16,12 +16,18 @@ class QTimer;
 // SimConnect_Open() until the simulator is available. gui_notify_*() free functions
 // (declared in gui_notify.h, implemented in recorder_bridge.cpp) reach back into this
 // object via status->gui_context to turn recorder.cpp's, flight_phase.cpp's and db.cpp's
-// state-transition points into Qt signals.
+// state-transition points into Qt signals. Idle until start().
 class RecorderBridge : public QObject {
 	Q_OBJECT
 public:
 	explicit RecorderBridge(QObject* parent = nullptr);
 	~RecorderBridge() override;
+
+	// Starts connecting to the simulator, retrying every 2 s until it's
+	// available. Not done on construction: connecting opens the recorder's
+	// database connection (connect_db()), which must wait for migrate_db() --
+	// see MainWindow.
+	void start();
 
 	const FLIGHT_DATA& currentData() const { return status_.data; }
 	bool isRecording() const { return status_.recording; }

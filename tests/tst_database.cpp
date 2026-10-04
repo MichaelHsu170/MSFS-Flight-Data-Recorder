@@ -9,22 +9,15 @@
 
 #include <QtTest>
 
+#include <algorithm>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <set>
 
 using namespace TestSupport;
 
 namespace {
-
-void exec(sqlite3* db, const char* sql) {
-	char* err = nullptr;
-	if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
-		const QString message = QString::fromUtf8(err ? err : "?");
-		sqlite3_free(err);
-		QFAIL(qPrintable(message + " in: " + sql));
-	}
-}
 
 std::set<QString> names(const char* sql) {
 	std::set<QString> out;
@@ -103,8 +96,16 @@ private slots:
 		QVERIFY(connect_db_readwrite() == nullptr);
 	}
 
+	void migrateFailsWhenTheDatabaseCantBeOpened() {
+		const QString path = QString::fromStdString(db_file_path());
+		QVERIFY(QDir().mkdir(path)); // a folder where the file should be
+		const bool ok = migrate_db();
+		QVERIFY(QDir().rmdir(path));
+		QVERIFY(!ok);
+	}
+
 	void migrateCreatesAllTablesAndIndexes() {
-		migrate_db();
+		QVERIFY(migrate_db());
 		QCOMPARE(names("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"),
 			(std::set<QString>{ "trips", "trip_data", "trip_events", "trip_liftoffs", "trip_touchdowns", "trip_groups" }));
 		QCOMPARE(names("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"),
@@ -133,6 +134,131 @@ private slots:
 		QVERIFY(row["group_id"].isNull());
 	}
 
+	void migrateMovesLegacyN1N2IntoTheEngineColumns() {
+		createLegacyTripData();
+		migrate_db();
+		// Little-endian float32: 85.5 = 42AB0000, 90.25 = 42B48000, 95 = 42BE0000, 96.5 = 42C10000.
+		const QList<QVariantMap> rows = queryRows("SELECT hex(engine_speed) AS speed, hex(engine_load) AS load FROM trip_data ORDER BY rowid");
+		QCOMPARE(rows.size(), 5);
+		QCOMPARE(rows[0]["speed"].toString(), QStringLiteral("0000AB420080B442"));
+		QCOMPARE(rows[0]["load"].toString(), QStringLiteral("0000BE420000C142"));
+		QCOMPARE(rows[1]["speed"].toString(), QStringLiteral("0000AB42"));
+		QCOMPARE(rows[1]["load"].toString(), QStringLiteral("0000BE42"));
+		QCOMPARE(rows[2]["speed"].toString(), QStringLiteral("0000AB420080B442"));
+		QCOMPARE(rows[3]["speed"].toString(), QString()); // hex(NULL) is ''
+		QCOMPARE(rows[4]["speed"].toString(), QString());
+		QCOMPARE(rows[4]["load"].toString(), QString());
+		const QVariantMap columns = queryRows("SELECT * FROM trip_data").value(0);
+		for (const char* old : { "turb_eng_n1_1", "turb_eng_n1_2", "turb_eng_n2_1", "turb_eng_n2_2" })
+			QVERIFY2(!columns.contains(old), old);
+
+		// The old columns are gone, so a rerun leaves the data alone.
+		migrate_db();
+		QCOMPARE(queryValue("SELECT hex(engine_speed) FROM trip_data ORDER BY rowid").toString(), QStringLiteral("0000AB420080B442"));
+	}
+
+	void theLegacyEngineRebuildKeepsRowsAndReportsProgress() {
+		createLegacyTripData();
+		exec("DELETE FROM trip_data WHERE rowid = 2;"); // a rowid gap
+
+		std::vector<int> reported;
+		migrate_db([&reported](int percent) { reported.push_back(percent); });
+		// 4 rows, a hundredth of them (at least 1) per batch. Weights copy 65,
+		// drop 10, commit 15, indexes 10: copying 0-65% (65*1/4, 65*2/4, ...
+		// rounded down), then the drop (75%), the commit (90%) and the indexes
+		// (100%).
+		QCOMPARE(reported, (std::vector<int>{ 16, 32, 48, 65, 75, 90, 100 }));
+		// Same rowids, and the column the definitions don't name is kept.
+		QCOMPARE(queryValue("SELECT group_concat(rowid || ':' || retired_field || ':' || engine_type) FROM trip_data").toString(),
+			QStringLiteral("1:10.0:1,3:30.0:1,4:40.0:1,5:50.0:0"));
+		// NOT NULL stays where the old table had it, not where it allowed NULL.
+		QCOMPARE(queryValue("SELECT \"notnull\" FROM pragma_table_info('trip_data') WHERE name='trip'").toInt(), 1);
+		QCOMPARE(queryValue("SELECT \"notnull\" FROM pragma_table_info('trip_data') WHERE name='zulu_time'").toInt(), 0);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM sqlite_master WHERE name='idx_trip_data_trip'").toInt(), 1);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM sqlite_master WHERE name='trip_data_new'").toInt(), 0);
+
+		// Nothing left to rebuild: no progress.
+		reported.clear();
+		migrate_db([&reported](int percent) { reported.push_back(percent); });
+		QVERIFY(reported.empty());
+	}
+
+	void theRebuildsProgressOnlyRises() {
+		createLegacyTripData();
+		// 305 rows, 3 per batch: each batch adds about 0.64% of the copy's 65,
+		// so the first rounds down to 0 and most repeat the one before.
+		addLegacyJetRows(300);
+
+		std::vector<int> reported;
+		QVERIFY(migrate_db([&reported](int percent) { reported.push_back(percent); }));
+		QVERIFY(!reported.empty());
+		QCOMPARE(reported.front(), 1);
+		QCOMPARE(reported.back(), 100);
+		QVERIFY(std::adjacent_find(reported.begin(), reported.end(), std::greater_equal<int>()) == reported.end());
+	}
+
+	void theRebuildCopiesRowsAtTheSmallestAndLargestRowid() {
+		createLegacyTripData();
+		exec("INSERT INTO trip_data (rowid, trip, engine_type, number_of_engines, turb_eng_n1_1, turb_eng_n1_2, turb_eng_n2_1, turb_eng_n2_2)"
+			" VALUES (-9223372036854775807 - 1, 2, 1, 2, 85.5, 90.25, 95, 96.5), (9223372036854775807, 2, 1, 2, 85.5, 90.25, 95, 96.5);");
+
+		QVERIFY(migrate_db());
+		QCOMPARE(queryValue("SELECT group_concat(rowid) FROM (SELECT rowid FROM trip_data ORDER BY rowid)").toString(),
+			QStringLiteral("-9223372036854775808,1,2,3,4,5,9223372036854775807"));
+	}
+
+	void aFailedLegacyEngineMigrationChangesNothingAndIsRedoneNextTime() {
+		createLegacyTripData();
+		// Fails the last step, after every row was copied: renaming the new table
+		// checks the schema, and this view reads a column the new table lacks.
+		exec("CREATE VIEW blocks_rebuild AS SELECT turb_eng_n2_2 FROM trip_data;");
+
+		QVERIFY(!migrate_db());
+		QVERIFY(queryRows("SELECT * FROM trip_data").value(0).contains("turb_eng_n1_1"));
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data WHERE engine_speed IS NOT NULL").toInt(), 0);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM sqlite_master WHERE name='trip_data_new'").toInt(), 0);
+		// The rest of the schema update still happened.
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM sqlite_master WHERE name='idx_trip_data_trip'").toInt(), 1);
+
+		exec("DROP VIEW blocks_rebuild;");
+		QVERIFY(migrate_db());
+		QVERIFY(!queryRows("SELECT * FROM trip_data").value(0).contains("turb_eng_n1_1"));
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data WHERE engine_speed IS NOT NULL").toInt(), 3);
+	}
+
+	// Whether trip_data still has the legacy columns can't be told, so the
+	// migration fails rather than let recording start.
+	void migrateFailsWhenTripDatasColumnsCantBeRead() {
+		sqlite3* db = nullptr;
+		QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
+		// CREATE TABLE IF NOT EXISTS leaves it alone, and its columns can't be
+		// listed: the table it reads is gone.
+		exec(db, "CREATE TABLE gone (x);");
+		exec(db, "CREATE VIEW trip_data AS SELECT x FROM gone;");
+		exec(db, "DROP TABLE gone;");
+		sqlite3_close(db);
+		QVERIFY(!migrate_db());
+	}
+
+	void aCancelledLegacyEngineRebuildIsRolledBackAndRedoneNextTime() {
+		createLegacyTripData();
+		// 5 rows, one per batch: asked after each of the 5 batches, then once
+		// before committing (the 6th time).
+		for (int cancelAt : { 1, 6 }) {
+			int asked = 0;
+			QVERIFY2(!migrate_db({}, [&asked, cancelAt] { return ++asked == cancelAt; }), qPrintable(QString::number(cancelAt)));
+			QCOMPARE(asked, cancelAt);
+			QVERIFY(queryRows("SELECT * FROM trip_data").value(0).contains("turb_eng_n1_1"));
+			QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data").toInt(), 5);
+			QCOMPARE(queryValue("SELECT COUNT(*) FROM sqlite_master WHERE name='trip_data_new'").toInt(), 0);
+		}
+
+		int asked = 0;
+		QVERIFY(migrate_db({}, [&asked] { ++asked; return false; }));
+		QCOMPARE(asked, 6);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data WHERE engine_speed IS NOT NULL").toInt(), 3);
+	}
+
 	void groupNamesAreUniqueIgnoringAsciiCase() {
 		sqlite3* db = freshDatabase();
 		exec(db, "INSERT INTO trip_groups (name) VALUES ('Training');");
@@ -159,6 +285,16 @@ private slots:
 #undef SET_BOOL
 		sim.record.sim_on_ground = 1;
 		sim.record.eng_combustion_1 = 1;
+		// A 3-engine turboprop: prop RPM and torque stored for engines 1..3,
+		// not the other types' values or the 4th engine.
+		sim.record.engine_type = 5;
+		sim.record.number_of_engines = 3;
+		for (int e = 0; e < MAX_ENGINES; ++e) {
+			sim.record.prop_rpm[e] = 2100 + e;
+			sim.record.turb_eng_max_torque_percent[e] = 25.5 + e;
+			sim.record.general_eng_rpm[e] = 99;
+			sim.record.turb_eng_n1[e] = 99;
+		}
 		const FLIGHT_DATA_RECORD sent = sim.record;
 
 		QSignalSpy live(&sim.bridge(), &RecorderBridge::liveDataPoint);
@@ -206,10 +342,12 @@ private slots:
 		QCOMPARE(p.airspeed, livePoint.airspeed);
 		QCOMPARE(p.groundSpeed, livePoint.groundSpeed);
 		QCOMPARE(p.verticalSpeed, livePoint.verticalSpeed);
-		QCOMPARE(p.n1_1, livePoint.n1_1);
-		QCOMPARE(p.n1_2, livePoint.n1_2);
-		QCOMPARE(p.n2_1, livePoint.n2_1);
-		QCOMPARE(p.n2_2, livePoint.n2_2);
+		for (const TripSamplePoint* point : { &p, &livePoint }) {
+			QCOMPARE(point->engine.engineType, 5);
+			QCOMPARE(point->engine.count, 3);
+			QCOMPARE(point->engine.speed, (std::array<float, MAX_ENGINES>{ 2100, 2101, 2102, 0 }));
+			QCOMPARE(point->engine.load, (std::array<float, MAX_ENGINES>{ 25.5f, 26.5f, 27.5f, 0 }));
+		}
 		QCOMPARE(p.gearHandlePosition, livePoint.gearHandlePosition);
 		for (int g = 0; g < 3; ++g) {
 			QCOMPARE(p.gearPosition[g], livePoint.gearPosition[g]);
@@ -223,6 +361,22 @@ private slots:
 		QCOMPARE(p.bankDegrees, livePoint.bankDegrees);
 		QCOMPARE(p.zuluTime, livePoint.zuluTime);
 		QCOMPARE(p.localTime, livePoint.localTime);
+	}
+
+	void aSampleWithNoEnginePowerStoresNull() {
+		// Engine type 2 (none) records no power, whatever its engine count:
+		// stored as NULL, not as an empty BLOB.
+		FlightDriver sim;
+		sim.record.sim_on_ground = 1;
+		sim.record.eng_combustion_1 = 1;
+		sim.record.engine_type = 2;
+		sim.record.number_of_engines = 2;
+		sim.tick();
+		const int trip = sim.status().id_trip;
+		QVERIFY(trip > 0);
+		sim.endTrip();
+		QCOMPARE(queryValue(QStringLiteral("SELECT typeof(engine_speed) || ',' || typeof(engine_load) FROM trip_data WHERE trip = %1").arg(trip)).toString(),
+			QStringLiteral("null,null"));
 	}
 
 	void queryTripDataReturnsAnEmptyDatasetWhenTheTableIsMissing() {

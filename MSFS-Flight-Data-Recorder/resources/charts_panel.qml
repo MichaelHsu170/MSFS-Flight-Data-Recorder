@@ -28,6 +28,65 @@ Item {
         return prefix + v.toFixed(s.decimals) + suffix
     }
 
+    // Set by ChartsPanel::setEngine() (chartEngineSpec() in chart_data.h):
+    // { count, speed/load Label, Unit, Decimals, AxisTitle }; undefined with no
+    // data loaded.
+    property var engineSpec: undefined
+    // With no data, every chart hides its axes and grid and says why.
+    readonly property bool hasData: engineSpec !== undefined
+    // Shown over every chart with no data; set by ChartsPanel::setDataset():
+    // "Loading…" while a trip loads, "No data recorded" for a trip with no
+    // point (a live trip just started, or one that recorded none).
+    property string noDataText: "No trip selected"
+
+    // The engine power chart's series descriptors, in its LineSeries order
+    // (engine 1..4 speed, then engine 1..4 load); engines past
+    // engineSpec.count aren't shown.
+    function engineSeries() {
+        var spec = root.engineSpec
+        var count = spec ? spec.count : 0
+        var keys = {
+            speed: ["engSpeed1", "engSpeed2", "engSpeed3", "engSpeed4"],
+            load:  ["engLoad1", "engLoad2", "engLoad3", "engLoad4"]
+        }
+        var colors = {
+            speed: ["#1f77b4", "#ff7f0e", "#9467bd", "#8c564b"],
+            load:  ["#2ca02c", "#d62728", "#e377c2", "#17becf"]
+        }
+        var list = []
+        var quantities = ["speed", "load"]
+        for (var q = 0; q < quantities.length; q++) {
+            var name = quantities[q]
+            for (var i = 0; i < 4; i++) {
+                list.push({
+                    key: keys[name][i],
+                    label: count > 0 ? spec[name + "Label"] + " #" + (i + 1) : "",
+                    color: colors[name][i],
+                    unit: count > 0 ? spec[name + "Unit"] : "",
+                    decimals: count > 0 ? spec[name + "Decimals"] : 0,
+                    signed: false, isBool: false,
+                    shown: i < count
+                })
+            }
+        }
+        return list
+    }
+
+    // The engine power chart's right-hand axis, for its load series.
+    ValueAxis {
+        id: engLoadAxis
+        objectName: "engLoadYAxis"
+        alignment: Qt.AlignRight
+        visible: root.engineSpec !== undefined && root.engineSpec.count > 0
+        // Hidden with no data like every chart's axes (see ChartBlock).
+        lineVisible: root.hasData
+        gridVisible: root.hasData
+        subGridVisible: root.hasData
+        labelFormat: "%.0f"
+        titleText: visible ? root.engineSpec.loadAxisTitle : ""
+        titleVisible: root.hasData
+    }
+
     DateTimeAxis {
         id: driverXAxis
         objectName: "sharedXAxis"
@@ -55,7 +114,8 @@ Item {
 
     component EndOfTrajectoryLine: Rectangle {
         property Item graphsView
-        visible: graphsView !== null && root.isFullRangeVisible
+        objectName: "endOfTrajectoryLine"
+        visible: graphsView !== null && root.hasData && root.isFullRangeVisible
         x: graphsView ? graphsView.plotArea.x + graphsView.plotArea.width - width : 0
         y: graphsView ? graphsView.plotArea.y : 0
         width: 2
@@ -84,20 +144,29 @@ Item {
         Layout.preferredHeight: 180
         Layout.minimumHeight: 160
         // One entry per LineSeries declared in the block, in the same order:
-        //   { key, label, legend, color, unit, decimals, signed, isBool }
+        //   { key, label, legend, color, unit, decimals, signed, isBool, shown }
         // Colors and names the lines, fills the legend (legend, or label when
         // there's none), and drives the hover tooltip -- only these series are
-        // shown when this chart is under the cursor.
+        // shown when this chart is under the cursor. shown: false hides a line
+        // (default shown).
         property var series: []
+        readonly property var shownSeries: series.filter(function (s) { return s.shown !== false })
+        // Centered over the plot when non-empty, e.g. when a trip has no data
+        // for this chart. With no data at all, root.noDataText replaces it.
+        property string emptyText: ""
+        readonly property string shownEmptyText: root.hasData ? emptyText : root.noDataText
         property alias axisY: view.axisY
         default property alias lineSeries: view.seriesList
 
-        Component.onCompleted: {
-            for (var i = 0; i < series.length; i++) {
+        function applySeries() {
+            for (var i = 0; i < series.length && i < view.seriesList.length; i++) {
                 view.seriesList[i].color = series[i].color
                 view.seriesList[i].name = series[i].legend || series[i].label
+                view.seriesList[i].visible = series[i].shown !== false
             }
         }
+        onSeriesChanged: applySeries()
+        Component.onCompleted: applySeries()
 
         MouseArea {
             anchors.fill: parent
@@ -123,7 +192,7 @@ Item {
                 root.tooltipModel  = (data && data.timeStr !== undefined) ? data : null
                 // Set tooltipSeries here too in case onPositionChanged fires before
                 // onEntered when transitioning quickly between adjacent charts.
-                root.tooltipSeries = root.tooltipModel ? block.series : null
+                root.tooltipSeries = root.tooltipModel ? block.shownSeries : null
                 if (root.tooltipModel) {
                     var p = mapToItem(root, mouse.x, mouse.y)
                     root.tooltipPos = Qt.point(p.x, p.y)
@@ -131,14 +200,46 @@ Item {
             }
         }
 
+        // Space right of the plot. The engine power chart's right-hand axis
+        // takes space even while hidden, so every other chart matches its
+        // inset to keep the time axes lined up.
+        readonly property real plotRightInset: view.width - view.plotArea.x - view.plotArea.width
+
         GraphsView {
             id: view
             anchors.fill: parent
             axisX: SyncedXAxis {}
             theme: chartTheme
+            Binding on marginRight {
+                when: block !== engineBlock
+                value: engineBlock.plotRightInset
+            }
         }
+        // No data: no axis, title, labels, grid or legend -- they'd only
+        // describe a made-up range.
+        // (visible alone leaves the axis line drawn.)
+        Binding { target: view.axisX; property: "visible"; value: root.hasData }
+        Binding { target: view.axisX; property: "lineVisible"; value: root.hasData }
+        Binding { target: view.axisX; property: "gridVisible"; value: root.hasData }
+        Binding { target: view.axisX; property: "subGridVisible"; value: root.hasData }
+        Binding { target: view.axisY; property: "visible"; value: root.hasData }
+        Binding { target: view.axisY; property: "lineVisible"; value: root.hasData }
+        Binding { target: view.axisY; property: "titleVisible"; value: root.hasData }
+        Binding { target: view.axisY; property: "gridVisible"; value: root.hasData }
+        Binding { target: view.axisY; property: "subGridVisible"; value: root.hasData }
         CursorLine { graphsView: view }
         EndOfTrajectoryLine { graphsView: view }
+
+        Text {
+            objectName: "emptyText"
+            visible: block.shownEmptyText !== ""
+            text: block.shownEmptyText
+            x: view.plotArea.x + (view.plotArea.width - width) / 2
+            y: view.plotArea.y + (view.plotArea.height - height) / 2
+            font.pixelSize: 13
+            color: "#777777"
+            z: 10
+        }
 
         Rectangle {
             anchors.top: parent.top
@@ -150,11 +251,12 @@ Item {
             radius: 4
             color: "#ccffffff"
             z: 20
-            visible: legendRow.entries.length > 0
+            objectName: "legend"
+            visible: root.hasData && legendRow.entries.length > 0
             ChartLegend {
                 id: legendRow
                 anchors.centerIn: parent
-                entries: block.series.map(function (s) { return { color: s.color, name: s.legend || s.label } })
+                entries: block.shownSeries.map(function (s) { return { color: s.color, name: s.legend || s.label } })
             }
         }
     }
@@ -179,17 +281,24 @@ Item {
             spacing: 2
 
             ChartBlock {
-                series: [
-                    { key: "n1_1", label: "N1 #1", color: "#1f77b4", unit: "%", decimals: 1, signed: false, isBool: false },
-                    { key: "n1_2", label: "N1 #2", color: "#ff7f0e", unit: "%", decimals: 1, signed: false, isBool: false },
-                    { key: "n2_1", label: "N2 #1", color: "#2ca02c", unit: "%", decimals: 1, signed: false, isBool: false },
-                    { key: "n2_2", label: "N2 #2", color: "#d62728", unit: "%", decimals: 1, signed: false, isBool: false }
-                ]
-                axisY: ValueAxis { min: 0; max: 110; labelFormat: "%.0f"; titleText: "N1/N2 (%)"; titleVisible: true }
-                LineSeries { objectName: "n1_1Series" }
-                LineSeries { objectName: "n1_2Series" }
-                LineSeries { objectName: "n2_1Series" }
-                LineSeries { objectName: "n2_2Series" }
+                id: engineBlock
+                objectName: "engineBlock"
+                series: root.engineSeries()
+                emptyText: root.engineSpec !== undefined && root.engineSpec.count === 0 ? "No engine power data recorded" : ""
+                axisY: ValueAxis {
+                    objectName: "engSpeedYAxis"
+                    labelFormat: "%.0f"
+                    titleText: root.engineSpec !== undefined && root.engineSpec.count > 0 ? root.engineSpec.speedAxisTitle : "Engine Power"
+                    titleVisible: true
+                }
+                LineSeries { objectName: "engSpeed1Series" }
+                LineSeries { objectName: "engSpeed2Series" }
+                LineSeries { objectName: "engSpeed3Series" }
+                LineSeries { objectName: "engSpeed4Series" }
+                LineSeries { objectName: "engLoad1Series"; axisY: engLoadAxis }
+                LineSeries { objectName: "engLoad2Series"; axisY: engLoadAxis }
+                LineSeries { objectName: "engLoad3Series"; axisY: engLoadAxis }
+                LineSeries { objectName: "engLoad4Series"; axisY: engLoadAxis }
             }
 
             ChartBlock {

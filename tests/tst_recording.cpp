@@ -9,7 +9,10 @@
 #include <QSettings>
 #include <QtTest>
 
+#include <algorithm>
+#include <cstddef>
 #include <set>
+#include <string>
 
 using namespace TestSupport;
 
@@ -21,19 +24,24 @@ private:
 	static int sampleCount(int tripId) {
 		return queryValue(QStringLiteral("SELECT COUNT(*) FROM trip_data WHERE trip=%1").arg(tripId)).toInt();
 	}
-	// Runs sql on a second connection, outside the recorder's own.
-	static void execSql(const char* sql) {
-		sqlite3* db = connect_db_readwrite();
-		QVERIFY(db);
-		QCOMPARE(sqlite3_exec(db, sql, nullptr, nullptr, nullptr), SQLITE_OK);
-		sqlite3_close(db);
-	}
 	// The first logged line starting with prefix, or an empty string.
 	static QString firstLogStartingWith(const QSignalSpy& log, const QString& prefix) {
 		for (const QList<QVariant>& call : log)
 			if (call.at(0).toString().startsWith(prefix))
 				return call.at(0).toString();
 		return QString();
+	}
+	// Bytes SimConnect sends for one registered datum; 0 for a type the
+	// recorder never registers.
+	static size_t wireBytes(SIMCONNECT_DATATYPE type) {
+		switch (type) {
+		case SIMCONNECT_DATATYPE_FLOAT64: return 8;
+		case SIMCONNECT_DATATYPE_STRING8: return 8;
+		case SIMCONNECT_DATATYPE_STRING32: return 32;
+		case SIMCONNECT_DATATYPE_STRING64: return 64;
+		case SIMCONNECT_DATATYPE_STRING256: return 256;
+		default: return 0;
+		}
 	}
 
 private slots:
@@ -58,19 +66,43 @@ private slots:
 		// definitions; MyDispatchProc copies them straight into
 		// FLIGHT_DATA_RECORD. Their total size must equal the copied size.
 		FlightDriver sim;
-		size_t wireBytes = 0;
+		size_t total = 0;
 		for (const FakeSim::DataDefinition& def : FakeSim::state().dataDefinitions) {
 			QCOMPARE(def.defineId, (DWORD)DEFINITION_FLIGHT);
-			switch (def.datumType) {
-			case SIMCONNECT_DATATYPE_FLOAT64: wireBytes += 8; break;
-			case SIMCONNECT_DATATYPE_STRING8: wireBytes += 8; break;
-			case SIMCONNECT_DATATYPE_STRING32: wireBytes += 32; break;
-			case SIMCONNECT_DATATYPE_STRING64: wireBytes += 64; break;
-			case SIMCONNECT_DATATYPE_STRING256: wireBytes += 256; break;
-			default: QFAIL(qPrintable(QStringLiteral("unexpected datatype for %1").arg(QString::fromStdString(def.datumName))));
+			if (wireBytes(def.datumType) == 0)
+				QFAIL(qPrintable(QStringLiteral("unexpected datatype for %1").arg(QString::fromStdString(def.datumName))));
+			total += wireBytes(def.datumType);
+		}
+		QCOMPARE(total, sizeof(FLIGHT_DATA_RECORD) - sizeof(double));
+	}
+
+	void engineSimVarsLandInTheirRecordArrays() {
+		// Engines 1-4 of each engine SimVar, registered right where
+		// FLIGHT_DATA_RECORD's arrays sit, so engine i of each lands in [i-1].
+		FlightDriver sim;
+		const std::vector<FakeSim::DataDefinition>& defs = FakeSim::state().dataDefinitions;
+		auto first = std::find_if(defs.begin(), defs.end(),
+			[](const FakeSim::DataDefinition& d) { return d.datumName == "GENERAL ENG RPM:1"; });
+		QVERIFY(first != defs.end());
+		size_t offset = 0;
+		for (auto it = defs.begin(); it != first; ++it)
+			offset += wireBytes(it->datumType);
+		QCOMPARE(offset, offsetof(FLIGHT_DATA_RECORD, general_eng_rpm));
+		const std::vector<std::pair<std::string, std::string>> expected = {
+			{ "GENERAL ENG RPM", "rpm" }, { "RECIP ENG MANIFOLD PRESSURE", "inHg" },
+			{ "TURB ENG N1", "Percent" }, { "TURB ENG N2", "Percent" },
+			{ "TURB ENG MAX TORQUE PERCENT", "Percent" }, { "PROP RPM", "rpm" },
+		};
+		QVERIFY(defs.end() - first >= (ptrdiff_t)(expected.size() * MAX_ENGINES));
+		auto it = first;
+		for (const auto& [name, unit] : expected) {
+			for (int engine = 1; engine <= MAX_ENGINES; ++engine, ++it) {
+				QCOMPARE(it->datumName, name + ":" + std::to_string(engine));
+				QCOMPARE(it->unitsName, unit);
 			}
 		}
-		QCOMPARE(wireBytes, sizeof(FLIGHT_DATA_RECORD) - sizeof(double));
+		QCOMPARE(offsetof(FLIGHT_DATA_RECORD, prop_rpm) + sizeof(FLIGHT_DATA_RECORD::prop_rpm),
+			offsetof(FLIGHT_DATA_RECORD, general_eng_rpm) + expected.size() * MAX_ENGINES * sizeof(double));
 	}
 
 	void everyMappedEventJoinsTheNotificationGroup() {
@@ -91,6 +123,7 @@ private slots:
 	void openPacketReportsConnected() {
 		FakeSim::reset();
 		RecorderBridge bridge;
+		bridge.start();
 		QSignalSpy connected(&bridge, &RecorderBridge::connectionChanged);
 		FakeSim::queue(recvPacket(SIMCONNECT_RECV_ID_OPEN, sizeof(SIMCONNECT_RECV)));
 		QMetaObject::invokeMethod(&bridge, "pollDispatch", Qt::DirectConnection);
@@ -102,6 +135,8 @@ private slots:
 		FakeSim::reset();
 		FakeSim::state().openFails = true;
 		RecorderBridge bridge;
+		QCOMPARE(FakeSim::state().openCalls, 0); // idle until started
+		bridge.start();
 		QCOMPARE(FakeSim::state().openCalls, 1);
 		QVERIFY(FakeSim::state().dataDefinitions.empty());
 		FakeSim::state().openFails = false;
@@ -326,7 +361,10 @@ private slots:
 		sim.record.airspeed_indicated = 140.9;
 		sim.record.ground_velocity = 150;
 		sim.record.vertical_speed = -700;
-		sim.record.turb_eng_n1_1 = 85.5;
+		sim.record.engine_type = 1;
+		sim.record.number_of_engines = 2;
+		sim.record.turb_eng_n1[0] = 85.5;
+		sim.record.turb_eng_n2[1] = 92.25;
 		sim.record.gear_is_on_ground_1 = 1;
 		sim.startTrip();
 		QCOMPARE(points.count(), 1);
@@ -338,7 +376,10 @@ private slots:
 		QCOMPARE(p.airspeed, 140);
 		QCOMPARE(p.groundSpeed, 150);
 		QCOMPARE(p.verticalSpeed, -700);
-		QCOMPARE(p.n1_1, 85.5);
+		QCOMPARE(p.engine.engineType, 1);
+		QCOMPARE(p.engine.count, 2);
+		QCOMPARE(p.engine.speed[0], 85.5f);
+		QCOMPARE(p.engine.load[1], 92.25f);
 		QCOMPARE(p.gearOnGround[0], false);
 		QCOMPARE(p.gearOnGround[1], true);
 		QCOMPARE(p.zuluTime, QStringLiteral("2026-01-02T10:00:00.500+00:00_5"));
@@ -450,7 +491,7 @@ private slots:
 
 	void failedTripInsertDoesNotRecordAndIsRetried() {
 		FlightDriver sim;
-		execSql("CREATE TRIGGER fail_insert BEFORE INSERT ON trips BEGIN SELECT RAISE(ABORT, 'forced'); END");
+		exec("CREATE TRIGGER fail_insert BEFORE INSERT ON trips BEGIN SELECT RAISE(ABORT, 'forced'); END");
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		QSignalSpy started(&sim.bridge(), &RecorderBridge::recordingStateChanged);
 		sim.setEngines(true);
@@ -460,7 +501,7 @@ private slots:
 		QCOMPARE(tripCount(), 0);
 		QVERIFY(!firstLogStartingWith(log, QStringLiteral("Recording start failed (trip insert): ")).isEmpty());
 		// Engines still running: the next sample retries the start.
-		execSql("DROP TRIGGER fail_insert");
+		exec("DROP TRIGGER fail_insert");
 		sim.tick();
 		QVERIFY(sim.bridge().isRecording());
 		QCOMPARE(tripCount(), 1);
@@ -469,7 +510,7 @@ private slots:
 	void failedDestinationTimeWriteStillEndsTheTrip() {
 		FlightDriver sim;
 		const int tripId = sim.startTrip();
-		execSql("CREATE TRIGGER fail_update BEFORE UPDATE ON trips BEGIN SELECT RAISE(ABORT, 'forced'); END");
+		exec("CREATE TRIGGER fail_update BEFORE UPDATE ON trips BEGIN SELECT RAISE(ABORT, 'forced'); END");
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		QSignalSpy ended(&sim.bridge(), &RecorderBridge::tripEnded);
 		sim.endTrip();
@@ -499,6 +540,7 @@ private slots:
 		FakeSim::reset();
 		FakeSim::state().openFails = true;
 		RecorderBridge bridge;
+		bridge.start();
 		bridge.status()->quit = TRUE;
 		QMetaObject::invokeMethod(&bridge, "pollDispatch", Qt::DirectConnection);
 		QCOMPARE(FakeSim::state().closeCalls, 0);

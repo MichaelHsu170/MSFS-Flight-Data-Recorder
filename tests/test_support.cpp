@@ -115,6 +115,45 @@ QList<QVariantMap> queryRows(const QString& sql) {
 	return rows;
 }
 
+void exec(sqlite3* db, const char* sql) {
+	char* err = nullptr;
+	if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
+		const QString message = QString::fromUtf8(err ? err : "?");
+		sqlite3_free(err);
+		QFAIL(qPrintable(message + " in: " + sql));
+	}
+}
+
+void exec(const char* sql) {
+	sqlite3* db = connect_db_readwrite();
+	QVERIFY(db);
+	exec(db, sql);
+	sqlite3_close(db);
+}
+
+void createLegacyTripData() {
+	sqlite3* db = nullptr;
+	QCOMPARE(sqlite3_open(db_file_path().c_str(), &db), SQLITE_OK);
+	// retired_field stands for a column the current code no longer names.
+	exec(db, "CREATE TABLE trip_data (trip INTEGER NOT NULL, retired_field REAL,"
+		" engine_type INTEGER NOT NULL, number_of_engines INTEGER NOT NULL,"
+		" turb_eng_n1_1 REAL NOT NULL, turb_eng_n1_2 REAL NOT NULL, turb_eng_n2_1 REAL NOT NULL, turb_eng_n2_2 REAL NOT NULL);");
+	exec(db, "INSERT INTO trip_data (trip, retired_field, engine_type, number_of_engines, turb_eng_n1_1, turb_eng_n1_2, turb_eng_n2_1, turb_eng_n2_2) VALUES"
+		" (1, 10, 1, 2, 85.5, 90.25, 95, 96.5),"  // twin jet
+		" (1, 20, 1, 1, 85.5, 0, 95, 0),"         // single jet
+		" (1, 30, 1, 4, 85.5, 90.25, 95, 96.5),"  // quad jet: only engines 1-2 were recorded
+		" (1, 40, 1, 0, 85.5, 90.25, 95, 96.5),"  // no engines
+		" (1, 50, 0, 1, 85.5, 0, 95, 0);");       // piston: its N1/N2 meant nothing
+	sqlite3_close(db);
+}
+
+void addLegacyJetRows(int count) {
+	exec(QByteArray("WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ")
+		.append(QByteArray::number(count)).append(")"
+		" INSERT INTO trip_data (trip, engine_type, number_of_engines, turb_eng_n1_1, turb_eng_n1_2, turb_eng_n2_1, turb_eng_n2_2)"
+		" SELECT 2, 1, 2, 85.5, 90.25, 95, 96.5 FROM n;").constData());
+}
+
 QVariant queryValue(const QString& sql) {
 	const QList<QVariantMap> rows = queryRows(sql);
 	if (rows.isEmpty() || rows.first().isEmpty())
@@ -293,6 +332,7 @@ COORDINATE pointOnRunway(const RunwaySpec& runway, double distanceM, double righ
 FlightDriver::FlightDriver() : record(makeRecord()) {
 	FakeSim::reset();
 	bridge_ = std::make_unique<RecorderBridge>();
+	bridge_->start();
 	status().event_filter.set_clock([this] { return eventClock_; });
 	send(recvPacket(SIMCONNECT_RECV_ID_OPEN, sizeof(SIMCONNECT_RECV)));
 	simEvent(EVENT_SIM, 1);

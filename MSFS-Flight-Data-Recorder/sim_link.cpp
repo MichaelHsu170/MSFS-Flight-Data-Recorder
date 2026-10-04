@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstring>
+#include <string>
 
 namespace {
 
@@ -14,6 +15,17 @@ const char* const EVENT_NAMES[EVENT_ID_COUNT] = {
 #define COCKPIT_EVENT_NAME(id, name) name,
 	COCKPIT_EVENTS(COCKPIT_EVENT_NAME)
 #undef COCKPIT_EVENT_NAME
+};
+
+// FLIGHT_DATA_RECORD's engine arrays, in struct order: { SimVar, unit }.
+// Each is registered for engines 1..MAX_ENGINES.
+const char* const ENGINE_POWER_SIMVARS[][2] = {
+	{ "GENERAL ENG RPM", "rpm" },
+	{ "RECIP ENG MANIFOLD PRESSURE", "inHg" },
+	{ "TURB ENG N1", "Percent" },
+	{ "TURB ENG N2", "Percent" },
+	{ "TURB ENG MAX TORQUE PERCENT", "Percent" },
+	{ "PROP RPM", "rpm" },
 };
 
 // Logs the dwSendID SimConnect actually assigned to this request, so a later
@@ -207,10 +219,12 @@ void add_flight_definition(HANDLE hSimConnect) {
 	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG IGNITION SWITCH EX1:2", "Enum");
 	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG IS IGNITING:1", "Bool");
 	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG IS IGNITING:2", "Bool");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG N1:1", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG N1:2", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG N2:1", "Percent");
-	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG N2:2", "Percent");
+	for (const auto& [simVar, unit] : ENGINE_POWER_SIMVARS) {
+		for (int engine = 1; engine <= MAX_ENGINES; ++engine) {
+			const std::string name = std::string(simVar) + ":" + std::to_string(engine);
+			SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, name.c_str(), unit);
+		}
+	}
 	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG VIBRATION:1", "Number");
 	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "TURB ENG VIBRATION:2", "Number");
 	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, "G FORCE", "GForce");

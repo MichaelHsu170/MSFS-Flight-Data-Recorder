@@ -65,16 +65,29 @@ void ChartsPanel::buildSeriesCache() {
 	for (int s = 0; s < CHART_SERIES_COUNT; ++s)
 		cache_.series[s] = root->findChild<QLineSeries*>(QString::fromLatin1(CHART_SERIES[s].objectName));
 	cache_.xAxis      = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
+	cache_.engSpeedYAxis = findYAxis(root, "engSpeedYAxis");
+	cache_.engLoadYAxis  = findYAxis(root, "engLoadYAxis");
 	cache_.vsYAxis    = findYAxis(root, "vsYAxis");
 	cache_.speedYAxis = findYAxis(root, "speedYAxis");
 	cache_.altYAxis   = findYAxis(root, "altYAxis");
 	cache_.fuelYAxis  = findYAxis(root, "fuelYAxis");
 	cache_.pitchYAxis = findYAxis(root, "pitchYAxis");
 	cache_.bankYAxis  = findYAxis(root, "bankYAxis");
-	cache_.valid      = (cache_.series[CHART_N1_1] != nullptr);
+	cache_.valid      = (cache_.series[CHART_ENG_SPEED_1] != nullptr);
 }
 
 void ChartsPanel::setYAxes(const ChartExtents& extents) {
+	// No spec (no power recorded): sized to the data like the other axes, so
+	// the previous trip's engine scale doesn't stay. A fixed max that the data
+	// goes past (an overspeed) is sized to the data too, not cut off.
+	const EnginePowerSpec* spec = engine_.count > 0 ? enginePowerSpec(engine_.engineType) : nullptr;
+	const auto engineAxisMax = [](double fixedMax, double dataMax) {
+		return fixedMax > 0 && dataMax <= fixedMax ? fixedMax : niceAxisMax(dataMax);
+	};
+	if (cache_.engSpeedYAxis)
+		cache_.engSpeedYAxis->setMax(engineAxisMax(spec ? spec->speed.axisMax : 0, extents.engSpeedMax));
+	if (cache_.engLoadYAxis)
+		cache_.engLoadYAxis->setMax(engineAxisMax(spec ? spec->load.axisMax : 0, extents.engLoadMax));
 	if (cache_.speedYAxis)
 		cache_.speedYAxis->setMax(niceAxisMax(extents.speedMax));
 	if (cache_.altYAxis)
@@ -88,10 +101,16 @@ void ChartsPanel::setYAxes(const ChartExtents& extents) {
 	setAxisRange(cache_.bankYAxis, niceSignedAxisRange(extents.bankMin, extents.bankMax));
 }
 
+void ChartsPanel::setEngine(const EnginePower& engine) {
+	engine_ = engine;
+	engineSet_ = true;
+	if (QQuickItem* root = view_->rootObject())
+		root->setProperty("engineSpec", chartEngineSpec(engine));
+}
+
 void ChartsPanel::loadFullSlice(int lo, int hi) {
 	// replace() swaps all points in one scene-graph notification; clear() +
-	// append() sends two, and each blocks the main thread on a render-thread
-	// sync when the series is populated.
+	// append() would send two.
 	for (int s = 0; s < CHART_SERIES_COUNT; ++s) {
 		QLineSeries* series = cache_.series[s];
 		if (!series)
@@ -106,6 +125,9 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	++datasetVersion_;
 	fullExtents_ = ChartExtents();
 	fullReady_       = false;
+	engineSet_       = false;
+	loading_         = false;
+	pendingRange_.reset();  // meant for the trip being replaced
 	lastRangeStart_  = INT_MIN;
 	lastRangeEnd_    = INT_MIN;
 
@@ -118,26 +140,37 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	// The cursor belongs to the previous dataset. MapWidget::setDataset resets
 	// its own cursor without emitting cursorIndexChanged, so clear it here or
 	// the old cursor line stays drawn over a reloaded or overlapping trip.
+	// The old lines and engineSpec (their labels) stay until a new trip's
+	// load finishes and replaces both together.
 	setCursorIndex(-1);
 
-	// Empty dataset (Deselect / overview mode): make charts appear empty by
-	// resetting the X axis to a 1-second window at current time. The stale
-	// series points are left in memory but become invisible outside the axis
-	// range. Avoids QLineSeries::clear() here because clear() on a populated
-	// series blocks the main thread on a Qt Graphs render-thread sync. The next
-	// trip load replaces stale points via s->replace() with no intermediate clear.
+	// Empty dataset (Deselect / overview mode, or a trip with no point --
+	// a live one just started, or one that recorded none): drop every line,
+	// and with engineSpec unset the QML hides the axes and shows "No trip
+	// selected" in each chart -- or "No data recorded" for a trip (tripId
+	// set). Clearing doesn't wait on rendering: after a 200,000-sample trip
+	// (62,525 points shown, as each line is thinned to kDisplayPoints) it
+	// took 0.3-0.9 ms of a 10-17 ms deselect, most of which is the QML hiding
+	// the axes. The Profile "clear" log reports it.
 	if (dataset.points.empty()) {
-		Logger::log(Logger::Trace, "Charts", QStringLiteral("setDataset: empty dataset (Deselect/overview); collapsing axis to a 1s window instead of rebuilding series"));
+		Logger::log(Logger::Trace, "Charts", QStringLiteral("setDataset: empty dataset (Deselect/overview, or a trip with no point yet); clearing every series"));
 		pointTimesMs_.clear();
 		pointCount_ = 0;
+		root->setProperty("engineSpec", QVariant());
+		root->setProperty("noDataText", dataset.tripId >= 0 ? QStringLiteral("No data recorded") : QStringLiteral("No trip selected"));
 		buildSeriesCache();
-		if (cache_.xAxis) {
-			QDateTime now = QDateTime::currentDateTime();
-			setAllXAxisRange(now, now.addSecs(1));
+		QElapsedTimer clearTimer; clearTimer.start();
+		for (QLineSeries* series : cache_.series) {
+			if (series)
+				series->clear();
 		}
+		Logger::logf(Logger::Profile, "Charts", "clear: %lld µs", clearTimer.nsecsElapsed() / 1000);
 		emit seriesLoaded();
 		return;
 	}
+	// Shown only while no old lines are left to show (e.g. after a deselect).
+	root->setProperty("noDataText", QStringLiteral("Loading…"));
+	loading_ = true;
 
 	QElapsedTimer copyTimer; copyTimer.start();
 	std::vector<ChartSample> samples;
@@ -145,10 +178,11 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	for (const TripSamplePoint& p : dataset.points)
 		samples.push_back({ p.zuluTime, chartValues(p) });
 	Logger::logf(Logger::Profile, "Charts", "copy: %lld ms  (%zu pts)", copyTimer.nsecsElapsed() / 1000000, samples.size());
+	const EnginePower engine = chartEngine(dataset.points);
 
 	int ver = datasetVersion_;
 	auto* watcher = new QFutureWatcher<ChartSeriesData>(this);
-	connect(watcher, &QFutureWatcher<ChartSeriesData>::finished, this, [this, watcher, ver]() {
+	connect(watcher, &QFutureWatcher<ChartSeriesData>::finished, this, [this, watcher, ver, engine]() {
 		Logger::logf(Logger::Profile, "Charts", "finished lambda: ver=%d cur=%d", ver, datasetVersion_);
 		watcher->deleteLater();
 		// A newer setDataset call superseded this one — discard stale results
@@ -157,6 +191,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 			Logger::logf(Logger::Trace, "Charts", "setDataset: dataset superseded (ver=%d cur=%d); discarding stale computed series", ver, datasetVersion_);
 			return;
 		}
+		loading_ = false;
 		// Non-const so the point lists can be moved into full_ below, avoiding
 		// a second 15 MB copy.
 		ChartSeriesData data = watcher->result();
@@ -179,6 +214,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		buildSeriesCache();
 		setAllXAxisRange(data.axisLo, data.axisHi);
 		fullExtents_ = data.extents;
+		setEngine(engine);
 		setYAxes(fullExtents_);
 		root->setProperty("isFullRangeVisible", true);
 
@@ -191,6 +227,11 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 
 		Logger::logf(Logger::Profile, "Charts", "apply (GUI): %lld ms  (%d pts, ~%d pts/series shown)",
 		             applyTimer.nsecsElapsed() / 1000000, pointCount_, qMin(pointCount_, kDisplayPoints));
+		// What was just loaded is what setVisibleRange(-1, -1) shows, so a
+		// full range (sent while loading or after) is a repeat; a zoom isn't.
+		lastRangeStart_ = lastRangeEnd_ = -1;
+		if (const auto range = std::exchange(pendingRange_, std::nullopt))
+			setVisibleRange(range->first, range->second);
 		emit seriesLoaded();
 	});
 
@@ -240,8 +281,13 @@ bool ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 			setAllXAxisRange(QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.front()), hi);
 	}
 
+	// Labels the chart on the first point, and again once power first shows up
+	// (a live trip can start before the aircraft's engine type is known).
+	const bool engineChanged = !engineSet_ || (engine_.count == 0 && point.engine.count > 0);
+	if (engineChanged)
+		setEngine(point.engine);
 	const ChartValues values = chartValues(point);
-	if (fullExtents_.add(values))
+	if (fullExtents_.add(values) || engineChanged)
 		setYAxes(fullExtents_);
 
 	// cache_.valid only checks the first series; any other can independently
@@ -254,15 +300,6 @@ bool ChartsPanel::appendLivePoint(const TripSamplePoint& point) {
 }
 
 void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
-	// Leaflet fires both zoomend and moveend on every zoom interaction -- skip
-	// the second call when both events produce the same range.
-	if (startIndex == lastRangeStart_ && endIndex == lastRangeEnd_) {
-		Logger::log(Logger::Trace, "Charts", QStringLiteral("setVisibleRange: duplicate range (Leaflet zoomend+moveend); ignoring"));
-		return;
-	}
-	lastRangeStart_ = startIndex;
-	lastRangeEnd_   = endIndex;
-
 	QElapsedTimer rangeTimer; rangeTimer.start();
 	buildSeriesCache();
 	if (!cache_.valid || !cache_.xAxis)
@@ -272,13 +309,29 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 	if (root == nullptr)
 		return;
 
-	if (startIndex < 0 || endIndex < 0 || pointTimesMs_.empty()) {
+	// Loading: kept for when the lines are in (see loading_).
+	if (loading_) {
+		pendingRange_ = { startIndex, endIndex };
+		return;
+	}
+	// No trip: the axes are hidden and have no range to show.
+	if (pointTimesMs_.empty())
+		return;
+
+	// Leaflet fires both zoomend and moveend on every zoom interaction -- skip
+	// the second call when both events produce the same range. Checked only
+	// now so a range skipped above isn't taken as already applied.
+	if (startIndex == lastRangeStart_ && endIndex == lastRangeEnd_) {
+		Logger::log(Logger::Trace, "Charts", QStringLiteral("setVisibleRange: duplicate range (Leaflet zoomend+moveend); ignoring"));
+		return;
+	}
+	lastRangeStart_ = startIndex;
+	lastRangeEnd_   = endIndex;
+
+	if (startIndex < 0 || endIndex < 0) {
 		Logger::log(Logger::Trace, "Charts", QStringLiteral("setVisibleRange: full range requested (zoomed all the way out); reloading full-resolution decimated view"));
-		QDateTime lo = pointTimesMs_.empty()
-			? QDateTime::currentDateTime()
-			: QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.front());
-		QDateTime hi = pointTimesMs_.empty() ? lo.addSecs(1) : QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.back());
-		setAllXAxisRange(lo, hi);
+		setAllXAxisRange(QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.front()),
+		                 QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.back()));
 		root->setProperty("isFullRangeVisible", true);
 		setYAxes(fullExtents_);
 		// Replace the zoomed slice with the whole trip's thinned view.

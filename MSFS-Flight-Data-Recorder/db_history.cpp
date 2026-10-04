@@ -1,5 +1,6 @@
 #include "db_history.h"
 #include "trip_data_fields.h"
+#include "engine_power.h"
 #include "db_query.h"
 #include "logger.h"
 
@@ -153,7 +154,7 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 
 	// SELECT * (rather than a curated column list) plus a name -> index map
 	// built from the statement's own column metadata so the query doesn't need
-	// to enumerate ~140 columns by hand or care about their exact ordinal
+	// to enumerate over a hundred columns by hand or care about their exact ordinal
 	// positions in the table.
 	const QString context = QStringLiteral("queryTripData(trip %1)").arg(tripId);
 	sqlite3_stmt* stmt = prepareStatement(sql, "SELECT * FROM trip_data WHERE trip = ? ORDER BY rowid", context);
@@ -172,7 +173,7 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	// A column's position (and a field's label text) is the same on every row
 	// of this prepared statement -- resolving names to indices and building
 	// label strings is one-time per-query setup, not per-row work. Doing it
-	// here instead of inside the row loop below turns ~236 QHash lookups +
+	// here instead of inside the row loop below turns a QHash lookup per field +
 	// label rebuilds per row into a handful of direct array reads (and QString
 	// refcount bumps, via Qt's copy-on-write) per row.
 	const int idxBoolGroup1 = indexOf("bool_group_1");
@@ -188,10 +189,9 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	const int idxGroundSpeed = indexOf("ground_velocity");
 	const int idxAirspeed = indexOf("airspeed_indicated");
 	const int idxVerticalSpeed = indexOf("vertical_speed");
-	const int idxN1_1 = indexOf("turb_eng_n1_1");
-	const int idxN1_2 = indexOf("turb_eng_n1_2");
-	const int idxN2_1 = indexOf("turb_eng_n2_1");
-	const int idxN2_2 = indexOf("turb_eng_n2_2");
+	const int idxEngineType = indexOf("engine_type");
+	const int idxEngineSpeed = indexOf("engine_speed");
+	const int idxEngineLoad = indexOf("engine_load");
 	const int idxBrakeIndicator = indexOf("brake_indicator");
 	const int idxFlapsHandleIndex = indexOf("flaps_handle_index");
 	const int idxSpoilersHandlePosition = indexOf("spoilers_handle_position");
@@ -211,6 +211,13 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	auto colDouble = [&](int index) -> double { return index >= 0 ? sqlite3_column_double(stmt, index) : 0.0; };
 	auto colInt = [&](int index) -> int { return index >= 0 ? sqlite3_column_int(stmt, index) : 0; };
 	auto colText = [&](int index) -> QString { return index >= 0 ? columnText(stmt, index) : QString(); };
+	// Unpacks an engine_speed/engine_load BLOB into out; its engine count (0 for NULL).
+	auto colEngineValues = [&](int index, std::array<float, MAX_ENGINES>& out) -> int {
+		if (index < 0)
+			return 0;
+		const void* blob = sqlite3_column_blob(stmt, index); // before _bytes(), as SQLite documents
+		return unpackEngineValues(blob, sqlite3_column_bytes(stmt, index), out);
+	};
 
 	forEachRow(sql, stmt, context, [&](sqlite3_stmt*) {
 		TripSamplePoint point;
@@ -230,10 +237,9 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 		point.groundSpeed = colInt(idxGroundSpeed);
 		point.airspeed = colInt(idxAirspeed);
 		point.verticalSpeed = colInt(idxVerticalSpeed);
-		point.n1_1 = colDouble(idxN1_1);
-		point.n1_2 = colDouble(idxN1_2);
-		point.n2_1 = colDouble(idxN2_1);
-		point.n2_2 = colDouble(idxN2_2);
+		point.engine.engineType = colInt(idxEngineType);
+		point.engine.count = qMin(colEngineValues(idxEngineSpeed, point.engine.speed),
+			colEngineValues(idxEngineLoad, point.engine.load));
 		point.brakeIndicator = colInt(idxBrakeIndicator);
 		point.flapsHandleIndex = colDouble(idxFlapsHandleIndex);
 		point.spoilersHandlePosition = colDouble(idxSpoilersHandlePosition);

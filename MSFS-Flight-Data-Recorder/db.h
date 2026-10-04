@@ -4,6 +4,8 @@
 #include "db_connection.h"
 #include "db_history.h"
 
+#include <functional>
+
 // Thrown by every db_* write below when SQLite fails; the write is rolled
 // back. message says which statement failed and why (also logged).
 struct db_exception {
@@ -62,10 +64,27 @@ void db_insert_event(STATUS* status, int trip_id, const char* event, const char*
 // contract as db_insert_event above.
 void db_delete_events(STATUS* status, const std::vector<unsigned long long>& seqs);
 
-// Creates the schema and migrates any missing columns on an ephemeral R/W
-// connection. Called at app startup so read-only queries always see the
-// current schema, even when the simulator has never connected this session.
-void migrate_db();
+// Called with the percentage done (1-100, rising) during a long migration.
+using MigrationProgress = std::function<void(int percent)>;
+// Asked during a long migration; true stops it and rolls it back.
+using MigrationCancelled = std::function<bool()>;
+
+// Creates the schema and migrates any missing or legacy columns on an
+// ephemeral R/W connection. Called at app startup (by MainWindow, on a worker
+// thread, before anything else opens the database) so read-only queries always
+// see the current schema, even when the simulator has never connected this
+// session. progress, if set, is called on the calling thread while trip_data
+// is rebuilt to move legacy engine columns (the one step that takes long),
+// with the share of that rebuild done, ending at 100 once its indexes are
+// recreated; not at all when nothing needs rebuilding. cancelled, if set, is
+// asked on the calling thread during that rebuild (after each batch of rows
+// copied, and before committing); once it returns true the rebuild is rolled
+// back and left for the next migration. False if the database couldn't be
+// opened or brought up to date, or the rebuild was cancelled (logged).
+// MainWindow then starts neither Trip History nor the recorder (whose
+// connect_db() would redo the migration and exit if it failed), so the next
+// app start retries it.
+bool migrate_db(const MigrationProgress& progress = {}, const MigrationCancelled& cancelled = {});
 
 // Full path of flight_data.db (see app_file_path()).
 std::string db_file_path();

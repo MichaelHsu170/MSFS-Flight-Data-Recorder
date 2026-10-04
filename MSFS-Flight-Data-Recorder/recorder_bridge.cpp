@@ -26,10 +26,7 @@ TripSamplePoint toSamplePoint(FLIGHT_DATA_RECORD sample) {
 	p.airspeed = (int)sample.airspeed_indicated;
 	p.groundSpeed = (int)sample.ground_velocity;
 	p.verticalSpeed = (int)sample.vertical_speed;
-	p.n1_1 = sample.turb_eng_n1_1;
-	p.n1_2 = sample.turb_eng_n1_2;
-	p.n2_1 = sample.turb_eng_n2_1;
-	p.n2_2 = sample.turb_eng_n2_2;
+	p.engine = enginePowerFromRecord(sample);
 	p.gearHandlePosition = sample.gear_handle_position;
 	p.gearPosition[0] = (int)sample.gear_position_0;
 	p.gearPosition[1] = (int)sample.gear_position_1;
@@ -71,7 +68,9 @@ RecorderBridge::RecorderBridge(QObject* parent)
 
 	connect(dispatchTimer_, &QTimer::timeout, this, &RecorderBridge::pollDispatch);
 	connect(connectTimer_, &QTimer::timeout, this, &RecorderBridge::tryConnect);
+}
 
+void RecorderBridge::start() {
 	connectTimer_->start(2000);
 	tryConnect();
 }

@@ -1,10 +1,10 @@
 # MSFS Flight Data Recorder
 
-A Qt desktop application for Microsoft Flight Simulator 2024 that records telemetry, cockpit events, and liftoff/landing data to a local SQLite database and visualises them on an interactive map with synchronised timeline charts. When no trip is selected the map shows all recorded routes as blue departure-to-destination line segments. Hovering over any chart shows a tooltip with the values of all curves in that chart at the cursor's time position.
+A Qt desktop application for Microsoft Flight Simulator 2024 that records telemetry, cockpit events, and liftoff/landing data to a local SQLite database and visualises them on an interactive map with synchronised timeline charts. When no trip is selected the map shows all recorded routes as blue departure-to-destination line segments, and each chart is blank with a "No trip selected" message ("No data recorded" for a trip with no data, such as one just starting to record). Hovering over any chart shows a tooltip with the values of all curves in that chart at the cursor's time position.
 
 ![Overview map — recorded routes across Europe and Asia shown as color-coded departure-to-destination line segments, grouped by trip group (GlobalTravel, FlightTraining) with a legend, on a zoomed-out world map when no trip is selected](imgs/Screenshot%202026-08-22%20155717.png)
 
-![Trajectory view — Fenix A320 circuit around Toulouse (LFBO) with the full-flight N1/N2 and vertical-speed charts below and a hover tooltip showing engine values at the cursor position](imgs/Screenshot%202026-07-05%20195501.png)
+![Trajectory view — Fenix A320 circuit around Toulouse (LFBO) with the full-flight engine power (N1/N2 for this jet) and vertical-speed charts below and a hover tooltip showing engine values at the cursor position](imgs/Screenshot%202026-07-05%20195501.png)
 
 ![Touchdown AI analysis](imgs/Screen%20Recording%202026-07-04%20094211.gif)
 
@@ -152,12 +152,12 @@ trip_history_column_widths=
 
 ## Database
 
-`flight_data.db` is a SQLite database. At every launch `migrate_db()` creates any missing tables and indexes and adds any columns present in the current code but missing from the on-disk table (`ALTER TABLE ADD COLUMN`), so databases created by older builds are automatically upgraded without data loss. `connect_db()` repeats the same check when the simulator connects.
+`flight_data.db` is a SQLite database. At every launch, in the background once the window has opened, `migrate_db()` creates any missing tables and indexes and adds any columns present in the current code but missing from the on-disk table (`ALTER TABLE ADD COLUMN`), so databases created by older builds are automatically upgraded without data loss. The trip list and the simulator connection wait for it to finish, with a "Checking the database" notice in the trip list's place meanwhile. The one long upgrade, moving the legacy N1/N2 columns into `engine_speed`/`engine_load`, rebuilds `trip_data` by copying its rows into a new table in batches (one pass, where dropping the columns in place would rewrite the table once per column), and the notice then shows the percentage of that rebuild done: copying the rows, dropping the old table, committing and recreating the indexes, each weighted by roughly its share of the time. Only jet samples keep their engine history through that upgrade: N1/N2 is a jet's speed and load, while the old columns held no load for other engine types (a helicopter turbine's torque, for one, was never recorded), so their engine power reads as not recorded. If the upgrade fails (the error is in `msfs_fdr_debug.log`), the notice says so and stays, the simulator isn't connected, and the next launch tries again. `connect_db()` repeats the same check when the simulator connects.
 
 | Table | Contents |
 |---|---|
 | `trips` | One row per flight session: departure/destination airport ICAO, runway, times, ATC callsign |
-| `trip_data` | Telemetry sampled at a configurable interval (default 0.5 s) while recording: 140 numeric variables (position, altitude, airspeed, engine N1/N2, gear/flaps/spoilers, fuel, …) plus 96 on/off states (autopilot modes, switches, warnings, …) bit-packed into three `bool_group_*` columns — the full list is in `trip_data_fields.h` |
+| `trip_data` | Telemetry sampled at a configurable interval (default 0.5 s) while recording: 136 numeric variables (position, altitude, airspeed, gear/flaps/spoilers, fuel, …), engine power for up to 4 engines in `engine_speed`/`engine_load` (by engine type: piston RPM / manifold pressure, jet N1 / N2, turboprop prop RPM / torque, helicopter turbine N1 / torque; see `engine_power.h`), plus 96 on/off states (autopilot modes, switches, warnings, …) bit-packed into three `bool_group_*` columns — the full list is in `trip_data_fields.h` |
 | `trip_events` | Discrete cockpit events (gear up/down, flaps, spoilers, parking brake, anti-ice, etc.) with zulu and local timestamps |
 | `trip_liftoffs` | One row per liftoff (the trip's departure, plus any touch-and-go): airport, runway (plus its real facility heading — usually a few degrees off the runway number), airspeed, vertical speed, pitch/bank/heading, wind direction/speed, lateral/longitudinal distance from the runway threshold and centreline, and the stored AI analysis report |
 | `trip_touchdowns` | One row per touchdown: airport, runway (plus its real facility heading — usually a few degrees off the runway number), airspeed, vertical speed, g-force, pitch/bank/heading, wind direction/speed, lateral/longitudinal distance from the runway threshold and centreline, and the stored AI analysis report |
@@ -232,8 +232,9 @@ MSFS-Flight-Data-Recorder/
 │   ├── app_settings.h / .cpp     QSettings wrapper for settings.ini
 │   ├── trip_dataset.h            Shared data structs (TripSamplePoint, TripEvent, TripDataset, etc.) and helpers
 │   ├── trip_data_fields.h        X-macro list of all trip_data columns (keeps live and historical paths in sync)
+│   ├── engine_power.h / .cpp     Per-engine-type speed/load SimVars, labels and units; engine_speed/engine_load BLOB format
 │   ├── version.h.in              Template for the generated version.h (APP_VERSION from CMakeLists.txt)
-│   ├── main_window.h / .cpp      Top-level QMainWindow shell and cross-feature signal wiring
+│   ├── main_window.h / .cpp      Top-level QMainWindow shell, startup database migration notice, cross-feature signal wiring
 │   ├── live_status_panel.h/.cpp  Connection/recording status widget and scrolling log
 │   ├── trip_history_panel.h/.cpp Trip list table with background dataset loading, group filter, trip deletion
 │   ├── manage_groups_dialog.h/.cpp Dialog to add, rename, delete and reorder trip groups
@@ -249,7 +250,7 @@ MSFS-Flight-Data-Recorder/
 │   └── resources/
 │       ├── app.qrc / app.rc / app_icon.ico  Application icon and Windows version resource
 │       ├── charts.qrc / map.qrc  Qt resource files bundling the QML and HTML below
-│       ├── charts_panel.qml      QML layout for stacked timeline charts (N1/N2, speed, altitude, gear, etc.)
+│       ├── charts_panel.qml      QML layout for stacked timeline charts (engine power, speed, altitude, gear, etc.)
 │       └── map.html              Leaflet map: trajectory polyline, liftoff/touchdown markers with AI analysis popup, event markers
 ├── tests/                        Automated tests (Qt Test + CTest) -- see tests/README.md
 │   ├── fake_simconnect.h / .cpp  Stand-in for SimConnect.lib driven by made-up packets

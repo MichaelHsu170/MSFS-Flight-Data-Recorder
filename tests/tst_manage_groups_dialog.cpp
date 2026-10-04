@@ -47,12 +47,6 @@ private:
 		sqlite3_close(db);
 		return id;
 	}
-	static void exec(const char* sql) {
-		sqlite3* db = connect_db_readwrite();
-		QVERIFY(db);
-		QCOMPARE(sqlite3_exec(db, sql, nullptr, nullptr, nullptr), SQLITE_OK);
-		sqlite3_close(db);
-	}
 	// Stores the text of the next message box in *message and closes it.
 	static void captureNextMessage(QString* message) {
 		onNextModal([message](QWidget* box) {

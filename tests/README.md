@@ -47,31 +47,33 @@ verification machine.
 | Area | Test | Scenarios |
 |---|---|---|
 | Geometry, formatting, runway codes, write queues (`types.h`) | `tst_types` | distance/bearing/destination/intersection, DMS and timestamp text, every runway designator and compass code, AIRPORT copy/clear, queue ordering and shutdown |
-| SimConnect connection and registration | `tst_recording` | registrations, data definition size = copied sample size, every mapped event in the notification group, open/quit/dispatch failure, reconnect retry, connect while connected, quit while disconnected, unhandled packet ids logged, notifications without a GUI context reach no bridge |
+| SimConnect connection and registration | `tst_recording` | registrations, data definition size = copied sample size, every mapped event in the notification group, open/quit/dispatch failure, no connecting until `start()`, reconnect retry, connect while connected, quit while disconnected, unhandled packet ids logged, notifications without a GUI context reach no bridge, engine power SimVars registered for engines 1-4 in record order with their units |
 | Trip start and stop, samples | `tst_recording` | start conditions (sim running, not paused, loaded flight, on ground, either engine, recording enabled), trip row contents, sample interval (default and from settings), midnight rollover, pause, pitch/bank sign, live signals, stop on engine shutdown / leaving the flight / sim quit / app close, consecutive trips, failed trip insert (no recording, retried next sample), failed destination-time write (trip still ends), setting recording-enabled to its current value |
 | Nearest airport candidates (`add_nearest_airports()` in `airport_lookup.cpp`) on their own | `tst_airport_candidates` | empty list, nearest five in order with distances, only 4-letter idents, region kept, accumulation across chunks, farther than a full list ignored, south as near as north |
 | Runway matching module (`runway_match.cpp`) on its own | `tst_runway_match` | strict hit in both directions, stored runway ends, margin-only hits (past the end, beside), no hit (far, short of the margin), no runways, crossing runways, north = 360 (incl. a primary end stored as 0), displaced threshold for touchdowns only, thresholds longer than the runway, disabled threshold data, trace lines |
 | Liftoff, touchdown, airport and runway matching | `tst_airport_lookup` | departure and touchdown rows, runway match in both directions, designators, crossing runways, magnetic variation, centerline offset sign, displaced thresholds (incl. touchdown before threshold, disabled threshold data), approach track vs heading, stale approach position, touch-and-go markers, lookups queued behind a pending one, facility definition registered once, every fallback (no airports, margin hit, within/beyond 5 km, farther candidate, multi-packet list, non-airport idents), rejected request, unrelated exception, stale responses, deferred departure, reconnect reset, departure logged with its liftoff time, touchdown whose row was never inserted, liftoff marker whose insert fails, departure's own insert failure retried on next liftoff, off-runway touchdown whose row was never inserted, failed landing-destination write, failed lookup write caught by dispatch, malformed facility data (negative runway count, runway index beyond the count, orphan and extra pavement records), facility data rejected midway, facility data for an ended trip not landing on the next trip's touchdown |
 | Event flood filter (`event_filter.cpp`) on its own | `tst_event_filter` | quiet-period hold (carried trip and timestamps), commit on next occurrence, two quick repeats, fast burst suppressed / kept suppressed / ends with or without a flush, flap bypass, independent names, slow flood retracted + suppressed + recovers (with or without a flush), repeats 2.5 s apart, double + single = slow flood, shutdown flush, unique seqs |
 | Cockpit events and flood protection | `tst_events` | quiet-period recording, every mapped event name, no trip, flap whitelist, below/at burst threshold, burst recovery, slow flood retraction + suppression + recovery, event resolved after trip end, flush on shutdown, deleted trip, failed event write logged and retracted from the UI, failed retraction logged, crash message, unknown event |
-| Database | `tst_database` | missing database, schema and indexes, repeatable migration, column upgrade of old databases, group-name uniqueness, every trip_data field written and read back identically on the live and stored paths, recorder write API (trip insert, destination time/position, trip airport with/without runway, clearing the destination, liftoff/touchdown rows and their airport with/without runway, liftoff-only clamp of negative threshold distance, failed write throws and rolls back, failed sample write logged by the writer thread which keeps draining), UI connections (missing database, move, read-only), AI analysis reports (save, replace, invalid/unknown row), trip list (order, status, group), liftoff/touchdown/event reads, event positions, trip deletion |
+| Database | `tst_database` | missing database, migration failing when the database can't be opened, schema and indexes, repeatable migration, column upgrade of old databases, legacy N1/N2 moved into `engine_speed`/`engine_load` (jet rows only, per engine count, old columns dropped, rerun is a no-op; the rebuild keeps rowids across a gap and columns the current schema doesn't name, keeps NOT NULL only where the old column had it, recreates the index, and reports progress per batch of rows copied (to 65%), then after the drop (75%), the commit (90%) and the indexes (100%), each step weighted by roughly its share of the time, passing on only a rising percentage (a 305-row copy whose batches round to 0% or repeat); rows at the smallest and largest possible rowid are copied too; a migration failing after the rows were copied reports failure, changes nothing, still lets the indexes be created, and is redone next start; one cancelled after the first batch or just before committing is rolled back the same way; a trip_data whose columns can't be read fails it), group-name uniqueness, every trip_data field written and read back identically on the live and stored paths, a sample with no engine power stored as NULL rather than an empty BLOB, recorder write API (trip insert, destination time/position, trip airport with/without runway, clearing the destination, liftoff/touchdown rows and their airport with/without runway, liftoff-only clamp of negative threshold distance, failed write throws and rolls back, failed sample write logged by the writer thread which keeps draining), UI connections (missing database, move, read-only), AI analysis reports (save, replace, invalid/unknown row), trip list (order, status, group), liftoff/touchdown/event reads, event positions, trip deletion |
 | Trip groups | `tst_groups` | create (trim, order, blank, duplicates incl. non-ASCII case), name-exists check (Unicode case, excluded group), rename, assign/unassign, trip counts, delete ungroups trips (and rolls back if it fails partway), reorder, name tie-break |
 | Shared helpers | `tst_trip_dataset` | timestamp parsing, file-name pieces, decimation (within budget, stride, last sample kept, slices), field labels, field lists unique, bool bits unique |
-| Chart data (`chart_data.cpp`) | `tst_chart_data` | series table matches `charts_panel.qml` (series names, hover keys, count), sample fields to series, zulu time on the axis, malformed times, nice axis max / signed range, extents (whole trip and slices), series build incl. malformed-time fill, one-sample and no-valid-time axes, thinning, nearest sample, hover values |
+| Engine power (`engine_power.cpp`) | `tst_engine_power` | speed/load SimVars and labels per engine type (piston, jet, helo turbine, turboprop), fixed vs data-sized axes, other engine types record nothing, an engine type no int holds (NaN, ±1e300) reads as unknown, engine count clamped to 0-4, BLOB packing (byte order, count clamped, none = NULL) and round trip, BLOB unpacking (partial, oversized, NULL, empty; engines past the count cleared) |
+| Chart data (`chart_data.cpp`) | `tst_chart_data` | series table matches `charts_panel.qml` (series names, hover keys, count), sample fields to series (each recorded engine's speed/load), engine extents, the trip's engine (first point with power), engine labels by type, zulu time on the axis, malformed times, nice axis max / signed range, extents (whole trip and slices), series build incl. malformed-time fill, one-sample and no-valid-time axes, thinning, nearest sample, hover values |
 | Map scripts (`map_script.cpp`) | `tst_map_script` | string globals escaped, trajectory whole / thinned (indices, ends) / empty, live points, liftoff and touchdown popup fields, events, empty lists, events toggle, overview segments and "Ungrouped" |
 | KML export | `tst_kml` | header/name, path and track in meters, liftoff/touchdown descriptions, no-airport and no-runway rows, event grouping, XML escaping, empty trip, unparseable times, write failure |
 | settings.ini | `tst_settings` | default file, defaults for missing/invalid values, values from file, in-place edits keep comments and other sections, new key/section, section header with a trailing comment, unreadable and read-only files left alone, hidden fields, column widths, recording toggle, log level |
 | Logging | `tst_logger` | `.old` rotation, header, level filter, line format, C shim (incl. levels beyond Profile and an out-of-range level), crash logging and its level filter, second init keeps the file but takes the new level, level names |
-| Data Table panel | `tst_data_table_panel` | rows for every field, value formatting (numbers, DMS, Yes/No), which point is shown, cursor, clearing, hidden fields, Visible Fields dialog OK/Cancel, column width, right-click Copy on a value cell only |
+| Data Table panel | `tst_data_table_panel` | rows for every field, value formatting (numbers, DMS, Yes/No, engine speed/load by engine type), which point is shown, cursor, clearing, hidden fields, Visible Fields dialog OK/Cancel, column width, right-click Copy on a value cell only |
 | Trip History | `tst_trip_history` | durations and totals, column text, status colors, selectability, group filter, newest-first list, overview signal, loading a trip (samples, liftoffs, touchdowns, events), select by id (incl. reentrant-load guard), unknown group id falls back to Ungrouped, live trips, delete with confirm/cancel (incl. clearing the selection when the deleted trip was selected), Set Group menu, Deselect/Reset Zoom menu, selection surviving a bridge-triggered refresh, context menu suppressed while loading, idempotent load-finished, column widths |
 | Live Status panel | `tst_live_status_panel` | version, connection indicator, log lines, recording messages, 500-line cap, recording indicator states, toggle click (and drag-off), toggle while recording, event lines and retraction (incl. an event line already pruned by the cap), blank event text, hover tooltip on the toggle, stale trip end, snapshot line |
 | Manage Groups dialog | `tst_manage_groups_dialog` | list and trip counts, add, duplicate message, cancel, rename, rename collision message, database that can't be opened, blank rename, delete confirm/cancel, delete with no selection, failed delete, reorder by drop, failed reorder, delete/rename/reorder without a writable database |
 | Map page bridge | `tst_map_bridge` | cursor/range/overview forwarding, saving AI reports, invalid row ids, no database file |
 | SQLite statement helpers (`db_query.cpp`) on their own | `tst_db_query` | text column read (value and NULL), prepare success and malformed-SQL failure, row iteration (every row, early stop), a genuine `SQLITE_BUSY` step failure against a second locking connection, UTF-8 text binding, exec success/malformed-SQL/constraint-violation failure, transaction commit, rollback on a failed body, failure when already inside a transaction |
 | Splitter handle-release helper (`splitter_utils.h`) | `tst_splitter_utils` | callback fires once per release (not on press), fires again on a second release, doesn't consume the event (passes it on to filters installed after it), destroyed along with the handle |
-| Charts panel widget (`charts_panel.cpp`) | `tst_charts_panel` | QML root loads, `setDataset()` emits `seriesLoaded`, an empty dataset collapses the axis and emits immediately, malformed-time live points are dropped, `valueAt()` is empty with no dataset loaded, a second dataset reuses the resolved series cache, a superseded in-flight load is discarded without emitting, `setCursorIndex()` sets/clears the QML `cursorTime` property (incl. out of range), `appendLivePoint()` grows the axis and every cached series (and `valueAt()`'s live-mode fallback reads it), `valueAt()` reads full-resolution data after a load, `setVisibleRange()`'s zoomed-out/zoomed-slice/duplicate-range/degenerate-single-sample branches |
+| Charts panel widget (`charts_panel.cpp`) | `tst_charts_panel` | QML root loads, `setDataset()` emits `seriesLoaded`, with no trip (at startup, and after a deselect, which empties every line and emits before `setDataset()` returns) every chart hides its axes (labels, line, title, grid), legend and end-of-trip line and shows "No trip selected", then "Loading…" until a trip's lines are in, all back once it loads, a trip with no point (a live trip just started, or one that recorded none) blank the same way but saying "No data recorded" until its first live point, malformed-time live points are dropped, `valueAt()` is empty with no dataset loaded, a second dataset reuses the resolved series cache, a superseded in-flight load is discarded without emitting, `setCursorIndex()` sets/clears the QML `cursorTime` property (incl. out of range), `appendLivePoint()` grows the axis and every cached series (and `valueAt()`'s live-mode fallback reads it), `valueAt()` reads full-resolution data after a load, the engine power chart labeled by the dataset's engine (data-sized vs fixed axes, a fixed one sized to the data once it goes past it; in the QML, only the recorded engines' lines and legend entries shown, both axis titles, the load axis hidden with no engines, the "Engine Power" fallback title and no-data message, with the axis re-sized to the empty data rather than left at the previous trip's scale; cleared on deselect, where "No trip selected" replaces the no-data message) or by the first live point with power (even at zero power, and afresh after a deselect; a known type with no engines recorded gets no fixed scale), every chart's plot ending at the same x, `setVisibleRange()`'s no-trip (time axis left alone)/while-loading (the old trip's axes left alone, the last range applied once loaded -- a full range, sent while loading or right after, is already what loads and isn't drawn again -- and dropped if another trip replaces it first)/zoomed-out/zoomed-slice/duplicate-range/degenerate-single-sample branches |
 | Map widget (`map_widget.cpp`) | `tst_map_widget` | page loads and `setDataset()` before the page is ready emits `trajectoryLoaded` immediately then suppresses the later, deferred re-emit; once ready, `setDataset()` pushes trajectory/liftoffs/touchdowns/events and emits once; a superseded `setDataset()` call discards the first load's background JS build without a second emit; `appendLivePoint()` only arms the flush timer once the page is ready, and the timer stops itself once drained; `defaultMapImageFileName()` tracks overview vs. a loaded trip's airport pair and departure timestamp; `resetZoom()`/`setEventsVisible()` before and after the page is ready |
 | Trajectory view (`trajectory_view.cpp`) | `tst_trajectory_view` | a null `setDataset()` is ignored; a real dataset fans out to the map/charts/data table and `renderingFinished()` fires once both async subviews finish; `clearAndShowOverview()` resets the current trip without spuriously emitting `renderingFinished()` from the synchronous empty-chart reset; `resetZoom()`; live points apply to the dataset/map/charts/table while following, are dropped everywhere when `ChartsPanel` rejects a malformed time (both the direct and the buffered-then-flushed path), and are buffered and then flushed in order when `setLiveFollow(false)`/`(true)`; `setRightPanelWidth()`; both splitters' drag (`rightPanelWidthChanged`) and release-persists-to-settings wiring |
+| Main window startup (`main_window.cpp`) | `tst_main_window` | the window opens with a "Checking the database" notice in Trip History's place, which a quick migration replaces with Trip History without ever showing a percentage; a failed one says so (word-wrapped) and keeps it, with neither Trip History nor the simulator connection started; a slow one keeps it while Trip History and the simulator connection wait, then shows "Updating the database for this version… N%" once the trip_data rebuild reports progress; a quick rebuild, whose steps all finish within Qt's 40 ms progress throttling, still reports its last 100%; once it finishes Trip History replaces the notice without the window being recreated, the simulator connection starts and the database is migrated; closing the window mid-rebuild (while the migration waits on a locked database, so not racing the copy) cancels it, leaving the legacy columns for the next start and neither Trip History nor the simulator connection started; closing it after the worker returned but before its finished signal is handled starts neither; closing it after the migration finished has nothing to cancel |
 
 ## Not covered (check by hand)
 
@@ -128,7 +130,8 @@ verification machine.
   `QWebEngineView`-backed widget built in a process reliably finishes
   loading -- see the comments at the top of `tst_map_widget.cpp`.
 - **AI analysis** (Gemini streaming, retries, stored report shown again).
-- **Window layout**: `MainWindow` itself (not exercised by any test) and the
+- **Window layout**: `MainWindow`'s splitter sizes and signal wiring
+  (`tst_main_window` only checks that Trip History appears), and the
   `overviewTripClicked` signal's three-hop forwarding chain (`MapBridge` ->
   `MapWidget` -> `TrajectoryView`), which would need a real click inside the
   WebEngine page's overview route to trigger end to end -- `tst_map_bridge`
@@ -136,7 +139,10 @@ verification machine.
   it, `TrajectoryView` re-emitting it) but not a click driving it from the
   page. `TrajectoryView`'s own splitter-size-persisted-on-release wiring is
   covered by `tst_trajectory_view`.
-- **Startup** (`main.cpp`): single-instance lock, crash/terminate logging.
+- **Startup** (`main.cpp`): single-instance lock, crash/terminate logging,
+  the log filter that drops Qt Graphs' "axis already associated" warning
+  (`main.cpp` isn't part of the test library; `tst_charts_panel` checks
+  that the charts raise only the three expected ones).
 - **Trip History**: Export to KML from the row menu (file dialog), the
   "still saving" delete block, opening Manage Groups from the panel, a
   failed/missing read or write database connection (`ensureHistoryConnection`,
@@ -154,7 +160,8 @@ verification machine.
   returns an empty list if even the legacy (no-name, no-region) `SELECT`
   fails to prepare, which needs a `trips` table missing core columns that
   no real migration produces.
-- **`db.cpp` failure paths below a failing statement**: `db_bind()`'s and
+- **`db.cpp` failure paths below a failing statement**: `db_bind()`'s,
+  `db_bind_engine_values()`'s and
   `sqlite3_reset()`/`COMMIT`/`BEGIN`'s error branches and the
   finalize-after-commit log in `db_insert_update_table()` (need SQLite to
   fail at that exact step, not at prepare); the writer threads'
@@ -162,7 +169,24 @@ verification machine.
   `db_delete_events()`'s empty-list return (the flood filter never retracts
   zero events); `migrate_db()`/`create_schema()`/`create_db_indexes()`/
   `migrate_table_columns()` failure logging (needs a corrupt or locked
-  database file); and `connect_db()`'s open failure, which calls `exit(1)`.
+  database file); `migrate_table_columns()`'s early return when it reads no
+  columns (`migrateFailsWhenTripDatasColumnsCantBeRead` reaches it, but
+  removing it only adds failed-`ALTER` log lines before the legacy engine
+  rebuild fails the migration anyway, so no test can tell);
+  `copy_rows_in_batches()`'s prepare, row-count and mid-copy step
+  failures (the count runs after this transaction's `CREATE` took the write
+  lock, so nothing can lock it out) and the `engine_pack` registration failure (the tested legacy
+  migration failure happens after the copy, at the rename);
+  `migrate_legacy_engine_columns()`'s `BEGIN`, `CREATE TABLE trip_data_new`
+  and `COMMIT` failures, which share the tested rollback path: `BEGIN` fails
+  only inside an open transaction, which nothing leaves; a `CREATE` made to
+  fail by an existing `trip_data_new` still fails at the copy if its check
+  is broken, so no test sees it; and failing `COMMIT` needs another
+  connection's read lock, which makes the column additions before the
+  rebuild fail first; and `connect_db()`'s open failure and failed
+  `create_schema()`, which call `exit(1)`/`exit(2)` -- the app starts the
+  bridge only after `migrate_db()` succeeded, so they need the database to
+  break in between.
 - **Allocation failures**: the `malloc`/`calloc` NULL branches in
   `flight_phase.cpp` (contact records, sample record, `last_sample` cache)
   and `airport_lookup.cpp` (runway buffer). No test can make the allocator
@@ -186,11 +210,22 @@ verification machine.
     makes the same check and drops the response, so removing only the first
     changes nothing a test can see (the second is covered).
   - `db_groups.cpp`'s prepare-failure returns in `queryAllGroups()`,
-    `groupNameExists()` and `reorderGroups()`: SQLite treats stepping or
+    `groupNameExists()` and `reorderGroups()`, and `db.cpp`'s in
+    `table_columns()`: SQLite treats stepping or
     finalizing a null statement as a harmless no-op, so the results are the
     same with or without them.
   - `runway_match.cpp`'s "intersection calc failed" skip: per suspected bug
     2 below, the intersection never reports failure.
+  - `queryTripData()`'s engine count as the smaller of the
+    `engine_speed`/`engine_load` BLOBs' counts: the app always writes both
+    with the same count, so they differ only in a hand-edited database.
+  - The same function reading a BLOB's pointer before its size, the order
+    SQLite documents: either order gives the same result for a BLOB value,
+    since neither call converts it.
+  - `enginePowerFromRecord()`'s guard on a NaN or out-of-range NUMBER OF
+    ENGINES: MSVC's unguarded cast gives `INT_MIN` for those, which the clamp
+    turns into the same 0 count. A test with NaN and 1e300 passed with the
+    guard removed and was dropped (the same guard on ENGINE TYPE is covered).
   - `ManageGroupsDialog::onListReordered()`'s `updating_` guard: `reload()`
     never emits `reordered`.
   - `LiveStatusPanel::eventFilter()`'s non-toggle branch: the filter is only
@@ -216,7 +251,9 @@ Recorded here rather than fixed, so the tests describe today's behavior.
    emitted but not connected to anything, `TrajectoryView::setLiveFollow()`
    is never called, and live trips can't be selected in Trip History, so
    `TrajectoryView::appendLivePoint()` and the panels' `appendLivePoint()`
-   never run in the app.
+   never run in the app. Once they do, `ChartsPanel::appendLivePoint()`
+   needs to wait for a trip still loading (as `setVisibleRange()` does):
+   otherwise a live point relabels the old trip's engine lines early.
 4. **A failed coordinate-only write leaves the lookup stuck.** When the
    airport list has no candidates (`lookup_on_airport_list()` in
    `airport_lookup.cpp`), `on_lookup_resolved(NO_AIRPORT)` writes the trip
@@ -232,3 +269,17 @@ Recorded here rather than fixed, so the tests describe today's behavior.
    persists, this is an endless loop of SimConnect requests. Not pinned by a
    test: `serviceLookups()` would loop forever. The failure tests stop the
    forced error before answering lookups instead.
+
+## Open questions (check with real sim data)
+
+Left as they are until a recorded trip shows whether they matter.
+
+1. **Negative torque on the engine chart.** For turboprops and helicopter
+   turbines, the engine chart's load axis plots TURB ENG MAX TORQUE PERCENT.
+   Like the speed, altitude and fuel axes, it only sets a maximum, so its
+   minimum stays 0 (`ChartsPanel::setYAxes()`). If MSFS reports negative
+   torque (e.g. a windmilling propeller in a descent), that part of the
+   line is clipped at 0; the Data Table still shows the value. Check a
+   turboprop trip's `engine_load` for negative values; if there are any,
+   track the lowest load in `ChartExtents` and use `niceSignedAxisRange()`
+   as the vertical speed axis does, with a negative-torque test.

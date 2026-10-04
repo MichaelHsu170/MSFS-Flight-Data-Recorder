@@ -56,7 +56,11 @@ private slots:
 		std::set<std::string> names, keys;
 		for (const ChartSeriesDef& def : CHART_SERIES) {
 			QVERIFY2(text.contains(QStringLiteral("objectName: \"%1\"").arg(def.objectName)), def.objectName);
-			QVERIFY2(text.contains(QStringLiteral("key: \"%1\"").arg(def.valueKey)), def.valueKey);
+			// A series entry's key, or an element of engineSeries()' speed/load
+			// key arrays -- not just the quoted name anywhere in the file.
+			const QString key = QRegularExpression::escape(QString::fromLatin1(def.valueKey));
+			const QRegularExpression keyed(QStringLiteral("key:\\s*\"%1\"|(speed|load):\\s*\\[[^\\]]*\"%1\"").arg(key));
+			QVERIFY2(text.contains(keyed), def.valueKey);
 			names.insert(def.objectName);
 			keys.insert(def.valueKey);
 		}
@@ -71,7 +75,8 @@ private slots:
 
 	void valuesComeFromTheirSampleFields() {
 		TripSamplePoint p;
-		p.n1_1 = 1; p.n1_2 = 2; p.n2_1 = 3; p.n2_2 = 4;
+		// 3 engines: the 4th's series stay 0.
+		p.engine = { 1, 3, { 1, 2, 3, 99 }, { 4, 5, 6, 99 } };
 		p.verticalSpeed = -5; p.airspeed = 6; p.groundSpeed = 7; p.altitude = 8;
 		p.gearHandlePosition = 9;
 		p.gearPosition[0] = 10; p.gearPosition[1] = 11; p.gearPosition[2] = 12;
@@ -79,7 +84,7 @@ private slots:
 		p.brakeIndicator = 13; p.flapsHandleIndex = 14; p.spoilersHandlePosition = 15;
 		p.fuelTotalQuantityWeight = 16; p.pitchDegrees = -17.5; p.bankDegrees = 18.25;
 		const ChartValues v = chartValues(p);
-		const ChartValues expected = { 1, 2, 3, 4, -5, 6, 7, 8, 9, 10, 11, 12, 1, 0, 1, 13, 14, 15, 16, -17.5, 18.25 };
+		const ChartValues expected = { 1, 2, 3, 0, 4, 5, 6, 0, -5, 6, 7, 8, 9, 10, 11, 12, 1, 0, 1, 13, 14, 15, 16, -17.5, 18.25 };
 		for (int s = 0; s < CHART_SERIES_COUNT; ++s)
 			QCOMPARE(v[s], expected[s]);
 	}
@@ -133,6 +138,56 @@ private slots:
 		QVERIFY(e.add(valuesWith(0, 0, 0, 0, 0, -5, 25)));
 		QCOMPARE(e.pitchMin, -5.0); QCOMPARE(e.bankMax, 25.0);
 		QCOMPARE(e.speedMax, 130.0);
+	}
+
+	void engineExtentsAreTheMaxOfAnyEngine() {
+		ChartExtents e;
+		ChartValues v{};
+		v[CHART_ENG_SPEED_1] = 50; v[CHART_ENG_SPEED_4] = 80;
+		v[CHART_ENG_LOAD_2] = 30; v[CHART_ENG_LOAD_3] = 20;
+		e.add(v);
+		QCOMPARE(e.engSpeedMax, 80.0);
+		QCOMPARE(e.engLoadMax, 30.0);
+		// Only an engine value changed: still reported, so the axes resize.
+		v[CHART_ENG_LOAD_4] = 40;
+		QVERIFY(e.add(v));
+		QCOMPARE(e.engLoadMax, 40.0);
+		v[CHART_ENG_SPEED_2] = 90;
+		QVERIFY(e.add(v));
+		QCOMPARE(e.engSpeedMax, 90.0);
+	}
+
+	void chartEngineIsTheFirstPointWithPower() {
+		TripSamplePoint none, piston, jet;
+		none.engine = { 1, 0 };
+		piston.engine = { 0, 2, { 2400, 2300 } };
+		jet.engine = { 1, 1 };
+		QCOMPARE(chartEngine({}).count, 0);
+		QCOMPARE(chartEngine({ none }).count, 0);
+		const EnginePower e = chartEngine({ none, piston, jet });
+		QCOMPARE(e.engineType, 0);
+		QCOMPARE(e.count, 2);
+		QCOMPARE(e.speed[1], 2300.0f);
+	}
+
+	void chartEngineSpecLabelsByEngineType() {
+		const QVariantMap jet = chartEngineSpec({ 1, 2 });
+		QCOMPARE(jet.value("count").toInt(), 2);
+		QCOMPARE(jet.value("speedLabel").toString(), QStringLiteral("N1"));
+		QCOMPARE(jet.value("loadLabel").toString(), QStringLiteral("N2"));
+		QCOMPARE(jet.value("speedUnit").toString(), QStringLiteral("%"));
+		QCOMPARE(jet.value("speedDecimals").toInt(), 1);
+		QCOMPARE(jet.value("loadAxisTitle").toString(), QStringLiteral("N2 (%)"));
+
+		const QVariantMap piston = chartEngineSpec({ 0, 1 });
+		QCOMPARE(piston.value("speedAxisTitle").toString(), QStringLiteral("RPM"));
+		QCOMPARE(piston.value("loadUnit").toString(), QStringLiteral("inHg"));
+		QCOMPARE(piston.value("loadDecimals").toInt(), 1);
+
+		// No power recorded, or an engine type that isn't recorded: count 0 only.
+		QCOMPARE(chartEngineSpec({ 1, 0 }), (QVariantMap{ { "count", 0 } }));
+		QCOMPARE(chartEngineSpec({ 2, 2 }), (QVariantMap{ { "count", 0 } }));
+		QCOMPARE(chartEngineSpec({}), (QVariantMap{ { "count", 0 } }));
 	}
 
 	void maxOnlyExtentsStartAtZero() {

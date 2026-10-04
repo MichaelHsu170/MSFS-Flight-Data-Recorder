@@ -45,6 +45,16 @@ void clickDialogButton(QWidget* dialog, const QString& text);
 // Runs sql on a fresh read-only connection to flight_data.db.
 QList<QVariantMap> queryRows(const QString& sql);
 QVariant queryValue(const QString& sql);
+// Runs sql on db; a failure fails the current test.
+void exec(sqlite3* db, const char* sql);
+// Runs sql on a fresh read-write connection to flight_data.db (one beside the
+// code under test's own); a failure fails the current test.
+void exec(const char* sql);
+// Creates flight_data.db with only a trip_data from before engine_speed/
+// engine_load: N1/N2 of engines 1-2 in their own columns, 5 rows.
+void createLegacyTripData();
+// Adds count twin-jet rows of trip 2 to createLegacyTripData()'s table.
+void addLegacyJetRows(int count);
 
 // A sample with every field zeroed except what the recorder needs to treat
 // the aircraft as sitting in a loaded flight: on the ground at the test
@@ -95,7 +105,7 @@ COORDINATE pointOnRunway(const RunwaySpec& runway, double distanceM, double righ
 
 class FlightDriver {
 public:
-	// Resets the fake, creates a RecorderBridge (which connects immediately)
+	// Resets the fake, creates and starts a RecorderBridge (which connects)
 	// and delivers the OPEN packet plus "Sim running". The event flood
 	// filter's clock is replaced by one that only tick() moves.
 	FlightDriver();

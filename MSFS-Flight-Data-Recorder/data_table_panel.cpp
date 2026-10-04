@@ -27,7 +27,9 @@ namespace {
 // TripSamplePoint so showPoint's macro expansion maps row N+3 → rawNums[N]
 // (N+2 for gps_position_lat/gps_position_lon, which are combined into the
 // single "GPS Position" row at index 2 instead of getting their own rows --
-// see showPoint()).
+// see showPoint()). Between the two come MAX_ENGINES "Engine Speed N" rows
+// then MAX_ENGINES "Engine Load N" rows (TripSamplePoint::engine, see
+// engine_power.h).
 QStringList buildFieldRowLabels() {
 	QStringList labels = { QStringLiteral("Time (Zulu)"), QStringLiteral("Time (Local)"), QStringLiteral("GPS Position") };
 
@@ -36,6 +38,10 @@ QStringList buildFieldRowLabels() {
 		labels.append(tripFieldLabel(#dbColumn));
 	TRIP_DATA_NUM_FIELDS(TRIP_NUM_FIELD)
 #undef TRIP_NUM_FIELD
+
+	for (const char* quantity : { "Speed", "Load" })
+		for (int i = 1; i <= MAX_ENGINES; ++i)
+			labels.append(QStringLiteral("Engine %1 %2").arg(QLatin1String(quantity)).arg(i));
 
 #define TRIP_BOOL_FIELD(name, group, bit) labels.append(tripFieldLabel(#name));
 	TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_FIELD)
@@ -51,6 +57,15 @@ QString formatDMS(double lat, double lng) {
 	c.longitude = lng;
 	return QString::fromStdString(c.coordinate_decimal_to_dms(COORDINATE::LATITUDE) + " "
 		+ c.coordinate_decimal_to_dms(COORDINATE::LONGITUDE));
+}
+
+// An engine's speed or load as "<label>: <value> <unit>" (e.g. "N1: 85.5 %"),
+// or empty past the recorded engines or for an engine type not recorded.
+QString formatEngineValue(const EngineQuantity* quantity, const std::array<float, MAX_ENGINES>& values, int engine, int count) {
+	if (!quantity || engine >= count)
+		return QString();
+	return QStringLiteral("%1: %2 %3").arg(QString::fromUtf8(quantity->label),
+		QString::number(values[engine], 'f', quantity->decimals), QString::fromUtf8(quantity->unit));
 }
 
 }
@@ -264,6 +279,15 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 		++ni;
 		TRIP_DATA_NUM_FIELDS(TRIP_NUM_DISP)
 #undef TRIP_NUM_DISP
+		const EnginePowerSpec* spec = enginePowerSpec(point.engine.engineType);
+		for (const auto& [quantity, values] : { std::pair{ spec ? &spec->speed : nullptr, &point.engine.speed },
+		                                        std::pair{ spec ? &spec->load : nullptr, &point.engine.load } }) {
+			for (int i = 0; i < MAX_ENGINES && row < table_->rowCount(); ++i, ++row) {
+				const QString v = formatEngineValue(quantity, *values, i, point.engine.count);
+				table_->item(row, 1)->setText(v);
+				table_->item(row, 1)->setToolTip(v);
+			}
+		}
 #define TRIP_BOOL_DISP(name, group, bit) \
 		if (row < table_->rowCount()) { \
 			uint32_t bg = (group) == 1 ? point.boolGroup1 \

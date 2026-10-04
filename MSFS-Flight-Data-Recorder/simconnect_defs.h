@@ -1,6 +1,7 @@
 #pragma once
 
 #include "types.h"
+#include "engine_power.h"
 #include "SimConnect.h"
 
 enum GROUP_ID {
@@ -266,10 +267,14 @@ struct FLIGHT_DATA_RECORD {
 	double turb_eng_ignition_switch_ex1_2;
 	double turb_eng_is_igniting_1;
 	double turb_eng_is_igniting_2;
-	double turb_eng_n1_1;
-	double turb_eng_n1_2;
-	double turb_eng_n2_1;
-	double turb_eng_n2_2;
+	// Engines 1..MAX_ENGINES, in ENGINE_POWER_SIMVARS order (sim_link.cpp);
+	// enginePowerFromRecord() picks which ones a sample records.
+	double general_eng_rpm[MAX_ENGINES];
+	double recip_eng_manifold_pressure[MAX_ENGINES];
+	double turb_eng_n1[MAX_ENGINES];
+	double turb_eng_n2[MAX_ENGINES];
+	double turb_eng_max_torque_percent[MAX_ENGINES];
+	double prop_rpm[MAX_ENGINES];
 	double turb_eng_vibration_1;
 	double turb_eng_vibration_2;
 	double g_force;

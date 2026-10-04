@@ -47,7 +47,7 @@ private slots:
 
 	void fieldLabels() {
 		QCOMPARE(tripFieldLabel("plane_touchdown_latitude"), QStringLiteral("Plane Touchdown Latitude"));
-		QCOMPARE(tripFieldLabel("turb_eng_n1_1"), QStringLiteral("Turb Eng N1 1"));
+		QCOMPARE(tripFieldLabel("turb_eng_ignition_switch_ex1_1"), QStringLiteral("Turb Eng Ignition Switch Ex1 1"));
 		QCOMPARE(tripFieldLabel("g_force"), QStringLiteral("G Force"));
 	}
 
@@ -61,7 +61,7 @@ private slots:
 		TRIP_DATA_BOOL_FIELDS(ADD_BOOL)
 #undef ADD_BOOL
 		QCOMPARE(names.size(), count);
-		QCOMPARE(count, 140 + 96);
+		QCOMPARE(count, 136 + 96);
 	}
 
 	void boolFieldsUseEachBitOnce() {

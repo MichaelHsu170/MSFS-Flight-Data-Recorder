@@ -69,8 +69,11 @@ private slots:
 	void rowsCoverEveryField() {
 		DataTablePanel panel;
 		QTableWidget* t = table(panel);
-		// Zulu, Local, combined GPS row, the other 138 numeric fields, 96 bools.
-		QCOMPARE(t->rowCount(), 3 + 138 + 96);
+		// Zulu, Local, combined GPS row, the other 134 numeric fields, speed
+		// and load of 4 engines, 96 bools.
+		QCOMPARE(t->rowCount(), 3 + 134 + 8 + 96);
+		QCOMPARE(t->item(3 + 134, 0)->text(), QStringLiteral("Engine Speed 1"));
+		QCOMPARE(t->item(3 + 134 + 7, 0)->text(), QStringLiteral("Engine Load 4"));
 		QCOMPARE(t->item(0, 0)->text(), QStringLiteral("Time (Zulu)"));
 		QCOMPARE(t->item(1, 0)->text(), QStringLiteral("Time (Local)"));
 		QCOMPARE(t->item(2, 0)->text(), QStringLiteral("GPS Position"));
@@ -114,6 +117,31 @@ private slots:
 		QCOMPARE(value(t, "Autopilot Master"), QStringLiteral("No"));
 		QCOMPARE(value(t, "Kohlsman Setting Std"), QStringLiteral("Yes"));
 		QCOMPARE(value(t, "Sim On Ground"), QStringLiteral("No"));
+	}
+
+	void engineRowsShowTheRecordedEnginesByType() {
+		DataTablePanel panel;
+		TripDataset d;
+		TripSamplePoint p = makePoint(0, "t");
+		p.engine = { 5, 2, { 1700, 1712.6f }, { 81.24f, 80 } };
+		d.points = { p };
+		panel.setDataset(&d);
+		QTableWidget* t = table(panel);
+		QCOMPARE(value(t, "Engine Speed 1"), QStringLiteral("Prop RPM: 1700 rpm"));
+		QCOMPARE(value(t, "Engine Speed 2"), QStringLiteral("Prop RPM: 1713 rpm"));
+		QCOMPARE(value(t, "Engine Load 1"), QStringLiteral("Torque: 81.2 %"));
+		QCOMPARE(value(t, "Engine Load 2"), QStringLiteral("Torque: 80.0 %"));
+		QCOMPARE(value(t, "Engine Speed 3"), QString());
+		QCOMPARE(value(t, "Engine Load 4"), QString());
+		// The rows after them stay aligned with their values.
+		QCOMPARE(value(t, "Autopilot Airspeed Hold"), QStringLiteral("Yes"));
+
+		// An engine type that isn't recorded shows nothing.
+		p.engine = { 2, 2, { 1700, 1700 }, { 80, 80 } };
+		d.points = { p };
+		panel.setDataset(&d);
+		QCOMPARE(value(t, "Engine Speed 1"), QString());
+		QCOMPARE(value(t, "Engine Load 1"), QString());
 	}
 
 	void dmsCarriesInsteadOfShowingSixtySeconds() {

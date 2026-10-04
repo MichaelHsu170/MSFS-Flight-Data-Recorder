@@ -43,6 +43,7 @@ set(CORE_SOURCES
     ${SRC_DIR}/db.cpp
     ${SRC_DIR}/recorder.cpp
     ${SRC_DIR}/sim_link.cpp
+    ${SRC_DIR}/engine_power.cpp
     ${SRC_DIR}/runway_match.cpp
     ${SRC_DIR}/airport_lookup.cpp
     ${SRC_DIR}/flight_phase.cpp

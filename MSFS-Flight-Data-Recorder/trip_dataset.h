@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "engine_power.h"
+
 // One row of trip_data, decoded into engineering units/booleans. Same shape
 // whether it came from db_history::queryTripData() (history) or was appended
 // live from a FLIGHT_DATA_RECORD while recording (Recording feature) — the
@@ -17,10 +19,7 @@ struct TripSamplePoint {
 	int airspeed = 0;
 	int groundSpeed = 0;
 	int verticalSpeed = 0;
-	double n1_1 = 0;
-	double n1_2 = 0;
-	double n2_1 = 0;
-	double n2_2 = 0;
+	EnginePower engine;
 	double gearHandlePosition = 0;
 	int gearPosition[3] = { 0, 0, 0 };
 	bool gearOnGround[3] = { false, false, false };

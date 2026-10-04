@@ -21,14 +21,15 @@ inline QString tripFieldLabel(const char* name) {
 }
 
 // Canonical list of every trip_data column that represents flight telemetry
-// (i.e. every column except the `trip` key column and `zulu_time`/
-// `local_time`, which DataTablePanel shows in their own dedicated rows
-// instead). Expanded via X-macros by every consumer that must agree on the
-// same field set and order: the trip_data schema, INSERT and binds (db.cpp),
-// recorder_bridge.cpp (live path fills TripSamplePoint::rawNums from
-// FLIGHT_DATA_RECORD), db_history.cpp (historical path fills rawNums from
-// sqlite3_column_double), and data_table_panel.cpp (formats rawNums/
-// boolGroups to display strings in showPoint).
+// (i.e. every column except the `trip` key column, `zulu_time`/`local_time`
+// (shown in their own DataTablePanel rows) and the `engine_speed`/
+// `engine_load` BLOBs (see engine_power.h)). Expanded via X-macros by every
+// consumer that must agree on the same field set and order: the trip_data
+// schema, INSERT and binds (db.cpp), recorder_bridge.cpp (live path fills
+// TripSamplePoint::rawNums from FLIGHT_DATA_RECORD), db_history.cpp
+// (historical path fills rawNums from sqlite3_column_double), and
+// data_table_panel.cpp (formats rawNums/boolGroups to display strings in
+// showPoint).
 //
 // TRIP_DATA_NUM_FIELDS(X): X(dbColumn, recordMemberExpr, sqlType) -- a plain
 // numeric trip_data column. recordMemberExpr is the FLIGHT_DATA_RECORD
@@ -156,10 +157,6 @@ inline QString tripFieldLabel(const char* name) {
 	X(general_eng_damage_percent_2, general_eng_damage_percent_2, REAL) \
 	X(general_eng_throttle_lever_position_1, general_eng_throttle_lever_position_1, REAL) \
 	X(general_eng_throttle_lever_position_2, general_eng_throttle_lever_position_2, REAL) \
-	X(turb_eng_n1_1, turb_eng_n1_1, REAL) \
-	X(turb_eng_n1_2, turb_eng_n1_2, REAL) \
-	X(turb_eng_n2_1, turb_eng_n2_1, REAL) \
-	X(turb_eng_n2_2, turb_eng_n2_2, REAL) \
 	X(brake_indicator, brake_indicator, INTEGER) \
 	X(turb_eng_fuel_flow_pph_1, turb_eng_fuel_flow_pph_1, INTEGER) \
 	X(turb_eng_fuel_flow_pph_2, turb_eng_fuel_flow_pph_2, INTEGER) \

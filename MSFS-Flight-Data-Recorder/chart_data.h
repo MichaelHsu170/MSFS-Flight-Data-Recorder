@@ -17,7 +17,9 @@
 // the hover readout. ChartsPanel only moves these into the QML series/axes.
 
 enum ChartSeriesId {
-	CHART_N1_1, CHART_N1_2, CHART_N2_1, CHART_N2_2,
+	// Engines 1..MAX_ENGINES' speed and load (EnginePower in engine_power.h).
+	CHART_ENG_SPEED_1, CHART_ENG_SPEED_2, CHART_ENG_SPEED_3, CHART_ENG_SPEED_4,
+	CHART_ENG_LOAD_1, CHART_ENG_LOAD_2, CHART_ENG_LOAD_3, CHART_ENG_LOAD_4,
 	CHART_VERTICAL_SPEED, CHART_AIRSPEED, CHART_GROUND_SPEED, CHART_ALTITUDE,
 	CHART_GEAR_HANDLE, CHART_GEAR_POS_0, CHART_GEAR_POS_1, CHART_GEAR_POS_2,
 	CHART_GEAR_ON_GROUND_0, CHART_GEAR_ON_GROUND_1, CHART_GEAR_ON_GROUND_2,
@@ -37,9 +39,22 @@ struct ChartSeriesDef {
 // Indexed by ChartSeriesId.
 extern const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES;
 
-// One sample's value for every series, indexed by ChartSeriesId.
+static_assert(CHART_ENG_LOAD_1 - CHART_ENG_SPEED_1 == MAX_ENGINES && CHART_VERTICAL_SPEED - CHART_ENG_LOAD_1 == MAX_ENGINES,
+	"one engine speed and one engine load series per engine");
+
+// One sample's value for every series, indexed by ChartSeriesId. An engine
+// past the sample's EnginePower::count is 0.
 using ChartValues = std::array<double, CHART_SERIES_COUNT>;
 ChartValues chartValues(const TripSamplePoint& point);
+
+// The engine power the first chart is labeled by: that of the first point
+// that recorded any (count 0 if none did). A trip keeps one aircraft, so
+// later points have the same engine type.
+EnginePower chartEngine(const std::vector<TripSamplePoint>& points);
+// charts_panel.qml's root engineSpec for engine: count, plus speed/load
+// Label, Unit, Decimals and AxisTitle (enginePowerSpec()) -- only count (0)
+// if engine recorded no power, which shows the no-data message.
+QVariantMap chartEngineSpec(const EnginePower& engine);
 
 // A zulu-time string (parseZuluTime() in trip_dataset.h) as chart X-axis
 // epoch ms. Qt Graphs' DateTimeAxis always labels in local time, so the zulu
@@ -60,12 +75,14 @@ double niceAxisMax(double value);
 std::pair<double, double> niceSignedAxisRange(double minVal, double maxVal);
 
 // What the Y axes are sized from: min/max of vertical speed, pitch and bank
-// (the signed axes), max of speed (airspeed or ground speed), altitude and
-// fuel weight (the axes starting at 0; their max starts at 0 too).
+// (the signed axes), max of speed (airspeed or ground speed), altitude, fuel
+// weight and engine speed/load (any engine) (the axes starting at 0; their
+// max starts at 0 too).
 struct ChartExtents {
 	bool valid = false; // false until the first add()
 	double vsMin = 0, vsMax = 0;
 	double speedMax = 0, altMax = 0, fuelMax = 0;
+	double engSpeedMax = 0, engLoadMax = 0;
 	double pitchMin = 0, pitchMax = 0;
 	double bankMin = 0, bankMax = 0;
 	// Widens the extents to include values; true if anything changed.

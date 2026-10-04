@@ -5,41 +5,56 @@
 #include "gui_notify.h"
 #include "trip_data_fields.h"
 
+#include <algorithm>
 #include <functional>
+#include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
 
-// trip_data's columns: the trip key, the three bool_group_<n> packs (see
-// TRIP_DATA_BOOL_FIELDS), every TRIP_DATA_NUM_FIELDS column, then the two
-// timestamps.
-std::string trip_data_fields() {
-	std::string fields = "trip INTEGER NOT NULL,"
-		"bool_group_1 INTEGER NOT NULL,"
-		"bool_group_2 INTEGER NOT NULL,"
-		"bool_group_3 INTEGER NOT NULL,";
-#define TRIP_NUM_COLUMN(dbColumn, memberExpr, sqlType) fields += #dbColumn " " #sqlType " NOT NULL,";
-	TRIP_DATA_NUM_FIELDS(TRIP_NUM_COLUMN)
+// trip_data's column definitions ("name TYPE [NOT NULL]"), in order: the
+// trip key, the three bool_group_<n> packs (see TRIP_DATA_BOOL_FIELDS), every
+// TRIP_DATA_NUM_FIELDS column, the engine power BLOBs (engine_power.h; NULL =
+// not recorded), then the two timestamps.
+const std::vector<std::string>& trip_data_columns() {
+	static const std::vector<std::string> columns = [] {
+		std::vector<std::string> c = { "trip INTEGER NOT NULL",
+			"bool_group_1 INTEGER NOT NULL",
+			"bool_group_2 INTEGER NOT NULL",
+			"bool_group_3 INTEGER NOT NULL" };
+#define TRIP_NUM_COLUMN(dbColumn, memberExpr, sqlType) c.push_back(#dbColumn " " #sqlType " NOT NULL");
+		TRIP_DATA_NUM_FIELDS(TRIP_NUM_COLUMN)
 #undef TRIP_NUM_COLUMN
-	fields += "zulu_time VARCHAR(32) NOT NULL,"
-		"local_time VARCHAR(32) NOT NULL";
+		c.insert(c.end(), { "engine_speed BLOB", "engine_load BLOB",
+			"zulu_time VARCHAR(32) NOT NULL", "local_time VARCHAR(32) NOT NULL" });
+		return c;
+	}();
+	return columns;
+}
+
+// The column name a column definition starts with. Every definition here
+// (database_tables(), trip_data_columns()) separates it with a space.
+std::string column_name(const std::string& definition) {
+	return definition.substr(0, definition.find(' '));
+}
+
+std::string trip_data_fields() {
+	std::string fields;
+	for (const std::string& definition : trip_data_columns())
+		fields += (fields.empty() ? "" : ",") + definition;
 	return fields;
 }
 
-// The INSERT for one trip_data row, columns in trip_data_fields() order --
+// The INSERT for one trip_data row, columns in trip_data_columns() order --
 // db_write_worker() binds them in the same order.
 std::string trip_data_insert() {
-	std::string columns = "trip,bool_group_1,bool_group_2,bool_group_3,";
-	int count = 4;
-#define TRIP_NUM_NAME(dbColumn, memberExpr, sqlType) columns += #dbColumn ","; ++count;
-	TRIP_DATA_NUM_FIELDS(TRIP_NUM_NAME)
-#undef TRIP_NUM_NAME
-	columns += "zulu_time,local_time";
-	count += 2;
-	std::string placeholders = "?";
-	for (int i = 1; i < count; ++i)
-		placeholders += ",?";
+	std::string columns, placeholders;
+	for (const std::string& definition : trip_data_columns()) {
+		columns += (columns.empty() ? "" : ",") + column_name(definition);
+		placeholders += placeholders.empty() ? "?" : ",?";
+	}
 	return "INSERT INTO trip_data (" + columns + ") VALUES (" + placeholders + ");";
 }
 
@@ -195,6 +210,17 @@ static void db_bind_text_or_null(sqlite3_stmt* stmt, const char* stmt_txt, int i
 		return;
 	}
 	int sql_ret = sqlite3_bind_null(stmt, index);
+	if (sql_ret)
+		db_error(stmt_txt, sql_ret, NULL);
+}
+
+// The first count values as a trip_data.engine_speed/engine_load BLOB (see
+// packEngineValues()), or NULL if count is 0.
+static void db_bind_engine_values(sqlite3_stmt* stmt, const char* stmt_txt, int index, const std::array<float, MAX_ENGINES>& values, int count) {
+	const std::string_view blob = packEngineValues(values, count);
+	int sql_ret = blob.empty()
+		? sqlite3_bind_null(stmt, index)
+		: sqlite3_bind_blob(stmt, index, blob.data(), (int)blob.size(), SQLITE_TRANSIENT);
 	if (sql_ret)
 		db_error(stmt_txt, sql_ret, NULL);
 }
@@ -531,6 +557,9 @@ static void db_write_worker(STATUS* status) {
 #define TRIP_NUM_BIND(dbColumn, memberExpr, sqlType) db_bind(stmt, stmt_txt, index++, pS->memberExpr);
 					TRIP_DATA_NUM_FIELDS(TRIP_NUM_BIND)
 #undef TRIP_NUM_BIND
+					const EnginePower power = enginePowerFromRecord(*pS);
+					db_bind_engine_values(stmt, stmt_txt, index++, power.speed, power.count);
+					db_bind_engine_values(stmt, stmt_txt, index++, power.load, power.count);
 					db_bind(stmt, stmt_txt, index++, pS->time_zulu.format_date_time().c_str());
 					db_bind(stmt, stmt_txt, index++, pS->time_local.format_date_time().c_str());
 				});
@@ -600,30 +629,46 @@ static void strip_alter_column_constraints(const char* src, char* dst, int dst_s
 	}
 }
 
+namespace {
+
+// One column of an existing table, as PRAGMA table_info reports it.
+struct TableColumn {
+	std::string name;
+	std::string type; // as declared, e.g. "VARCHAR(32)"; may be empty
+	bool notNull;
+};
+
+}
+
+// table_name's columns (PRAGMA table_info); empty if it can't be read.
+static std::vector<TableColumn> table_columns(sqlite3* sql, const char* table_name) {
+	std::vector<TableColumn> columns;
+	const std::string pragma = std::string("PRAGMA table_info(") + table_name + ");";
+	sqlite3_stmt* stmt;
+	if (sqlite3_prepare_v2(sql, pragma.c_str(), -1, &stmt, nullptr) != SQLITE_OK)
+		return columns;
+	while (sqlite3_step(stmt) == SQLITE_ROW) {
+		const char* n = (const char*)sqlite3_column_text(stmt, 1); // name
+		const char* t = (const char*)sqlite3_column_text(stmt, 2); // type
+		if (n)
+			columns.push_back({ n, t ? t : "", sqlite3_column_int(stmt, 3) != 0 }); // 3 = notnull
+	}
+	sqlite3_finalize(stmt);
+	return columns;
+}
+
+// The column of columns named name, or columns.end().
+static std::vector<TableColumn>::const_iterator find_column(const std::vector<TableColumn>& columns, const std::string& name) {
+	return std::find_if(columns.begin(), columns.end(), [&name](const TableColumn& c) { return c.name == name; });
+}
+
 // For each column in fields_def (comma-separated column definitions) that is
 // absent from table_name, run ALTER TABLE ADD COLUMN. Called from
 // create_schema() on a write connection, never from the readonly path.
 static void migrate_table_columns(sqlite3* sql, const char* table_name, const char* fields_def) {
-	// Collect existing column names via PRAGMA table_info.
-	char pragma_buf[128];
-	snprintf(pragma_buf, sizeof(pragma_buf), "PRAGMA table_info(%s);", table_name);
-	sqlite3_stmt* stmt;
-	if (sqlite3_prepare_v2(sql, pragma_buf, -1, &stmt, nullptr) != SQLITE_OK)
-		return;
-
-	const int MAX_COLS = 256;
-	const int NAME_LEN = 64;
-	char existing[MAX_COLS][NAME_LEN];
-	int nexist = 0;
-	while (sqlite3_step(stmt) == SQLITE_ROW && nexist < MAX_COLS) {
-		const char* n = (const char*)sqlite3_column_text(stmt, 1); // column 1 = name
-		if (n) {
-			strncpy(existing[nexist], n, NAME_LEN - 1);
-			existing[nexist][NAME_LEN - 1] = '\0';
-			nexist++;
-		}
-	}
-	sqlite3_finalize(stmt);
+	const std::vector<TableColumn> existing = table_columns(sql, table_name);
+	if (existing.empty())
+		return; // unreadable -- don't re-add every column
 
 	// Walk fields_def, splitting by comma while respecting parentheses.
 	int flen = (int)strlen(fields_def);
@@ -641,20 +686,9 @@ static void migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 			char* seg = buf + seg_start;
 			while (*seg == ' ' || *seg == '\t' || *seg == '\n') seg++;
 
-			// Extract column name (first whitespace-delimited word).
-			char col_name[NAME_LEN] = {};
-			int k = 0;
-			while (seg[k] && seg[k] != ' ' && seg[k] != '\t' && k < NAME_LEN - 1) {
-				col_name[k] = seg[k];
-				k++;
-			}
-
-			if (col_name[0] != '\0') {
-				bool found = false;
-				for (int m = 0; m < nexist && !found; m++)
-					found = (strcmp(existing[m], col_name) == 0);
-
-				if (!found) {
+			const std::string col_name = column_name(seg);
+			if (!col_name.empty()) {
+				if (find_column(existing, col_name) == existing.end()) {
 					char safe_def[512];
 					strip_alter_column_constraints(seg, safe_def, (int)sizeof(safe_def));
 
@@ -667,7 +701,7 @@ static void migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 						int step_ret = sqlite3_step(alter_stmt);
 						sqlite3_finalize(alter_stmt);
 						if (step_ret == SQLITE_DONE)
-							log_cf(2, "DB", "Schema migration: %s — added column %s", table_name, col_name);
+							log_cf(2, "DB", "Schema migration: %s — added column %s", table_name, col_name.c_str());
 						else
 							log_cf(0, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
 					} else {
@@ -682,9 +716,210 @@ static void migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 	free(buf);
 }
 
-// Part of create_schema(), so Trip History reads stay indexed even when the
-// schema was created/updated by migrate_db() alone (SimConnect never
-// connected this session -- see migrate_db()'s doc comment in db.h).
+// engine_pack(number_of_engines, value1, value2): a legacy trip_data row's
+// engine values as an engine_speed/engine_load BLOB (packEngineValues()).
+// Those rows recorded engines 1-2 only, so at most 2 are packed; NULL for no
+// engines.
+static void sql_engine_pack(sqlite3_context* ctx, int argc, sqlite3_value** argv) {
+	std::array<float, MAX_ENGINES> values{};
+	const int count = std::clamp(sqlite3_value_int(argv[0]), 0, argc - 1);
+	for (int i = 0; i < count; ++i)
+		values[i] = (float)sqlite3_value_double(argv[i + 1]);
+	const std::string_view blob = packEngineValues(values, count);
+	if (blob.empty())
+		sqlite3_result_null(ctx);
+	else
+		sqlite3_result_blob(ctx, blob.data(), (int)blob.size(), SQLITE_TRANSIENT);
+}
+
+// Copies every trip_data row into trip_data_new with insert_select (an
+// INSERT ... SELECT ... WHERE rowid >= ?1 ORDER BY rowid LIMIT ?2), about a
+// hundredth of the rows per statement, calling on_batch(rows copied, total
+// rows) after each one; on_batch returning false stops the copy. False on an
+// SQLite error (left in sqlite3_errmsg()) or when on_batch stopped it.
+static bool copy_rows_in_batches(sqlite3* sql, const std::string& insert_select,
+		const std::function<bool(sqlite3_int64 copied, sqlite3_int64 total)>& on_batch) {
+	sqlite3_stmt* count = nullptr;
+	if (sqlite3_prepare_v2(sql, "SELECT COUNT(*) FROM trip_data", -1, &count, nullptr) != SQLITE_OK)
+		return false;
+	const bool counted = sqlite3_step(count) == SQLITE_ROW;
+	const sqlite3_int64 total = counted ? sqlite3_column_int64(count, 0) : 0;
+	sqlite3_finalize(count);
+	if (!counted)
+		return false;
+
+	sqlite3_stmt* insert = nullptr;
+	if (sqlite3_prepare_v2(sql, insert_select.c_str(), -1, &insert, nullptr) != SQLITE_OK)
+		return false;
+	sqlite3_bind_int64(insert, 2, std::max<sqlite3_int64>(1, total / 100));
+	sqlite3_int64 next_rowid = std::numeric_limits<sqlite3_int64>::min();
+	sqlite3_int64 copied = 0;
+	bool ok = true;
+	for (;;) {
+		sqlite3_bind_int64(insert, 1, next_rowid);
+		if (sqlite3_step(insert) != SQLITE_DONE) {
+			ok = false;
+			break;
+		}
+		const int batch = sqlite3_changes(sql);
+		sqlite3_reset(insert);
+		if (batch == 0)
+			break;
+		copied += batch;
+		const sqlite3_int64 last_rowid = sqlite3_last_insert_rowid(sql); // ORDER BY rowid: the batch's last row
+		if (!on_batch(copied, total)) {
+			ok = false;
+			break;
+		}
+		if (last_rowid == std::numeric_limits<sqlite3_int64>::max())
+			break; // no rowid after it, and +1 would overflow
+		next_rowid = last_rowid + 1;
+	}
+	sqlite3_finalize(insert);
+	return ok;
+}
+
+// Reports a job made of steps as one percentage of the whole job. Each step's
+// weight is roughly its share of the time; a step's share of 100 is its weight
+// over the weights' sum. Only a rising percentage is passed on.
+class StepProgress {
+public:
+	StepProgress(const MigrationProgress& progress, std::vector<int> weights)
+		: progress_(progress), weights_(std::move(weights)) {
+		for (int weight : weights_)
+			total_ += weight;
+	}
+	// fraction (0-1) of step (an index into the weights) done; the steps
+	// before it count as done.
+	void report(size_t step, double fraction = 1.0) {
+		double done = weights_[step] * fraction;
+		for (size_t i = 0; i < step; ++i)
+			done += weights_[i];
+		const int percent = (int)(done * 100 / total_);
+		if (progress_ && percent > reported_)
+			progress_(reported_ = percent);
+	}
+
+private:
+	MigrationProgress progress_;
+	std::vector<int> weights_;
+	int total_ = 0;
+	int reported_ = 0;
+};
+
+// The steps of migrate_legacy_engine_columns()' rebuild, in order. The weights
+// (kRebuildStepWeights) roughly follow their timing: copying the rows takes
+// most of it.
+enum RebuildStep { kRebuildCopy, kRebuildDrop, kRebuildCommit, kRebuildIndexes };
+static const std::vector<int> kRebuildStepWeights = { 65, 10, 15, 10 };
+
+// Rebuilds a trip_data made before engine_speed/engine_load existed without
+// its N1/N2 columns, moving their values into those. Only jet rows
+// (engine_type 1) get values, since N1/N2 is a jet's speed/load pair (see
+// enginePowerSpec()). A helicopter turbine's (engine_type 3) speed is also N1,
+// but its load, torque, was never recorded, and a row stores both or neither
+// (db_history takes the smaller count), so its N1 is dropped and its rows get
+// NULL like every other non-jet's. Copying into a new table writes each row
+// once -- an UPDATE, then a DROP COLUMN per old column, would rewrite the
+// whole table five times -- and lets progress report the share of rows copied.
+//
+// The new table has trip_data_columns()' definitions, except that a column
+// the old table allowed NULL in (one migrate_table_columns() added) keeps
+// allowing it, then any old column the definitions don't name, with its
+// declared type but not its constraints. Rowids are kept. DROP TABLE takes
+// the old indexes with it; create_schema() recreates them next
+// (create_db_indexes()) and then reports that last step (kRebuildIndexes).
+//
+// progress gets the share of the whole rebuild done (see RebuildStep): after
+// each copied batch, after the drop and after the commit.
+//
+// Runs while turb_eng_n1_1 exists, after migrate_table_columns() added the
+// new columns, as one transaction: a failure or crash leaves the old table in
+// place for the next start to redo it. cancelled, if set, is asked after each
+// copied batch and once more before committing; true rolls the rebuild back
+// the same way (the index step after the commit can't be cancelled). rebuilt
+// is set once the rebuild commits. False on failure or cancel (logged) -- the
+// INSERT no longer fills the old NOT NULL columns, so recording can't work
+// until it succeeds.
+static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, const MigrationCancelled& cancelled, bool& rebuilt) {
+	static const char* const kLegacyColumns[] = { "turb_eng_n1_1", "turb_eng_n1_2", "turb_eng_n2_1", "turb_eng_n2_2" };
+	const std::vector<TableColumn> old_columns = table_columns(sql, "trip_data");
+	if (old_columns.empty()) {
+		// create_schema() made sure it exists: it can't be read, so it may
+		// still have the old columns.
+		log_cf(0, "DB", "Schema migration failed to read trip_data's columns: %s", sqlite3_errmsg(sql));
+		return false;
+	}
+	if (find_column(old_columns, kLegacyColumns[0]) == old_columns.end())
+		return true;
+	log_cf(2, "DB", "Schema migration: trip_data -- moving N1/N2 into engine_speed/engine_load");
+	if (sqlite3_create_function_v2(sql, "engine_pack", 3, SQLITE_UTF8 | SQLITE_DETERMINISTIC,
+			nullptr, sql_engine_pack, nullptr, nullptr, nullptr) != SQLITE_OK) {
+		log_cf(0, "DB", "Schema migration failed to register engine_pack: %s", sqlite3_errmsg(sql));
+		return false;
+	}
+
+	std::string definitions, names, values;
+	const auto add = [&](const std::string& definition, const std::string& name, const std::string& value) {
+		const char* separator = definitions.empty() ? "" : ",";
+		definitions += separator + definition;
+		names += separator + name;
+		values += separator + value;
+	};
+	for (const std::string& definition : trip_data_columns()) {
+		const std::string name = column_name(definition);
+		const auto old = find_column(old_columns, name);
+		char nullable[512];
+		strip_alter_column_constraints(definition.c_str(), nullable, (int)sizeof(nullable));
+		const std::string value =
+			name == "engine_speed" ? "CASE WHEN engine_type = 1 THEN engine_pack(number_of_engines, turb_eng_n1_1, turb_eng_n1_2) END" :
+			name == "engine_load"  ? "CASE WHEN engine_type = 1 THEN engine_pack(number_of_engines, turb_eng_n2_1, turb_eng_n2_2) END" :
+			name;
+		add(old != old_columns.end() && !old->notNull ? nullable : definition, name, value);
+	}
+	for (const TableColumn& old : old_columns) {
+		const bool legacy = std::find(std::begin(kLegacyColumns), std::end(kLegacyColumns), old.name) != std::end(kLegacyColumns);
+		const bool defined = std::any_of(trip_data_columns().begin(), trip_data_columns().end(),
+			[&old](const std::string& definition) { return column_name(definition) == old.name; });
+		if (!legacy && !defined)
+			add(old.name + " " + old.type, old.name, old.name);
+	}
+
+	const std::string create = "CREATE TABLE trip_data_new (" + definitions + ");";
+	const std::string insert_select = "INSERT INTO trip_data_new (rowid," + names + ") SELECT rowid," + values
+		+ " FROM trip_data WHERE rowid >= ?1 ORDER BY rowid LIMIT ?2;";
+	bool stopped = false;
+	const auto keep_going = [&] { return !(stopped = cancelled && cancelled()); };
+	bool ok = sqlite3_exec(sql, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr) == SQLITE_OK
+		&& sqlite3_exec(sql, create.c_str(), nullptr, nullptr, nullptr) == SQLITE_OK
+		&& copy_rows_in_batches(sql, insert_select, [&](sqlite3_int64 copied, sqlite3_int64 total) {
+			progress.report(kRebuildCopy, (double)copied / total);
+			return keep_going();
+		})
+		&& sqlite3_exec(sql, "DROP TABLE trip_data;"
+			"ALTER TABLE trip_data_new RENAME TO trip_data;", nullptr, nullptr, nullptr) == SQLITE_OK;
+	if (ok) {
+		progress.report(kRebuildDrop);
+		ok = keep_going() && sqlite3_exec(sql, "COMMIT TRANSACTION;", nullptr, nullptr, nullptr) == SQLITE_OK;
+	}
+	if (!ok) {
+		if (stopped)
+			log_cf(2, "DB", "Schema migration cancelled; trip_data left unchanged");
+		else
+			log_cf(0, "DB", "Schema migration failed (%s); trip_data left unchanged", sqlite3_errmsg(sql));
+		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
+		return false;
+	}
+	progress.report(kRebuildCommit);
+	rebuilt = true;
+	log_cf(2, "DB", "Schema migration: trip_data -- N1/N2 moved, old columns dropped");
+	return true;
+}
+
+// Part of create_schema() (also recreating the index that
+// migrate_legacy_engine_columns()' rebuild drops), so Trip History reads stay
+// indexed even when the schema was created/updated by migrate_db() alone (SimConnect
+// never connected this session -- see migrate_db()'s doc comment in db.h).
 // trip_data/trip_events/trip_touchdowns are all queried with "WHERE trip = ?"
 // (db_history.cpp) -- without an index that's a full table scan across every
 // sample ever recorded, for every trip load. trips itself has no such index
@@ -733,9 +968,11 @@ static void create_db_indexes(sqlite3* sql) {
 }
 
 // Creates any missing table, adds columns missing from tables made by an
-// older build (see migrate_table_columns()) and creates the indexes. False if
-// a table couldn't be created (already logged).
-static bool create_schema(sqlite3* sql) {
+// older build (see migrate_table_columns()), moves legacy N1/N2 columns (see
+// migrate_legacy_engine_columns()) and creates the indexes. False if a table
+// couldn't be created or migrated (already logged). progress, cancelled: see
+// migrate_db().
+static bool create_schema(sqlite3* sql, const MigrationProgress& progress, const MigrationCancelled& cancelled) {
 	bool ok = true;
 	for (const TableDef& table : database_tables()) {
 		const std::string stmt_txt = std::string("CREATE TABLE IF NOT EXISTS ") + table.name + " (" + table.fields + ");";
@@ -751,23 +988,30 @@ static bool create_schema(sqlite3* sql) {
 	}
 	for (const TableDef& table : database_tables())
 		migrate_table_columns(sql, table.name, table.fields.c_str());
+	StepProgress rebuild_progress(progress, kRebuildStepWeights);
+	bool rebuilt = false;
+	if (!migrate_legacy_engine_columns(sql, rebuild_progress, cancelled, rebuilt))
+		ok = false;
 	create_db_indexes(sql);
+	if (rebuilt)
+		rebuild_progress.report(kRebuildIndexes); // the rebuild's last step: its indexes are back
 	return ok;
 }
 
-void migrate_db() {
+bool migrate_db(const MigrationProgress& progress, const MigrationCancelled& cancelled) {
 	const std::string fn_db = db_file_path();
 	log_cf(3, "DB", "migrate_db: checking schema for %s", fn_db.c_str());
 	sqlite3* sql = nullptr;
 	if (sqlite3_open_v2(fn_db.c_str(), &sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
 		log_cf(0, "DB", "migrate_db: cannot open database %s: %s", fn_db.c_str(), sql ? sqlite3_errmsg(sql) : "unknown error");
 		if (sql) sqlite3_close(sql);
-		return;
+		return false;
 	}
 	sqlite3_busy_timeout(sql, 5000);
-	create_schema(sql);
+	const bool ok = create_schema(sql, progress, cancelled);
 	log_cf(3, "DB", "migrate_db: schema check complete");
 	sqlite3_close(sql);
+	return ok;
 }
 
 void connect_db(struct STATUS* status) {
@@ -784,7 +1028,7 @@ void connect_db(struct STATUS* status) {
 	// operations actually take -- dropping recorded samples for no reason.
 	sqlite3_busy_timeout(status->sql, 5000);
 
-	if (!create_schema(status->sql))
+	if (!create_schema(status->sql, {}, {}))
 		exit(2);
 
 	// Start the single persistent DB-write worker for this connection. Reset

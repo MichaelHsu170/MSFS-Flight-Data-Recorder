@@ -30,7 +30,7 @@ TripSamplePoint samplePoint(double lat, double lon, const QString& zulu) {
 	p.latitude = lat;
 	p.longitude = lon;
 	p.zuluTime = zulu;
-	p.n1_1 = lat;
+	p.engine = { 1, 1, { (float)lat } };
 	return p;
 }
 

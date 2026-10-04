@@ -6,10 +6,14 @@
 #include <algorithm>
 
 const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES = { {
-	{ "n1_1Series", "n1_1", false },
-	{ "n1_2Series", "n1_2", false },
-	{ "n2_1Series", "n2_1", false },
-	{ "n2_2Series", "n2_2", false },
+	{ "engSpeed1Series", "engSpeed1", false },
+	{ "engSpeed2Series", "engSpeed2", false },
+	{ "engSpeed3Series", "engSpeed3", false },
+	{ "engSpeed4Series", "engSpeed4", false },
+	{ "engLoad1Series", "engLoad1", false },
+	{ "engLoad2Series", "engLoad2", false },
+	{ "engLoad3Series", "engLoad3", false },
+	{ "engLoad4Series", "engLoad4", false },
 	{ "verticalSpeedSeries", "vs", false },
 	{ "airspeedSeries", "ias", false },
 	{ "groundSpeedSeries", "gs", false },
@@ -31,10 +35,10 @@ const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES = { {
 
 ChartValues chartValues(const TripSamplePoint& p) {
 	ChartValues v{};
-	v[CHART_N1_1] = p.n1_1;
-	v[CHART_N1_2] = p.n1_2;
-	v[CHART_N2_1] = p.n2_1;
-	v[CHART_N2_2] = p.n2_2;
+	for (int i = 0; i < p.engine.count; ++i) {
+		v[CHART_ENG_SPEED_1 + i] = p.engine.speed[i];
+		v[CHART_ENG_LOAD_1 + i] = p.engine.load[i];
+	}
 	v[CHART_VERTICAL_SPEED] = p.verticalSpeed;
 	v[CHART_AIRSPEED] = p.airspeed;
 	v[CHART_GROUND_SPEED] = p.groundSpeed;
@@ -53,6 +57,30 @@ ChartValues chartValues(const TripSamplePoint& p) {
 	v[CHART_PITCH] = p.pitchDegrees;
 	v[CHART_BANK] = p.bankDegrees;
 	return v;
+}
+
+EnginePower chartEngine(const std::vector<TripSamplePoint>& points) {
+	for (const TripSamplePoint& p : points)
+		if (p.engine.count > 0)
+			return p.engine;
+	return {};
+}
+
+QVariantMap chartEngineSpec(const EnginePower& engine) {
+	QVariantMap m;
+	const EnginePowerSpec* spec = enginePowerSpec(engine.engineType);
+	const int count = spec ? engine.count : 0;
+	m[QStringLiteral("count")] = count;
+	if (count == 0)
+		return m;
+	for (const auto& [prefix, quantity] : { std::pair{ "speed", &spec->speed }, std::pair{ "load", &spec->load } }) {
+		const QString key = QString::fromLatin1(prefix);
+		m[key + QStringLiteral("Label")] = QString::fromUtf8(quantity->label);
+		m[key + QStringLiteral("Unit")] = QString::fromUtf8(quantity->unit);
+		m[key + QStringLiteral("Decimals")] = quantity->decimals;
+		m[key + QStringLiteral("AxisTitle")] = QString::fromUtf8(quantity->axisTitle);
+	}
+	return m;
 }
 
 double chartTimeMs(const QString& zuluTime) {
@@ -120,9 +148,14 @@ bool ChartExtents::add(const ChartValues& v) {
 	speedMax = qMax(speedMax, qMax(v[CHART_AIRSPEED], v[CHART_GROUND_SPEED]));
 	altMax = qMax(altMax, v[CHART_ALTITUDE]);
 	fuelMax = qMax(fuelMax, v[CHART_FUEL_WEIGHT]);
+	for (int i = 0; i < MAX_ENGINES; ++i) {
+		engSpeedMax = qMax(engSpeedMax, v[CHART_ENG_SPEED_1 + i]);
+		engLoadMax = qMax(engLoadMax, v[CHART_ENG_LOAD_1 + i]);
+	}
 	return !before.valid
 		|| vsMin != before.vsMin || vsMax != before.vsMax
 		|| speedMax != before.speedMax || altMax != before.altMax || fuelMax != before.fuelMax
+		|| engSpeedMax != before.engSpeedMax || engLoadMax != before.engLoadMax
 		|| pitchMin != before.pitchMin || pitchMax != before.pitchMax
 		|| bankMin != before.bankMin || bankMax != before.bankMax;
 }
