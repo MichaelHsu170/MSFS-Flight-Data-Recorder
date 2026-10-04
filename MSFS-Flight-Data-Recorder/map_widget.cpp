@@ -59,15 +59,13 @@ protected:
 // popup) since the trimmed-down menu would otherwise drop it entirely.
 class FilteredWebEngineView : public QWebEngineView {
 public:
-	explicit FilteredWebEngineView(QWidget* parent = nullptr) : QWebEngineView(parent) {}
-
-	void setResetZoomHandler(std::function<void()> handler) { resetZoomHandler_ = std::move(handler); }
-	void setDefaultFileNameHandler(std::function<QString()> handler) { defaultFileNameHandler_ = std::move(handler); }
-	void setExportKmlHandler(std::function<void()> handler) { exportKmlHandler_ = std::move(handler); }
-	// Gates whether "Export to KML" is even shown -- there's no single trip's
-	// trajectory to export while the map is showing the departure->destination
-	// overview of every trip.
-	void setExportKmlAvailableHandler(std::function<bool()> handler) { exportKmlAvailableHandler_ = std::move(handler); }
+	// exportKmlAvailable gates whether "Export to KML" is even shown -- there's
+	// no single trip's trajectory to export while the map is showing the
+	// departure->destination overview of every trip.
+	FilteredWebEngineView(std::function<void()> resetZoom, std::function<QString()> defaultFileName,
+		std::function<void()> exportKml, std::function<bool()> exportKmlAvailable, QWidget* parent)
+		: QWebEngineView(parent), resetZoomHandler_(std::move(resetZoom)), defaultFileNameHandler_(std::move(defaultFileName)),
+		  exportKmlHandler_(std::move(exportKml)), exportKmlAvailableHandler_(std::move(exportKmlAvailable)) {}
 
 protected:
 	void contextMenuEvent(QContextMenuEvent* event) override {
@@ -96,22 +94,16 @@ protected:
 		}
 
 		QAction* resetZoomAction = menu->addAction(QStringLiteral("Reset Zoom"));
-		connect(resetZoomAction, &QAction::triggered, this, [this]() {
-			if (resetZoomHandler_)
-				resetZoomHandler_();
-		});
+		connect(resetZoomAction, &QAction::triggered, this, [this]() { resetZoomHandler_(); });
 
 		menu->addSeparator();
 		QAction* saveImageAction = menu->addAction(QStringLiteral("Save Image"));
 		connect(saveImageAction, &QAction::triggered, this, [this]() { saveMapImage(); });
 		QAction* copyImageAction = menu->addAction(QStringLiteral("Copy Image"));
 		connect(copyImageAction, &QAction::triggered, this, [this]() { copyMapImage(); });
-		if (!exportKmlAvailableHandler_ || exportKmlAvailableHandler_()) {
+		if (exportKmlAvailableHandler_()) {
 			QAction* exportKmlAction = menu->addAction(QStringLiteral("Export to KML"));
-			connect(exportKmlAction, &QAction::triggered, this, [this]() {
-				if (exportKmlHandler_)
-					exportKmlHandler_();
-			});
+			connect(exportKmlAction, &QAction::triggered, this, [this]() { exportKmlHandler_(); });
 		}
 
 		// CopyLinkToClipboard isn't kept enabled/disabled in sync with the
@@ -129,9 +121,8 @@ protected:
 
 private:
 	void saveMapImage() {
-		const QString defaultName = defaultFileNameHandler_ ? defaultFileNameHandler_() : QStringLiteral("map.png");
 		const QString fileName = QFileDialog::getSaveFileName(
-		    this, QStringLiteral("Save Map Image"), defaultName, QStringLiteral("PNG Image (*.png)"));
+		    this, QStringLiteral("Save Map Image"), defaultFileNameHandler_(), QStringLiteral("PNG Image (*.png)"));
 		if (!fileName.isEmpty() && !grab().save(fileName, "PNG"))
 			QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to save the map image to %1.").arg(fileName));
 	}
@@ -159,12 +150,8 @@ MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
 	// that doesn't, which tile servers can reject.
 	QWebEngineProfile::defaultProfile()->setHttpUserAgent(QStringLiteral("MSFS-Flight-Data-Recorder v" APP_VERSION));
 
-	auto* filteredView = new FilteredWebEngineView(this);
-	filteredView->setResetZoomHandler([this]() { resetZoom(); });
-	filteredView->setDefaultFileNameHandler([this]() { return defaultMapImageFileName(); });
-	filteredView->setExportKmlHandler([this]() { exportKml(); });
-	filteredView->setExportKmlAvailableHandler([this]() { return dataset_ != nullptr; });
-	view_ = filteredView;
+	view_ = new FilteredWebEngineView([this]() { resetZoom(); }, [this]() { return defaultMapImageFileName(); },
+		[this]() { exportKml(); }, [this]() { return dataset_ != nullptr; }, this);
 	view_->setPage(new LoggingPage(view_));
 	channel_ = new QWebChannel(this);
 	bridge_ = new MapBridge(this);
