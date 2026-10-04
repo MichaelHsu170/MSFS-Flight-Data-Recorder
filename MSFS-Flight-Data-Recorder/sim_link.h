@@ -9,8 +9,9 @@
 // decoding of a raw sample. Holds no state; MyDispatchProc (recorder.cpp)
 // routes the answers.
 
-// Registers every FLIGHT_DATA_RECORD field, in struct order, and requests
-// the data every sim frame.
+// Registers every FLIGHT_DATA_RECORD field but the last
+// (time_zulu.timezone_offset, which SimConnect has no ZULU variable for), in
+// struct order, and requests the data every sim frame.
 void add_flight_definition(HANDLE hSimConnect);
 
 // Maps every cockpit event to its sim event and adds it to GROUP_1, logging
