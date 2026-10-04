@@ -296,7 +296,7 @@ private slots:
 		QCOMPARE(m.value("onGnd0").typeId(), QMetaType::Bool);
 		QCOMPARE(m.value("onGnd0").toBool(), true);
 		QCOMPARE(m.value("onGnd1").toBool(), false);
-		QCOMPARE(m.value("onGnd2").toBool(), true);   // 14.5 > 0.5
+		QCOMPARE(m.value("onGnd2").toBool(), true);   // 18.5 > 0.5
 	}
 };
 

@@ -39,8 +39,9 @@ endfunction()
 
 # QWebEngineView (map_widget.cpp) can't load under QT_QPA_PLATFORM=offscreen --
 # its GPU process hits a fatal DCHECK (!m_scopedOverlayReadAccess) trying to
-# share a GL context with an offscreen-platform window -- so unlike every
-# other test above, this needs the real platform plugin.
+# share a GL context with an offscreen-platform window -- so unlike the
+# fdr_add_test() tests, the tests that create a MapWidget need the real
+# platform plugin.
 function(fdr_add_webengine_test name)
     fdr_add_test_common(${name})
     set_tests_properties(${name} PROPERTIES
