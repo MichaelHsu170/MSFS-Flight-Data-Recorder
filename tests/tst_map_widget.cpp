@@ -348,6 +348,22 @@ private slots:
 			QStringLiteral("Airport,Runway,Coordinate,Airspeed,V/S,Pitch,Bank,Heading,Threshold,Centerline,Wind,Zulu|true"));
 	}
 
+	// A threshold distance halfway between whole numbers rounds away from
+	// zero in the popup and the AI prompt, so a negative one reads the same
+	// as its positive mirror (and as in the KML): -2.5 ft is -3 ft, -12.5% is -13%.
+	void negativeThresholdDistanceRoundsAwayFromZero() {
+		const QString js = QStringLiteral(
+			"(function () { var t = {icao: 'EGLL', runway: '27L', runwayHeading: -1, lat: 1, lng: 2, airspeed: 140,"
+			"    verticalSpeed: 0, pitchDegrees: 0, bankDegrees: 0, headingDegrees: 90, distanceLength: -2.5, distanceWidth: 0,"
+			"    distanceLengthPercent: -0.125, distanceWidthPercent: 0, windDirection: 0, windVelocity: 0, zuluTime: 'z'};"
+			"  var d = document.createElement('div');"
+			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Liftoff', null, 'f', 'L').html;"
+			"  var threshold = Array.prototype.filter.call(d.querySelectorAll('.td-row'), function (r) {"
+			"    return r.querySelector('.td-key').textContent === 'Threshold'; })[0].querySelector('.td-val').textContent;"
+			"  return threshold + '|' + /: -3 ft \\(-13% of/.test(buildLiftoffPrompt(t)); })()");
+		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral("-3 ft (-13%)|true"));
+	}
+
 	// The map's touchdown popup and the KML export's placemark description
 	// are built separately (map.html, kml_export.cpp) but list the same
 	// fields with the same values; only the popup adds the coordinate, which
@@ -366,8 +382,8 @@ private slots:
 		td.pitchDegrees = 3.24;
 		td.bankDegrees = -1.46;
 		td.headingDegrees = 271;
-		td.distanceLength = 1234.4;
-		td.distanceLengthPercent = 0.316;
+		td.distanceLength = -2.5;  // halves, where rounding conventions differ
+		td.distanceLengthPercent = -0.125;
 		td.distanceWidth = -5.6;
 		td.distanceWidthPercent = -0.12;
 		td.windDirection = 250;

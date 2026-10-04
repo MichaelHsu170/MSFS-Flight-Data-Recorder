@@ -202,6 +202,14 @@ function formatDMS(lat, lng) {
     return part(lat, 'N', 'S') + ' ' + part(lng, 'E', 'W');
 }
 
+// Rounds to a whole number with halves away from zero (-2.5 -> -3), as
+// qRound() does for the KML export's copy of the same values. Math.round
+// alone rounds halves up (-2.5 -> -2), so a negative value would read
+// differently here than in the KML.
+function roundHalfAwayFromZero(x) {
+    return Math.sign(x) * Math.round(Math.abs(x));
+}
+
 // ── Gemini analysis helpers ──────────────────────────────────────────────────
 
 // The start of an analysis prompt, shared by liftoffs and touchdowns: the
@@ -249,7 +257,7 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, consider) {
     // touchdown before the marked/displaced threshold legitimately reports a
     // negative distance, which is real data and so can't mark "unknown" either.
     if (t.runway) {
-        lines.push('  ' + distanceLabel + ': ' + Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '% of ' + lengthOf + ') [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
+        lines.push('  ' + distanceLabel + ': ' + roundHalfAwayFromZero(t.distanceLength) + ' ft (' + roundHalfAwayFromZero(t.distanceLengthPercent * 100) + '% of ' + lengthOf + ') [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
         var side = t.distanceWidth >= 0 ? 'right' : 'left';
         lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
     }
@@ -598,7 +606,7 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
     // Gated on t.runway, not "distanceLength >= 0" -- see finishAnalysisPrompt().
     if (t.runway) {
         leftHtml += div;
-        leftHtml += row('Threshold', Math.round(t.distanceLength) + ' ft (' + Math.round(t.distanceLengthPercent * 100) + '%)');
+        leftHtml += row('Threshold', roundHalfAwayFromZero(t.distanceLength) + ' ft (' + roundHalfAwayFromZero(t.distanceLengthPercent * 100) + '%)');
         var cSide = t.distanceWidth >= 0 ? 'R' : 'L';
         leftHtml += row('Centerline', Math.round(Math.abs(t.distanceWidth)) + ' ft ' + cSide + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '%)');
     }
