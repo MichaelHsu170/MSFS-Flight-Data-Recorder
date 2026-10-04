@@ -24,6 +24,9 @@
 #include "test_support.h"
 
 #include <QApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSignalSpy>
 #include <QtTest>
 
@@ -50,12 +53,67 @@ TripSamplePoint samplePoint(double lat, double lon) {
 	return p;
 }
 
+// One streamed Gemini response object carrying parts ({text, thought}) and,
+// if finishReason isn't empty, the candidate's finishReason.
+QString aiChunk(const QList<QPair<QString, bool>>& parts, const QString& finishReason = QString()) {
+	QJsonArray jsonParts;
+	for (const auto& [text, thought] : parts) {
+		QJsonObject part{ { "text", text } };
+		if (thought)
+			part["thought"] = true;
+		jsonParts.append(part);
+	}
+	QJsonObject candidate{ { "content", QJsonObject{ { "parts", jsonParts }, { "role", "model" } } } };
+	if (!finishReason.isEmpty())
+		candidate["finishReason"] = finishReason;
+	return QString::fromUtf8(QJsonDocument(QJsonObject{ { "candidates", QJsonArray{ candidate } } }).toJson(QJsonDocument::Compact));
+}
+
+// A whole streamed response, as the API sends it: a JSON array of chunks.
+QString aiStream(const QStringList& chunks) {
+	return QLatin1Char('[') + chunks.join(QStringLiteral(",\r\n")) + QLatin1Char(']');
+}
+
 }
 
 class TstMapWidget : public QObject {
 	Q_OBJECT
 
 	MapWidget* widget_ = nullptr;
+
+	// Runs the page's AI analysis of a liftoff with fetch() stubbed: attempt n
+	// gets attempts[n] (the last one repeated), each delivered in the given
+	// pieces. Returns what it did: calls (fetches made), saved (the report
+	// saved, null if none), text (the answer shown), thinkingShown.
+	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts) {
+		QJsonArray json;
+		for (const QStringList& pieces : attempts)
+			json.append(QJsonArray::fromStringList(pieces));
+		evalPageJs(widget_, QStringLiteral(R"JS(
+			(function (attempts) {
+			    window._ai = { calls: 0, saved: null, done: false };
+			    var realFetch = window.fetch;
+			    window.fetch = function () {
+			        var pieces = attempts[Math.min(window._ai.calls++, attempts.length - 1)].slice();
+			        var reader = { read: function () {
+			            return Promise.resolve(pieces.length ? { done: false, value: new TextEncoder().encode(pieces.shift()) } : { done: true });
+			        } };
+			        return Promise.resolve({ ok: true, body: { getReader: function () { return reader; } } });
+			    };
+			    var box = document.getElementById('ai-test');
+			    if (!box) { box = document.createElement('div'); box.id = 'ai-test'; document.body.appendChild(box); }
+			    box.innerHTML = '<button id="td-btn-ai"></button><span id="td-spin-ai"></span><div id="td-result-ai"></div>';
+			    runAiAnalysis('ai', { rowId: 5 }, function () { return 'prompt'; },
+			        function (rowId, report) { window._ai.saved = report; }, 'Analyze Liftoff')
+			        .then(function () { window.fetch = realFetch; window._ai.done = true; });
+			})(%1))JS").arg(QString::fromUtf8(QJsonDocument(json).toJson(QJsonDocument::Compact))));
+		if (!QTest::qWaitFor([this] { return evalPageJs(widget_, QStringLiteral("window._ai.done")).toBool(); }, 5000))
+			return {};
+		return evalPageJs(widget_, QStringLiteral(
+			"({ calls: window._ai.calls, saved: window._ai.saved,"
+			"   text: document.getElementById('td-th-final-ai').textContent,"
+			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none' })")).toMap();
+	}
 
 private slots:
 	void initTestCase() {
@@ -266,6 +324,57 @@ private slots:
 			"  d.innerHTML = eventPopupHtml([{event: 'A & <i>B</i>', zuluTime: '<i>z</i>'}]);"
 			"  return d.textContent + '|' + d.querySelectorAll('i').length; })()")).toString();
 		QCOMPARE(event, QStringLiteral("Event• A & <i>B</i><i>z</i>|0"));
+	}
+
+	// A finished answer from a model that doesn't think is complete: saved
+	// as it is, with no thinking panel.
+	void aiAnswerWithoutThinkingIsSaved() {
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Grade: A", false } }), aiChunk({ { "\nGood.", false } }, "STOP") }) } });
+		QCOMPARE(r.value("calls").toInt(), 1);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A\nGood."));
+		QCOMPARE(r.value("text").toString(), QStringLiteral("Grade: AGood."));
+		QCOMPARE(r.value("thinkingShown").toBool(), false);
+	}
+
+	// Thinking, then the answer, split across reads mid-object: saved with
+	// its thinking section, which the panel shows.
+	void aiAnswerWithThinkingIsSavedWithIt() {
+		const QString stream = aiStream({ aiChunk({ { "Wind from the left.", true } }), aiChunk({ { "Grade: B", false } }, "STOP") });
+		const QVariantMap r = runAiAnalysisWith({ { stream.left(30), stream.mid(30, 40), stream.mid(70) } });
+		QCOMPARE(r.value("calls").toInt(), 1);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("<thinking>Wind from the left.</thinking>Grade: B"));
+		QCOMPARE(r.value("text").toString(), QStringLiteral("Grade: B"));
+		QCOMPARE(r.value("thinkingShown").toBool(), true);
+	}
+
+	// An answer stopped early (token limit), or a stream that ends with no
+	// finish at all, isn't complete even after thinking: it's retried.
+	void anAiAnswerCutOffIsRetried() {
+		const QVariantMap r = runAiAnalysisWith({
+			{ aiStream({ aiChunk({ { "Thought", true }, { "Grade: half", false } }, "MAX_TOKENS") }) },
+			{ aiStream({ aiChunk({ { "Thought", true }, { "Grade: half", false } }) }) },
+			{ aiStream({ aiChunk({ { "Grade: C", false } }, "STOP") }) } });
+		QCOMPARE(r.value("calls").toInt(), 3);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: C"));
+		QCOMPARE(r.value("thinkingShown").toBool(), false);
+	}
+
+	// Three incomplete answers in a row: nothing is saved and the message
+	// says so; a finish with no answer text counts as incomplete too.
+	void threeIncompleteAiAnswersSaveNothing() {
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Thought", true } }, "STOP") }) } });
+		QCOMPARE(r.value("calls").toInt(), 3);
+		QVERIFY(r.value("saved").isNull());
+		QVERIFY(r.value("text").toString().startsWith(QStringLiteral("The AI didn't return a complete analysis.")));
+		QCOMPARE(r.value("thinkingShown").toBool(), false);
+	}
+
+	// Braces and quotes in the model's text are text, not JSON structure.
+	void aiAnswerTextWithBracesIsKeptWhole() {
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Use {x and \"}\" ", false } }),
+			aiChunk({ { "then \\ {", false } }, "STOP") }) } });
+		QCOMPARE(r.value("calls").toInt(), 1);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Use {x and \"}\" then \\ {"));
 	}
 };
 

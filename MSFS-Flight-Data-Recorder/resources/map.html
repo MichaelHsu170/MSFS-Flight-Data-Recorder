@@ -290,15 +290,24 @@ function buildTouchdownPrompt(t) {
 }
 
 // Extract complete top-level {...} JSON objects from buf.
-// Calls onChunk(text, isThought) for every text part found.
+// Calls onChunk(text, isThought) for every text part found, and
+// onFinish(reason) for an object carrying the candidate's finishReason.
 // Iterates all parts in each response object (thinking models can emit
-// thought:true parts alongside regular parts in the same chunk).
+// thought:true parts alongside regular parts in the same chunk). Braces
+// inside JSON strings (the model's own text) don't count.
 // Returns the unconsumed remainder of buf.
-function processStreamBuffer(buf, onChunk) {
+function processStreamBuffer(buf, onChunk, onFinish) {
     var depth = 0, start = -1, lastEnd = 0;
+    var inString = false, escaped = false;
     for (var i = 0; i < buf.length; i++) {
         var c = buf[i];
-        if (c === '{') {
+        if (inString) {
+            if (escaped) escaped = false;
+            else if (c === '\\') escaped = true;
+            else if (c === '"') inString = false;
+        } else if (c === '"') {
+            inString = true;
+        } else if (c === '{') {
             if (depth === 0) start = i;
             depth++;
         } else if (c === '}' && depth > 0) {
@@ -306,13 +315,14 @@ function processStreamBuffer(buf, onChunk) {
             if (depth === 0 && start >= 0) {
                 try {
                     var obj = JSON.parse(buf.substring(start, i + 1));
-                    var parts = obj && obj.candidates && obj.candidates[0] &&
-                                obj.candidates[0].content && obj.candidates[0].content.parts;
+                    var candidate = obj && obj.candidates && obj.candidates[0];
+                    var parts = candidate && candidate.content && candidate.content.parts;
                     if (parts) {
                         for (var p = 0; p < parts.length; p++) {
                             if (parts[p].text) onChunk(parts[p].text, !!parts[p].thought);
                         }
                     }
+                    if (candidate && candidate.finishReason) onFinish(candidate.finishReason);
                 } catch (e) { /* incomplete or non-content object */ }
                 lastEnd = i + 1;
                 start = -1;
@@ -374,10 +384,13 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
     var thDet, thSum, thArr, thLbl, thBody, finalDiv;
     var sawThinking, thinkingDone;
     var thinkingText, finalText;
+    var finishReason;
 
+    // The thinking panel stays hidden until thinking arrives: a model that
+    // answers without it shows just the answer.
     function initAttempt() {
         result.innerHTML =
-            '<details class="td-think-det" id="td-th-det-' + id + '" open>'
+            '<details class="td-think-det" id="td-th-det-' + id + '" open style="display:none">'
           +   '<summary class="td-think-sum" id="td-th-sum-' + id + '"'
           +     ' style="pointer-events:none;opacity:0.55;cursor:default">'
           +     '<span id="td-th-arr-' + id + '">▾</span>'
@@ -396,6 +409,7 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
         thinkingDone = false;
         thinkingText = '';
         finalText    = '';
+        finishReason = '';
         // Guard on thinkingDone prevents the browser's spurious initial toggle
         // event (queued when <details open> is created via innerHTML) from
         // overwriting "Thinking…" with "Hide thinking".
@@ -408,6 +422,7 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
     function onChunk(text, isThought) {
         if (isThought) {
             sawThinking = true;
+            thDet.style.display = '';
             thinkingText += text;
             appendHtml(thBody, text);
         } else {
@@ -422,6 +437,10 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
             appendHtml(finalDiv, text);
             result.scrollTop = result.scrollHeight;
         }
+    }
+
+    function onFinish(reason) {
+        finishReason = reason;
     }
 
     var fatalError = false;
@@ -466,10 +485,10 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
                 var streamChunk = await reader.read();
                 if (streamChunk.done) break;
                 buf += decoder.decode(streamChunk.value, { stream: true });
-                buf = processStreamBuffer(buf, onChunk);
+                buf = processStreamBuffer(buf, onChunk, onFinish);
             }
             buf += decoder.decode();
-            processStreamBuffer(buf, onChunk);
+            processStreamBuffer(buf, onChunk, onFinish);
         } catch (e) {
             // Network error — retry unless this was the last attempt.
             if (attempt === MAX_ATTEMPTS - 1) {
@@ -480,10 +499,12 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
             continue;
         }
 
-        // Success: both thinking and final response arrived.
-        if (sawThinking && finalDiv.textContent.trim()) {
+        // Success: the model finished ("STOP", not cut off by a token limit,
+        // a safety stop or a dropped stream) with an answer. Thinking is
+        // optional, and stored only when there was some.
+        if (finishReason === 'STOP' && finalText.trim()) {
             if (t.rowId) {
-                var stored = '<thinking>' + thinkingText + '</thinking>' + finalText;
+                var stored = sawThinking ? '<thinking>' + thinkingText + '</thinking>' + finalText : finalText;
                 // Mirror the DB write into the in-memory store (t is the same
                 // object as _liftoffStore[id]/_touchdownStore[id]) -- without
                 // this, closing and reopening this popup later in the same
