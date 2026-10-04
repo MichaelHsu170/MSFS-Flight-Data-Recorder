@@ -124,6 +124,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	fullExtents_ = ChartExtents();
 	loading_         = false;
 	pendingRange_.reset();  // meant for the trip being replaced
+	pendingCursorIndex_ = -1;
 	lastRangeStart_  = INT_MIN;
 	lastRangeEnd_    = INT_MIN;
 
@@ -225,6 +226,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		lastRangeStart_ = lastRangeEnd_ = -1;
 		if (const auto range = std::exchange(pendingRange_, std::nullopt))
 			setVisibleRange(range->first, range->second);
+		setCursorIndex(std::exchange(pendingCursorIndex_, -1));
 		emit seriesLoaded();
 	});
 
@@ -240,7 +242,12 @@ void ChartsPanel::setCursorIndex(int index) {
 	QQuickItem* root = view_->rootObject();
 	if (root == nullptr)
 		return;
-	double cursorTime = (index >= 0 && index < (int)pointTimesMs_.size()) ? pointTimesMs_[index] : -1.0;
+	// Loading: kept for when the lines are in (see loading_).
+	if (loading_) {
+		pendingCursorIndex_ = index;
+		return;
+	}
+	double cursorTime =(index >= 0 && index < (int)pointTimesMs_.size()) ? pointTimesMs_[index] : -1.0;
 	root->setProperty("cursorTime", cursorTime);
 }
 

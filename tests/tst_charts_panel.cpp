@@ -287,6 +287,36 @@ private slots:
 		QCOMPARE(root->property("cursorTime").toDouble(), -1.0);
 	}
 
+	// The map can finish drawing a trip, and send its cursor, before the
+	// charts do: the index is the new trip's, so it's drawn once that loads.
+	void setCursorIndexWaitsForALoadingTrip() {
+		ChartsPanel panel;
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
+		const auto trip = [](int hour) {
+			TripDataset dataset;
+			for (int second = 0; second < 3; ++second)
+				dataset.points.push_back(samplePoint(second, QStringLiteral("2026-03-05T%1:00:0%2.000+00:00_4").arg(hour).arg(second)));
+			return dataset;
+		};
+		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
+		panel.setDataset(trip(10));
+		QVERIFY(spy.wait(5000));
+
+		panel.setDataset(trip(11));
+		panel.setCursorIndex(1);
+		QCOMPARE(root->property("cursorTime").toDouble(), -1.0); // not the first trip's sample 1
+		QVERIFY(spy.wait(5000));
+		QCOMPARE(root->property("cursorTime").toDouble(), (double)QDateTime(QDate(2026, 3, 5), QTime(11, 0, 1)).toMSecsSinceEpoch());
+
+		// An index for a trip replaced before it loaded isn't applied to the next.
+		panel.setDataset(trip(12));
+		panel.setCursorIndex(2);
+		panel.setDataset(trip(13));
+		QVERIFY(spy.wait(5000));
+		QCOMPARE(root->property("cursorTime").toDouble(), -1.0);
+	}
+
 	void theEnginePowerChartIsLabeledByTheDatasetsEngine() {
 		ChartsPanel panel;
 		QQuickItem* root = shownRoot(panel);

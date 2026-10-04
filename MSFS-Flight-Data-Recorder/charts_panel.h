@@ -39,6 +39,9 @@ public:
 	// seriesLoaded is then emitted before this returns. Loading a trip after
 	// that shows "Loading…" until its lines are in.
 	void setDataset(const TripDataset& dataset);
+	// Draws the cursor line at the loaded trip's sample index (-1 or out of
+	// range hides it). While a trip loads, the last index is applied once
+	// its lines are in.
 	void setCursorIndex(int index);
 
 	// Zooms the shared X axis to [startIndex, endIndex] (translated to actual
@@ -129,10 +132,12 @@ private:
 	// the charts have already been cleared.
 	int datasetVersion_ = 0;
 	// True from setDataset() of a trip until its lines are in. The old trip's
-	// lines stay shown meanwhile, so setVisibleRange() leaves them alone: the
-	// range indexes the new trip, and the scales were reset for it. It keeps
-	// the last range in pendingRange_ instead, applied once the lines are in.
+	// lines stay shown meanwhile, so setVisibleRange() and setCursorIndex()
+	// leave them alone: the range or index is the new trip's, and the scales
+	// were reset for it. They keep the last one in pendingRange_ and
+	// pendingCursorIndex_ instead, applied once the lines are in.
 	bool loading_ = false;
 	std::optional<std::pair<int, int>> pendingRange_;
+	int pendingCursorIndex_ = -1;
 
 };

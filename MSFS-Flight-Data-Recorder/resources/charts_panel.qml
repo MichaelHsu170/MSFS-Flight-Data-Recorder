@@ -104,7 +104,11 @@ Item {
     component CursorLine: Rectangle {
         property Item graphsView
         visible: graphsView !== null && root.cursorTime >= 0 && driverXAxis.max > driverXAxis.min
-        x: graphsView ? graphsView.plotArea.x + (root.cursorTime - driverXAxis.min) / (driverXAxis.max - driverXAxis.min) * graphsView.plotArea.width - width / 2 : 0
+        // 0 with no cursor: x is still computed while hidden, and -1 against
+        // a real date axis puts it ~1e11 px away. When a cursor time is set,
+        // visible can turn true before x is recomputed, and the renderer
+        // asserts on that out-of-range rectangle.
+        x: graphsView && root.cursorTime >= 0 ? graphsView.plotArea.x + (root.cursorTime - driverXAxis.min) / (driverXAxis.max - driverXAxis.min) * graphsView.plotArea.width - width / 2 : 0
         y: graphsView ? graphsView.plotArea.y : 0
         width: 3
         height: graphsView ? graphsView.plotArea.height : 0
