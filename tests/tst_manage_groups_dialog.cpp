@@ -4,14 +4,17 @@
 
 #include "db.h"
 #include "db_groups.h"
+#include "logger.h"
 #include "manage_groups_dialog.h"
 
 #include <QDropEvent>
 #include <QInputDialog>
+#include <QLabel>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
+#include <QTemporaryDir>
 #include <QtTest>
 
 using namespace TestSupport;
@@ -33,6 +36,7 @@ private:
 			out << list(d)->item(i)->text();
 		return out;
 	}
+	static QString hint(ManageGroupsDialog& d) { return d.findChild<QLabel*>()->text(); }
 	static QStringList dbGroups() {
 		QStringList out;
 		sqlite3* db = connect_db_readonly();
@@ -71,8 +75,16 @@ private:
 		(l->*deliver)(&drop);
 	}
 
+	QTemporaryDir logDir_;
+	QString logPath_;
+
 private slots:
-	void initTestCase() { isolateFiles(); }
+	// Logger::init() takes effect once per process, so it runs here.
+	void initTestCase() {
+		isolateFiles();
+		logPath_ = logDir_.filePath(QStringLiteral("manage_groups.log"));
+		Logger::init(Logger::Warning, logPath_);
+	}
 	void init() {
 		removeDatabase();
 		migrate_db();
@@ -91,6 +103,26 @@ private slots:
 		QCOMPARE(list(dialog)->item(0)->toolTip(), QStringLiteral("1 trip"));
 		QCOMPARE(list(dialog)->item(1)->toolTip(), QStringLiteral("2 trips"));
 		QCOMPARE(list(dialog)->item(2)->toolTip(), QStringLiteral("0 trips"));
+		QCOMPARE(hint(dialog), QStringLiteral("Double-click a group to rename it. Drag to reorder."));
+	}
+
+	void unreadableDatabaseIsReportedInsteadOfAnEmptyList() {
+		removeDatabase();
+		ManageGroupsDialog dialog;
+		QVERIFY(items(dialog).isEmpty());
+		QCOMPARE(hint(dialog), QStringLiteral("Could not open the database, so no groups can be shown."));
+		QVERIFY(warningLogged(logPath_, { QStringLiteral("Manage Groups") }));
+
+		// Once it can be read again, the next reload lists the groups.
+		migrate_db();
+		addGroup("Training");
+		onNextModal([](QWidget* input) {
+			static_cast<QInputDialog*>(input)->setTextValue("Ops");
+			clickDialogButton(input, "OK");
+		});
+		button(dialog, QString::fromUtf8("New Group…"))->click();
+		QCOMPARE(items(dialog), (QStringList{ "Training", "Ops" }));
+		QCOMPARE(hint(dialog), QStringLiteral("Double-click a group to rename it. Drag to reorder."));
 	}
 
 	void addsAGroup() {

@@ -199,7 +199,7 @@ While the model is reasoning the toggle label reads **Thinking…** and is non-i
 
 ## Trip Groups
 
-Trips can be sorted into user-defined groups. **Manage Groups…** (above the trip table) adds, renames (double-click), deletes and reorders (drag) groups; right-clicking a trip row offers **Set Group**. The **Group** filter above the table limits the table and the overview map to one group, and the overview map colors each group's routes differently, with a legend.
+Trips can be sorted into user-defined groups. **Manage Groups…** (above the trip table) adds, renames (double-click), deletes and reorders (drag) groups, and says so if it can't open the database to list them; right-clicking a trip row offers **Set Group**. The **Group** filter above the table limits the table and the overview map to one group, and the overview map colors each group's routes differently, with a legend.
 
 ## Export and Images
 

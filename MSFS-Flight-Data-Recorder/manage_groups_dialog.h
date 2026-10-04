@@ -4,6 +4,7 @@
 #include <QListWidget>
 
 class QDropEvent;
+class QLabel;
 
 // Plain QListWidget with QAbstractItemView::InternalMove doesn't emit any
 // reliable signal when the user finishes a drag-reorder: rowsMoved is never
@@ -64,6 +65,9 @@ private:
 	void reload(int selectGroupId = -1);
 
 	ReorderableListWidget* list_;
+	// The how-to line above the list; says so instead when reload() can't
+	// open the database.
+	QLabel* hint_;
 	// Guards onItemChanged against the items reload() adds to populate the
 	// list, which would otherwise be misread as user renames.
 	bool updating_ = false;

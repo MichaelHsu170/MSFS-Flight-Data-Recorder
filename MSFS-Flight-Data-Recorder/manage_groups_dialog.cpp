@@ -43,8 +43,10 @@ ManageGroupsDialog::ManageGroupsDialog(QWidget* parent) : QDialog(parent) {
 	auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
 	connect(buttons, &QDialogButtonBox::rejected, this, &ManageGroupsDialog::close);
 
+	hint_ = new QLabel(this);
+
 	auto* layout = new QVBoxLayout(this);
-	layout->addWidget(new QLabel(QStringLiteral("Double-click a group to rename it. Drag to reorder."), this));
+	layout->addWidget(hint_);
 	layout->addWidget(list_);
 	layout->addLayout(buttonRow);
 	layout->addWidget(buttons);
@@ -58,7 +60,10 @@ void ManageGroupsDialog::reload(int selectGroupId) {
 		selectGroupId = list_->currentItem()->data(Qt::UserRole).toInt();
 	updating_ = true;
 	list_->clear();
-	if (DbConnection sql = DbConnection::readOnly()) {
+	DbConnection sql = openForReading(QStringLiteral("Manage Groups"));
+	hint_->setText(sql ? QStringLiteral("Double-click a group to rename it. Drag to reorder.")
+	                   : QStringLiteral("Could not open the database, so no groups can be shown."));
+	if (sql) {
 		for (const TripGroup& group : queryAllGroups(sql.get())) {
 			auto* item = new QListWidgetItem(group.name, list_);
 			item->setFlags(item->flags() | Qt::ItemIsEditable);
