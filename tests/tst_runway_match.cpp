@@ -90,6 +90,17 @@ private slots:
 		QVERIFY2(qAbs(m.candidates[0].distances[1] + 5 * kFeetPerMeter) < 1.0, qPrintable(QString::number(m.candidates[0].distances[1])));
 	}
 
+	void pointExactlyOnTheCenterlineIsMeasuredFromTheThreshold() {
+		TestAirport a({ eastWest() });
+		const RUNWAY_MATCH m = match(a.airport, pointOnRunway(eastWest(), 1200, 0), 90, false);
+		QCOMPARE(m.candidates.size(), size_t(1));
+		QVERIFY2(qAbs(m.candidates[0].distances[0] - 1200 * kFeetPerMeter) < 2, qPrintable(QString::number(m.candidates[0].distances[0])));
+		QVERIFY2(qAbs(m.candidates[0].distances[1]) < 0.5, qPrintable(QString::number(m.candidates[0].distances[1])));
+		const RUNWAY_MATCH atThreshold = match(a.airport, pointOnRunway(eastWest(), 0, 0), 90, false);
+		QCOMPARE(atThreshold.candidates.size(), size_t(1));
+		QVERIFY2(qAbs(atThreshold.candidates[0].distances[0]) < 2, qPrintable(QString::number(atThreshold.candidates[0].distances[0])));
+	}
+
 	void runwayEndsAreStored() {
 		TestAirport a({ eastWest() });
 		match(a.airport, pointOnRunway(eastWest(), 100, 5), 90, false);

@@ -63,30 +63,6 @@ private slots:
 		QVERIFY(qAbs(origin.bearing2Coordinate(target) - 123) < 0.1);
 	}
 
-	void intersectionOfCrossingCourses() {
-		// Eastbound from (0,0) meets southbound from (1,1) at (0,1).
-		COORDINATE x = at(0, 0).intersectionCoordinate(90, at(1, 1), 180);
-		QVERIFY(qAbs(x.latitude) < 1e-6);
-		QVERIFY(qAbs(x.longitude - 1) < 1e-6);
-	}
-
-	void intersectionBehindAStartPointIsInvalid() {
-		// Eastbound from (0,0) and northbound from (1,1) would only meet at
-		// (0,1), behind the second start point.
-		COORDINATE x = at(0, 0).intersectionCoordinate(90, at(1, 1), 0);
-		QCOMPARE(x.latitude, 360.0);
-		QCOMPARE(x.longitude, 360.0);
-	}
-
-	void intersectionOfCoincidentCoursesReturnsAPoint() {
-		// Current behavior, suspected bug: the "coincident" check compares
-		// sin() results with == 0, which floating-point error never hits, so
-		// two points on the same course get a point back instead of the
-		// (360,360) sentinel runway_match.cpp expects.
-		COORDINATE x = at(0, 0).intersectionCoordinate(90, at(0, 2), 90);
-		QVERIFY(x.latitude != 360.0);
-	}
-
 	void dmsFormatting() {
 		COORDINATE c = at(43.5, -1.25);
 		QCOMPARE(QString::fromStdString(c.coordinate_decimal_to_dms(COORDINATE::LATITUDE)), QString::fromUtf8("43°30'00.0\"N"));

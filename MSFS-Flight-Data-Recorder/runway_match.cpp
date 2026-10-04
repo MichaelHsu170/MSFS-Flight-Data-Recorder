@@ -116,29 +116,18 @@ RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bea
 			if (candidate.diff_bearing_tra > 180)
 				candidate.diff_bearing_tra = 360 - candidate.diff_bearing_tra;
 
-			int dir = -1;
-			double tmp_heading = heading + 90;
-			if (tmp_heading > 360)
-				tmp_heading -= 360;
-			COORDINATE loc = rwy->start_points[index].intersectionCoordinate(heading, point, tmp_heading);
-			if (loc.latitude == 360) {
-				dir = 1;
-				tmp_heading = heading - 90;
-				if (tmp_heading <= 0)
-					tmp_heading += 360;
-				loc = rwy->start_points[index].intersectionCoordinate(heading, point, tmp_heading);
-			}
-			// Both attempts failed (parallel/coincident great circles) -- loc is
-			// still the (360,360) invalid sentinel. Skip this runway rather than
-			// computing a distance against it, which would silently write a
-			// nonsensical distance_length/distance_width for this touchdown.
-			if (loc.latitude == 360) {
-				tracef(trace, "Runway candidate %d/%d: %s passed footprint check but intersection calc failed (parallel/coincident bearings); skipping",
-					i + 1, airport.n_runways, rwy_id.c_str());
-				continue;
-			}
-			candidate.distances[0] = loc.distanceInKm2Coordinate(rwy->start_points[index]) * 1000 * M_2_FT;
-			candidate.distances[1] = loc.distanceInKm2Coordinate(point) * dir * 1000 * M_2_FT;
+			// Along-track (from this end's threshold, down the runway) and
+			// cross-track (+right/-left of the centerline) distances of the
+			// point on the great circle through the threshold along heading.
+			// The along-track one is atan(tan d * cos(dtheta)), the same value
+			// as acos(cos d / cos xt) but exact for a point near the threshold
+			// or on the centerline.
+			COORDINATE& threshold = rwy->start_points[index];
+			const double d = threshold.distanceInKm2Coordinate(point) / EARTHRADIUSKM;
+			const double dtheta = (threshold.bearing2Coordinate(point) - heading) * V_PI / 180;
+			const double radius_ft = EARTHRADIUSKM * 1000 * M_2_FT;
+			candidate.distances[0] = atan2(sin(d) * cos(dtheta), cos(d)) * radius_ft;
+			candidate.distances[1] = asin(sin(d) * sin(dtheta)) * radius_ft;
 			candidate.distances_percent[0] = candidate.distances[0] / rwy->length / M_2_FT;
 			candidate.distances_percent[1] = candidate.distances[1] / rwy->width * 2 / M_2_FT;
 			// Displaced-threshold correction applies to touchdowns only: a

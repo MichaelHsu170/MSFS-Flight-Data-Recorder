@@ -46,7 +46,7 @@ verification machine.
 
 | Area | Test | Scenarios |
 |---|---|---|
-| Geometry, formatting, runway codes, write queues (`types.h`) | `tst_types` | distance/bearing/destination/intersection, DMS and timestamp text, every runway designator and compass code, AIRPORT copy/clear, queue ordering and shutdown |
+| Geometry, formatting, runway codes, write queues (`types.h`) | `tst_types` | distance/bearing/destination, DMS and timestamp text, every runway designator and compass code, AIRPORT copy/clear, queue ordering and shutdown |
 | SimConnect connection and registration | `tst_recording` | registrations, data definition size = copied sample size, every mapped event in the notification group, open/quit/dispatch failure, no connecting until `start()`, reconnect retry, connect while connected, quit while disconnected, unhandled packet ids logged, notifications without a GUI context reach no bridge, engine power SimVars registered for engines 1-4 in record order with their units |
 | Trip start and stop, samples | `tst_recording` | start conditions (sim running, not paused, loaded flight, on ground, either engine, recording enabled), trip row contents, sample interval (default and from settings), midnight rollover, pause, pitch/bank sign, each sample signalled with its values in the current data, stop on engine shutdown / leaving the flight / sim quit / app close, consecutive trips, failed trip insert (no recording, retried next sample), failed destination-time write (trip still ends), setting recording-enabled to its current value |
 | Nearest airport candidates (`add_nearest_airports()` in `airport_lookup.cpp`) on their own | `tst_airport_candidates` | empty list, nearest five in order with distances, only 4-letter idents, region kept, accumulation across chunks, farther than a full list ignored, south as near as north |
@@ -212,8 +212,6 @@ verification machine.
     `table_columns()`: SQLite treats stepping or
     finalizing a null statement as a harmless no-op, so the results are the
     same with or without them.
-  - `runway_match.cpp`'s "intersection calc failed" skip: per suspected bug
-    2 below, the intersection never reports failure.
   - `queryTripData()`'s engine count as the smaller of the
     `engine_speed`/`engine_load` BLOBs' counts: the app always writes both
     with the same count, so they differ only in a hand-edited database.
@@ -233,21 +231,6 @@ verification machine.
     don't exist yet, so the call does nothing either way.
   - The closing brace after `break` in `flight_phase.cpp`'s `RUNWAY`/`AIRPORT`
     case, which the coverage tool attributes a line to.
-
-## Suspected bugs these tests exposed
-
-Recorded here rather than fixed, so the tests describe today's behavior.
-
-1. **Distance on the exact runway centerline.** When a liftoff/touchdown
-   point lies exactly on the centerline, `COORDINATE::intersectionCoordinate()`
-   degenerates and the threshold distance can come out as ~65.7 million ft
-   (the far side of the globe), depending on floating-point rounding. Not
-   pinned by a test because the result is compiler-dependent; the runway
-   tests place points 3 m off the centerline instead.
-2. **Coincident courses aren't detected.** `intersectionCoordinate()` checks
-   `sin(...) == 0`, which rounding never hits, so two points on the same
-   course return a point instead of the (360,360) "no intersection" marker
-   the runway matching relies on (`tst_types::intersectionOfCoincidentCoursesReturnsAPoint`).
 
 ## Open questions (check with real sim data)
 

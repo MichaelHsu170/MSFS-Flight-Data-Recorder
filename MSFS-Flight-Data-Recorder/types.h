@@ -137,43 +137,6 @@ public:
 		ret.longitude *= 180.0 / V_PI;
 		return ret;
 	}
-
-	COORDINATE intersectionCoordinate(double bearing1, COORDINATE loc, double bearing2) {
-		COORDINATE ret;
-		double phy1 = latitude * V_PI / 180.0;
-		double phy2 = loc.latitude * V_PI / 180.0;
-		double lambda1 = longitude * V_PI / 180.0;
-		double lambda2 = loc.longitude * V_PI / 180.0;
-		double theta1 = bearing1 * V_PI / 180.0;
-		double theta2 = bearing2 * V_PI / 180.0;
-
-		double delta12 = 2 * asin(sqrt((pow(sin((phy2 - phy1) / 2), 2) + cos(phy1) * cos(phy2) * pow(sin((lambda2 - lambda1) / 2), 2))));
-		double thetaa = acos((sin(phy2) - sin(phy1) * cos(delta12)) / (sin(delta12) * cos(phy1)));
-		double thetab = acos((sin(phy1) - sin(phy2) * cos(delta12)) / (sin(delta12) * cos(phy2)));
-		double theta12 = 0;
-		double theta21 = 0;
-		if (sin(lambda2 - lambda1) > 0) {
-			theta12 = thetaa;
-			theta21 = 2 * V_PI - thetab;
-		} else {
-			theta12 = 2 * V_PI - thetaa;
-			theta21 = thetab;
-		}
-		double alpha1 = theta1 - theta12;
-		double alpha2 = theta21 - theta2;
-		if ((sin(alpha1) == 0 && sin(alpha2) == 0) || sin(alpha1) * sin(alpha2) < 0) {
-			ret.clear();
-		} else {
-			double alpha3 = acos(-1 * cos(alpha1) * cos(alpha2) + sin(alpha1) * sin(alpha2) * cos(delta12));
-			double delta1 = atan2(sin(delta12) * sin(alpha1) * sin(alpha2), cos(alpha2) + cos(alpha1) * cos(alpha3));
-			double phy3 = asin(sin(phy1) * cos(delta1) + cos(phy1) * sin(delta1) * cos(theta1));
-			double delta_lambda1 = atan2(sin(theta1) * sin(delta1) * cos(phy1), cos(delta1) - sin(phy1) * sin(phy3));
-			double lambda3 = lambda1 + delta_lambda1;
-			ret.latitude = phy3 * 180.0 / V_PI;
-			ret.longitude = lambda3 * 180.0 / V_PI;
-		}
-		return ret;
-	}
 };
 
 class RUNWAY {

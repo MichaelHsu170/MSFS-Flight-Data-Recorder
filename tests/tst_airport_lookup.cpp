@@ -46,10 +46,8 @@ AirportSpec airportAt(const char* ident, const char* name, const COORDINATE& pos
 }
 
 // A liftoff/touchdown point distanceM down the runway, rightM (default 3 m)
-// right of the centerline. Deliberately never exactly on the centerline:
-// there COORDINATE::intersectionCoordinate() degenerates and, depending on
-// floating-point rounding, can put the point on the far side of the globe
-// (see the suspected-bug note in tests/README.md).
+// right of the centerline, as a real touchdown rarely sits exactly on it
+// (tst_runway_match covers the exact-centerline case).
 COORDINATE onRunway(const RunwaySpec& runway, double distanceM, double rightM = 3) {
 	return pointOnRunway(runway, distanceM, rightM);
 }
