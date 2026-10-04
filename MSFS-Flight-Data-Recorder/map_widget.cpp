@@ -170,13 +170,17 @@ MapWidget::MapWidget(QWidget* parent) : QWidget(parent) {
 
 	channel_->registerObject(QStringLiteral("mapBridge"), bridge_);
 	view_->page()->setWebChannel(channel_);
-	connect(bridge_, &MapBridge::cursorIndexChanged, this, [this](int index) {
+	// A cursor or range measured on a trajectory replaced since (the page sent
+	// it before running the newer setTrajectory()) indexes another trip.
+	connect(bridge_, &MapBridge::cursorIndexChanged, this, [this](int index, int version) {
+		if (version != datasetVersion_) {
+			Logger::logf(Logger::Trace, "Map", "cursor on superseded trajectory v%d (now v%d); ignoring", version, datasetVersion_);
+			return;
+		}
 		lastCursorIndex_ = index;
 		emit cursorIndexChanged(index);
 	});
 	connect(bridge_, &MapBridge::visibleRangeChanged, this, [this](int startIndex, int endIndex, int version) {
-		// Measured on a trajectory replaced since (the page sent it before
-		// running the newer setTrajectory()): its indices aren't this trip's.
 		if (version != datasetVersion_) {
 			Logger::logf(Logger::Trace, "Map", "visible range of superseded trajectory v%d (now v%d); ignoring", version, datasetVersion_);
 			return;

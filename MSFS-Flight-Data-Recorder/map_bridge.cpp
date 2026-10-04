@@ -5,8 +5,8 @@
 
 MapBridge::MapBridge(QObject* parent) : QObject(parent) {}
 
-void MapBridge::markerMoved(int index) {
-	emit cursorIndexChanged(index);
+void MapBridge::markerMoved(int index, int version) {
+	emit cursorIndexChanged(index, version);
 }
 
 void MapBridge::rangeChanged(int startIndex, int endIndex, int version) {

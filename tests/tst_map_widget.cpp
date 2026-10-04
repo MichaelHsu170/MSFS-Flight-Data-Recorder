@@ -157,6 +157,33 @@ private slots:
 		QCOMPARE(forwarded.value(0).value(1).toInt(), 1);
 	}
 
+	void aCursorIndexIsForwardedOnlyForTheCurrentTrajectory() {
+		MapBridge* bridge = widget_->findChild<MapBridge*>();
+		QVERIFY(bridge);
+		QSignalSpy loaded(widget_, &MapWidget::trajectoryLoaded);
+		QSignalSpy pageCursor(bridge, &MapBridge::cursorIndexChanged);
+		QSignalSpy forwarded(widget_, &MapWidget::cursorIndexChanged);
+		TripDataset dataset;
+		dataset.points = { samplePoint(10, 20), samplePoint(11, 21), samplePoint(12, 22) };
+		widget_->setDataset(dataset);
+		QVERIFY(loaded.wait(10000)); // the page has drawn the new trajectory
+
+		// A click on the line moves the cursor to the nearest sample, tagged
+		// with the trajectory's version.
+		evalPageJs(widget_, QStringLiteral(
+			"leafletMapInstance.eachLayer(function (l) { if (l instanceof L.Polyline) l.fire('click', { latlng: L.latLng(12, 22) }); })"));
+		QTRY_COMPARE_WITH_TIMEOUT(forwarded.count(), 1, 5000);
+		QCOMPARE(forwarded.value(0).value(0).toInt(), 2);
+		const int version = pageCursor.value(0).value(1).toInt();
+
+		forwarded.clear();
+		bridge->markerMoved(1, version - 1); // measured on the previous trajectory
+		QCOMPARE(forwarded.count(), 0);
+		bridge->markerMoved(1, version);
+		QCOMPARE(forwarded.count(), 1);
+		QCOMPARE(forwarded.value(0).value(0).toInt(), 1);
+	}
+
 	void defaultMapImageFileNameTracksOverviewVsLoadedTripState() {
 		TripDataset dataset;
 		dataset.liftoffPoints = { liftoffAt(QStringLiteral("KJFK")) };

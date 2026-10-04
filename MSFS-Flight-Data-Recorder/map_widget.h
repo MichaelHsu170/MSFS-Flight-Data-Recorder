@@ -41,7 +41,10 @@ public:
 	QString defaultMapImageFileName() const;
 
 signals:
-	// Forwarded from MapBridge when the user drags the map marker.
+	// Forwarded from MapBridge when the user drags the map marker or clicks
+	// the line: index is a sample index into the current dataset's points.
+	// An index the page reported on an earlier dataset's trajectory isn't
+	// forwarded.
 	void cursorIndexChanged(int index);
 	// Forwarded from MapBridge once the map's zoom/pan viewport settles.
 	// startIndex/endIndex are sample indices into the current dataset's
@@ -113,8 +116,8 @@ private:
 	// Incremented by setDataset and showOverview to invalidate any in-flight
 	// runJsBuiltInBackground() workers so their finished lambdas
 	// don't call setTrajectory() / setTouchdowns() after showOverview() was issued.
-	// Also sent with each trajectory, and returned with the page's visible
-	// ranges, to drop those measured on an earlier one.
+	// Also sent with each trajectory, and returned with the page's cursor
+	// indices and visible ranges, to drop those measured on an earlier one.
 	int datasetVersion_ = 0;
 	// Set when setDataset() emits trajectoryLoaded() early because the page
 	// wasn't ready yet (see setDataset()). Consumed by pushTrajectory()'s

@@ -974,11 +974,13 @@ function initLeafletProvider() {
             fitMapTo(bounds);
     });
 
+    // Tagged with trajectoryVersion, like reportVisibleRange(), so C++ can
+    // drop an index into a trip it has since replaced.
     function snapAndReport(decimatedIdx) {
         if (marker !== null)
             marker.setLatLng(trajectoryLatLngs[decimatedIdx]);
         if (mapBridge)
-            mapBridge.markerMoved(origIndices[decimatedIdx]);
+            mapBridge.markerMoved(origIndices[decimatedIdx], trajectoryVersion);
     }
 
     // Click-to-scrub: clicking anywhere on the trajectory line snaps the
