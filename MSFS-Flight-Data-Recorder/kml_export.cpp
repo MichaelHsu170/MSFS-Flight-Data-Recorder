@@ -246,10 +246,12 @@ bool exportTripDatasetToKmlFile(const TripDataset& dataset, const QString& fileN
 	}
 	const QByteArray bytes = kml.toUtf8();
 	const qint64 written = file.write(bytes);
-	const QString writeError = file.errorString();
-	file.close();
-	if (written != bytes.size()) {
-		if (errorMessage) *errorMessage = written < 0 ? writeError : QStringLiteral("Disk full or write error (file may be incomplete).");
+	// Flushed here, not left to close(), which ignores a failed flush: a
+	// file smaller than QFile's buffer is only written then.
+	if (written != bytes.size() || !file.flush()) {
+		if (errorMessage)
+			*errorMessage = written >= 0 && written < bytes.size()
+				? QStringLiteral("Disk full or write error (file may be incomplete).") : file.errorString();
 		return false;
 	}
 	return true;

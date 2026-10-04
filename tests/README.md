@@ -195,8 +195,9 @@ verification machine.
 - **settings.ini default-file creation failure** (`app_settings.cpp`): the
   file is created when it is missing, and the test can't make the working
   directory unwritable while still letting the process run there.
-- **KML short write** (`kml_export.cpp`): `QFile::write()` returning fewer
-  bytes than asked needs a full disk.
+- **KML short write and failed flush** (`kml_export.cpp`): `QFile::write()`
+  returning fewer bytes than asked, or the flush of a file small enough to
+  sit in QFile's buffer failing, needs a full or failing disk.
 - **Branches with no observable effect or no way in**:
   - `airport_lookup.cpp`'s wrap of a 0° bearing to 360°. Every use of the
     bearing in `runway_match.cpp` takes differences modulo 360, so only a
