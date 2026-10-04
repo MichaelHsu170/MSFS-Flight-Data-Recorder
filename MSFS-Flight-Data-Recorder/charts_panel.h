@@ -61,8 +61,11 @@ public:
 	Q_INVOKABLE QVariantMap valueAt(double timeMs) const;
 
 signals:
-	// Emitted once the worker thread has finished building all series and pushed
-	// them to QML. TrajectoryView uses this to know when charts are visible.
+	// Emitted once a setDataset() call's lines are in: after the worker thread
+	// has built all series and they're pushed to QML, or right away for an
+	// empty dataset or when charts_panel.qml failed to load (no QML root).
+	// Not for a load that a later setDataset() call superseded. TrajectoryView
+	// uses this to know when charts are visible.
 	void seriesLoaded();
 
 private:
@@ -122,9 +125,8 @@ private:
 
 	// Full-resolution points of every series, parallel to pointTimesMs_: both
 	// are replaced together once a load's lines are in, and cleared together
-	// by an empty dataset. setVisibleRange
-	// slices this to give Qt Graphs only the points it needs to render,
-	// avoiding ~938K-point iteration per frame.
+	// by an empty dataset. setVisibleRange slices this to give Qt Graphs only
+	// the points it needs to render, avoiding ~938K-point iteration per frame.
 	static constexpr int kDisplayPoints = 2500;
 	ChartSeriesLists full_;
 

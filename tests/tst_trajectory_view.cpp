@@ -1,7 +1,8 @@
 // Trajectory view (trajectory_view.cpp): the composite map+charts+data-table
 // widget -- setDataset()/clearAndShowOverview()'s fan-out to the three
 // sub-panels, the pendingRenders_ bookkeeping that turns two async subview
-// loads into one renderingFinished(), and the two splitter-width wires (map/table and map+table/charts).
+// loads into one renderingFinished(), and the two splitter-width wires
+// (map/table and map+table/charts).
 //
 // Needs a custom main() and no QT_QPA_PLATFORM=offscreen, exactly like
 // tst_map_widget.cpp: this widget owns a MapWidget (QWebEngineView)

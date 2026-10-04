@@ -57,9 +57,6 @@ static EventFloodFilter::Output event_output(struct STATUS* status) {
 	return out;
 }
 
-// Flushes the events the flood filter still holds back, then signals both
-// write workers (samples, then events) to drain and exit and joins each.
-// Callers must call this before closing/nulling status->sql.
 void wait_for_db_writers(struct STATUS* status) {
 	// Must run before event_write_queue.stop() below: this is the last chance
 	// for any occurrence still held back by the flood filter to reach the

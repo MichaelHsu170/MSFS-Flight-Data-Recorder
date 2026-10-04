@@ -249,7 +249,7 @@ void lookup_on_facility_data(struct STATUS* status, SIMCONNECT_RECV_FACILITY_DAT
 		// slots unconditionally.
 		tmp->runways = (RUNWAY*)calloc((size_t)tmp->n_runways, sizeof(RUNWAY));
 		if (tmp->runways == NULL) {
-			gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_AIRPORT: malloc failed for %d runways; treating as 0 runways", tmp->n_runways);
+			gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_AIRPORT: calloc failed for %d runways; treating as 0 runways", tmp->n_runways);
 			tmp->n_runways = 0;
 		}
 		gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_AIRPORT: %s slot, name=%s, n_runways=%d",

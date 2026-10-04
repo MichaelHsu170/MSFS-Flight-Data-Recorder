@@ -2,7 +2,7 @@
 // failure paths (malformed SQL, constraint violations, a locked database,
 // nested transactions, a failing commit) for every helper, driven against a
 // real sqlite3 connection rather than a mock. Each failure must also log a
-// warning that starts with the caller's context.
+// warning that names the caller's context.
 #include "test_support.h"
 
 #include "db_query.h"

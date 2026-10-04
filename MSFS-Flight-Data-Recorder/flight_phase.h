@@ -4,8 +4,10 @@
 
 // The trip's life, driven by the simulator's samples: a trip starts when
 // any of the aircraft's engines runs on the ground (and recording is enabled),
-// stops when all are off on the ground; while it records, the first liftoff is its departure,
-// later liftoffs (touch-and-goes) and every touchdown are markers, each
+// stops when all are off on the ground -- or early, when the sim stops
+// (recorder.cpp) or the connection to it ends (RecorderBridge). While it
+// records, the first liftoff is its departure, later liftoffs
+// (touch-and-goes) and every touchdown are markers, each
 // written to the database the moment it happens and resolved to an airport/
 // runway afterwards by the airport lookup (airport_lookup.h), one at a time
 // and in order. Samples are queued for trip_data every sample_interval_ms.

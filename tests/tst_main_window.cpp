@@ -1,12 +1,11 @@
 // Main window (main_window.cpp): opening before the database is migrated --
 // the notice holding Trip History's place ("Checking the database", then the
 // percentage done once the trip_data rebuild reports it, up to 100% even
-// for a quick rebuild, or the failure),
-// Trip History and the simulator connection waiting for the migration (and
-// never starting after a failed one), the window not being recreated when
-// Trip History arrives, and closing it cancelling a rebuild still running
-// (starting nothing when closed just as the migration finishes, and closing
-// fine once there's none).
+// for a quick rebuild, or the failure), Trip History and the simulator
+// connection waiting for the migration (and never starting after a failed
+// one), the window not being recreated when Trip History arrives, and
+// closing it cancelling a rebuild still running (starting nothing when
+// closed just as the migration finishes, and closing fine once there's none).
 //
 // Needs a custom main() and no QT_QPA_PLATFORM=offscreen, exactly like
 // tst_map_widget.cpp: the window's TrajectoryView owns a MapWidget

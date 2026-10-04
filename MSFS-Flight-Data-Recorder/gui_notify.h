@@ -3,9 +3,9 @@
 #include <cstddef>
 
 // Qt-free notification hooks called from recorder.cpp, flight_phase.cpp,
-// airport_lookup.cpp and db.cpp at the points where they transition state. Implemented in
-// recorder_bridge.cpp, the only file that depends on both the plain-C++
-// recording core and Qt.
+// airport_lookup.cpp and db.cpp at the points where they transition state.
+// Implemented in recorder_bridge.cpp, the only file that depends on both the
+// plain-C++ recording core and Qt.
 
 struct STATUS;
 

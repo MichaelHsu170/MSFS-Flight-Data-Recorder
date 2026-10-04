@@ -271,6 +271,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── tasks.json                Debug, Release, Test, Coverage, Clean tasks (Ctrl+Shift+B)
 │   ├── launch.json               Debug and Release launch configurations
 │   ├── settings.json             Keeps the CMake Tools extension, if installed, from auto-configuring
+│   ├── c_cpp_properties.json     IntelliSense include paths (incl. the SimConnect SDK), defines and compiler
 │   └── scripts/
 │       ├── build.bat             Sources vcvarsall.bat once, configures (if needed), builds, optionally runs the tests
 │       ├── clean.ps1             Removes the build/ directory

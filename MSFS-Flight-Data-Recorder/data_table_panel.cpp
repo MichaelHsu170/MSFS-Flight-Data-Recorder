@@ -96,9 +96,9 @@ DataTablePanel::DataTablePanel(QWidget* parent) : QWidget(parent) {
 	// ResizeToContents on the Field column let long labels ("Eng Exhaust Gas
 	// Temperature 1") claim the whole panel width, squeezing Value down to
 	// nothing -- give Field a fixed width sized for a couple of wrapped words
-	// instead, and let Value stretch into whatever's left. Field gets the
-	// larger share since most values here are short numbers, while several
-	// field labels need two wrapped lines.
+	// instead, and let Value stretch into whatever's left. At the default
+	// widths Field gets the larger share, since most values here are short
+	// numbers while several field labels need two wrapped lines.
 	table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
 	table_->setColumnWidth(0, AppSettings::instance().dataTableFieldColumnWidth());
 	table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
@@ -226,9 +226,9 @@ void DataTablePanel::applyHiddenFields() {
 }
 
 void DataTablePanel::showPoint(const TripSamplePoint& point) {
-	// ResizeToContents triggers a word-wrap text layout pass per setText call.
-	// 52+ rows × one layout pass each = 8 seconds. Switch to Fixed while
-	// updating so Qt defers all size calculations, then do one batch pass.
+	// ResizeToContents triggers a word-wrap text layout pass per setText call,
+	// one for each of the 200+ rows. Switch to Fixed while updating so Qt
+	// defers all size calculations, then do one batch pass.
 	QHeaderView* vh = table_->verticalHeader();
 	vh->setSectionResizeMode(QHeaderView::Fixed);
 
