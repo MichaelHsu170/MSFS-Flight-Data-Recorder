@@ -48,8 +48,8 @@ void gui_notify_event_committed(struct STATUS* status, int tripId, unsigned long
 // Fired from event_output() (recorder.cpp) when the flood filter confirms a
 // slow flood, to pull its already-committed occurrences back out of the Live
 // Status list (a no-op for any that were never shown in the first place --
-// e.g. a no-active-trip occurrence) by the same event_seq values just deleted
-// from trip_events via db_delete_events() -- see event_filter.h.
+// e.g. a no-active-trip occurrence) by the same event_seq values just queued
+// for deletion from trip_events (db_delete_events()) -- see event_filter.h.
 // Also fired from event_write_worker() (db.cpp) when a queued Insert's DB
 // write fails, to pull that one occurrence back out since it never actually
 // made it into trip_events. Unlike every other gui_notify_*() function, that

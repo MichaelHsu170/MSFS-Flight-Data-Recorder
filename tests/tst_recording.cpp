@@ -56,7 +56,7 @@ private slots:
 
 	void dataDefinitionMatchesSampleLayout() {
 		// The bytes SimConnect sends are laid out by the registered data
-		// definitions; MyDispatchProc copies them straight into
+		// definitions; decode_flight_sample() copies them straight into
 		// FLIGHT_DATA_RECORD. Their total size must equal the copied size.
 		FlightDriver sim;
 		size_t total = 0;
@@ -517,7 +517,7 @@ private slots:
 		QCOMPARE(FakeSim::state().closeCalls, 0);
 	}
 
-	// recorder.cpp/flight_phase.cpp/db.cpp call these with whatever STATUS
+	// recorder.cpp/flight_phase.cpp/airport_lookup.cpp/db.cpp call these with whatever STATUS
 	// they were given; one with no RecorderBridge attached (or none at all)
 	// must reach no bridge rather than dereference a null gui_context.
 	void notificationsWithoutAGuiContextReachNoBridge() {

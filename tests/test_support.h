@@ -151,7 +151,8 @@ public:
 
 	// Engines on while on the ground, one tick: starts a trip. Returns its id.
 	int startTrip();
-	// Engines off on the ground, one tick, then waits for tripEnded.
+	// Engines off on the ground, one tick, then waits until the trip's last
+	// samples are written (RecorderBridge::isTripFlushing()).
 	void endTrip();
 
 	// Answers every facility request the recorder has made so far (and any it

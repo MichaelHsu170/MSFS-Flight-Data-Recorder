@@ -22,10 +22,11 @@ SQLite3 is bundled under `third_party/sqlite3/` — no separate install needed.
 
 ## Build with VS Code
 
-Press **Ctrl+Shift+B** and pick **Debug**, **Release**, **Test**, or **Clean** from the menu. This works whether or not the CMake Tools extension is installed — the menu is plain VS Code tasks driving `cmake` directly, not the extension.
+Press **Ctrl+Shift+B** and pick **Debug**, **Release**, **Test**, **Coverage**, or **Clean** from the menu. This works whether or not the CMake Tools extension is installed — the menu is plain VS Code tasks driving `cmake` directly, not the extension.
 
 - **Debug** / **Release** — configure (first time only) and build into `build/Debug` or `build/Release`. On repeat builds, configure is skipped and only `cmake --build` runs, which keeps the lead time low; CMake's own `ZERO_CHECK` step still reconfigures automatically if `CMakeLists.txt` changes.
 - **Test** — builds Debug, then runs the automated tests (see [Tests](#tests)).
+- **Coverage** — runs the tests of an up-to-date Debug build under OpenCppCoverage and writes `coverage_report/index.html` and `coverage.xml` (not committed).
 - **Clean** — removes `build/Debug`, `build/Release`, and the `build/` folder itself.
 
 Each build automatically:
@@ -220,7 +221,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── runway_match.h / .cpp     Which runway a liftoff/touchdown point is on, and its threshold/centerline distances
 │   ├── event_filter.h / .cpp     Flood protection for cockpit events (fast bursts, slow repeats)
 │   ├── recorder_bridge.h / .cpp  Qt wrapper: QTimer-driven dispatch, connection retry, Qt signals
-│   ├── gui_notify.h              Free functions called by recorder.cpp, flight_phase.cpp and db.cpp to report state changes
+│   ├── gui_notify.h              Free functions called by recorder.cpp, flight_phase.cpp, airport_lookup.cpp and db.cpp to report state changes
 │   ├── db.h / .cpp               SQLite write path: schema creation, the recorder's writes, buffered telemetry flush
 │   ├── db_connection.h / .cpp    Read-only/read-write connections for the UI and background queries
 │   ├── db_query.h / .cpp         Statement helpers shared by the UI-side queries: row loop, single statements, transactions
@@ -264,7 +265,7 @@ MSFS-Flight-Data-Recorder/
 ├── .claude/skills/diff-review/   Claude Code /diff-review entry point
 ├── CLAUDE.md                     Claude Code instructions (imports .github/copilot-instructions.md)
 ├── .vscode/
-│   ├── tasks.json                Debug, Release, Test, Clean tasks (Ctrl+Shift+B)
+│   ├── tasks.json                Debug, Release, Test, Coverage, Clean tasks (Ctrl+Shift+B)
 │   ├── launch.json               Debug and Release launch configurations
 │   ├── settings.json             Keeps the CMake Tools extension, if installed, from auto-configuring
 │   └── scripts/

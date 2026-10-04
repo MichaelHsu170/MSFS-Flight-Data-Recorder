@@ -257,7 +257,7 @@ static size_t payloadOffset(M T::* member) {
 }
 
 std::vector<char> samplePacket(const FLIGHT_DATA_RECORD& record) {
-	// Same byte count MyDispatchProc copies: everything except the unsent
+	// Same byte count decode_flight_sample() copies: everything except the unsent
 	// trailing time_zulu.timezone_offset.
 	const size_t payload = sizeof(FLIGHT_DATA_RECORD) - sizeof(double);
 	const size_t offset = payloadOffset(&SIMCONNECT_RECV_SIMOBJECT_DATA::dwData);
