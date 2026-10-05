@@ -210,6 +210,17 @@ function roundHalfAwayFromZero(x) {
     return Math.sign(x) * Math.round(Math.abs(x));
 }
 
+// A liftoff/touchdown's airport as "ICAO (Name)", or just "ICAO" without a
+// name (trip_dataset.h's airportLabel() in C++), and its runway as
+// "09L (92°)", or just "09L" without a heading -- the labels the popup and
+// the AI prompt both show. Callers check t.icao / t.runway first.
+function contactAirportLabel(t) {
+    return t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
+}
+function contactRunwayLabel(t) {
+    return t.runway + (t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : '');
+}
+
 // ── Gemini analysis helpers ──────────────────────────────────────────────────
 
 // The start of an analysis prompt, shared by liftoffs and touchdowns: the
@@ -236,11 +247,8 @@ function startAnalysisPrompt(intro, dataTitle, t, aircraft) {
     lines.push('---');
     lines.push(dataTitle);
     if (aircraft) lines.push('  Aircraft: ' + aircraft);
-    if (t.icao) {
-        var airport = t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
-        lines.push('  Airport: ' + airport);
-    }
-    if (t.runway) lines.push('  Runway: ' + t.runway + (t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
+    if (t.icao) lines.push('  Airport: ' + contactAirportLabel(t));
+    if (t.runway) lines.push('  Runway: ' + contactRunwayLabel(t));
     lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
     return lines;
 }
@@ -606,11 +614,8 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
     var leftHtml = '<div style="width:260px;flex-shrink:0">'
         + '<div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:8px">' + title + '</div>';
 
-    if (t.icao) {
-        var airportLabel = t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
-        leftHtml += row('Airport', airportLabel);
-    }
-    if (t.runway) leftHtml += row('Runway', t.runway + (t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : ''));
+    if (t.icao) leftHtml += row('Airport', contactAirportLabel(t));
+    if (t.runway) leftHtml += row('Runway', contactRunwayLabel(t));
     leftHtml += row('Coordinate', formatDMS(Number(t.lat), Number(t.lng)));
 
     leftHtml += div;

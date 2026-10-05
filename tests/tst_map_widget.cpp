@@ -381,6 +381,22 @@ private slots:
 		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral("-3 ft (-13%)|true"));
 	}
 
+	// The AI prompt names the airport and runway with the popup's labels:
+	// "ICAO (Name)" and "runway (heading°)", each part only when known.
+	void analysisPromptNamesTheAirportAndRunway() {
+		const QString js = QStringLiteral(
+			"(function (name, heading) { var t = {icao: 'EGLL', airportName: name, runway: '27L', runwayHeading: heading,"
+			"    lat: 1, lng: 2, airspeed: 140, verticalSpeed: 0, pitchDegrees: 0, bankDegrees: 0, headingDegrees: 90,"
+			"    distanceLength: 0, distanceWidth: 0, distanceLengthPercent: 0, distanceWidthPercent: 0, windDirection: 0,"
+			"    windVelocity: 0, zuluTime: 'z', gForce: 1};"
+			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) {"
+			"    return /^  (Airport|Runway): /.test(l); }).join('|'); })(%1)");
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("'Heathrow', 270"))).toString(),
+			QStringLiteral("  Airport: EGLL (Heathrow)|  Runway: 27L (270°)"));
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("'', -1"))).toString(),
+			QStringLiteral("  Airport: EGLL|  Runway: 27L"));
+	}
+
 	// The map's touchdown popup and the KML export's placemark description
 	// are built separately (map.html, kml_export.cpp) but list the same
 	// fields with the same values; only the popup adds the coordinate, which
