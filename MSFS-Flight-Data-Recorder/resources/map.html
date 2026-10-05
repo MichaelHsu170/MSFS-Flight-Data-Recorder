@@ -477,11 +477,20 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
                 }
             );
             if (!res.ok) {
-                // HTTP error — bad key / quota / model issue. No point retrying.
                 var errBody = await res.text();
+                // A server error (5xx) or rate limit (429) is often gone a
+                // moment later: retry it like a network error. Any other HTTP
+                // error (bad key, model issue) won't change, so it's final.
+                if ((res.status >= 500 || res.status === 429) && attempt < MAX_ATTEMPTS - 1) {
+                    console.warn('Gemini API error, retrying:', res.status, errBody);
+                    continue;
+                }
                 var apiMsg = '';
                 try {
+                    // The streaming endpoint wraps its error in an array, as
+                    // it does its chunks.
                     var errJson = JSON.parse(errBody);
+                    if (Array.isArray(errJson)) errJson = errJson[0] || {};
                     apiMsg = (errJson.error && errJson.error.message) ? errJson.error.message : '';
                 } catch (e2) {}
                 var guidance = '';

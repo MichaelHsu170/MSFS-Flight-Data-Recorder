@@ -90,23 +90,31 @@ class TstMapWidget : public QObject {
 
 	// Runs the page's AI analysis of a liftoff with fetch() stubbed: attempt n
 	// gets attempts[n] (the last one repeated), each delivered in the given
-	// pieces; saving the report succeeds if saveOk. Returns what it did: calls
+	// pieces with HTTP status statuses[n] (the last one repeated; 200 if
+	// none); saving the report succeeds if saveOk. Returns what it did: calls
 	// (fetches made), saved (the report saved, null if none), text (the answer
 	// shown), thinkingShown.
-	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts, bool saveOk = true) {
+	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts, bool saveOk = true, const QList<int>& statuses = {}) {
 		QJsonArray json;
 		for (const QStringList& pieces : attempts)
 			json.append(QJsonArray::fromStringList(pieces));
+		QJsonArray jsonStatuses;
+		for (int status : statuses)
+			jsonStatuses.append(status);
 		evalPageJs(widget_, QStringLiteral(R"JS(
-			(function (attempts) {
+			(function (attempts, statuses) {
 			    window._ai = { calls: 0, saved: null, done: false };
 			    var realFetch = window.fetch;
 			    window.fetch = function () {
-			        var pieces = attempts[Math.min(window._ai.calls++, attempts.length - 1)].slice();
+			        var n = window._ai.calls++;
+			        var status = statuses[Math.min(n, statuses.length - 1)] || 200;
+			        var pieces = attempts[Math.min(n, attempts.length - 1)].slice();
 			        var reader = { read: function () {
 			            return Promise.resolve(pieces.length ? { done: false, value: new TextEncoder().encode(pieces.shift()) } : { done: true });
 			        } };
-			        return Promise.resolve({ ok: true, body: { getReader: function () { return reader; } } });
+			        return Promise.resolve({ ok: status < 300, status: status,
+			            text: function () { return Promise.resolve(pieces.join('')); },
+			            body: { getReader: function () { return reader; } } });
 			    };
 			    var box = document.getElementById('ai-test');
 			    if (!box) { box = document.createElement('div'); box.id = 'ai-test'; document.body.appendChild(box); }
@@ -114,8 +122,9 @@ class TstMapWidget : public QObject {
 			    runAiAnalysis('ai', { rowId: 5 }, function () { return 'prompt'; },
 			        function (rowId, report, onSaved) { window._ai.saved = report; onSaved(%2); }, 'Analyze Liftoff')
 			        .then(function () { window.fetch = realFetch; window._ai.done = true; });
-			})(%1))JS").arg(QString::fromUtf8(QJsonDocument(json).toJson(QJsonDocument::Compact)),
-				saveOk ? QStringLiteral("true") : QStringLiteral("false")));
+			})(%1, %3))JS").arg(QString::fromUtf8(QJsonDocument(json).toJson(QJsonDocument::Compact)),
+				saveOk ? QStringLiteral("true") : QStringLiteral("false"),
+				QString::fromUtf8(QJsonDocument(jsonStatuses).toJson(QJsonDocument::Compact))));
 		if (!QTest::qWaitFor([this] { return evalPageJs(widget_, QStringLiteral("window._ai.done")).toBool(); }, 5000))
 			return {};
 		return evalPageJs(widget_, QStringLiteral(
@@ -497,6 +506,46 @@ private slots:
 		const QString text = r.value("text").toString();
 		QVERIFY2(text.startsWith(QStringLiteral("Grade: A")), qPrintable(text));
 		QVERIFY2(text.contains(QStringLiteral("Couldn't save this analysis")), qPrintable(text));
+	}
+
+	// A server error or rate limit is often gone a moment later: the request
+	// is retried, and the answer that follows is saved.
+	void aServerErrorOrRateLimitIsRetried_data() {
+		QTest::addColumn<int>("status");
+		QTest::newRow("internal error") << 500;
+		QTest::newRow("unavailable") << 503;
+		QTest::newRow("rate limit") << 429;
+	}
+	void aServerErrorOrRateLimitIsRetried() {
+		QFETCH(int, status);
+		const QVariantMap r = runAiAnalysisWith({
+			{ QStringLiteral(R"([{"error":{"code":%1,"message":"Try later."}}])").arg(status) },
+			{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } }, true, { status, 200 });
+		QCOMPARE(r.value("calls").toInt(), 2);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
+		QCOMPARE(r.value("text").toString(), QStringLiteral("Grade: A"));
+	}
+
+	// Three server errors in a row: the last one's message is shown and
+	// nothing is saved.
+	void threeServerErrorsShowTheLastOne() {
+		const QVariantMap r = runAiAnalysisWith({ { QStringLiteral(R"([{"error":{"code":500,"message":"Internal error encountered."}}])") } },
+			true, { 500 });
+		QCOMPARE(r.value("calls").toInt(), 3);
+		QVERIFY(r.value("saved").isNull());
+		QCOMPARE(r.value("text").toString(), QStringLiteral("API error 500: Internal error encountered."));
+	}
+
+	// A rejected request (bad key, no access) won't change on retry: it's
+	// shown at once, pointing at the key in settings.ini.
+	void aRejectedRequestIsNotRetried() {
+		const QVariantMap r = runAiAnalysisWith({ { QStringLiteral(R"([{"error":{"code":400,"message":"API key not valid."}}])") } },
+			true, { 400 });
+		QCOMPARE(r.value("calls").toInt(), 1);
+		QVERIFY(r.value("saved").isNull());
+		const QString text = r.value("text").toString();
+		QVERIFY2(text.startsWith(QStringLiteral("API error 400: API key not valid.")), qPrintable(text));
+		QVERIFY2(text.contains(QStringLiteral("gemini_api_key")), qPrintable(text));
 	}
 
 	// The page's console goes to the debug log under MapJS: errors and
