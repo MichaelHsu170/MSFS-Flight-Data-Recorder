@@ -50,6 +50,10 @@ constexpr int kDefaultFieldColumnWidth = 140;
 
 // Key and section comments written both into the default settings.ini and
 // when the setter adds the key to an existing file that lacks it.
+QString autoManagedSectionComment() {
+	return QStringLiteral("Auto-managed by the app.");
+}
+
 QString recordingEnabledComment() {
 	return QStringLiteral("Auto-managed by the app. Whether automatic recording is allowed to start,\n"
 	                      "toggled via the Recording indicator in the Live Status panel. Disabling it\n"
@@ -311,7 +315,7 @@ void AppSettings::setDataTableHiddenFields(const QStringList& fields) {
 		QStringLiteral("data_table"),
 		QStringLiteral("hidden_fields"),
 		fields.join(','),
-		QStringLiteral("Auto-managed by the app."),
+		autoManagedSectionComment(),
 		hiddenFieldsComment()
 	);
 }
@@ -339,7 +343,7 @@ void AppSettings::setRightPanelWidth(int w) {
 		QStringLiteral("layout"),
 		QStringLiteral("right_panel_width"),
 		QString::number(w),
-		QStringLiteral("Auto-managed by the app."),
+		autoManagedSectionComment(),
 		rightPanelWidthComment()
 	);
 }

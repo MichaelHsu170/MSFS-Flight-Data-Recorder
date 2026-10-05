@@ -212,13 +212,13 @@ public:
 		case 6: designator = 'B'; break;
 		default: break;
 		}
-		std::vector<std::string> numbers_dir = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+		static const char* const numbers_dir[] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
 		char ret[4];
 		memset(ret, 0, sizeof(ret));
 		if (runway_number > 0 && runway_number <= 36)
 			snprintf(ret, sizeof(ret), "%02d%c", runway_number, designator);
 		else if (runway_number >= 37 && runway_number <= 44)
-			snprintf(ret, sizeof(ret), "%s%c", numbers_dir[runway_number - 37].c_str(), designator);
+			snprintf(ret, sizeof(ret), "%s%c", numbers_dir[runway_number - 37], designator);
 		return std::string(ret);
 	}
 };
