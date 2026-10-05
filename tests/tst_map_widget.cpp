@@ -547,6 +547,41 @@ private slots:
 		QCOMPARE(r.value("saved").toString(), QStringLiteral("Use {x and \"}\" then \\ {"));
 	}
 
+	// A real response recorded from the service (84 streamed objects ending in
+	// STOP), however the network splits it: the answer, with an unmatched
+	// brace, quotes and a backslash in it, is saved whole after all of its
+	// thinking.
+	void aRecordedAiResponseIsSavedWhole_data() {
+		QTest::addColumn<int>("pieceSize");
+		QTest::newRow("1 byte") << 1;
+		QTest::newRow("7 bytes") << 7;
+		QTest::newRow("64 bytes") << 64;
+		QTest::newRow("4 KiB") << 4096;
+		QTest::newRow("whole") << 0;
+	}
+	void aRecordedAiResponseIsSavedWhole() {
+		QFETCH(int, pieceSize);
+		QFile file(QStringLiteral(AI_STREAM_RESPONSE));
+		QVERIFY(file.open(QIODevice::ReadOnly));
+		const QString response = QString::fromUtf8(file.readAll());
+		QString thinking;
+		for (const QJsonValue chunk : QJsonDocument::fromJson(response.toUtf8()).array())
+			for (const QJsonValue part : chunk["candidates"][0]["content"]["parts"].toArray())
+				if (part["thought"].toBool())
+					thinking += part["text"].toString();
+		QCOMPARE(thinking.size(), 6502);
+		QStringList pieces;
+		for (qsizetype i = 0; i < response.size(); i += pieceSize ? pieceSize : response.size())
+			pieces.append(response.mid(i, pieceSize ? pieceSize : -1));
+
+		const QVariantMap r = runAiAnalysisWith({ pieces });
+		const QString answer = QStringLiteral(R"(The plane glides steady {x. The pilot initiates a "flare" \. The landing is buttery smooth}.)");
+		QCOMPARE(r.value("calls").toInt(), 1);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("<thinking>") + thinking + QStringLiteral("</thinking>") + answer);
+		QCOMPARE(r.value("text").toString(), answer);
+		QCOMPARE(r.value("thinkingShown").toBool(), true);
+	}
+
 	// A report the database didn't take stays shown, with a note under it
 	// that it wasn't saved.
 	void anAiAnswerThatCouldNotBeSavedSaysSo() {

@@ -73,5 +73,7 @@ fdr_add_test(tst_map_script)
 fdr_add_test(tst_splitter_utils)
 fdr_add_test(tst_charts_panel)
 fdr_add_webengine_test(tst_map_widget)
+# A real streamed AI response, recorded once from the service.
+target_compile_definitions(tst_map_widget PRIVATE AI_STREAM_RESPONSE="${CMAKE_CURRENT_SOURCE_DIR}/data/ai_stream_response.json")
 fdr_add_webengine_test(tst_trajectory_view)
 fdr_add_webengine_test(tst_main_window)
