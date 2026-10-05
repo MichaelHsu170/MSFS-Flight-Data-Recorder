@@ -37,6 +37,15 @@ int countRows(sqlite3* db) {
 	return count;
 }
 
+// Column a of t's first row; empty if t has none.
+QString firstA(sqlite3* db) {
+	sqlite3_stmt* check = nullptr;
+	sqlite3_prepare_v2(db, "SELECT a FROM t", -1, &check, nullptr);
+	const QString a = sqlite3_step(check) == SQLITE_ROW ? columnText(check, 0) : QString();
+	sqlite3_finalize(check);
+	return a;
+}
+
 }
 
 class TstDbQuery : public QObject {
@@ -157,11 +166,7 @@ private slots:
 		bindText(stmt, 1, QStringLiteral("café"));
 		QCOMPARE(sqlite3_step(stmt), SQLITE_DONE);
 		sqlite3_finalize(stmt);
-		sqlite3_stmt* check = nullptr;
-		sqlite3_prepare_v2(db, "SELECT a FROM t", -1, &check, nullptr);
-		sqlite3_step(check);
-		QCOMPARE(columnText(check, 0), QStringLiteral("café"));
-		sqlite3_finalize(check);
+		QCOMPARE(firstA(db), QStringLiteral("café"));
 		sqlite3_close(db);
 	}
 
@@ -171,11 +176,7 @@ private slots:
 		const bool ok = execStatement(db, "INSERT INTO t VALUES (?)", QStringLiteral("ctx"),
 			[](sqlite3_stmt* stmt) { bindText(stmt, 1, QStringLiteral("x")); });
 		QVERIFY(ok);
-		sqlite3_stmt* check = nullptr;
-		sqlite3_prepare_v2(db, "SELECT a FROM t", -1, &check, nullptr);
-		QCOMPARE(sqlite3_step(check), SQLITE_ROW);
-		QCOMPARE(columnText(check, 0), QStringLiteral("x"));
-		sqlite3_finalize(check);
+		QCOMPARE(firstA(db), QStringLiteral("x"));
 		QCOMPARE(sqlite3_close(db), SQLITE_OK);
 	}
 
