@@ -45,90 +45,40 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 	std::vector<TripSummary> trips;
 	Logger::log(Logger::Trace, "DB", QStringLiteral("queryAllTrips: loading trip list"));
 
-	// departure_region/destination_region and departure_name/destination_name
-	// are progressive additions to trips. Try each query in order from newest
-	// to oldest schema, leaving missing fields blank on older databases rather
-	// than touching the schema from this read-only path. group_id/trip_groups
-	// only need to be handled in the newest tier -- migrate_db() runs at app
-	// startup (before this connection ever opens) so any database old enough
-	// to miss departure_region/departure_name predates group_id too.
-	const char* stmt_txt_full =
+	// Trip History opens only after migrate_db() succeeded, so every column
+	// exists.
+	const QString context = QStringLiteral("queryAllTrips");
+	sqlite3_stmt* stmt = prepareStatement(sql,
 		"SELECT t.id, t.title, t.atc_airline, t.atc_flight_number, t.departure_icao, t.departure_name, t.departure_region, t.departure_rwy, "
 		"t.destination_icao, t.destination_name, t.destination_region, t.destination_rwy, t.departure_zulu_time, t.destination_zulu_time, "
 		"t.departure_latitude, t.departure_longitude, t.destination_latitude, t.destination_longitude, "
 		"t.group_id, g.name "
-		"FROM trips t LEFT JOIN trip_groups g ON g.id = t.group_id ORDER BY t.id DESC";
-	const char* stmt_txt_with_region =
-		"SELECT id, title, atc_airline, atc_flight_number, departure_icao, departure_region, departure_rwy, "
-		"destination_icao, destination_region, destination_rwy, departure_zulu_time, destination_zulu_time, "
-		"departure_latitude, departure_longitude, destination_latitude, destination_longitude "
-		"FROM trips ORDER BY id DESC";
-	const char* stmt_txt_no_region =
-		"SELECT id, title, atc_airline, atc_flight_number, departure_icao, departure_rwy, "
-		"destination_icao, destination_rwy, departure_zulu_time, destination_zulu_time, "
-		"departure_latitude, departure_longitude, destination_latitude, destination_longitude "
-		"FROM trips ORDER BY id DESC";
+		"FROM trips t LEFT JOIN trip_groups g ON g.id = t.group_id ORDER BY t.id DESC", context);
+	if (!stmt)
+		return trips;
 
-	sqlite3_stmt* stmt = nullptr;
-	bool hasName = sqlite3_prepare_v2(sql, stmt_txt_full, -1, &stmt, nullptr) == SQLITE_OK;
-	bool hasRegion = hasName;
-	if (!hasName) {
-		hasRegion = sqlite3_prepare_v2(sql, stmt_txt_with_region, -1, &stmt, nullptr) == SQLITE_OK;
-		if (!hasRegion) {
-			stmt = prepareStatement(sql, stmt_txt_no_region, QStringLiteral("queryAllTrips"));
-			if (!stmt)
-				return trips;
-		}
-	}
-	Logger::logf(Logger::Trace, "DB", "queryAllTrips: using %s",
-		hasName ? "full schema" : (hasRegion ? "region schema (fallback)" : "legacy schema (fallback)"));
-
-	forEachRow(sql, stmt, QStringLiteral("queryAllTrips"), [&](sqlite3_stmt*) {
+	forEachRow(sql, stmt, context, [&](sqlite3_stmt* row) {
 		TripSummary trip;
-		trip.id = sqlite3_column_int(stmt, 0);
-		trip.title = columnText(stmt, 1);
-		trip.atcAirline = columnText(stmt, 2);
-		trip.atcFlightNumber = columnText(stmt, 3);
-		trip.departureIcao = columnText(stmt, 4);
-		if (hasName) {
-			trip.departureName = columnText(stmt, 5);
-			trip.departureRegion = columnText(stmt, 6);
-			trip.departureRwy = columnText(stmt, 7);
-			trip.destinationIcao = columnText(stmt, 8);
-			trip.destinationName = columnText(stmt, 9);
-			trip.destinationRegion = columnText(stmt, 10);
-			trip.destinationRwy = columnText(stmt, 11);
-			trip.departureZuluTime = columnText(stmt, 12);
-			trip.destinationZuluTime = columnText(stmt, 13);
-			trip.departureLat    = sqlite3_column_double(stmt, 14);
-			trip.departureLng    = sqlite3_column_double(stmt, 15);
-			trip.destinationLat  = sqlite3_column_double(stmt, 16);
-			trip.destinationLng  = sqlite3_column_double(stmt, 17);
-			trip.groupId         = sqlite3_column_int(stmt, 18); // NULL reads as 0 (ungrouped)
-			trip.groupName       = columnText(stmt, 19);
-		} else if (hasRegion) {
-			trip.departureRegion = columnText(stmt, 5);
-			trip.departureRwy = columnText(stmt, 6);
-			trip.destinationIcao = columnText(stmt, 7);
-			trip.destinationRegion = columnText(stmt, 8);
-			trip.destinationRwy = columnText(stmt, 9);
-			trip.departureZuluTime = columnText(stmt, 10);
-			trip.destinationZuluTime = columnText(stmt, 11);
-			trip.departureLat    = sqlite3_column_double(stmt, 12);
-			trip.departureLng    = sqlite3_column_double(stmt, 13);
-			trip.destinationLat  = sqlite3_column_double(stmt, 14);
-			trip.destinationLng  = sqlite3_column_double(stmt, 15);
-		} else {
-			trip.departureRwy = columnText(stmt, 5);
-			trip.destinationIcao = columnText(stmt, 6);
-			trip.destinationRwy = columnText(stmt, 7);
-			trip.departureZuluTime = columnText(stmt, 8);
-			trip.destinationZuluTime = columnText(stmt, 9);
-			trip.departureLat    = sqlite3_column_double(stmt, 10);
-			trip.departureLng    = sqlite3_column_double(stmt, 11);
-			trip.destinationLat  = sqlite3_column_double(stmt, 12);
-			trip.destinationLng  = sqlite3_column_double(stmt, 13);
-		}
+		trip.id = sqlite3_column_int(row, 0);
+		trip.title = columnText(row, 1);
+		trip.atcAirline = columnText(row, 2);
+		trip.atcFlightNumber = columnText(row, 3);
+		trip.departureIcao = columnText(row, 4);
+		trip.departureName = columnText(row, 5);
+		trip.departureRegion = columnText(row, 6);
+		trip.departureRwy = columnText(row, 7);
+		trip.destinationIcao = columnText(row, 8);
+		trip.destinationName = columnText(row, 9);
+		trip.destinationRegion = columnText(row, 10);
+		trip.destinationRwy = columnText(row, 11);
+		trip.departureZuluTime = columnText(row, 12);
+		trip.destinationZuluTime = columnText(row, 13);
+		trip.departureLat    = sqlite3_column_double(row, 14);
+		trip.departureLng    = sqlite3_column_double(row, 15);
+		trip.destinationLat  = sqlite3_column_double(row, 16);
+		trip.destinationLng  = sqlite3_column_double(row, 17);
+		trip.groupId         = sqlite3_column_int(row, 18); // NULL reads as 0 (ungrouped)
+		trip.groupName       = columnText(row, 19);
 
 		if (trip.id == liveTripId)
 			trip.status = TripStatus::Live;

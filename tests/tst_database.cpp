@@ -7,7 +7,9 @@
 #include "db.h"
 #include "db_history.h"
 #include "trip_data_fields.h"
+#include "logger.h"
 
+#include <QTemporaryDir>
 #include <QtTest>
 
 #include <algorithm>
@@ -86,8 +88,16 @@ TripSamplePoint point(const char* zulu, double lat) {
 class TstDatabase : public QObject {
 	Q_OBJECT
 
+	QTemporaryDir logDir_;
+	QString logPath_;
+
 private slots:
-	void initTestCase() { isolateFiles(); }
+	// Logger::init() takes effect once per process, so it runs here.
+	void initTestCase() {
+		isolateFiles();
+		logPath_ = logDir_.filePath(QStringLiteral("database.log"));
+		Logger::init(Logger::Warning, logPath_);
+	}
 	void init() { removeDatabase(); }
 
 	// --- Schema ---
@@ -228,7 +238,7 @@ private slots:
 	}
 
 	// Whether trip_data still has the legacy columns can't be told, so the
-	// migration fails rather than let recording start.
+	// migration fails, logged, rather than let recording start.
 	void migrateFailsWhenTripDatasColumnsCantBeRead() {
 		sqlite3* db = openDatabaseFile();
 		QVERIFY(db);
@@ -239,6 +249,7 @@ private slots:
 		exec(db, "DROP TABLE gone;");
 		sqlite3_close(db);
 		QVERIFY(!migrate_db());
+		QVERIFY(lineLogged(logPath_, "FATAL", { QStringLiteral("trip_data"), QStringLiteral("columns") }));
 	}
 
 	// Every write and query names the current columns, so one that can't be
@@ -455,57 +466,14 @@ private slots:
 		QCOMPARE(trips[1].groupName, QString());
 	}
 
-	// queryAllTrips() reads from a read-only connection without running
-	// migrate_db() first, so it has to cope with trips tables from before
-	// group_id/departure_name (or even departure_region) existed by falling
-	// back to older SELECT lists -- these two pin that fallback cascade.
-	void queryAllTripsFallsBackToRegionSchemaOnUnmigratedDatabase() {
-		sqlite3* db = openDatabaseFile();
-		QVERIFY(db);
-		exec(db, "CREATE TABLE trips (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, title VARCHAR(256) NOT NULL, "
-			"atc_airline VARCHAR(64) NOT NULL, atc_flight_number VARCHAR(8) NOT NULL, departure_icao VARCHAR(4), "
-			"departure_region VARCHAR(2), departure_rwy VARCHAR(3), destination_icao VARCHAR(4), destination_region VARCHAR(2), "
-			"destination_rwy VARCHAR(3), departure_zulu_time VARCHAR(32) NOT NULL, destination_zulu_time VARCHAR(32), "
-			"departure_latitude REAL NOT NULL, departure_longitude REAL NOT NULL, destination_latitude REAL, destination_longitude REAL);");
-		exec(db, "INSERT INTO trips (title,atc_airline,atc_flight_number,departure_icao,departure_region,departure_rwy,"
-			"destination_icao,destination_region,destination_rwy,departure_zulu_time,destination_zulu_time,"
-			"departure_latitude,departure_longitude,destination_latitude,destination_longitude) VALUES "
-			"('Old','AIR','1','AAAA','AA','09','BBBB','BB','27','2026-01-01T10:00:00.000+00:00_4',"
-			"'2026-01-01T11:00:00.000+00:00_4',1.5,2.5,3.5,4.5);");
+	void tripListIsEmptyAndLoggedWhenItCantBeRead() {
+		sqlite3* db = freshDatabase();
+		addTrip(1);
+		exec(db, "DROP TABLE trip_groups");
 		const std::vector<TripSummary> trips = queryAllTrips(db, 0);
 		sqlite3_close(db);
-		QCOMPARE(trips.size(), size_t(1));
-		QCOMPARE(trips[0].departureIcao, QStringLiteral("AAAA"));
-		QCOMPARE(trips[0].departureRegion, QStringLiteral("AA"));
-		QCOMPARE(trips[0].departureRwy, QStringLiteral("09"));
-		QCOMPARE(trips[0].destinationRegion, QStringLiteral("BB"));
-		QCOMPARE(trips[0].departureLat, 1.5);
-		QCOMPARE(trips[0].destinationLng, 4.5);
-		// group_id and departure_name don't exist at this schema tier.
-		QCOMPARE(trips[0].departureName, QString());
-		QCOMPARE(trips[0].groupId, 0);
-	}
-
-	void queryAllTripsFallsBackToLegacySchemaOnVeryOldDatabase() {
-		sqlite3* db = openDatabaseFile();
-		QVERIFY(db);
-		exec(db, "CREATE TABLE trips (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, title VARCHAR(256) NOT NULL, "
-			"atc_airline VARCHAR(64) NOT NULL, atc_flight_number VARCHAR(8) NOT NULL, departure_icao VARCHAR(4), "
-			"departure_rwy VARCHAR(3), destination_icao VARCHAR(4), destination_rwy VARCHAR(3), "
-			"departure_zulu_time VARCHAR(32) NOT NULL, destination_zulu_time VARCHAR(32), "
-			"departure_latitude REAL NOT NULL, departure_longitude REAL NOT NULL, destination_latitude REAL, destination_longitude REAL);");
-		exec(db, "INSERT INTO trips (title,atc_airline,atc_flight_number,departure_icao,departure_rwy,"
-			"destination_icao,destination_rwy,departure_zulu_time,destination_zulu_time,"
-			"departure_latitude,departure_longitude,destination_latitude,destination_longitude) VALUES "
-			"('Oldest','AIR','1','AAAA','09','BBBB','27','2026-01-01T10:00:00.000+00:00_4',NULL,1.5,2.5,0,0);");
-		const std::vector<TripSummary> trips = queryAllTrips(db, 0);
-		sqlite3_close(db);
-		QCOMPARE(trips.size(), size_t(1));
-		QCOMPARE(trips[0].departureIcao, QStringLiteral("AAAA"));
-		QCOMPARE(trips[0].departureRwy, QStringLiteral("09"));
-		QCOMPARE(trips[0].destinationIcao, QStringLiteral("BBBB"));
-		QVERIFY(trips[0].status == TripStatus::Open); // destination_zulu_time is NULL
-		QCOMPARE(trips[0].departureRegion, QString());
+		QVERIFY(trips.empty());
+		QVERIFY(warningLogged(logPath_, { QStringLiteral("queryAllTrips"), QStringLiteral("trip_groups") }));
 	}
 
 	void liftoffAndTouchdownRowsReadBack() {

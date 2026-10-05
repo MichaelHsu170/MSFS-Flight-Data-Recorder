@@ -60,15 +60,20 @@ QString lastLogWith(const QSignalSpy& log, const QStringList& parts) {
 	return found;
 }
 
-bool warningLogged(const QString& logPath, const QStringList& parts) {
+bool lineLogged(const QString& logPath, const char* levelTag, const QStringList& parts) {
 	QFile f(logPath);
 	if (!f.open(QIODevice::ReadOnly))
 		return false;
+	const QString tag = QStringLiteral("[%1]").arg(QLatin1String(levelTag));
 	const QStringList lines = QString::fromUtf8(f.readAll()).split('\n');
-	return std::any_of(lines.begin(), lines.end(), [&parts](const QString& line) {
-		return line.contains(QStringLiteral("[WARN ]"))
+	return std::any_of(lines.begin(), lines.end(), [&tag, &parts](const QString& line) {
+		return line.contains(tag)
 			&& std::all_of(parts.begin(), parts.end(), [&line](const QString& part) { return line.contains(part); });
 	});
+}
+
+bool warningLogged(const QString& logPath, const QStringList& parts) {
+	return lineLogged(logPath, "WARN ", parts);
 }
 
 QVariant evalPageJs(QWidget* owner, const QString& js) {
