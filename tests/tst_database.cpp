@@ -777,6 +777,8 @@ private slots:
 		copy_cstr(r.atc_type, "Boeing");
 		r.plane_coordinate.latitude = 47.25;
 		r.plane_coordinate.longitude = -122.5;
+		r.time_local.time_day = 39600; // 11:00 at UTC+1, so the two columns differ
+		r.time_local.timezone_offset = -3600;
 		const int id = db_insert_trip(w.status(), r);
 		QVERIFY(id > 0);
 		QCOMPARE(db_insert_trip(w.status(), r), id + 1);
@@ -789,8 +791,8 @@ private slots:
 		QCOMPARE(t["atc_type"].toString(), QStringLiteral("Boeing"));
 		QCOMPARE(t["departure_latitude"].toDouble(), 47.25);
 		QCOMPARE(t["departure_longitude"].toDouble(), -122.5);
-		QCOMPARE(t["departure_zulu_time"].toString(), QString::fromStdString(r.time_zulu.format_date_time()));
-		QCOMPARE(t["departure_local_time"].toString(), QString::fromStdString(r.time_local.format_date_time()));
+		QCOMPARE(t["departure_zulu_time"].toString(), QStringLiteral("2026-01-02T10:00:00.000+00:00_5"));
+		QCOMPARE(t["departure_local_time"].toString(), QStringLiteral("2026-01-02T11:00:00.000+01:00_5"));
 		QVERIFY(t["departure_icao"].isNull());
 		QVERIFY(t["destination_zulu_time"].isNull());
 	}
@@ -800,15 +802,16 @@ private slots:
 		FLIGHT_DATA_RECORD r = makeRecord();
 		const int id = db_insert_trip(w.status(), r);
 		r.time_zulu.time_day += 3600;
-		r.time_local.time_day += 3600;
+		r.time_local.time_day = 45000; // 12:30 at UTC+1
+		r.time_local.timezone_offset = -3600;
 		db_set_trip_destination_time(w.status(), id, r.time_zulu, r.time_local);
 		COORDINATE position;
 		position.latitude = 10.5;
 		position.longitude = 20.25;
 		db_set_trip_destination_position(w.status(), id, position);
 		const QVariantMap t = tripRow(id);
-		QCOMPARE(t["destination_zulu_time"].toString(), QString::fromStdString(r.time_zulu.format_date_time()));
-		QCOMPARE(t["destination_local_time"].toString(), QString::fromStdString(r.time_local.format_date_time()));
+		QCOMPARE(t["destination_zulu_time"].toString(), QStringLiteral("2026-01-02T11:00:00.000+00:00_5"));
+		QCOMPARE(t["destination_local_time"].toString(), QStringLiteral("2026-01-02T12:30:00.000+01:00_5"));
 		QCOMPARE(t["destination_latitude"].toDouble(), 10.5);
 		QCOMPARE(t["destination_longitude"].toDouble(), 20.25);
 	}
@@ -852,7 +855,9 @@ private slots:
 	void contactRowsStoreTheirFlightData() {
 		Writer w;
 		const int trip = db_insert_trip(w.status(), makeRecord());
-		const FLIGHT_DATA data = contactData();
+		FLIGHT_DATA data = contactData();
+		data.time_local.time_day = 39600; // 11:00 at UTC+1, so the two columns differ
+		data.time_local.timezone_offset = -3600;
 		const int lo = db_insert_contact(w.status(), CONTACT_TABLE::LIFTOFFS, trip, data);
 		const int td = db_insert_contact(w.status(), CONTACT_TABLE::TOUCHDOWNS, trip, data);
 		QVERIFY(lo > 0);
@@ -868,8 +873,8 @@ private slots:
 			QCOMPARE(row["plane_longitude"].toDouble(), -122.3);
 			QCOMPARE(row["wind_direction"].toInt(), 200);
 			QCOMPARE(row["wind_velocity"].toInt(), 12);
-			QCOMPARE(row["time_zulu"].toString(), QString::fromStdString(data.time_zulu.format_date_time()));
-			QCOMPARE(row["time_local"].toString(), QString::fromStdString(data.time_local.format_date_time()));
+			QCOMPARE(row["time_zulu"].toString(), QStringLiteral("2026-01-02T10:00:00.000+00:00_5")); // makeRecord()
+			QCOMPARE(row["time_local"].toString(), QStringLiteral("2026-01-02T11:00:00.000+01:00_5"));
 			QVERIFY(row["icao"].isNull());
 			QVERIFY(row["runway"].isNull());
 		}
