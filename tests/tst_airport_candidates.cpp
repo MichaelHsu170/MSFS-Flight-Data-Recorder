@@ -5,7 +5,6 @@
 
 #include <QtTest>
 
-#include <cstring>
 #include <string>
 #include <vector>
 
@@ -17,8 +16,8 @@ using Candidates = AIRPORT_LOOKUP::CANDIDATE[AIRPORT_LOOKUP::TOP_N];
 // the reference point), same longitude.
 SIMCONNECT_DATA_FACILITY_AIRPORT airport(const char* ident, double northKm, const char* region = "K1") {
 	SIMCONNECT_DATA_FACILITY_AIRPORT a = {};
-	strncpy(a.Ident, ident, sizeof(a.Ident) - 1);
-	strncpy(a.Region, region, sizeof(a.Region) - 1);
+	copy_cstr(a.Ident, ident);
+	copy_cstr(a.Region, region);
 	a.Latitude = 45.0 + northKm / 111.2;
 	a.Longitude = 7.0;
 	return a;

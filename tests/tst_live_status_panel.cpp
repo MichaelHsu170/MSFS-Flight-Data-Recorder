@@ -7,7 +7,7 @@
 
 #include <QLabel>
 #include <QListWidget>
-#include <QMouseEvent>
+#include <QEnterEvent>
 #include <QRegularExpression>
 #include <QToolTip>
 #include <QtTest>
@@ -38,10 +38,6 @@ private:
 		for (int i = 0; i < history(p)->count(); ++i)
 			out << history(p)->item(i)->text().mid(22); // strip "[yyyy-MM-dd hh:mm:ss] "
 		return out;
-	}
-	static void releaseOn(QWidget* w, const QPoint& pos) {
-		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(pos), w->mapToGlobal(QPointF(pos)), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
-		QCoreApplication::sendEvent(w, &release);
 	}
 
 private slots:
@@ -115,12 +111,12 @@ private slots:
 		LiveStatusPanel panel(sim.bridge());
 		QWidget* toggle = recordingToggle(panel);
 		toggle->resize(100, 20);
-		releaseOn(toggle, QPoint(5, 5));
+		sendLeftButton(toggle, QEvent::MouseButtonRelease, QPoint(5, 5));
 		QVERIFY(!sim.bridge().isRecordingEnabled());
 		QCOMPARE(toggle->toolTip(), QStringLiteral("Click to enable automatic recording."));
-		releaseOn(toggle, QPoint(500, 500)); // dragged off before releasing: no toggle
+		sendLeftButton(toggle, QEvent::MouseButtonRelease, QPoint(500, 500)); // dragged off before releasing: no toggle
 		QVERIFY(!sim.bridge().isRecordingEnabled());
-		releaseOn(toggle, QPoint(5, 5));
+		sendLeftButton(toggle, QEvent::MouseButtonRelease, QPoint(5, 5));
 		QVERIFY(sim.bridge().isRecordingEnabled());
 	}
 
@@ -130,7 +126,7 @@ private slots:
 		QWidget* toggle = recordingToggle(panel);
 		toggle->resize(100, 20);
 		sim.startTrip();
-		releaseOn(toggle, QPoint(5, 5));
+		sendLeftButton(toggle, QEvent::MouseButtonRelease, QPoint(5, 5));
 		QVERIFY(sim.bridge().isRecordingEnabled());
 	}
 

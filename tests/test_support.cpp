@@ -14,6 +14,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QMetaObject>
+#include <QMouseEvent>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QWebEnginePage>
@@ -160,6 +161,12 @@ void clickDialogButton(QWidget* dialog, const QString& text) {
 	}
 }
 
+void sendLeftButton(QWidget* w, QEvent::Type type, const QPoint& pos) {
+	const Qt::MouseButtons held = type == QEvent::MouseButtonPress ? Qt::LeftButton : Qt::NoButton;
+	QMouseEvent event(type, QPointF(pos), w->mapToGlobal(QPointF(pos)), Qt::LeftButton, held, Qt::NoModifier);
+	QCoreApplication::sendEvent(w, &event);
+}
+
 QList<QVariantMap> queryRows(const QString& sql) {
 	QList<QVariantMap> rows;
 	sqlite3* db = connect_db_readonly();
@@ -284,12 +291,12 @@ FLIGHT_DATA_RECORD makeRecord() {
 		t->time_day = 36000;
 		t->timezone_offset = 0;
 	}
-	strcpy(r.title, "Test Aircraft");
-	strcpy(r.atc_airline, "TESTAIR");
-	strcpy(r.atc_flight_number, "123");
-	strcpy(r.atc_id, "N123TA");
-	strcpy(r.atc_model, "A320");
-	strcpy(r.atc_type, "AIRBUS");
+	copy_cstr(r.title, "Test Aircraft");
+	copy_cstr(r.atc_airline, "TESTAIR");
+	copy_cstr(r.atc_flight_number, "123");
+	copy_cstr(r.atc_id, "N123TA");
+	copy_cstr(r.atc_model, "A320");
+	copy_cstr(r.atc_type, "AIRBUS");
 	return r;
 }
 
@@ -351,8 +358,8 @@ std::vector<char> airportListPacket(const std::vector<AirportSpec>& airports, DW
 	for (size_t i = 0; i < count; ++i) {
 		SIMCONNECT_DATA_FACILITY_AIRPORT entry;
 		memset(&entry, 0, sizeof(entry));
-		strncpy(entry.Ident, airports[i].ident.c_str(), sizeof(entry.Ident) - 1);
-		strncpy(entry.Region, airports[i].region.c_str(), sizeof(entry.Region) - 1);
+		copy_cstr(entry.Ident, airports[i].ident.c_str());
+		copy_cstr(entry.Region, airports[i].region.c_str());
 		entry.Latitude = airports[i].latitude;
 		entry.Longitude = airports[i].longitude;
 		memcpy(packet.data() + offset + i * sizeof(entry), &entry, sizeof(entry));
@@ -384,7 +391,7 @@ std::vector<char> facilityAirportPacket(const AirportSpec& airport) {
 	// Field order of facility_lookup_request_candidate(): NAME64, MAGVAR, N_RUNWAYS.
 	std::vector<char> payload;
 	char name[64] = {};
-	strncpy(name, airport.name.c_str(), sizeof(name) - 1);
+	copy_cstr(name, airport.name.c_str());
 	payload.insert(payload.end(), name, name + sizeof(name));
 	appendBytes(payload, airport.magvar);
 	appendBytes(payload, static_cast<int>(airport.runways.size()));

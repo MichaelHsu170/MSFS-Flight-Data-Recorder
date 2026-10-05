@@ -2,13 +2,14 @@
 // per release on the given handle and is unaffected by other event types;
 // setSecondSectionSize() resizes the second section keeping the total.
 #include "splitter_utils.h"
+#include "test_support.h"
 
-#include <QCoreApplication>
-#include <QMouseEvent>
 #include <QSplitter>
 #include <QtTest>
 
 #include <memory>
+
+using namespace TestSupport;
 
 namespace {
 
@@ -44,15 +45,13 @@ private slots:
 		connectSplitterHandleReleased(&splitter, 1, [&callCount]() { ++callCount; });
 
 		QWidget* handle = splitter.handle(1);
-		QMouseEvent press(QEvent::MouseButtonPress, QPointF(5, 5), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-		QCoreApplication::sendEvent(handle, &press);
+		sendLeftButton(handle, QEvent::MouseButtonPress, QPoint(5, 5));
 		QCOMPARE(callCount, 0);  // press alone doesn't fire it
 
-		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(5, 5), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-		QCoreApplication::sendEvent(handle, &release);
+		sendLeftButton(handle, QEvent::MouseButtonRelease, QPoint(5, 5));
 		QCOMPARE(callCount, 1);
 
-		QCoreApplication::sendEvent(handle, &release);
+		sendLeftButton(handle, QEvent::MouseButtonRelease, QPoint(5, 5));
 		QCOMPARE(callCount, 2);  // fires again on a second release
 	}
 
@@ -65,8 +64,7 @@ private slots:
 		splitter.handle(1)->installEventFilter(&spy);
 		connectSplitterHandleReleased(&splitter, 1, []() {});
 
-		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(5, 5), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-		QCoreApplication::sendEvent(splitter.handle(1), &release);
+		sendLeftButton(splitter.handle(1), QEvent::MouseButtonRelease, QPoint(5, 5));
 		QVERIFY(spy.received);  // reached the filter installed "underneath" ours -- confirms ours passed the event on
 	}
 

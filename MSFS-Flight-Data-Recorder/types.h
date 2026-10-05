@@ -5,6 +5,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
+#include <cstring>
 #include <deque>
 #include <mutex>
 #include <set>
@@ -490,11 +491,13 @@ public:
 	}
 };
 
-// strncpy that always null-terminates, into a char array.
+// Copies src into a char array, cut to fit, null-terminated and zero-filled
+// past the end -- strncpy's result plus the terminator it can leave out.
 template <size_t N>
 inline void copy_cstr(char (&dst)[N], const char* src) {
-	strncpy(dst, src, N - 1);
-	dst[N - 1] = '\0';
+	const size_t len = strnlen(src, N - 1);
+	memcpy(dst, src, len);
+	memset(dst + len, 0, N - len);
 }
 
 // What a facility (airport/runway) lookup is resolving -- see

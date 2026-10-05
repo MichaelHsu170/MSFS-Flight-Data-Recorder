@@ -52,9 +52,9 @@ private:
 
 AIRPORT airport(const char* icao, const char* region, const char* name) {
 	AIRPORT a;
-	strcpy(a.icao, icao);
-	strcpy(a.region, region);
-	strcpy(a.name, name);
+	copy_cstr(a.icao, icao);
+	copy_cstr(a.region, region);
+	copy_cstr(a.name, name);
 	return a;
 }
 
@@ -634,12 +634,12 @@ private slots:
 	void insertTripStoresDepartureFields() {
 		Writer w;
 		FLIGHT_DATA_RECORD r = makeRecord();
-		strcpy(r.title, "Test Plane");
-		strcpy(r.atc_airline, "Air Test");
-		strcpy(r.atc_flight_number, "123");
-		strcpy(r.atc_id, "N123");
-		strcpy(r.atc_model, "B738");
-		strcpy(r.atc_type, "Boeing");
+		copy_cstr(r.title, "Test Plane");
+		copy_cstr(r.atc_airline, "Air Test");
+		copy_cstr(r.atc_flight_number, "123");
+		copy_cstr(r.atc_id, "N123");
+		copy_cstr(r.atc_model, "B738");
+		copy_cstr(r.atc_type, "Boeing");
 		r.plane_coordinate.latitude = 47.25;
 		r.plane_coordinate.longitude = -122.5;
 		const int id = db_insert_trip(w.status(), r);

@@ -153,11 +153,21 @@ private slots:
 		QCOMPARE(QString::fromStdString(rwy.runway_code_generator(false)), QStringLiteral("27R"));
 	}
 
+	void copyCstrCutsToFitAndZeroFills() {
+		char buf[6];
+		memset(buf, 'x', sizeof(buf));
+		copy_cstr(buf, "LFBOXYZ");
+		QCOMPARE(QByteArray(buf, sizeof(buf)), QByteArray("LFBOX\0", 6));
+		memset(buf, 'x', sizeof(buf));
+		copy_cstr(buf, "LF");
+		QCOMPARE(QByteArray(buf, sizeof(buf)), QByteArray("LF\0\0\0\0", 6));
+	}
+
 	void airportCopyIsDeepAndClearResets() {
 		AIRPORT src;
-		strcpy(src.name, "Test Field");
-		strcpy(src.icao, "LFBO");
-		strcpy(src.region, "LF");
+		copy_cstr(src.name, "Test Field");
+		copy_cstr(src.icao, "LFBO");
+		copy_cstr(src.region, "LF");
 		src.magvar = 1.5f;
 		src.n_runways = 1;
 		src.runways = (RUNWAY*)calloc(1, sizeof(RUNWAY));

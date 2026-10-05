@@ -18,8 +18,6 @@
 #include "test_support.h"
 
 #include <QApplication>
-#include <QCoreApplication>
-#include <QMouseEvent>
 #include <QQuickItem>
 #include <QQuickWidget>
 #include <QSignalSpy>
@@ -170,8 +168,7 @@ private slots:
 		QVERIFY(spy.count() >= 1);
 		QCOMPARE(spy.last().at(0).toInt(), rightWidth);
 
-		const QMouseEvent release(QEvent::MouseButtonRelease, QPointF(5, 5), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-		QCoreApplication::sendEvent(splitter->handle(1), const_cast<QMouseEvent*>(&release));
+		sendLeftButton(splitter->handle(1), QEvent::MouseButtonRelease, QPoint(5, 5));
 		QCOMPARE(AppSettings::instance().rightPanelWidth(), rightWidth);
 	}
 
@@ -181,8 +178,7 @@ private slots:
 		splitter->setSizes({ splitter->height() - 250, 250 });
 		const int chartsHeight = splitter->sizes().last(); // setSizes() can clamp/round; read back what actually landed
 
-		const QMouseEvent release(QEvent::MouseButtonRelease, QPointF(5, 5), Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-		QCoreApplication::sendEvent(splitter->handle(1), const_cast<QMouseEvent*>(&release));
+		sendLeftButton(splitter->handle(1), QEvent::MouseButtonRelease, QPoint(5, 5));
 		QCOMPARE(AppSettings::instance().chartsPanelHeight(), chartsHeight);
 	}
 };

@@ -8,6 +8,13 @@ project(MSFS-Flight-Data-Recorder VERSION 2.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Warning level 4 for the app's and the tests' own code. Qt's and the
+# SimConnect SDK's headers are system include directories, which MSVC
+# compiles with warnings off, so their warnings don't count.
+if(MSVC)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/W4>)
+endif()
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
@@ -114,7 +121,7 @@ endif()
 # SimConnect: allow user to set SIMCONNECT_DIR or leave unset
 if(DEFINED SIMCONNECT_DIR)
     message(STATUS "Using SimConnect from: ${SIMCONNECT_DIR}")
-    target_include_directories(fdr_core PUBLIC "${SIMCONNECT_DIR}/Include" "${SIMCONNECT_DIR}")
+    target_include_directories(fdr_core SYSTEM PUBLIC "${SIMCONNECT_DIR}/Include" "${SIMCONNECT_DIR}")
     # Always link dynamically so both Debug and Release deploy the same SimConnect.dll.
     # The static lib is built with the Release CRT and causes CRT mismatch in Debug.
     # Linked into the app only -- the tests provide their own SimConnect_* functions.

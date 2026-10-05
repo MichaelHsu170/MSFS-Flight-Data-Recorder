@@ -47,7 +47,7 @@ Automated tests run the app's code against a fake SimConnect with made-up flight
 .\.vscode\scripts\build.bat Debug test
 ```
 
-Add `rebuild` (`build.bat Debug test rebuild`) to recompile everything first, so every file's compiler warnings show.
+Add `rebuild` (`build.bat Debug test rebuild`) to recompile everything first, so every file's compiler warnings show. The app and the tests compile at warning level 4 (`/W4`); warnings from Qt's and the SimConnect SDK's headers are turned off.
 
 See [tests/README.md](tests/README.md) for what is covered, what still needs a manual check, and open questions for real sim data.
 
@@ -258,7 +258,7 @@ MSFS-Flight-Data-Recorder/
 │       └── map.html              Leaflet map: trajectory polyline, liftoff/touchdown markers with AI analysis popup, event markers
 ├── tests/                        Automated tests (Qt Test + CTest) -- see tests/README.md
 │   ├── fake_simconnect.h / .cpp  Stand-in for SimConnect.lib driven by made-up packets
-│   ├── test_support.h / .cpp     Packet builders, FlightDriver, fake airport world, DB/dialog helpers
+│   ├── test_support.h / .cpp     Packet builders, FlightDriver, fake airport world, DB/dialog/mouse helpers
 │   └── tst_*.cpp                 One test program per feature area
 ├── third_party/sqlite3/          Bundled SQLite3 (sqlite3.h, sqlite3.lib, sqlite3.dll)
 ├── .github/

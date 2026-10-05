@@ -73,7 +73,7 @@ void wait_for_db_writers(struct STATUS* status) {
 		status->event_writer_thread.join();
 }
 
-void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContext) {
+void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD /*cbData*/, void* pContext) {
 	struct STATUS* status = (struct STATUS*)pContext;
 	try {
 	switch (pData->dwID) {

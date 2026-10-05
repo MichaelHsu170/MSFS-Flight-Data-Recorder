@@ -578,9 +578,9 @@ void TripHistoryPanel::refreshTrips() {
 	// right now.
 	int highlightTripId = loading_ ? pendingTripId_ : selectedTripId_;
 	if (highlightTripId != -1) {
-		const auto& trips = model_->trips();
-		for (int i = 0; i < (int)trips.size(); ++i) {
-			if (trips[i].id == highlightTripId) {
+		const auto& shown = model_->trips();
+		for (int i = 0; i < (int)shown.size(); ++i) {
+			if (shown[i].id == highlightTripId) {
 				table_->selectRow(i);
 				break;
 			}

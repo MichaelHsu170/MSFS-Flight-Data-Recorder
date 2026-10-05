@@ -68,6 +68,9 @@ void onNextModal(const std::function<void(QWidget*)>& action);
 void chooseMenuItem(QWidget* menu, const QString& text);
 // Clicks the button with this text in a dialog (QMessageBox, QInputDialog...).
 void clickDialogButton(QWidget* dialog, const QString& text);
+// Sends w a left-button press or release (type) at pos, in w's coordinates,
+// with the button state a real click has at that point.
+void sendLeftButton(QWidget* w, QEvent::Type type, const QPoint& pos);
 
 // Runs sql on a fresh read-only connection to flight_data.db.
 QList<QVariantMap> queryRows(const QString& sql);

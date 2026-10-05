@@ -313,11 +313,11 @@ bool LiveStatusPanel::eventFilter(QObject* obj, QEvent* event) {
 }
 
 void LiveStatusPanel::onSampleUpdated() {
-	const FLIGHT_DATA& data = bridge_.currentData();
+	const FLIGHT_DATA& sample = bridge_.currentData();
 	snapshotLabel_->setText(snapshotText(
-		QString::number(data.altitude),
-		QString::number(data.heading),
-		QString::number(data.speed),
-		QString::number(data.vertical_speed)));
+		QString::number(sample.altitude),
+		QString::number(sample.heading),
+		QString::number(sample.speed),
+		QString::number(sample.vertical_speed)));
 }
 

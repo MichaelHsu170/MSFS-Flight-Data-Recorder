@@ -618,10 +618,10 @@ sqlite3* connect_db_readonly() {
 // NOT NULL (requires a DEFAULT when rows exist), PRIMARY KEY, UNIQUE, AUTOINCREMENT.
 // The added column defaults to NULL for any existing rows, which is fine — the
 // app reads integer/real columns as 0 and text columns as empty when NULL.
-static void strip_alter_column_constraints(const char* src, char* dst, int dst_size) {
+template <size_t N>
+static void strip_alter_column_constraints(const char* src, char (&dst)[N]) {
 	static const char* kws[] = { "NOT NULL", "PRIMARY KEY", "AUTOINCREMENT", "UNIQUE", nullptr };
-	strncpy(dst, src, (size_t)(dst_size - 1));
-	dst[dst_size - 1] = '\0';
+	copy_cstr(dst, src);
 	for (int i = 0; kws[i]; i++) {
 		int klen = (int)strlen(kws[i]);
 		char* p;
@@ -697,7 +697,7 @@ static bool migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 			if (!col_name.empty()) {
 				if (find_column(existing, col_name) == existing.end()) {
 					char safe_def[512];
-					strip_alter_column_constraints(seg, safe_def, (int)sizeof(safe_def));
+					strip_alter_column_constraints(seg, safe_def);
 
 					char alter_sql[640];
 					snprintf(alter_sql, sizeof(alter_sql),
@@ -877,7 +877,7 @@ static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, 
 		const std::string name = column_name(definition);
 		const auto old = find_column(old_columns, name);
 		char nullable[512];
-		strip_alter_column_constraints(definition.c_str(), nullable, (int)sizeof(nullable));
+		strip_alter_column_constraints(definition.c_str(), nullable);
 		const std::string value =
 			name == "engine_speed" ? "CASE WHEN engine_type = 1 THEN engine_pack(number_of_engines, turb_eng_n1_1, turb_eng_n1_2) END" :
 			name == "engine_load"  ? "CASE WHEN engine_type = 1 THEN engine_pack(number_of_engines, turb_eng_n2_1, turb_eng_n2_2) END" :
