@@ -120,254 +120,280 @@ enum DATA_REQUEST_ID {
 	REQUEST_RUNWAYS,
 };
 
+// Every SimVar of the flight data definition, in the order SimConnect sends
+// them and decode_flight_sample() copies them into FLIGHT_DATA_RECORD. This
+// one list declares the struct's fields and makes add_flight_definition()'s
+// registrations, so the two can't drift apart. Field kinds:
+//   NUM(member, SimVar, unit): a double.
+//   ENGINES(member, SimVar, unit): double[MAX_ENGINES], from "SimVar:1" to
+//     "SimVar:MAX_ENGINES".
+//   COORD(member, latitude SimVar, longitude SimVar): a COORDINATE, in
+//     degrees.
+//   STR(member, SimVar, size): char[size], as SIMCONNECT_DATATYPE_STRING<size>.
+//   TIME(member, prefix, UTC offset SimVar or nullptr): a DATETIME, from
+//     "<prefix> YEAR", "<prefix> MONTH OF YEAR", "<prefix> DAY OF MONTH",
+//     "<prefix> DAY OF WEEK", "<prefix> TIME" (seconds) and the offset SimVar
+//     (seconds). Without an offset SimVar, timezone_offset isn't sent.
+#define FLIGHT_DATA_FIELDS(NUM, ENGINES, COORD, STR, TIME) \
+	NUM(autopilot_airspeed_hold, "AUTOPILOT AIRSPEED HOLD", "Bool") \
+	NUM(autopilot_airspeed_hold_var, "AUTOPILOT AIRSPEED HOLD VAR", "Knots") \
+	NUM(autopilot_alt_radio_mode, "AUTOPILOT ALT RADIO MODE", "Bool") \
+	NUM(autopilot_altitude_lock, "AUTOPILOT ALTITUDE LOCK", "Bool") \
+	NUM(autopilot_altitude_lock_var, "AUTOPILOT ALTITUDE LOCK VAR", "Feet") \
+	NUM(autopilot_approach_active, "AUTOPILOT APPROACH ACTIVE", "Bool") \
+	NUM(autopilot_approach_captured, "AUTOPILOT APPROACH CAPTURED", "Bool") \
+	NUM(autopilot_approach_hold, "AUTOPILOT APPROACH HOLD", "Bool") \
+	NUM(autopilot_approach_is_localizer, "AUTOPILOT APPROACH IS LOCALIZER", "Bool") \
+	NUM(autopilot_avionics_managed, "AUTOPILOT AVIONICS MANAGED", "Bool") \
+	NUM(autopilot_disengaged, "AUTOPILOT DISENGAGED", "Bool") \
+	NUM(autopilot_flight_director_active, "AUTOPILOT FLIGHT DIRECTOR ACTIVE", "Bool") \
+	NUM(autopilot_flight_level_change, "AUTOPILOT FLIGHT LEVEL CHANGE", "Bool") \
+	NUM(autopilot_glideslope_active, "AUTOPILOT GLIDESLOPE ACTIVE", "Bool") \
+	NUM(autopilot_glideslope_arm, "AUTOPILOT GLIDESLOPE ARM", "Bool") \
+	NUM(autopilot_glideslope_hold, "AUTOPILOT GLIDESLOPE HOLD", "Bool") \
+	NUM(autopilot_heading_lock, "AUTOPILOT HEADING LOCK", "Bool") \
+	NUM(autopilot_heading_lock_dir, "AUTOPILOT HEADING LOCK DIR", "Degrees") \
+	NUM(autopilot_mach_hold, "AUTOPILOT MACH HOLD", "Bool") \
+	NUM(autopilot_mach_hold_var, "AUTOPILOT MACH HOLD VAR", "Number") \
+	NUM(autopilot_managed_speed_in_mach, "AUTOPILOT MANAGED SPEED IN MACH", "Bool") \
+	NUM(autopilot_managed_throttle_active, "AUTOPILOT MANAGED THROTTLE ACTIVE", "Bool") \
+	NUM(autopilot_master, "AUTOPILOT MASTER", "Bool") \
+	NUM(autopilot_takeoff_power_active, "AUTOPILOT TAKEOFF POWER ACTIVE", "Bool") \
+	NUM(autopilot_throttle_arm, "AUTOPILOT THROTTLE ARM", "Bool") \
+	NUM(autopilot_throttle_max_thrust, "AUTOPILOT THROTTLE MAX THRUST", "Percent") \
+	NUM(autopilot_vertical_hold, "AUTOPILOT VERTICAL HOLD", "Bool") \
+	NUM(autopilot_vertical_hold_var, "AUTOPILOT VERTICAL HOLD VAR", "Feet/minute") \
+	NUM(autobrakes_active, "AUTOBRAKES ACTIVE", "Bool") \
+	NUM(auto_brake_switch_cb, "AUTO BRAKE SWITCH CB", "Number") \
+	NUM(brake_indicator, "BRAKE INDICATOR", "Position") \
+	NUM(brake_parking_indicator, "BRAKE PARKING INDICATOR", "Bool") \
+	NUM(rejected_takeoff_brakes_active, "REJECTED TAKEOFF BRAKES ACTIVE", "Bool") \
+	NUM(gear_damage_by_speed, "GEAR DAMAGE BY SPEED", "Bool") \
+	NUM(gear_handle_position, "GEAR HANDLE POSITION", "Percent Over 100") \
+	NUM(gear_is_on_ground_0, "GEAR IS ON GROUND:0", "Bool") \
+	NUM(gear_is_on_ground_1, "GEAR IS ON GROUND:1", "Bool") \
+	NUM(gear_is_on_ground_2, "GEAR IS ON GROUND:2", "Bool") \
+	NUM(gear_position_0, "GEAR POSITION:0", "Enum") \
+	NUM(gear_position_1, "GEAR POSITION:1", "Enum") \
+	NUM(gear_position_2, "GEAR POSITION:2", "Enum") \
+	NUM(gear_speed_exceeded, "GEAR SPEED EXCEEDED", "Bool") \
+	NUM(gear_warning_0, "GEAR WARNING:0", "Enum") \
+	NUM(gear_warning_1, "GEAR WARNING:1", "Enum") \
+	NUM(gear_warning_2, "GEAR WARNING:2", "Enum") \
+	NUM(wheel_rpm_0, "WHEEL RPM:0", "RPM") \
+	NUM(wheel_rpm_1, "WHEEL RPM:1", "RPM") \
+	NUM(wheel_rpm_2, "WHEEL RPM:2", "RPM") \
+	NUM(aileron_left_deflection, "AILERON LEFT DEFLECTION", "Degrees") \
+	NUM(aileron_left_deflection_pct, "AILERON LEFT DEFLECTION PCT", "Percent Over 100") \
+	NUM(aileron_right_deflection, "AILERON RIGHT DEFLECTION", "Degrees") \
+	NUM(aileron_right_deflection_pct, "AILERON RIGHT DEFLECTION PCT", "Percent Over 100") \
+	NUM(aileron_trim, "AILERON TRIM", "Degrees") \
+	NUM(aileron_trim_disabled, "AILERON TRIM DISABLED", "Bool") \
+	NUM(aileron_trim_pct, "AILERON TRIM PCT", "Percent Over 100") \
+	NUM(elevator_deflection, "ELEVATOR DEFLECTION", "Degrees") \
+	NUM(elevator_deflection_pct, "ELEVATOR DEFLECTION PCT", "Percent Over 100") \
+	NUM(elevator_trim_disabled, "ELEVATOR TRIM DISABLED", "Bool") \
+	NUM(elevator_trim_pct, "ELEVATOR TRIM PCT", "Percent Over 100") \
+	NUM(elevator_trim_position, "ELEVATOR TRIM POSITION", "Degrees") \
+	NUM(elevon_deflection, "ELEVON DEFLECTION", "Degrees") \
+	NUM(flap_damage_by_speed, "FLAP DAMAGE BY SPEED", "Bool") \
+	NUM(flap_speed_exceeded, "FLAP SPEED EXCEEDED", "Bool") \
+	NUM(flaps_handle_index, "FLAPS HANDLE INDEX", "Number") \
+	NUM(flaps_num_handle_positions, "FLAPS NUM HANDLE POSITIONS", "Number") \
+	NUM(rudder_deflection, "RUDDER DEFLECTION", "Degrees") \
+	NUM(rudder_deflection_pct, "RUDDER DEFLECTION PCT", "Percent Over 100") \
+	NUM(rudder_trim, "RUDDER TRIM", "Degrees") \
+	NUM(rudder_trim_disabled, "RUDDER TRIM DISABLED", "Bool") \
+	NUM(rudder_trim_pct, "RUDDER TRIM PCT", "Percent Over 100") \
+	NUM(spoilers_armed, "SPOILERS ARMED", "Bool") \
+	NUM(spoilers_handle_position, "SPOILERS HANDLE POSITION", "Percent Over 100") \
+	NUM(spoilers_left_position, "SPOILERS LEFT POSITION", "Percent Over 100") \
+	NUM(spoilers_right_position, "SPOILERS RIGHT POSITION", "Percent Over 100") \
+	NUM(apu_bleed_pressure_received_by_engine, "APU BLEED PRESSURE RECEIVED BY ENGINE", "psi") \
+	NUM(apu_generator_active, "APU GENERATOR ACTIVE", "Bool") \
+	NUM(apu_generator_switch, "APU GENERATOR SWITCH", "Bool") \
+	NUM(apu_on_fire_detected, "APU ON FIRE DETECTED", "Bool") \
+	NUM(apu_pct_rpm, "APU PCT RPM", "Percent Over 100") \
+	NUM(apu_pct_starter, "APU PCT STARTER", "Percent Over 100") \
+	NUM(apu_switch, "APU SWITCH", "Bool") \
+	NUM(bleed_air_apu, "BLEED AIR APU", "Bool") \
+	NUM(electrical_battery_estimated_capacity_pct, "ELECTRICAL BATTERY ESTIMATED CAPACITY PCT", "Percent") \
+	NUM(electrical_battery_voltage, "ELECTRICAL BATTERY VOLTAGE", "Volts") \
+	NUM(electrical_master_battery, "ELECTRICAL MASTER BATTERY", "Bool") \
+	NUM(external_power_available, "EXTERNAL POWER AVAILABLE", "Bool") \
+	NUM(external_power_connection_on, "EXTERNAL POWER CONNECTION ON", "Bool") \
+	NUM(external_power_on, "EXTERNAL POWER ON", "Bool") \
+	NUM(bleed_air_engine_1, "BLEED AIR ENGINE:1", "Bool") \
+	NUM(bleed_air_engine_2, "BLEED AIR ENGINE:2", "Bool") \
+	NUM(bleed_air_source_control_1, "BLEED AIR SOURCE CONTROL:1", "Enum") \
+	NUM(bleed_air_source_control_2, "BLEED AIR SOURCE CONTROL:2", "Enum") \
+	NUM(engine_control_select, "ENGINE CONTROL SELECT", "Flags") \
+	NUM(engine_type, "ENGINE TYPE", "Enum") \
+	NUM(eng_anti_ice_1, "ENG ANTI ICE:1", "Bool") \
+	NUM(eng_anti_ice_2, "ENG ANTI ICE:2", "Bool") \
+	NUM(eng_combustion_1, "ENG COMBUSTION:1", "Bool") \
+	NUM(eng_combustion_2, "ENG COMBUSTION:2", "Bool") \
+	/* Read only to start/stop the trip (flight_phase.cpp); trip_data's \
+	   bool groups have no free bit to store them in. */ \
+	NUM(eng_combustion_3, "ENG COMBUSTION:3", "Bool") \
+	NUM(eng_combustion_4, "ENG COMBUSTION:4", "Bool") \
+	NUM(eng_exhaust_gas_temperature_1, "ENG EXHAUST GAS TEMPERATURE:1", "Celsius") \
+	NUM(eng_exhaust_gas_temperature_2, "ENG EXHAUST GAS TEMPERATURE:2", "Celsius") \
+	NUM(eng_failed_1, "ENG FAILED:1", "Bool") \
+	NUM(eng_failed_2, "ENG FAILED:2", "Bool") \
+	NUM(eng_hydraulic_pressure_1, "ENG HYDRAULIC PRESSURE:1", "psf") \
+	NUM(eng_hydraulic_pressure_2, "ENG HYDRAULIC PRESSURE:2", "psf") \
+	NUM(eng_oil_pressure_1, "ENG OIL PRESSURE:1", "psf") \
+	NUM(eng_oil_pressure_2, "ENG OIL PRESSURE:2", "psf") \
+	NUM(eng_oil_temperature_1, "ENG OIL TEMPERATURE:1", "Celsius") \
+	NUM(eng_oil_temperature_2, "ENG OIL TEMPERATURE:2", "Celsius") \
+	NUM(eng_on_fire_1, "ENG ON FIRE:1", "Bool") \
+	NUM(eng_on_fire_2, "ENG ON FIRE:2", "Bool") \
+	NUM(general_eng_damage_percent_1, "GENERAL ENG DAMAGE PERCENT:1", "Percent") \
+	NUM(general_eng_damage_percent_2, "GENERAL ENG DAMAGE PERCENT:2", "Percent") \
+	NUM(general_eng_elapsed_time_1, "GENERAL ENG ELAPSED TIME:1", "Hours") \
+	NUM(general_eng_elapsed_time_2, "GENERAL ENG ELAPSED TIME:2", "Hours") \
+	NUM(general_eng_fire_detected_1, "GENERAL ENG FIRE DETECTED:1", "Bool") \
+	NUM(general_eng_fire_detected_2, "GENERAL ENG FIRE DETECTED:2", "Bool") \
+	NUM(general_eng_fuel_used_since_start_1, "GENERAL ENG FUEL USED SINCE START:1", "Pounds") \
+	NUM(general_eng_fuel_used_since_start_2, "GENERAL ENG FUEL USED SINCE START:2", "Pounds") \
+	NUM(general_eng_fuel_valve_1, "GENERAL ENG FUEL VALVE:1", "Bool") \
+	NUM(general_eng_fuel_valve_2, "GENERAL ENG FUEL VALVE:2", "Bool") \
+	NUM(general_eng_generator_active_1, "GENERAL ENG GENERATOR ACTIVE:1", "Bool") \
+	NUM(general_eng_generator_active_2, "GENERAL ENG GENERATOR ACTIVE:2", "Bool") \
+	NUM(general_eng_generator_switch_1, "GENERAL ENG GENERATOR SWITCH:1", "Bool") \
+	NUM(general_eng_generator_switch_2, "GENERAL ENG GENERATOR SWITCH:2", "Bool") \
+	NUM(general_eng_master_alternator, "GENERAL ENG MASTER ALTERNATOR", "Bool") \
+	NUM(general_eng_reverse_thrust_engaged, "GENERAL ENG REVERSE THRUST ENGAGED", "Bool") \
+	NUM(general_eng_starter_1, "GENERAL ENG STARTER:1", "Bool") \
+	NUM(general_eng_starter_2, "GENERAL ENG STARTER:2", "Bool") \
+	NUM(general_eng_starter_active_1, "GENERAL ENG STARTER ACTIVE:1", "Bool") \
+	NUM(general_eng_starter_active_2, "GENERAL ENG STARTER ACTIVE:2", "Bool") \
+	NUM(general_eng_throttle_lever_position_1, "GENERAL ENG THROTTLE LEVER POSITION:1", "Percent") \
+	NUM(general_eng_throttle_lever_position_2, "GENERAL ENG THROTTLE LEVER POSITION:2", "Percent") \
+	NUM(general_eng_throttle_managed_mode_1, "GENERAL ENG THROTTLE MANAGED MODE:1", "Number") \
+	NUM(general_eng_throttle_managed_mode_2, "GENERAL ENG THROTTLE MANAGED MODE:2", "Number") \
+	NUM(master_ignition_switch, "MASTER IGNITION SWITCH", "Bool") \
+	NUM(number_of_engines, "NUMBER OF ENGINES", "Number") \
+	NUM(turb_eng_bleed_air_1, "TURB ENG BLEED AIR:1", "psi") \
+	NUM(turb_eng_bleed_air_2, "TURB ENG BLEED AIR:2", "psi") \
+	NUM(turb_eng_fuel_available_1, "TURB ENG FUEL AVAILABLE:1", "Bool") \
+	NUM(turb_eng_fuel_available_2, "TURB ENG FUEL AVAILABLE:2", "Bool") \
+	NUM(turb_eng_fuel_flow_pph_1, "TURB ENG FUEL FLOW PPH:1", "Pounds per hour") \
+	NUM(turb_eng_fuel_flow_pph_2, "TURB ENG FUEL FLOW PPH:2", "Pounds per hour") \
+	NUM(turb_eng_ignition_switch_ex1_1, "TURB ENG IGNITION SWITCH EX1:1", "Enum") \
+	NUM(turb_eng_ignition_switch_ex1_2, "TURB ENG IGNITION SWITCH EX1:2", "Enum") \
+	NUM(turb_eng_is_igniting_1, "TURB ENG IS IGNITING:1", "Bool") \
+	NUM(turb_eng_is_igniting_2, "TURB ENG IS IGNITING:2", "Bool") \
+	/* enginePowerFromRecord() picks which engines a sample records. */ \
+	ENGINES(general_eng_rpm, "GENERAL ENG RPM", "rpm") \
+	ENGINES(recip_eng_manifold_pressure, "RECIP ENG MANIFOLD PRESSURE", "inHg") \
+	ENGINES(turb_eng_n1, "TURB ENG N1", "Percent") \
+	ENGINES(turb_eng_n2, "TURB ENG N2", "Percent") \
+	ENGINES(turb_eng_max_torque_percent, "TURB ENG MAX TORQUE PERCENT", "Percent") \
+	ENGINES(prop_rpm, "PROP RPM", "rpm") \
+	NUM(turb_eng_vibration_1, "TURB ENG VIBRATION:1", "Number") \
+	NUM(turb_eng_vibration_2, "TURB ENG VIBRATION:2", "Number") \
+	NUM(g_force, "G FORCE", "GForce") \
+	NUM(empty_weight, "EMPTY WEIGHT", "Pounds") \
+	NUM(total_weight, "TOTAL WEIGHT", "Pounds") \
+	NUM(fuel_cross_feed_l, "FUEL CROSS FEED:2", "Enum") \
+	NUM(fuel_cross_feed_r, "FUEL CROSS FEED:3", "Enum") \
+	NUM(fuel_selected_quantity_l, "FUEL SELECTED QUANTITY:2", "Gallons") \
+	NUM(fuel_selected_quantity_r, "FUEL SELECTED QUANTITY:3", "Gallons") \
+	NUM(fuel_selected_quantity_percent_l, "FUEL SELECTED QUANTITY PERCENT:2", "Percent Over 100") \
+	NUM(fuel_selected_quantity_percent_r, "FUEL SELECTED QUANTITY PERCENT:3", "Percent Over 100") \
+	NUM(fuel_total_quantity, "FUEL TOTAL QUANTITY", "Gallons") \
+	NUM(fuel_total_quantity_weight, "FUEL TOTAL QUANTITY WEIGHT", "Pounds") \
+	NUM(fuel_transfer_pump_on_l, "FUEL TRANSFER PUMP ON:2", "Bool") \
+	NUM(fuel_transfer_pump_on_r, "FUEL TRANSFER PUMP ON:3", "Bool") \
+	NUM(fuel_weight_per_gallon, "FUEL WEIGHT PER GALLON", "Pounds") \
+	NUM(on_any_runway, "ON ANY RUNWAY", "Bool") \
+	NUM(plane_in_parking_state, "PLANE IN PARKING STATE", "Bool") \
+	NUM(surface_condition, "SURFACE CONDITION", "Enum") \
+	NUM(surface_type, "SURFACE TYPE", "Enum") \
+	NUM(ground_velocity, "GROUND VELOCITY", "Knots") \
+	NUM(plane_altitude, "PLANE ALTITUDE", "Feet") \
+	NUM(plane_alt_above_ground, "PLANE ALT ABOVE GROUND", "Feet") \
+	NUM(plane_bank_degrees, "PLANE BANK DEGREES", "Degrees") \
+	NUM(plane_heading_degrees_gyro, "PLANE HEADING DEGREES GYRO", "Degrees") \
+	NUM(plane_heading_degrees_magnetic, "PLANE HEADING DEGREES MAGNETIC", "Degrees") \
+	NUM(plane_heading_degrees_true, "PLANE HEADING DEGREES TRUE", "Degrees") \
+	COORD(plane_coordinate, "PLANE LATITUDE", "PLANE LONGITUDE") \
+	NUM(plane_pitch_degrees, "PLANE PITCH DEGREES", "Degrees") \
+	NUM(plane_touchdown_bank_degrees, "PLANE TOUCHDOWN BANK DEGREES", "Degrees") \
+	NUM(plane_touchdown_heading_degrees_magnetic, "PLANE TOUCHDOWN HEADING DEGREES MAGNETIC", "Degrees") \
+	NUM(plane_touchdown_heading_degrees_true, "PLANE TOUCHDOWN HEADING DEGREES TRUE", "Degrees") \
+	COORD(plane_touchdown_coordinate, "PLANE TOUCHDOWN LATITUDE", "PLANE TOUCHDOWN LONGITUDE") \
+	NUM(plane_touchdown_normal_velocity, "PLANE TOUCHDOWN NORMAL VELOCITY", "Feet per minute") \
+	NUM(plane_touchdown_pitch_degrees, "PLANE TOUCHDOWN PITCH DEGREES", "Degrees") \
+	NUM(vertical_speed, "VERTICAL SPEED", "Feet per minute") \
+	NUM(airspeed_indicated, "AIRSPEED INDICATED", "Knots") \
+	NUM(airspeed_mach, "AIRSPEED MACH", "Mach") \
+	NUM(airspeed_true, "AIRSPEED TRUE", "Knots") \
+	NUM(gps_ground_speed, "GPS GROUND SPEED", "Meters per second") \
+	NUM(gps_ground_true_heading, "GPS GROUND TRUE HEADING", "Degrees") \
+	NUM(gps_ground_true_track, "GPS GROUND TRUE TRACK", "Degrees") \
+	NUM(gps_position_alt, "GPS POSITION ALT", "Meters") \
+	COORD(gps_position_coordinate, "GPS POSITION LAT", "GPS POSITION LON") \
+	NUM(radio_height, "RADIO HEIGHT", "Feet") \
+	NUM(autothrottle_active, "AUTOTHROTTLE ACTIVE", "Bool") \
+	NUM(avionics_master_switch, "AVIONICS MASTER SWITCH", "Bool") \
+	NUM(cabin_no_smoking_alert_switch, "CABIN NO SMOKING ALERT SWITCH", "Bool") \
+	NUM(cabin_seatbelts_alert_switch, "CABIN SEATBELTS ALERT SWITCH", "Bool") \
+	NUM(gpws_system_active, "GPWS SYSTEM ACTIVE", "Bool") \
+	NUM(gpws_warning, "GPWS WARNING", "Bool") \
+	NUM(gyro_drift_error, "GYRO DRIFT ERROR", "Degrees") \
+	NUM(heading_indicator, "HEADING INDICATOR", "Degrees") \
+	NUM(indicated_altitude, "INDICATED ALTITUDE", "Feet") \
+	NUM(indicated_altitude_calibrated, "INDICATED ALTITUDE CALIBRATED", "Feet") \
+	NUM(magnetic_compass, "MAGNETIC COMPASS", "Degrees") \
+	NUM(overspeed_warning, "OVERSPEED WARNING", "Bool") \
+	NUM(pitot_ice_pct, "PITOT ICE PCT", "Percent Over 100") \
+	NUM(pitot_heat, "PITOT HEAT", "Bool") \
+	NUM(pitot_heat_switch, "PITOT HEAT SWITCH", "Enum") \
+	NUM(pressure_altitude, "PRESSURE ALTITUDE", "Meters") \
+	NUM(pressurization_cabin_altitude, "PRESSURIZATION CABIN ALTITUDE", "Feet") \
+	NUM(stall_warning, "STALL WARNING", "Bool") \
+	NUM(structural_deice_switch, "STRUCTURAL DEICE SWITCH", "Bool") \
+	NUM(light_states, "LIGHT STATES", "Mask") \
+	NUM(hydraulic_pressure_1, "HYDRAULIC PRESSURE:1", "psf") \
+	NUM(hydraulic_pressure_2, "HYDRAULIC PRESSURE:2", "psf") \
+	NUM(hydraulic_switch, "HYDRAULIC SWITCH", "Bool") \
+	NUM(warning_fuel, "WARNING FUEL", "Bool") \
+	NUM(warning_low_height, "WARNING LOW HEIGHT", "Bool") \
+	NUM(warning_oil_pressure, "WARNING OIL PRESSURE", "Bool") \
+	NUM(warning_vacuum, "WARNING VACUUM", "Bool") \
+	NUM(warning_voltage, "WARNING VOLTAGE", "Bool") \
+	NUM(sim_on_ground, "SIM ON GROUND", "Bool") \
+	NUM(ambient_pressure, "AMBIENT PRESSURE", "inHg") \
+	NUM(ambient_temperature, "AMBIENT TEMPERATURE", "Celsius") \
+	NUM(ambient_visibility, "AMBIENT VISIBILITY", "Meters") \
+	NUM(ambient_wind_direction, "AMBIENT WIND DIRECTION", "Degrees") \
+	NUM(ambient_wind_velocity, "AMBIENT WIND VELOCITY", "Knots") \
+	NUM(barometer_pressure, "BAROMETER PRESSURE", "Millibars") \
+	NUM(kohlsman_setting_hg, "KOHLSMAN SETTING HG", "inHg") \
+	NUM(kohlsman_setting_mb, "KOHLSMAN SETTING MB", "Millibars") \
+	NUM(kohlsman_setting_std, "KOHLSMAN SETTING STD", "Bool") \
+	STR(title, "TITLE", 256) \
+	STR(atc_airline, "ATC AIRLINE", 64) \
+	STR(atc_flight_number, "ATC FLIGHT NUMBER", 8) \
+	STR(atc_id, "ATC ID", 32) \
+	STR(atc_model, "ATC MODEL", 32) \
+	STR(atc_type, "ATC TYPE", 64) \
+	TIME(time_local, "LOCAL", "TIME ZONE OFFSET") \
+	TIME(time_zulu, "ZULU", nullptr)
+
 struct FLIGHT_DATA_RECORD {
-	double autopilot_airspeed_hold;
-	double autopilot_airspeed_hold_var;
-	double autopilot_alt_radio_mode;
-	double autopilot_altitude_lock;
-	double autopilot_altitude_lock_var;
-	double autopilot_approach_active;
-	double autopilot_approach_captured;
-	double autopilot_approach_hold;
-	double autopilot_approach_is_localizer;
-	double autopilot_avionics_managed;
-	double autopilot_disengaged;
-	double autopilot_flight_director_active;
-	double autopilot_flight_level_change;
-	double autopilot_glideslope_active;
-	double autopilot_glideslope_arm;
-	double autopilot_glideslope_hold;
-	double autopilot_heading_lock;
-	double autopilot_heading_lock_dir;
-	double autopilot_mach_hold;
-	double autopilot_mach_hold_var;
-	double autopilot_managed_speed_in_mach;
-	double autopilot_managed_throttle_active;
-	double autopilot_master;
-	double autopilot_takeoff_power_active;
-	double autopilot_throttle_arm;
-	double autopilot_throttle_max_thrust;
-	double autopilot_vertical_hold;
-	double autopilot_vertical_hold_var;
-	double autobrakes_active;
-	double auto_brake_switch_cb;
-	double brake_indicator;
-	double brake_parking_indicator;
-	double rejected_takeoff_brakes_active;
-	double gear_damage_by_speed;
-	double gear_handle_position;
-	double gear_is_on_ground_0;
-	double gear_is_on_ground_1;
-	double gear_is_on_ground_2;
-	double gear_position_0;
-	double gear_position_1;
-	double gear_position_2;
-	double gear_speed_exceeded;
-	double gear_warning_0;
-	double gear_warning_1;
-	double gear_warning_2;
-	double wheel_rpm_0;
-	double wheel_rpm_1;
-	double wheel_rpm_2;
-	double aileron_left_deflection;
-	double aileron_left_deflection_pct;
-	double aileron_right_deflection;
-	double aileron_right_deflection_pct;
-	double aileron_trim;
-	double aileron_trim_disabled;
-	double aileron_trim_pct;
-	double elevator_deflection;
-	double elevator_deflection_pct;
-	double elevator_trim_disabled;
-	double elevator_trim_pct;
-	double elevator_trim_position;
-	double elevon_deflection;
-	double flap_damage_by_speed;
-	double flap_speed_exceeded;
-	double flaps_handle_index;
-	double flaps_num_handle_positions;
-	double rudder_deflection;
-	double rudder_deflection_pct;
-	double rudder_trim;
-	double rudder_trim_disabled;
-	double rudder_trim_pct;
-	double spoilers_armed;
-	double spoilers_handle_position;
-	double spoilers_left_position;
-	double spoilers_right_position;
-	double apu_bleed_pressure_received_by_engine;
-	double apu_generator_active;
-	double apu_generator_switch;
-	double apu_on_fire_detected;
-	double apu_pct_rpm;
-	double apu_pct_starter;
-	double apu_switch;
-	double bleed_air_apu;
-	double electrical_battery_estimated_capacity_pct;
-	double electrical_battery_voltage;
-	double electrical_master_battery;
-	double external_power_available;
-	double external_power_connection_on;
-	double external_power_on;
-	double bleed_air_engine_1;
-	double bleed_air_engine_2;
-	double bleed_air_source_control_1;
-	double bleed_air_source_control_2;
-	double engine_control_select;
-	double engine_type;
-	double eng_anti_ice_1;
-	double eng_anti_ice_2;
-	double eng_combustion_1;
-	double eng_combustion_2;
-	// Read only to start/stop the trip (flight_phase.cpp); trip_data's bool
-	// groups have no free bit to store them in.
-	double eng_combustion_3;
-	double eng_combustion_4;
-	double eng_exhaust_gas_temperature_1;
-	double eng_exhaust_gas_temperature_2;
-	double eng_failed_1;
-	double eng_failed_2;
-	double eng_hydraulic_pressure_1;
-	double eng_hydraulic_pressure_2;
-	double eng_oil_pressure_1;
-	double eng_oil_pressure_2;
-	double eng_oil_temperature_1;
-	double eng_oil_temperature_2;
-	double eng_on_fire_1;
-	double eng_on_fire_2;
-	double general_eng_damage_percent_1;
-	double general_eng_damage_percent_2;
-	double general_eng_elapsed_time_1;
-	double general_eng_elapsed_time_2;
-	double general_eng_fire_detected_1;
-	double general_eng_fire_detected_2;
-	double general_eng_fuel_used_since_start_1;
-	double general_eng_fuel_used_since_start_2;
-	double general_eng_fuel_valve_1;
-	double general_eng_fuel_valve_2;
-	double general_eng_generator_active_1;
-	double general_eng_generator_active_2;
-	double general_eng_generator_switch_1;
-	double general_eng_generator_switch_2;
-	double general_eng_master_alternator;
-	double general_eng_reverse_thrust_engaged;
-	double general_eng_starter_1;
-	double general_eng_starter_2;
-	double general_eng_starter_active_1;
-	double general_eng_starter_active_2;
-	double general_eng_throttle_lever_position_1;
-	double general_eng_throttle_lever_position_2;
-	double general_eng_throttle_managed_mode_1;
-	double general_eng_throttle_managed_mode_2;
-	double master_ignition_switch;
-	double number_of_engines;
-	double turb_eng_bleed_air_1;
-	double turb_eng_bleed_air_2;
-	double turb_eng_fuel_available_1;
-	double turb_eng_fuel_available_2;
-	double turb_eng_fuel_flow_pph_1;
-	double turb_eng_fuel_flow_pph_2;
-	double turb_eng_ignition_switch_ex1_1;
-	double turb_eng_ignition_switch_ex1_2;
-	double turb_eng_is_igniting_1;
-	double turb_eng_is_igniting_2;
-	// Engines 1..MAX_ENGINES, in ENGINE_POWER_SIMVARS order (sim_link.cpp);
-	// enginePowerFromRecord() picks which ones a sample records.
-	double general_eng_rpm[MAX_ENGINES];
-	double recip_eng_manifold_pressure[MAX_ENGINES];
-	double turb_eng_n1[MAX_ENGINES];
-	double turb_eng_n2[MAX_ENGINES];
-	double turb_eng_max_torque_percent[MAX_ENGINES];
-	double prop_rpm[MAX_ENGINES];
-	double turb_eng_vibration_1;
-	double turb_eng_vibration_2;
-	double g_force;
-	double empty_weight;
-	double total_weight;
-	double fuel_cross_feed_l;
-	double fuel_cross_feed_r;
-	double fuel_selected_quantity_l;
-	double fuel_selected_quantity_r;
-	double fuel_selected_quantity_percent_l;
-	double fuel_selected_quantity_percent_r;
-	double fuel_total_quantity;
-	double fuel_total_quantity_weight;
-	double fuel_transfer_pump_on_l;
-	double fuel_transfer_pump_on_r;
-	double fuel_weight_per_gallon;
-	double on_any_runway;
-	double plane_in_parking_state;
-	double surface_condition;
-	double surface_type;
-	double ground_velocity;
-	double plane_altitude;
-	double plane_alt_above_ground;
-	double plane_bank_degrees;
-	double plane_heading_degrees_gyro;
-	double plane_heading_degrees_magnetic;
-	double plane_heading_degrees_true;
-	COORDINATE plane_coordinate;
-	double plane_pitch_degrees;
-	double plane_touchdown_bank_degrees;
-	double plane_touchdown_heading_degrees_magnetic;
-	double plane_touchdown_heading_degrees_true;
-	COORDINATE plane_touchdown_coordinate;
-	double plane_touchdown_normal_velocity;
-	double plane_touchdown_pitch_degrees;
-	double vertical_speed;
-	double airspeed_indicated;
-	double airspeed_mach;
-	double airspeed_true;
-	double gps_ground_speed;
-	double gps_ground_true_heading;
-	double gps_ground_true_track;
-	double gps_position_alt;
-	COORDINATE gps_position_coordinate;
-	double radio_height;
-	double autothrottle_active;
-	double avionics_master_switch;
-	double cabin_no_smoking_alert_switch;
-	double cabin_seatbelts_alert_switch;
-	double gpws_system_active;
-	double gpws_warning;
-	double gyro_drift_error;
-	double heading_indicator;
-	double indicated_altitude;
-	double indicated_altitude_calibrated;
-	double magnetic_compass;
-	double overspeed_warning;
-	double pitot_ice_pct;
-	double pitot_heat;
-	double pitot_heat_switch;
-	double pressure_altitude;
-	double pressurization_cabin_altitude;
-	double stall_warning;
-	double structural_deice_switch;
-	double light_states;
-	double hydraulic_pressure_1;
-	double hydraulic_pressure_2;
-	double hydraulic_switch;
-	double warning_fuel;
-	double warning_low_height;
-	double warning_oil_pressure;
-	double warning_vacuum;
-	double warning_voltage;
-	double sim_on_ground;
-	double ambient_pressure;
-	double ambient_temperature;
-	double ambient_visibility;
-	double ambient_wind_direction;
-	double ambient_wind_velocity;
-	double barometer_pressure;
-	double kohlsman_setting_hg;
-	double kohlsman_setting_mb;
-	double kohlsman_setting_std;
-	char title[256];
-	char atc_airline[64];
-	char atc_flight_number[8];
-	char atc_id[32];
-	char atc_model[32];
-	char atc_type[64];
-	DATETIME time_local;
-	DATETIME time_zulu;
+#define FLIGHT_FIELD_NUM(member, simVar, unit) double member;
+#define FLIGHT_FIELD_ENGINES(member, simVar, unit) double member[MAX_ENGINES];
+#define FLIGHT_FIELD_COORD(member, latitude, longitude) COORDINATE member;
+#define FLIGHT_FIELD_STR(member, simVar, size) char member[size];
+#define FLIGHT_FIELD_TIME(member, prefix, offset) DATETIME member;
+	FLIGHT_DATA_FIELDS(FLIGHT_FIELD_NUM, FLIGHT_FIELD_ENGINES, FLIGHT_FIELD_COORD, FLIGHT_FIELD_STR, FLIGHT_FIELD_TIME)
+#undef FLIGHT_FIELD_NUM
+#undef FLIGHT_FIELD_ENGINES
+#undef FLIGHT_FIELD_COORD
+#undef FLIGHT_FIELD_STR
+#undef FLIGHT_FIELD_TIME
 };

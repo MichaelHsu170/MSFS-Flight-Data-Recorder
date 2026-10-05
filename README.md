@@ -226,7 +226,7 @@ MSFS-Flight-Data-Recorder/
 │   │   └── app.qrc / app.rc / app_icon.ico  Application icon and Windows version resource
 │   ├── recording/                Recording a flight from SimConnect
 │   │   ├── types.h               Core C structs shared across all modules
-│   │   ├── simconnect_defs.h     SimConnect enums, the cockpit event list (COCKPIT_EVENTS) and FLIGHT_DATA_RECORD
+│   │   ├── simconnect_defs.h     SimConnect enums, the cockpit event list (COCKPIT_EVENTS) and the flight data SimVars (FLIGHT_DATA_FIELDS), which declare FLIGHT_DATA_RECORD
 │   │   ├── recorder.h / .cpp     SimConnect dispatch callback (routes each message), cockpit event commit, DB writer shutdown
 │   │   ├── sim_link.h / .cpp     What is asked of SimConnect: flight data definition, cockpit event registration and names, sample decoding
 │   │   ├── flight_phase.h / .cpp Trip start/stop, liftoff/touchdown detection, applying airport lookup results
