@@ -398,17 +398,11 @@ COORDINATE pointOnRunway(const RunwaySpec& runway, double distanceM, double righ
 	COORDINATE center;
 	center.latitude = runway.latitude;
 	center.longitude = runway.longitude;
-	double reverse = runway.heading - 180;
-	if (reverse <= 0)
-		reverse += 360;
-	COORDINATE start = center.destinationWithDistanceAndBearing(runway.lengthM / 2000.0, reverse);
+	COORDINATE start = center.destinationWithDistanceAndBearing(runway.lengthM / 2000.0, wrap_bearing(runway.heading - 180));
 	COORDINATE along = start.destinationWithDistanceAndBearing(distanceM / 1000.0, runway.heading);
 	if (rightM == 0)
 		return along;
-	double right = runway.heading + 90;
-	if (right > 360)
-		right -= 360;
-	return along.destinationWithDistanceAndBearing(rightM / 1000.0, right);
+	return along.destinationWithDistanceAndBearing(rightM / 1000.0, wrap_bearing(runway.heading + 90));
 }
 
 FlightDriver::FlightDriver() : record(makeRecord()) {

@@ -141,6 +141,8 @@ public:
 	// and delivers the OPEN packet plus "Sim running". The event flood
 	// filter's clock is replaced by one that only tick() moves.
 	FlightDriver();
+	// Destroys the bridge first: its event filter's clock reads eventClock_,
+	// which the default member order would destroy before it.
 	~FlightDriver();
 
 	RecorderBridge& bridge() { return *bridge_; }

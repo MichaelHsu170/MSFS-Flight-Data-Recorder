@@ -37,9 +37,7 @@ void footprint(COORDINATE anchor, float runway_heading, Length length, Length wi
 	double angle = atan(width / 2 / length) / V_PI * 180;
 	double bearing = anchor.bearing2Coordinate(point);
 	distance = anchor.distanceInKm2Coordinate(point) * 1000;
-	double diff_bearing = abs(bearing - runway_heading);
-	if (diff_bearing > 180)
-		diff_bearing = 360 - diff_bearing;
+	double diff_bearing = bearing_difference(bearing, runway_heading);
 	limit = 0;
 	if (diff_bearing >= 0 && diff_bearing <= angle)
 		limit = length / cos(diff_bearing / 180 * V_PI);
@@ -60,9 +58,7 @@ RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bea
 		std::string rwy_id = rwy->runway_code_generator(true) + "/" + rwy->runway_code_generator(false);
 		double heading = rwy->heading;
 		rwy->start_points[1] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, heading);
-		heading -= 180;
-		if (heading <= 0)
-			heading += 360;
+		heading = wrap_bearing(heading - 180);
 		rwy->start_points[0] = rwy->coordinate.destinationWithDistanceAndBearing(rwy->length / 2000, heading);
 
 		if (!result.any_margin_hit) {
@@ -96,26 +92,17 @@ RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bea
 		if (distance <= distance2) {
 			RUNWAY_OPERATION candidate;
 			candidate.index = i;
-			double diff_bearing = abs(bearing_tra - rwy->heading);
-			if (diff_bearing > 180)
-				diff_bearing = 360 - diff_bearing;
-			candidate.is_primary = diff_bearing < 90;
+			candidate.is_primary = bearing_difference(bearing_tra, rwy->heading) < 90;
 
 			heading = rwy->heading;
 			int index = 0;
 			if (!candidate.is_primary) {
-				heading -= 180;
-				if (heading <= 0)
-					heading += 360;
+				heading = wrap_bearing(heading - 180);
 				index = 1;
 			}
-			candidate.heading = (int)(heading + 0.5);
-			if (candidate.heading <= 0)
-				candidate.heading += 360;
+			candidate.heading = (int)wrap_bearing((int)(heading + 0.5));
 
-			candidate.diff_bearing_tra = abs(bearing_tra - heading);
-			if (candidate.diff_bearing_tra > 180)
-				candidate.diff_bearing_tra = 360 - candidate.diff_bearing_tra;
+			candidate.diff_bearing_tra = bearing_difference(bearing_tra, heading);
 
 			// Along-track (from this end's threshold, down the runway) and
 			// cross-track (+right/-left of the centerline) distances of the

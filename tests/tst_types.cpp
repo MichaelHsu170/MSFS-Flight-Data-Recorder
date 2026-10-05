@@ -41,8 +41,24 @@ private slots:
 		QVERIFY(qAbs(at(0, 0).bearing2Coordinate(at(0, 1)) - 90) < 1e-9);
 		QVERIFY(qAbs(at(0, 0).bearing2Coordinate(at(-1, 0)) - 180) < 1e-9);
 		QVERIFY(qAbs(at(0, 0).bearing2Coordinate(at(0, -1)) - 270) < 1e-9);
-		// Due north is reported as 360, never 0 (the "<= 0 -> += 360" rule).
+		// Due north is reported as 360, never 0 (wrap_bearing()).
 		QVERIFY(qAbs(at(0, 0).bearing2Coordinate(at(1, 0)) - 360) < 1e-9);
+	}
+
+	void wrapBearingIntoZeroExclusiveTo360() {
+		QCOMPARE(wrap_bearing(0), 360.0);
+		QCOMPARE(wrap_bearing(-90), 270.0);
+		QCOMPARE(wrap_bearing(360), 360.0);
+		QCOMPARE(wrap_bearing(370), 10.0);
+		QCOMPARE(wrap_bearing(123.5), 123.5);
+	}
+
+	void bearingDifferenceTakesTheShorterWayRound() {
+		QCOMPARE(bearing_difference(10, 350), 20.0);
+		QCOMPARE(bearing_difference(350, 10), 20.0);
+		QCOMPARE(bearing_difference(90, 270), 180.0);
+		QCOMPARE(bearing_difference(100, 40), 60.0);
+		QCOMPARE(bearing_difference(360, 360), 0.0);
 	}
 
 	void destinationAlongEquatorAndMeridian() {

@@ -21,6 +21,23 @@
 #define M_2_FT 3.2808399
 #define EARTHRADIUSKM 6371.0
 
+// bearing (degrees, at most one turn outside it) wrapped into (0, 360]: due
+// north is 360, never 0.
+inline double wrap_bearing(double bearing) {
+	if (bearing <= 0)
+		return bearing + 360;
+	if (bearing > 360)
+		return bearing - 360;
+	return bearing;
+}
+
+// The angle between two bearings (degrees, within one turn of each other),
+// 0-180.
+inline double bearing_difference(double a, double b) {
+	const double diff = fabs(a - b);
+	return diff > 180 ? 360 - diff : diff;
+}
+
 class DATETIME {
 public:
 	double year;
@@ -117,10 +134,7 @@ public:
 		double y = sin(lambda2 - lambda1) * cos(phy2);
 		double x = cos(phy1) * sin(phy2) - sin(phy1) * cos(phy2) * cos(lambda2 - lambda1);
 		double theta = atan2(y, x);
-		double ret = theta * 180 / V_PI;
-		if (ret <= 0)
-			ret += 360;
-		return ret;
+		return wrap_bearing(theta * 180 / V_PI);
 	}
 
 	COORDINATE destinationWithDistanceAndBearing(double distance, double bearing) {

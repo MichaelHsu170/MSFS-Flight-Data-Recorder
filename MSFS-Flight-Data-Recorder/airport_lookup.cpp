@@ -368,11 +368,7 @@ void lookup_on_facility_data_end(struct STATUS* status) {
 	}
 	gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_END: %s slot, icao=%s, n_runways=%d",
 		facility_lookup_target_label(status, rep), rep->icao, rep->n_runways);
-	double bearing_tra = (double)status->lookup.heading - rep->magvar;
-	if (bearing_tra <= 0)
-		bearing_tra += 360;
-	else if (bearing_tra > 360)
-		bearing_tra -= 360;
+	double bearing_tra = wrap_bearing((double)status->lookup.heading - rep->magvar);
 	// Ground-track refinement only applies to a touchdown/destination
 	// lookup: the aircraft can still be crabbed into wind right up to the
 	// moment of touchdown, so the bearing from that touchdown's own frozen
