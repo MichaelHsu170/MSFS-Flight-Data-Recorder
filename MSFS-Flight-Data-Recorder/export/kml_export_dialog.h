@@ -10,7 +10,8 @@ class QWidget;
 // Asks where to save trip tripId's KML file, suggesting baseName + ".kml",
 // then loads the trip from the database and writes the file on a background
 // thread, so a long trip doesn't freeze the window. Shows the error box on
-// parent if the export fails. Does nothing if the user cancels.
+// parent if the export fails, or if no sample of the trip could be read (no
+// file is written then). Does nothing if the user cancels.
 void exportTripToKml(QWidget* parent, const QString& baseName, int tripId,
 	const QString& aircraftTitle, const QString& departureZuluTime);
 

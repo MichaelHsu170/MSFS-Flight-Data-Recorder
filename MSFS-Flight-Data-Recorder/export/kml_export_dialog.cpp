@@ -32,6 +32,9 @@ void exportTripToKml(QWidget* parent, const QString& baseName, int tripId,
 		if (!sql)
 			return QStringLiteral("Could not open the trip database.");
 		TripDataset dataset = tripSamples(sql.get(), tripId, aircraftTitle, departureZuluTime);
+		// None recorded, or the read failed: there's no track to export.
+		if (dataset.points.empty())
+			return QStringLiteral("No recorded samples of this trip could be read.");
 		completeTripDataset(dataset, queryLiftoffs(sql.get(), tripId), queryTouchdowns(sql.get(), tripId), queryEvents(sql.get(), tripId));
 		QString error;
 		exportTripDatasetToKmlFile(dataset, fileName, &error);

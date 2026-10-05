@@ -633,6 +633,30 @@ private slots:
 		QVERIFY2(error.startsWith(QStringLiteral("Failed to export KML to %1.").arg(path)), qPrintable(error));
 	}
 
+	// A trip with no sample to read has no track: the export says so and
+	// writes no file.
+	void exportingATripWithNoSamplesSaysSo() {
+		FlightDriver sim;
+		const int tripId = sim.startTrip();
+		sim.endTrip();
+		exec(qPrintable(QStringLiteral("DELETE FROM trip_data WHERE trip = %1").arg(tripId)));
+		TripHistoryPanel panel(sim.bridge());
+		const QString path = QDir::current().absoluteFilePath("empty.kml");
+		onNextModal([&](QWidget* menu) {
+			onNextModal([&](QWidget* dialog) { saveFileDialogAs(dialog, path); });
+			chooseMenuItem(menu, "Export to KML");
+		});
+		openRowMenu(view(panel), rowOfTrip(view(panel), tripId));
+		QString error;
+		onNextModal([&error](QWidget* box) {
+			error = static_cast<QMessageBox*>(box)->text();
+			clickDialogButton(box, "OK");
+		});
+		QVERIFY(waitFor([&error] { return !error.isEmpty(); }));
+		QCOMPARE(error, QStringLiteral("Failed to export KML to %1.\nNo recorded samples of this trip could be read.").arg(path));
+		QVERIFY(!QFile::exists(path));
+	}
+
 	// Pointing at a row tints it (a completed trip only has a color while
 	// hovered); leaving the table drops the tint.
 	void hoveringARowTintsIt() {
