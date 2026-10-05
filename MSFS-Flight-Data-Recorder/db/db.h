@@ -73,19 +73,18 @@ using MigrationCancelled = std::function<bool()>;
 // corrects the UTC offset sign of local times stored by older builds
 // (PRAGMA user_version 0 -> 1), on an ephemeral R/W connection. Called at app
 // startup (by MainWindow, on a worker thread, before anything else opens the
-// database) so read-only queries always
-// see the current schema, even when the simulator has never connected this
-// session. progress, if set, is called on the calling thread while trip_data
-// is rebuilt to move legacy engine columns (the one step that takes long),
-// with the share of that rebuild done, ending at 100 once its indexes are
-// recreated; not at all when nothing needs rebuilding. cancelled, if set, is
-// asked on the calling thread during that rebuild (after each batch of rows
-// copied, and before committing); once it returns true the rebuild is rolled
-// back and left for the next migration. False if the database couldn't be
-// opened or brought up to date, or the rebuild was cancelled (logged).
-// MainWindow then starts neither Trip History nor the recorder (whose
-// connect_db() would redo the migration and exit if it failed), so the next
-// app start retries it.
+// database) so read-only queries always see the current schema, even when
+// the simulator has never connected this session. progress, if set, is called
+// on the calling thread while trip_data is rebuilt to move legacy engine
+// columns (the one step that takes long), with the share of that rebuild
+// done, ending at 100 once its indexes are recreated; not at all when nothing
+// needs rebuilding. cancelled, if set, is asked on the calling thread during
+// that rebuild (after each batch of rows copied, and before committing); once
+// it returns true the rebuild is rolled back and left for the next migration.
+// False if the database couldn't be opened or brought up to date, or the
+// rebuild was cancelled (logged). MainWindow then starts neither Trip History
+// nor the recorder (whose connect_db() would redo the migration and exit if
+// it failed), so the next app start retries it.
 bool migrate_db(const MigrationProgress& progress = {}, const MigrationCancelled& cancelled = {});
 
 // Full path of flight_data.db (see app_file_path()).

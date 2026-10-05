@@ -15,9 +15,9 @@ struct STATUS;
 // a STATUS to report through (they log with log_cf, logger_c.h), and it takes
 // no timing measurements.
 typedef enum GuiLogLevel {
-    GUI_LOG_WARNING = 1,
-    GUI_LOG_INFO    = 2,
-    GUI_LOG_TRACE   = 3
+	GUI_LOG_WARNING = 1,
+	GUI_LOG_INFO    = 2,
+	GUI_LOG_TRACE   = 3
 } GuiLogLevel;
 
 void gui_notify_log(struct STATUS* status, GuiLogLevel level, const char* text);
