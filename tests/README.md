@@ -21,8 +21,8 @@ and runs the `ctest.exe` beside it.
 
 A single test program can also be run directly, e.g.
 `build\Debug\tests\tst_airport_lookup.exe`, optionally with one test
-function name as an argument. The whole suite took about 220 s (Debug)
-on the verification machine.
+function name as an argument. The whole suite took between about 140 s
+and 220 s (Debug) on the verification machine, varying from run to run.
 
 Don't run two test runs at once (e.g. `build.bat … test` and
 `coverage.ps1`): the map tests show real windows on the desktop (see
