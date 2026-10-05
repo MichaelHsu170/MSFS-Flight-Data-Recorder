@@ -122,18 +122,15 @@ bool reorderGroups(sqlite3* sql, const std::vector<int>& orderedGroupIds) {
 	Logger::logf(Logger::Trace, "DB", "reorderGroups: persisting order for %zu group(s)", orderedGroupIds.size());
 	const QString context = QStringLiteral("reorderGroups");
 	const bool ok = inTransaction(sql, context, [&]() {
-		sqlite3_stmt* stmt = prepareStatement(sql, "UPDATE trip_groups SET sort_order = ? WHERE id = ?", context);
-		if (!stmt)
-			return false;
-		bool stepped = true;
-		for (int i = 0; stepped && i < (int)orderedGroupIds.size(); i++) {
-			sqlite3_bind_int(stmt, 1, i);
-			sqlite3_bind_int(stmt, 2, orderedGroupIds[i]);
-			stepped = sqlite3_step(stmt) == SQLITE_DONE;
-			sqlite3_reset(stmt);
+		for (int i = 0; i < (int)orderedGroupIds.size(); i++) {
+			if (!execStatement(sql, "UPDATE trip_groups SET sort_order = ? WHERE id = ?", context,
+					[&](sqlite3_stmt* stmt) {
+						sqlite3_bind_int(stmt, 1, i);
+						sqlite3_bind_int(stmt, 2, orderedGroupIds[i]);
+					}))
+				return false;
 		}
-		sqlite3_finalize(stmt);
-		return stepped;
+		return true;
 	});
 	if (ok)
 		Logger::log(Logger::Trace, "DB", QStringLiteral("reorderGroups: order committed"));

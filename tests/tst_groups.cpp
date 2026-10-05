@@ -144,6 +144,18 @@ private slots:
 		QCOMPARE(groupNames(), (QStringList{ "C", "A", "B" }));
 	}
 
+	// A failed update (logged) rolls back the ones before it.
+	void failedReorderKeepsTheOldOrder() {
+		const int a = insertGroup(db_, "A");
+		const int b = insertGroup(db_, "B");
+		const int c = insertGroup(db_, "C");
+		QCOMPARE(sqlite3_exec(db_, QStringLiteral("CREATE TRIGGER block_c BEFORE UPDATE ON trip_groups WHEN OLD.id = %1 "
+			"BEGIN SELECT RAISE(ABORT, 'blocked'); END;").arg(c).toUtf8().constData(), nullptr, nullptr, nullptr), SQLITE_OK);
+		QVERIFY(!reorderGroups(db_, { b, a, c })); // b and a are updated, then c fails
+		QCOMPARE(groupNames(), (QStringList{ "A", "B", "C" }));
+		QVERIFY(warningLogged(logPath_, { QStringLiteral("reorderGroups"), QStringLiteral("blocked") }));
+	}
+
 	void equalSortOrderFallsBackToName() {
 		QCOMPARE(sqlite3_exec(db_, "INSERT INTO trip_groups (name, sort_order) VALUES ('beta',0),('Alpha',0);", nullptr, nullptr, nullptr), SQLITE_OK);
 		QCOMPARE(groupNames(), (QStringList{ "Alpha", "beta" }));

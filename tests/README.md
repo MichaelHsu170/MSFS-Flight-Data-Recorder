@@ -56,7 +56,7 @@ verification machine.
 | Event flood filter (`event_filter.cpp`) on its own | `tst_event_filter` | quiet-period hold (carried trip and timestamps), commit on next occurrence, two quick repeats, fast burst suppressed / kept suppressed / ends with or without a flush, flap bypass, independent names, slow flood retracted + suppressed + recovers (with or without a flush), repeats 2.5 s apart, double + single = slow flood, shutdown flush, unique seqs |
 | Cockpit events and flood protection | `tst_events` | quiet-period recording, every mapped event name, no trip, flap whitelist, below/at burst threshold, burst recovery, slow flood retraction + suppression + recovery, event resolved after trip end, flush on shutdown, deleted trip, failed event write logged and retracted from the UI, failed retraction logged, crash message, unknown event |
 | Database | `tst_database` | missing database, migration failing when the database can't be opened, schema and indexes, repeatable migration, column upgrade of old databases, migration failing when a missing column can't be added (its ALTER failing to prepare or to run) and adding it next time, legacy N1/N2 moved into `engine_speed`/`engine_load` (jet rows only, per engine count, old columns dropped, rerun is a no-op; the rebuild keeps rowids across a gap and columns the current schema doesn't name, keeps NOT NULL only where the old column had it, recreates the index, and reports progress per batch of rows copied (to 65%), then after the drop (75%), the commit (90%) and the indexes (100%), each step weighted by roughly its share of the time, passing on only a rising percentage (a 305-row copy whose batches round to 0% or repeat); rows at the smallest and largest possible rowid are copied too; a migration failing after the rows were copied reports failure, changes nothing, still lets the indexes be created, and is redone next start; one cancelled after the first batch or just before committing is rolled back the same way; a trip_data whose columns can't be read fails it), group-name uniqueness, every trip_data field written and read back identically, a sample with no engine power stored as NULL rather than an empty BLOB, recorder write API (trip insert, destination time/position, trip airport with/without runway, clearing the destination, liftoff/touchdown rows and their airport with/without runway, liftoff-only clamp of negative threshold distance, failed write throws and rolls back, failed sample write logged by the writer thread which keeps draining), UI connections (missing database, move, read-only), AI analysis reports (save, replace, invalid/unknown row), trip list (order, status, group), liftoff/touchdown/event reads, event positions, trip deletion |
-| Trip groups | `tst_groups` | create (trim, order, blank, duplicates incl. non-ASCII case, a failed placement query logged), name-exists check (Unicode case, excluded group), rename, assign/unassign, trip counts, delete ungroups trips (and rolls back if it fails partway), reorder, name tie-break |
+| Trip groups | `tst_groups` | create (trim, order, blank, duplicates incl. non-ASCII case, a failed placement query logged), name-exists check (Unicode case, excluded group), rename, assign/unassign, trip counts, delete ungroups trips (and rolls back if it fails partway), reorder (and rolls back, logged, if it fails partway), name tie-break |
 | Shared helpers | `tst_trip_dataset` | timestamp parsing, file-name pieces, decimation (within budget, stride, last sample kept, slices), field labels, field lists unique, bool bits unique, bool packing into its groups |
 | Engine power (`engine_power.cpp`) | `tst_engine_power` | speed/load SimVars and labels per engine type (piston, jet, helo turbine, turboprop), fixed vs data-sized axes, other engine types record nothing, an engine type no int holds (NaN, ±1e300) reads as unknown, engine count clamped to 0-4 (an unreadable one reads as 0), engine combustion counted only for the aircraft's engines, BLOB packing (byte order, count clamped, none = NULL) and round trip, BLOB unpacking (partial, oversized, NULL, empty; engines past the count cleared) |
 | Chart data (`chart_data.cpp`) | `tst_chart_data` | series table matches `charts_panel.qml` (series names, hover keys, count), sample fields to series (each recorded engine's speed/load), engine extents, the trip's engine (first point with power), engine labels by type, zulu time on the axis, malformed times, nice axis max / signed range, extents (whole trip and slices), series build incl. malformed-time fill, one-sample and no-valid-time axes, thinning, nearest sample, hover values |
@@ -212,11 +212,15 @@ verification machine.
   - `lookup_on_facility_data()`'s stale-trip check: `lookup_on_facility_data_end()`
     makes the same check and drops the response, so removing only the first
     changes nothing a test can see (the second is covered).
-  - `db_groups.cpp`'s prepare-failure returns in `queryAllGroups()`,
-    `groupNameExists()` and `reorderGroups()`, and `db.cpp`'s in
-    `table_columns()`: SQLite treats stepping or
-    finalizing a null statement as a harmless no-op, so the results are the
-    same with or without them.
+  - `db_groups.cpp`'s prepare-failure returns in `queryAllGroups()` and
+    `groupNameExists()`: SQLite treats stepping or finalizing a null
+    statement as a harmless no-op, so the results are the same with or
+    without them.
+  - `db.cpp`'s `table_columns()` failure log: `create_schema()` has just
+    run `CREATE TABLE IF NOT EXISTS` on the same connection, so the columns
+    come back empty only if that failed (already logged, and `migrate_db()`
+    already returns false) or the read itself hits an I/O error, which a
+    test can't cause.
   - `queryTripData()`'s engine count as the smaller of the
     `engine_speed`/`engine_load` BLOBs' counts: the app always writes both
     with the same count, so they differ only in a hand-edited database.

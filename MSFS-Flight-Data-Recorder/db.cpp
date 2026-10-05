@@ -641,20 +641,23 @@ struct TableColumn {
 
 }
 
-// table_name's columns (PRAGMA table_info); empty if it can't be read.
+// table_name's columns (PRAGMA table_info); empty (logged) if it can't be
+// read. create_schema() made sure the table exists, so empty is a failure.
 static std::vector<TableColumn> table_columns(sqlite3* sql, const char* table_name) {
 	std::vector<TableColumn> columns;
 	const std::string pragma = std::string("PRAGMA table_info(") + table_name + ");";
 	sqlite3_stmt* stmt;
-	if (sqlite3_prepare_v2(sql, pragma.c_str(), -1, &stmt, nullptr) != SQLITE_OK)
-		return columns;
-	while (sqlite3_step(stmt) == SQLITE_ROW) {
-		const char* n = (const char*)sqlite3_column_text(stmt, 1); // name
-		const char* t = (const char*)sqlite3_column_text(stmt, 2); // type
-		if (n)
-			columns.push_back({ n, t ? t : "", sqlite3_column_int(stmt, 3) != 0 }); // 3 = notnull
+	if (sqlite3_prepare_v2(sql, pragma.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+		while (sqlite3_step(stmt) == SQLITE_ROW) {
+			const char* n = (const char*)sqlite3_column_text(stmt, 1); // name
+			const char* t = (const char*)sqlite3_column_text(stmt, 2); // type
+			if (n)
+				columns.push_back({ n, t ? t : "", sqlite3_column_int(stmt, 3) != 0 }); // 3 = notnull
+		}
 	}
 	sqlite3_finalize(stmt);
+	if (columns.empty())
+		log_cf(0, "DB", "Schema migration failed to read %s's columns: %s", table_name, sqlite3_errmsg(sql));
 	return columns;
 }
 
@@ -852,12 +855,8 @@ static const std::vector<int> kRebuildStepWeights = { 65, 10, 15, 10 };
 static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, const MigrationCancelled& cancelled, bool& rebuilt) {
 	static const char* const kLegacyColumns[] = { "turb_eng_n1_1", "turb_eng_n1_2", "turb_eng_n2_1", "turb_eng_n2_2" };
 	const std::vector<TableColumn> old_columns = table_columns(sql, "trip_data");
-	if (old_columns.empty()) {
-		// create_schema() made sure it exists: it can't be read, so it may
-		// still have the old columns.
-		log_cf(0, "DB", "Schema migration failed to read trip_data's columns: %s", sqlite3_errmsg(sql));
-		return false;
-	}
+	if (old_columns.empty())
+		return false; // can't be read (logged), so it may still have the old columns
 	if (find_column(old_columns, kLegacyColumns[0]) == old_columns.end())
 		return true;
 	log_cf(2, "DB", "Schema migration: trip_data -- moving N1/N2 into engine_speed/engine_load");
