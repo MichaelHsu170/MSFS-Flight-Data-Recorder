@@ -205,14 +205,36 @@ class TstMapWidget : public QObject {
 		return QPoint(qRound(xy.value(0).toDouble()), qRound(xy.value(1).toDouble()));
 	}
 
+	// Right-clicks the map with the mouse at pos and returns the menu that
+	// pops up; nullptr if none did.
+	QMenu* openRightClickMenu(const QPoint& pos) {
+		QTest::mouseClick(mapInput(), Qt::RightButton, Qt::NoModifier, pos);
+		QMenu* menu = nullptr;
+		return QTest::qWaitFor([&menu] { return (menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) != nullptr; }, 5000)
+			? menu : nullptr;
+	}
+
+	// Puts an element with this inner HTML over the map's top left corner
+	// (removed by removeTestElement()) and returns its middle, in the view's
+	// coordinates.
+	QPoint addTestElement(const QString& html) {
+		const QVariantList xy = evalPageJs(widget_, QStringLiteral(
+			"var d = document.createElement('div'); d.id = 'menu-test'; d.innerHTML = '%1';"
+			"d.style.cssText = 'position:absolute;left:10px;top:10px;z-index:2000;background:white';"
+			"document.body.appendChild(d); var r = d.getBoundingClientRect(); [r.left + r.width / 2, r.top + r.height / 2]").arg(html)).toList();
+		return QPoint(qRound(xy.value(0).toDouble()), qRound(xy.value(1).toDouble()));
+	}
+	void removeTestElement() {
+		evalPageJs(widget_, QStringLiteral("document.getElementById('menu-test').remove(); true"));
+	}
+
 	// Right-clicks the map with the mouse, away from the trip, and returns
 	// the items of the menu that pops up; then chooses choose from it, or
 	// closes it if that's empty. onDialog runs on the dialog choosing it
 	// opens.
 	QStringList rightClickMenu(const QString& choose = QString(), const std::function<void(QWidget*)>& onDialog = {}) {
-		QTest::mouseClick(mapInput(), Qt::RightButton, Qt::NoModifier, QPoint(60, 250));
-		QMenu* menu = nullptr;
-		if (!QTest::qWaitFor([&menu] { return (menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) != nullptr; }, 5000))
+		QMenu* menu = openRightClickMenu(QPoint(60, 250));
+		if (!menu)
 			return {};
 		QStringList items;
 		for (QAction* action : menu->actions())
@@ -877,6 +899,54 @@ private slots:
 		const QImage image = clipboard->image();
 		QVERIFY(!image.isNull());
 		checkShowsTheTrajectory(image);
+	}
+
+	// With text selected on the page the menu starts with Copy, which copies
+	// the selection and then clears it.
+	void copyCopiesTheSelectedTextAndClearsTheSelection() {
+		const ClipboardGuard keepUsersClipboard;
+		QClipboard* clipboard = QGuiApplication::clipboard();
+		clipboard->clear();
+		const QPoint middle = addTestElement(QStringLiteral("Selected words"));
+		evalPageJs(widget_, QStringLiteral("getSelection().selectAllChildren(document.getElementById('menu-test')); true"));
+		QMenu* menu = openRightClickMenu(middle);
+		QVERIFY(menu);
+		QCOMPARE(menu->actions().value(0)->text(), QStringLiteral("Copy"));
+		chooseMenuItem(menu, QStringLiteral("Copy"));
+		QTRY_COMPARE_WITH_TIMEOUT(clipboard->text(), QStringLiteral("Selected words"), 5000);
+		QTRY_COMPARE_WITH_TIMEOUT(evalPageJs(widget_, QStringLiteral("getSelection().toString()")).toString(), QString(), 5000);
+		removeTestElement();
+	}
+
+	// Right-clicking a link on the page adds Copy Link, which copies its address.
+	void copyLinkCopiesTheLinksAddress() {
+		const ClipboardGuard keepUsersClipboard;
+		QClipboard* clipboard = QGuiApplication::clipboard();
+		clipboard->clear();
+		const QPoint middle = addTestElement(QStringLiteral("<a href=\"https://example.com/route\">a link</a>"));
+		QMenu* menu = openRightClickMenu(middle);
+		QVERIFY(menu);
+		const QString copyLink = mapView()->pageAction(QWebEnginePage::CopyLinkToClipboard)->text();
+		QCOMPARE(menu->actions().last()->text(), copyLink);
+		chooseMenuItem(menu, copyLink);
+		QTRY_COMPARE_WITH_TIMEOUT(clipboard->text(), QStringLiteral("https://example.com/route"), 5000);
+		removeTestElement();
+	}
+
+	// The menu is a popup, so the map can switch to the overview while it's
+	// open: Export to KML then has no trip to export and does nothing.
+	void exportToKmlChosenAfterSwitchingToTheOverviewDoesNothing() {
+		loadTrip(tripToSave());
+		QMenu* menu = openRightClickMenu(QPoint(60, 250));
+		QVERIFY(menu);
+		widget_->showOverview({ overviewTrip(7) });
+		bool dialogShown = false;
+		onNextModal([&dialogShown](QWidget* dialog) {
+			dialogShown = true;
+			dialog->close();
+		});
+		chooseMenuItem(menu, QStringLiteral("Export to KML")); // a dialog it opened would run in here
+		QVERIFY(!dialogShown);
 	}
 
 	// Export to KML from the map exports the shown trip from the database
