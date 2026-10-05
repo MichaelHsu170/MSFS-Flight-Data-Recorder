@@ -233,15 +233,13 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 		// liftoffPopupHtml()/touchdownPopupHtml() see the correct value when they
 		// run setLiftoffs/setTouchdowns.
 		runJs(mapSetStringJs(QStringLiteral("window._aircraftTitle"), aircraftTitle_));
-		pushTrajectory();
-		pushLiftoffs();
-		pushTouchdownsAndEvents();
+		pushTrip();
 	} else {
 		Logger::logf(Logger::Trace, "Map", "setDataset: page not ready yet; deferring push of dataset v%d until refreshProvider()", datasetVersion_);
 		// Page still loading; trajectory will be pushed in refreshProvider() when
 		// ready. Signal immediately so TrajectoryView's pending counter doesn't
 		// stall, but remember to swallow that deferred push's own emit (in
-		// pushTrajectory() below) so this dataset load doesn't count twice.
+		// pushTrip() below) so this dataset load doesn't count twice.
 		suppressNextTrajectoryLoaded_ = true;
 		emit trajectoryLoaded();
 	}
@@ -332,9 +330,7 @@ void MapWidget::refreshProvider() {
 		showOverview(overviewTrips_);
 	} else {
 		Logger::log(Logger::Trace, "Map", QStringLiteral("refreshProvider: detail mode active; re-pushing trajectory/liftoff points/touchdowns/events"));
-		pushTrajectory();
-		pushLiftoffs();
-		pushTouchdownsAndEvents();
+		pushTrip();
 	}
 }
 
@@ -345,7 +341,7 @@ void MapWidget::setEventsVisible(bool visible) {
 	runJs(mapSetEventsVisibleJs(visible));
 }
 
-void MapWidget::pushTrajectory() {
+void MapWidget::pushTrip() {
 	// Built off the main thread: a long flight can have 60k+ sample points
 	// (see mapSetTrajectoryJs() for how they're thinned).
 	runJsBuiltInBackground("trajectory", trajCoords_.size(),
@@ -363,14 +359,8 @@ void MapWidget::pushTrajectory() {
 			else
 				emit trajectoryLoaded();
 		});
-}
-
-void MapWidget::pushLiftoffs() {
 	runJsBuiltInBackground("liftoffs", liftoffPoints_.size(),
 		[liftoffPoints = liftoffPoints_]() { return mapSetLiftoffsJs(liftoffPoints); });
-}
-
-void MapWidget::pushTouchdownsAndEvents() {
 	runJsBuiltInBackground("touchdowns", touchdowns_.size(),
 		[touchdowns = touchdowns_]() { return mapSetTouchdownsJs(touchdowns); });
 	runJsBuiltInBackground("events", events_.size(),

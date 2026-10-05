@@ -67,9 +67,9 @@ private:
 	// or the trip's trajectory, liftoffs, touchdowns and events). Called from
 	// onLoadFinished() each time the page (re)loads.
 	void refreshProvider();
-	void pushTrajectory();
-	void pushLiftoffs();
-	void pushTouchdownsAndEvents();
+	// Sends the page the trip's trajectory, liftoffs, touchdowns and events,
+	// each built in the background (runJsBuiltInBackground()).
+	void pushTrip();
 	// Runs build() off the main thread, then the JavaScript it returns --
 	// unless a newer dataset arrived meanwhile (datasetVersion_) -- then
 	// afterRun, if given. what names it in the log; count is how many items
@@ -120,7 +120,7 @@ private:
 	// indices and visible ranges, to drop those measured on an earlier one.
 	int datasetVersion_ = 0;
 	// Set when setDataset() emits trajectoryLoaded() early because the page
-	// wasn't ready yet (see setDataset()). Consumed by pushTrajectory()'s
+	// wasn't ready yet (see setDataset()). Consumed by pushTrip()'s
 	// completion lambda so the real, deferred push (fired later once the page
 	// loads and refreshProvider() catches up) doesn't emit trajectoryLoaded()
 	// a second time for the same dataset.

@@ -118,7 +118,7 @@ verification machine.
   need `map.html`'s own load to genuinely fail); `refreshProvider()`'s
   `inOverviewMode_` re-push-overview branch (never hit because
   `tst_map_widget` keeps its one shared `MapWidget` in detail mode whenever
-  the page reloads); `pushTrajectory()`'s `lastCursorIndex_ != -1`
+  the page reloads); `pushTrip()`'s `lastCursorIndex_ != -1`
   cursor-restore branch (needs the page to reload, through
   `refreshProvider()`, after a cursor was set; the one shared page only
   loads once). `tst_map_widget` also can't run under `QT_QPA_PLATFORM=offscreen`
