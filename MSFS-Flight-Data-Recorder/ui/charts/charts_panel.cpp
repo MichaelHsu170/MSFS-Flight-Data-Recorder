@@ -144,8 +144,8 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	// "No trip selected" in each chart -- or "No data recorded" for a trip
 	// (tripId set). Clearing doesn't wait on rendering: after a
 	// 200,000-sample trip (62,525 points shown, as each line is thinned to
-	// kDisplayPoints) it took 0.3-0.9 ms of a 10-17 ms deselect, most of which is the QML hiding
-	// the axes. The Profile "clear" log reports it.
+	// kDisplayPoints) it took 0.3-0.9 ms of a 10-17 ms deselect, most of which
+	// is the QML hiding the axes. The Profile "clear" log reports it.
 	if (dataset.points.empty()) {
 		Logger::log(Logger::Trace, "Charts", QStringLiteral("setDataset: empty dataset (Deselect/overview, or a trip with no point); clearing every series"));
 		pointTimesMs_.clear();
@@ -287,7 +287,7 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 		if (hiMs <= loMs)
 			hiMs = loMs + 1000.0;
 		setAllXAxisRange(QDateTime::fromMSecsSinceEpoch((qint64)loMs),
-					 QDateTime::fromMSecsSinceEpoch((qint64)hiMs));
+		                 QDateTime::fromMSecsSinceEpoch((qint64)hiMs));
 		root->setProperty("isFullRangeVisible", false);
 
 		// The Y axes fit the visible slice, which is thinned to the same
