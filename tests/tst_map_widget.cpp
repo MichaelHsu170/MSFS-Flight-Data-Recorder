@@ -281,9 +281,11 @@ private slots:
 
 		// Let the page actually finish loading and refreshProvider() re-push the
 		// same dataset; suppressNextTrajectoryLoaded_ should swallow that second,
-		// deferred emit so callers never see the same load reported twice. Also
+		// deferred emit so callers never see the same load reported twice. The
+		// push decides on that emit right after queueing the trajectory's script
+		// (MapWidget::pushTrip()), so it has once the page shows the point. Also
 		// leaves the shared widget_ in the "page ready" state for every slot below.
-		QTest::qWait(8000);
+		QTRY_COMPARE_WITH_TIMEOUT(mapTrajectoryPointCount(widget_), 1, 15000);
 		QCOMPARE(spy.count(), 1);
 	}
 
