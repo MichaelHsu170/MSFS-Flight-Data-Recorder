@@ -85,6 +85,7 @@ private slots:
 		removeDatabase();
 		removeSettings();
 	}
+	void cleanup() { cancelPendingModals(); } // no dialog action outlives its test
 
 	// --- Model display rules ---
 

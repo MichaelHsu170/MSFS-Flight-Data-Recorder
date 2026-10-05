@@ -83,6 +83,7 @@ private slots:
 		removeDatabase();
 		migrate_db();
 	}
+	void cleanup() { cancelPendingModals(); } // no dialog action outlives its test
 
 	void listsGroupsInOrderWithTripCounts() {
 		const int training = addGroup("Training");

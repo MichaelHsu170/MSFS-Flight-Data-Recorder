@@ -63,6 +63,10 @@ int mapElementCount(QWidget* owner, const char* className);
 // code under test opens with exec()), from the event loop that exec() runs.
 // Polls for up to 5 s; action receives the dialog/menu widget.
 void onNextModal(const std::function<void(QWidget*)>& action);
+// Drops every onNextModal() action that hasn't run yet: its captures may not
+// outlive the test that set it up (e.g. one that failed before the dialog
+// came). Call from the test class's cleanup().
+void cancelPendingModals();
 // Chooses the action with this text from a popup QMenu (via the keyboard, so
 // QMenu::exec() returns it like a real click would).
 void chooseMenuItem(QWidget* menu, const QString& text);
@@ -75,6 +79,18 @@ QString saveFileDialogAs(QWidget* dialog, const QString& path);
 // Sends w a left-button press or release (type) at pos, in w's coordinates,
 // with the button state a real click has at that point.
 void sendLeftButton(QWidget* w, QEvent::Type type, const QPoint& pos);
+
+// Puts back what was on the clipboard (on the desktop, the user's own) when
+// it goes out of scope, so a test can use the clipboard and fail midway.
+class ClipboardGuard {
+public:
+	ClipboardGuard();
+	~ClipboardGuard();
+	ClipboardGuard(const ClipboardGuard&) = delete;
+	ClipboardGuard& operator=(const ClipboardGuard&) = delete;
+private:
+	QList<QPair<QString, QByteArray>> saved_; // format, data
+};
 
 // Runs sql on a fresh read-only connection to flight_data.db.
 QList<QVariantMap> queryRows(const QString& sql);

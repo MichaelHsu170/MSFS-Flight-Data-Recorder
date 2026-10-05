@@ -36,7 +36,6 @@
 #include <QJsonObject>
 #include <QMenu>
 #include <QMessageBox>
-#include <QMimeData>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -262,6 +261,7 @@ private slots:
 	void cleanupTestCase() {
 		delete widget_;
 	}
+	void cleanup() { cancelPendingModals(); } // no dialog action outlives its test
 
 	// Must run first (QTest runs slots in declaration order): right after
 	// initTestCase() constructs the widget, the page cannot possibly be ready
@@ -865,19 +865,14 @@ private slots:
 		QCOMPARE(error, QStringLiteral("Failed to save the map image to %1.").arg(path));
 	}
 
-	// Copy Image puts the same picture on the clipboard. The clipboard is
-	// the desktop's own, so what was on it is put back afterwards.
+	// Copy Image puts the same picture on the clipboard.
 	void copyImagePutsTheMapOnTheClipboard() {
 		loadTrip(tripToSave());
+		const ClipboardGuard keepUsersClipboard;
 		QClipboard* clipboard = QGuiApplication::clipboard();
-		auto* saved = new QMimeData;
-		if (const QMimeData* before = clipboard->mimeData())
-			for (const QString& format : before->formats())
-				saved->setData(format, before->data(format));
 		clipboard->clear();
 		rightClickMenu(QStringLiteral("Copy Image"));
 		const QImage image = clipboard->image();
-		clipboard->setMimeData(saved);
 		QVERIFY(!image.isNull());
 		checkShowsTheTrajectory(image);
 	}

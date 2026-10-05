@@ -5,6 +5,7 @@
 #include "db_groups.h"
 
 #include <QAbstractButton>
+#include <QClipboard>
 #include <QApplication>
 #include <QCoreApplication>
 #include <QMenu>
@@ -16,7 +17,9 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMetaObject>
+#include <QMimeData>
 #include <QMouseEvent>
+#include <QPointer>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QWebEnginePage>
@@ -24,6 +27,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <utility>
 
 namespace TestSupport {
 
@@ -121,23 +125,51 @@ int mapElementCount(QWidget* owner, const char* className) {
 		.arg(QLatin1String(className))).toInt();
 }
 
+namespace {
+
+// onNextModal()'s timers still waiting, or already done (then null).
+QList<QPointer<QTimer>>& modalTimers() {
+	static QList<QPointer<QTimer>> timers;
+	return timers;
+}
+
+}
+
 void onNextModal(const std::function<void(QWidget*)>& action) {
 	auto* timer = new QTimer();
-	auto* elapsed = new QElapsedTimer();
-	elapsed->start();
+	modalTimers().append(timer);
+	QElapsedTimer elapsed;
+	elapsed.start();
 	QObject::connect(timer, &QTimer::timeout, [timer, elapsed, action] {
 		QWidget* target = QApplication::activePopupWidget();
 		if (!target)
 			target = QApplication::activeModalWidget();
-		if (!target && elapsed->elapsed() < 5000)
+		if (!target && elapsed.elapsed() < 5000)
 			return;
 		timer->stop();
 		timer->deleteLater();
-		delete elapsed;
 		if (target)
 			action(target);
 	});
 	timer->start(10);
+}
+
+ClipboardGuard::ClipboardGuard() {
+	if (const QMimeData* before = QGuiApplication::clipboard()->mimeData())
+		for (const QString& format : before->formats())
+			saved_.append({ format, before->data(format) });
+}
+
+ClipboardGuard::~ClipboardGuard() {
+	auto* data = new QMimeData;
+	for (const auto& [format, bytes] : saved_)
+		data->setData(format, bytes);
+	QGuiApplication::clipboard()->setMimeData(data);
+}
+
+void cancelPendingModals() {
+	for (const QPointer<QTimer>& timer : std::exchange(modalTimers(), {}))
+		delete timer.data();
 }
 
 void chooseMenuItem(QWidget* menuWidget, const QString& text) {

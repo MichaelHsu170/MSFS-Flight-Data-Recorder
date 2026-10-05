@@ -66,6 +66,7 @@ private:
 private slots:
 	void initTestCase() { isolateFiles(); }
 	void init() { removeSettings(); }
+	void cleanup() { cancelPendingModals(); } // no dialog action outlives its test
 
 	void rowsCoverEveryField() {
 		DataTablePanel panel;
@@ -263,6 +264,7 @@ private slots:
 		panel.show();
 		QVERIFY(QTest::qWaitForWindowExposed(&panel));
 		QTableWidget* t = table(panel);
+		const ClipboardGuard keepUsersClipboard;
 		QGuiApplication::clipboard()->setText("untouched");
 		int menus = 0;
 		onNextModal([&menus](QWidget* menu) {
