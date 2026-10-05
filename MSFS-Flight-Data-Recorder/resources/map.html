@@ -363,15 +363,24 @@ function toggleThinkLabel(det, arrId, lblId) {
     document.getElementById(lblId).textContent = det.open ? 'Hide thinking' : 'Show thinking';
 }
 
+// Below the analysis in el, a note when MapBridge couldn't save it (ok is
+// false): it shows for now, but the next load of the trip won't have it.
+function showSaveResult(el, ok) {
+    if (ok) return;
+    el.insertAdjacentHTML('beforeend', '<div class="td-save-failed" style="color:#a00;margin-top:6px">'
+        + 'Couldn\'t save this analysis to the database (see msfs_fdr_debug.log), '
+        + 'so it won\'t be there the next time this trip is loaded.</div>');
+}
+
 async function analyzeLiftoff(id) {
-    return runAiAnalysis(id, _liftoffStore[id], buildLiftoffPrompt, function(rowId, report) {
-        if (mapBridge) mapBridge.saveLiftoffAnalysisReport(rowId, report);
+    return runAiAnalysis(id, _liftoffStore[id], buildLiftoffPrompt, function(rowId, report, onSaved) {
+        if (mapBridge) mapBridge.saveLiftoffAnalysisReport(rowId, report, onSaved);
     }, 'Analyze Liftoff');
 }
 
 async function analyzeTouchdown(id) {
-    return runAiAnalysis(id, _touchdownStore[id], buildTouchdownPrompt, function(rowId, report) {
-        if (mapBridge) mapBridge.saveTouchdownAnalysisReport(rowId, report);
+    return runAiAnalysis(id, _touchdownStore[id], buildTouchdownPrompt, function(rowId, report, onSaved) {
+        if (mapBridge) mapBridge.saveTouchdownAnalysisReport(rowId, report, onSaved);
     }, 'Analyze Landing');
 }
 
@@ -519,7 +528,7 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
                 // session reverts to the "Analyze" button, since the
                 // popupopen handler below only has this object to read from.
                 t.analysisReport = stored;
-                saveReport(t.rowId, stored);
+                saveReport(t.rowId, stored, function(ok) { showSaveResult(finalDiv, ok); });
             }
             break;
         }

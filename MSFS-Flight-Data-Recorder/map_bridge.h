@@ -16,7 +16,9 @@
 // JS calls saveLiftoffAnalysisReport() after a successful AI liftoff
 // analysis to persist the report text into the trip_liftoffs.analysis_report
 // column. saveTouchdownAnalysisReport() is the same idea for a landing
-// analysis, into trip_touchdowns.analysis_report.
+// analysis, into trip_touchdowns.analysis_report. Both return whether the
+// report was saved (false if the database couldn't be opened or written), so
+// the page can tell the user (showSaveResult() in map.html).
 // JS calls overviewSegmentClicked() when the user clicks a trip's
 // departure-destination line on the overview map, re-emitted as
 // overviewTripClicked() so MapWidget/TrajectoryView can forward it up to
@@ -30,8 +32,8 @@ public:
 public slots:
 	void markerMoved(int index, int version);
 	void rangeChanged(int startIndex, int endIndex, int version);
-	void saveLiftoffAnalysisReport(int rowId, const QString& report);
-	void saveTouchdownAnalysisReport(int rowId, const QString& report);
+	bool saveLiftoffAnalysisReport(int rowId, const QString& report);
+	bool saveTouchdownAnalysisReport(int rowId, const QString& report);
 	void overviewSegmentClicked(int tripId);
 
 signals:
@@ -40,5 +42,5 @@ signals:
 	void overviewTripClicked(int tripId);
 
 private:
-	void saveReport(CONTACT_TABLE table, int rowId, const QString& report);
+	bool saveReport(CONTACT_TABLE table, int rowId, const QString& report);
 };

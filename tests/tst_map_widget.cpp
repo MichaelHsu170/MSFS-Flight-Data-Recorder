@@ -87,9 +87,10 @@ class TstMapWidget : public QObject {
 
 	// Runs the page's AI analysis of a liftoff with fetch() stubbed: attempt n
 	// gets attempts[n] (the last one repeated), each delivered in the given
-	// pieces. Returns what it did: calls (fetches made), saved (the report
-	// saved, null if none), text (the answer shown), thinkingShown.
-	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts) {
+	// pieces; saving the report succeeds if saveOk. Returns what it did: calls
+	// (fetches made), saved (the report saved, null if none), text (the answer
+	// shown), thinkingShown.
+	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts, bool saveOk = true) {
 		QJsonArray json;
 		for (const QStringList& pieces : attempts)
 			json.append(QJsonArray::fromStringList(pieces));
@@ -108,9 +109,10 @@ class TstMapWidget : public QObject {
 			    if (!box) { box = document.createElement('div'); box.id = 'ai-test'; document.body.appendChild(box); }
 			    box.innerHTML = '<button id="td-btn-ai"></button><span id="td-spin-ai"></span><div id="td-result-ai"></div>';
 			    runAiAnalysis('ai', { rowId: 5 }, function () { return 'prompt'; },
-			        function (rowId, report) { window._ai.saved = report; }, 'Analyze Liftoff')
+			        function (rowId, report, onSaved) { window._ai.saved = report; onSaved(%2); }, 'Analyze Liftoff')
 			        .then(function () { window.fetch = realFetch; window._ai.done = true; });
-			})(%1))JS").arg(QString::fromUtf8(QJsonDocument(json).toJson(QJsonDocument::Compact))));
+			})(%1))JS").arg(QString::fromUtf8(QJsonDocument(json).toJson(QJsonDocument::Compact)),
+				saveOk ? QStringLiteral("true") : QStringLiteral("false")));
 		if (!QTest::qWaitFor([this] { return evalPageJs(widget_, QStringLiteral("window._ai.done")).toBool(); }, 5000))
 			return {};
 		return evalPageJs(widget_, QStringLiteral(
@@ -479,6 +481,16 @@ private slots:
 			aiChunk({ { "then \\ {", false } }, "STOP") }) } });
 		QCOMPARE(r.value("calls").toInt(), 1);
 		QCOMPARE(r.value("saved").toString(), QStringLiteral("Use {x and \"}\" then \\ {"));
+	}
+
+	// A report the database didn't take stays shown, with a note under it
+	// that it wasn't saved.
+	void anAiAnswerThatCouldNotBeSavedSaysSo() {
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } }, false);
+		QCOMPARE(r.value("calls").toInt(), 1);
+		const QString text = r.value("text").toString();
+		QVERIFY2(text.startsWith(QStringLiteral("Grade: A")), qPrintable(text));
+		QVERIFY2(text.contains(QStringLiteral("Couldn't save this analysis")), qPrintable(text));
 	}
 };
 
