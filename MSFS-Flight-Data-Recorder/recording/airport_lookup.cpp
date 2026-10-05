@@ -16,6 +16,9 @@ void start_facility_lookup(struct STATUS* status, LOOKUP_TARGET target, const CO
 	status->lookup.trip_id = status->id_trip;
 	status->lookup.coordinate = position;
 	status->lookup.heading = heading;
+	// No runway matched yet: a previous lookup on this slot whose write threw
+	// before it cleared the slot (on_lookup_resolved()) leaves its runway here.
+	facility_lookup_target(status)->runway_act = RUNWAY_OPERATION{};
 	if (approach != nullptr)
 		status->lookup.approach = *approach;
 	else

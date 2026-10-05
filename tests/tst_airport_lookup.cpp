@@ -309,6 +309,31 @@ private slots:
 		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(3));
 	}
 
+	// A runway touchdown whose trip write fails leaves its runway in the
+	// lookup's slot; the next touchdown, off the runway, must not be
+	// resolved on it.
+	void runwayOfAFailedTouchdownWriteIsNotReusedByTheNextOne() {
+		FlightDriver sim;
+		const RunwaySpec rwy = eastWestRunway();
+		sim.airports = { testAirport(rwy) };
+		const int tripId = startOnRunway(sim, rwy);
+		liftOff(sim, onRunway(rwy, 1800));
+		sim.serviceLookups();
+		failUpdates(sim, "trips");
+		touchDown(sim, onRunway(rwy, 500));
+		sim.serviceLookups();
+		stopFailingUpdates(sim, "trips");
+		liftOff(sim, onRunway(rwy, 1800));
+		sim.serviceLookups();
+		// 100 m past the runway end: the airport, without a runway.
+		touchDown(sim, onRunway(rwy, 3100));
+		sim.serviceLookups();
+		const QVariantMap second = touchdowns(tripId).value(1);
+		QCOMPARE(second["icao"].toString(), QStringLiteral("TEST"));
+		QVERIFY2(second["runway"].isNull(), qPrintable(second["runway"].toString()));
+		QVERIFY(tripRow(tripId)["destination_rwy"].isNull());
+	}
+
 	// A failing trips UPDATE when the touchdown has no airport at all, so the
 	// lookup ends inside the AIRPORT_LIST handler instead of
 	// FACILITY_DATA_END.
