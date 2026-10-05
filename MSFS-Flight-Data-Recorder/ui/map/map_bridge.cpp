@@ -29,7 +29,7 @@ bool MapBridge::saveReport(CONTACT_TABLE table, int rowId, const QString& report
 	DbConnection sql = DbConnection::readWrite();
 	if (!sql) {
 		Logger::logf(Logger::Warning, "DB", "saveAnalysisReport(%s %d): failed to open read-write connection; analysis was not saved",
-			table == CONTACT_TABLE::TOUCHDOWNS ? "touchdown" : "liftoff", rowId);
+			contactLabel(table), rowId);
 		return false;
 	}
 	return saveAnalysisReport(sql.get(), table, rowId, report);

@@ -9,6 +9,16 @@ struct sqlite3;
 // Which table a liftoff/touchdown row lives in.
 enum class CONTACT_TABLE { LIFTOFFS, TOUCHDOWNS };
 
+// "trip_liftoffs" / "trip_touchdowns".
+inline const char* contactTableName(CONTACT_TABLE table) {
+	return table == CONTACT_TABLE::TOUCHDOWNS ? "trip_touchdowns" : "trip_liftoffs";
+}
+
+// "liftoff" / "touchdown", for log lines.
+inline const char* contactLabel(CONTACT_TABLE table) {
+	return table == CONTACT_TABLE::TOUCHDOWNS ? "touchdown" : "liftoff";
+}
+
 // Queries against the trip tables (trips, trip_data, trip_liftoffs,
 // trip_touchdowns, trip_events) -- all read-only except
 // deleteTripData() and saveAnalysisReport() below. Plain sqlite3 in, plain

@@ -58,6 +58,35 @@ std::string trip_data_insert() {
 	return "INSERT INTO trip_data (" + columns + ") VALUES (" + placeholders + ");";
 }
 
+// trip_liftoffs' and trip_touchdowns' column definitions: the same columns,
+// plus g_force (after vertical_speed) for touchdowns.
+std::string contact_table_fields(CONTACT_TABLE table) {
+	return std::string(
+		"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
+		"trip INTEGER NOT NULL,"
+		"airspeed_indicated INTEGER NOT NULL,"
+		"vertical_speed INTEGER NOT NULL,")
+		+ (table == CONTACT_TABLE::TOUCHDOWNS ? "g_force REAL NOT NULL," : "")
+		+ "plane_pitch_degrees REAL NOT NULL,"
+		"plane_bank_degrees REAL NOT NULL,"
+		"heading_indicator INTEGER NOT NULL,"
+		"plane_latitude REAL NOT NULL,"
+		"plane_longitude REAL NOT NULL,"
+		"icao VARCHAR(4),"
+		"airport_name VARCHAR(64),"
+		"runway VARCHAR(3),"
+		"runway_heading INTEGER,"
+		"distance_length REAL,"
+		"distance_width REAL,"
+		"distance_length_percent REAL,"
+		"distance_width_percent REAL,"
+		"wind_direction INTEGER,"
+		"wind_velocity INTEGER,"
+		"time_zulu VARCHAR(32) NOT NULL,"
+		"time_local VARCHAR(32) NOT NULL,"
+		"analysis_report TEXT";
+}
+
 struct TableDef {
 	const char* name;
 	std::string fields; // the column definitions inside CREATE TABLE's parentheses
@@ -104,53 +133,8 @@ const std::vector<TableDef>& database_tables() {
 			// and NULL rows are simply never matched by a "WHERE event_seq IN (...)"
 			// delete, which is the correct behavior for them (nothing to retract).
 			"event_seq INTEGER" },
-		{ "trip_liftoffs",
-			"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
-			"trip INTEGER NOT NULL,"
-			"airspeed_indicated INTEGER NOT NULL,"
-			"vertical_speed INTEGER NOT NULL,"
-			"plane_pitch_degrees REAL NOT NULL,"
-			"plane_bank_degrees REAL NOT NULL,"
-			"heading_indicator INTEGER NOT NULL,"
-			"plane_latitude REAL NOT NULL,"
-			"plane_longitude REAL NOT NULL,"
-			"icao VARCHAR(4),"
-			"airport_name VARCHAR(64),"
-			"runway VARCHAR(3),"
-			"runway_heading INTEGER,"
-			"distance_length REAL,"
-			"distance_width REAL,"
-			"distance_length_percent REAL,"
-			"distance_width_percent REAL,"
-			"wind_direction INTEGER,"
-			"wind_velocity INTEGER,"
-			"time_zulu VARCHAR(32) NOT NULL,"
-			"time_local VARCHAR(32) NOT NULL,"
-			"analysis_report TEXT" },
-		{ "trip_touchdowns",
-			"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
-			"trip INTEGER NOT NULL,"
-			"airspeed_indicated INTEGER NOT NULL,"
-			"vertical_speed INTEGER NOT NULL,"
-			"g_force REAL NOT NULL,"
-			"plane_pitch_degrees REAL NOT NULL,"
-			"plane_bank_degrees REAL NOT NULL,"
-			"heading_indicator INTEGER NOT NULL,"
-			"plane_latitude REAL NOT NULL,"
-			"plane_longitude REAL NOT NULL,"
-			"icao VARCHAR(4),"
-			"airport_name VARCHAR(64),"
-			"runway VARCHAR(3),"
-			"runway_heading INTEGER,"
-			"distance_length REAL,"
-			"distance_width REAL,"
-			"distance_length_percent REAL,"
-			"distance_width_percent REAL,"
-			"wind_direction INTEGER,"
-			"wind_velocity INTEGER,"
-			"time_zulu VARCHAR(32) NOT NULL,"
-			"time_local VARCHAR(32) NOT NULL,"
-			"analysis_report TEXT" },
+		{ contactTableName(CONTACT_TABLE::LIFTOFFS), contact_table_fields(CONTACT_TABLE::LIFTOFFS) },
+		{ contactTableName(CONTACT_TABLE::TOUCHDOWNS), contact_table_fields(CONTACT_TABLE::TOUCHDOWNS) },
 		{ "trip_groups",
 			"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
 			"name VARCHAR(64) NOT NULL,"
@@ -351,19 +335,13 @@ void db_clear_trip_destination_airport(STATUS* status, int trip_id) {
 
 int db_insert_contact(STATUS* status, CONTACT_TABLE table, int trip_id, const FLIGHT_DATA& data) {
 	const bool touchdown = table == CONTACT_TABLE::TOUCHDOWNS;
-	const char* stmt_txt = touchdown
-		? "INSERT INTO trip_touchdowns ("
-		  "trip,airspeed_indicated,vertical_speed,g_force,plane_pitch_degrees,"
-		  "plane_bank_degrees,heading_indicator,plane_latitude,plane_longitude,"
+	const std::string stmt_txt = std::string("INSERT INTO ") + contactTableName(table)
+		+ " (trip,airspeed_indicated,vertical_speed," + (touchdown ? "g_force," : "")
+		+ "plane_pitch_degrees,plane_bank_degrees,heading_indicator,plane_latitude,plane_longitude,"
 		  "wind_direction,wind_velocity,time_zulu,time_local"
-		  ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?);"
-		: "INSERT INTO trip_liftoffs ("
-		  "trip,airspeed_indicated,vertical_speed,plane_pitch_degrees,"
-		  "plane_bank_degrees,heading_indicator,plane_latitude,plane_longitude,"
-		  "wind_direction,wind_velocity,time_zulu,time_local"
-		  ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?);";
+		  ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?" + (touchdown ? ",?" : "") + ");";
 	int row_id = -1;
-	db_insert_update_table(status, stmt_txt,
+	db_insert_update_table(status, stmt_txt.c_str(),
 		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
 			int index = 1;
 			db_bind(stmt, stmt_txt, index++, trip_id);
@@ -387,10 +365,9 @@ int db_insert_contact(STATUS* status, CONTACT_TABLE table, int trip_id, const FL
 
 void db_set_contact_airport(STATUS* status, CONTACT_TABLE table, int row_id, const AIRPORT& airport, const char* runway) {
 	const bool touchdown = table == CONTACT_TABLE::TOUCHDOWNS;
+	const std::string update = std::string("UPDATE ") + contactTableName(table) + " SET icao=?,airport_name=?";
 	if (runway == nullptr) {
-		db_insert_update_table(status,
-			touchdown ? "UPDATE trip_touchdowns SET icao=?,airport_name=? WHERE id=?;"
-			          : "UPDATE trip_liftoffs SET icao=?,airport_name=? WHERE id=?;",
+		db_insert_update_table(status, (update + " WHERE id=?;").c_str(),
 			[&](sqlite3_stmt* stmt, const char* stmt_txt) {
 				db_bind(stmt, stmt_txt, 1, airport.icao);
 				db_bind(stmt, stmt_txt, 2, airport.name);
@@ -400,13 +377,9 @@ void db_set_contact_airport(STATUS* status, CONTACT_TABLE table, int row_id, con
 	}
 	const RUNWAY_OPERATION& rwy = airport.runway_act;
 	db_insert_update_table(status,
-		touchdown
-			? "UPDATE trip_touchdowns SET icao=?,airport_name=?,runway=?,runway_heading=?,"
-			  "distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
-			  " WHERE id=?;"
-			: "UPDATE trip_liftoffs SET icao=?,airport_name=?,runway=?,runway_heading=?,"
-			  "distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
-			  " WHERE id=?;",
+		(update + ",runway=?,runway_heading=?,"
+			"distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
+			" WHERE id=?;").c_str(),
 		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
 			db_bind(stmt, stmt_txt, 1, airport.icao);
 			db_bind(stmt, stmt_txt, 2, airport.name);

@@ -341,15 +341,13 @@ std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId) {
 }
 
 bool saveAnalysisReport(sqlite3* sql, CONTACT_TABLE table, int rowId, const QString& report) {
-	const char* what = table == CONTACT_TABLE::TOUCHDOWNS ? "touchdown" : "liftoff";
+	const char* what = contactLabel(table);
 	if (rowId <= 0) {
 		Logger::logf(Logger::Trace, "DB", "saveAnalysisReport: ignoring invalid %s id %d", what, rowId);
 		return false;
 	}
-	const char* stmt_txt = table == CONTACT_TABLE::TOUCHDOWNS
-		? "UPDATE trip_touchdowns SET analysis_report = ? WHERE id = ?"
-		: "UPDATE trip_liftoffs SET analysis_report = ? WHERE id = ?";
-	const bool ok = execStatement(sql, stmt_txt, QStringLiteral("saveAnalysisReport(%1 %2)").arg(QLatin1String(what)).arg(rowId),
+	const std::string stmt_txt = std::string("UPDATE ") + contactTableName(table) + " SET analysis_report = ? WHERE id = ?";
+	const bool ok = execStatement(sql, stmt_txt.c_str(), QStringLiteral("saveAnalysisReport(%1 %2)").arg(QLatin1String(what)).arg(rowId),
 		[&](sqlite3_stmt* stmt) {
 			bindText(stmt, 1, report);
 			sqlite3_bind_int(stmt, 2, rowId);
