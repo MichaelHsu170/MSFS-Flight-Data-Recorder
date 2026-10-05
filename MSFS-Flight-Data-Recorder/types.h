@@ -164,7 +164,6 @@ public:
 	int threshold_pavement_seen; // 0=none yet, 1=primary received, 2=both received
 
 	RUNWAY() { clear(); }
-	~RUNWAY() { clear(); }
 
 	void clear() {
 		length = 0;

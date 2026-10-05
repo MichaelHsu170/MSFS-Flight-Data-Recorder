@@ -155,7 +155,7 @@ void add_nearest_airports(AIRPORT_LOOKUP::CANDIDATE (&top)[AIRPORT_LOOKUP::TOP_N
 		COORDINATE airport_loc;
 		airport_loc.latitude = airport.Latitude;
 		airport_loc.longitude = airport.Longitude;
-		double distance = abs(position.distanceInKm2Coordinate(airport_loc));
+		double distance = position.distanceInKm2Coordinate(airport_loc);
 		if (distance < top[AIRPORT_LOOKUP::TOP_N - 1].distance) {
 			int pos = AIRPORT_LOOKUP::TOP_N - 1;
 			while (pos > 0 && top[pos - 1].distance > distance) {
