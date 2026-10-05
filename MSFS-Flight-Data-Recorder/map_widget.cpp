@@ -2,6 +2,7 @@
 #include "map_bridge.h"
 #include "app_settings.h"
 #include "kml_export.h"
+#include "kml_export_dialog.h"
 #include "map_script.h"
 #include "version.h"
 
@@ -295,12 +296,11 @@ void MapWidget::exportKml() {
 	// The menu only offers this with a trip loaded, but it's a non-modal
 	// popup: the map can switch to the overview while it's still open.
 	if (!dataset_) return;
-	const QString fileName = QFileDialog::getSaveFileName(this, QStringLiteral("Export to KML"),
-		defaultBaseFileName() + QStringLiteral(".kml"), QStringLiteral("KML File (*.kml)"));
+	const QString fileName = askKmlSaveFileName(this, defaultBaseFileName());
 	if (fileName.isEmpty()) return;
 	QString error;
 	if (!exportTripDatasetToKmlFile(*dataset_, fileName, &error))
-		QMessageBox::critical(this, QStringLiteral("Error"), kmlExportFailedText(fileName, error));
+		showKmlExportFailed(this, fileName, error);
 }
 
 void MapWidget::onLoadFinished(bool ok) {

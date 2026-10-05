@@ -61,7 +61,7 @@ verification machine.
 | Engine power (`engine_power.cpp`) | `tst_engine_power` | speed/load SimVars and labels per engine type (piston, jet, helo turbine, turboprop), fixed vs data-sized axes, other engine types record nothing, an engine type no int holds (NaN, ±1e300) reads as unknown, engine count clamped to 0-4 (an unreadable one reads as 0), engine combustion counted only for the aircraft's engines, BLOB packing (byte order, count clamped, none = NULL) and round trip, BLOB unpacking (partial, oversized, NULL, empty; engines past the count cleared) |
 | Chart data (`chart_data.cpp`) | `tst_chart_data` | series table matches `charts_panel.qml` (series names, hover keys, count), sample fields to series (each recorded engine's speed/load), engine extents, the trip's engine (first point with power), engine labels by type, zulu time on the axis, malformed times, nice axis max / signed range, extents (whole trip and slices), one sample's values read back from the series, series build incl. malformed-time fill, one-sample and no-valid-time axes, thinning, nearest sample, hover values |
 | Map scripts (`map_script.cpp`) | `tst_map_script` | string globals escaped, trajectory whole (with its version) / thinned (indices, ends) / empty, liftoff and touchdown popup fields, events, empty lists, events toggle, overview segments and "Ungrouped" |
-| KML export | `tst_kml` | header/name, path and track in meters, liftoff/touchdown descriptions, no-airport and no-runway rows, event grouping, XML escaping of names, description values shown literally (escaped, so a "]]>" in one can't end the CDATA), empty trip, unparseable times, write failure, failure message names the file and the reason |
+| KML export | `tst_kml` | header/name, path and track in meters, liftoff/touchdown descriptions, no-airport and no-runway rows, event grouping, XML escaping of names, description values shown literally (escaped, so a "]]>" in one can't end the CDATA), empty trip, unparseable times, write failure, the export-failed error box names the file and the reason |
 | settings.ini | `tst_settings` | default file (app-written sections labeled "Auto-managed"), defaults for missing/invalid values, values from file, in-place edits keep comments and other sections, new key, new section under the default file's header, section header with a trailing comment, unreadable and read-only files left alone, hidden fields, column widths, recording toggle, log level |
 | Logging | `tst_logger` | `.old` rotation, header, level filter, line format, C shim (incl. levels beyond Profile and an out-of-range level), crash logging and its level filter, second init keeps the file but takes the new level, level names |
 | Data Table panel | `tst_data_table_panel` | rows for every field, value formatting (numbers, DMS, Yes/No, engine speed/load by engine type), which point is shown, cursor, clearing, hidden fields, Visible Fields dialog OK/Cancel, column width, right-click Copy on a value cell only |
@@ -144,6 +144,9 @@ verification machine.
   the log filter that drops Qt Graphs' "axis already associated" warning
   (`main.cpp` isn't part of the test library; `tst_charts_panel` checks
   that the charts raise only the three expected ones).
+- **KML save dialog** (`kml_export_dialog.cpp`'s `askKmlSaveFileName()`):
+  `QFileDialog::getSaveFileName` opens the native Windows dialog, which a
+  test can't answer.
 - **Trip History**: Export to KML from the row menu (file dialog), the
   "still saving" delete block, opening Manage Groups from the panel, a
   failed/missing read or write database connection (`ensureHistoryConnection`,

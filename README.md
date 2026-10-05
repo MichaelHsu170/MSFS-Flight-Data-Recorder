@@ -245,6 +245,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── trip_history_panel.h/.cpp Trip list table with background dataset loading, group filter, trip deletion
 │   ├── manage_groups_dialog.h/.cpp Dialog to add, rename, delete and reorder trip groups
 │   ├── kml_export.h / .cpp       Builds and writes a trip's KML file
+│   ├── kml_export_dialog.h/.cpp Save dialog and error box shared by both Export to KML menus
 │   ├── splitter_utils.h          Splitter helpers: act once a drag ends; size the second section
 │   ├── trajectory_view.h / .cpp  Composite view: owns map, data table, and charts; cursor-sync wiring
 │   ├── map_script.h / .cpp       The JavaScript calls sent to map.html, built from trip data

@@ -253,7 +253,3 @@ bool exportTripDatasetToKmlFile(const TripDataset& dataset, const QString& fileN
 	}
 	return true;
 }
-
-QString kmlExportFailedText(const QString& fileName, const QString& reason) {
-	return QStringLiteral("Failed to export KML to %1.\n%2").arg(fileName, reason);
-}

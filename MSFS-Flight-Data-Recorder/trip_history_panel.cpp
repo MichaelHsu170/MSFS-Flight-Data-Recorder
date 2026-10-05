@@ -5,6 +5,7 @@
 #include "manage_groups_dialog.h"
 #include "app_settings.h"
 #include "kml_export.h"
+#include "kml_export_dialog.h"
 
 #include <memory>
 #include <optional>
@@ -22,7 +23,6 @@
 #include <QStyleOption>
 #include <QPainter>
 #include <QMessageBox>
-#include <QFileDialog>
 #include <QMap>
 #include <QMetaEnum>
 #include <QSignalBlocker>
@@ -911,8 +911,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	} else if (chosen == exportKmlAction) {
 		const QString baseName = appendDepartureTimestamp(
 			airportPairName(exportKmlDeparture, exportKmlDestination, QStringLiteral("trip")), exportKmlDepartureZulu);
-		const QString fileName = QFileDialog::getSaveFileName(this, QStringLiteral("Export to KML"),
-			baseName + QStringLiteral(".kml"), QStringLiteral("KML File (*.kml)"));
+		const QString fileName = askKmlSaveFileName(this, baseName);
 		if (fileName.isEmpty())
 			return;
 
@@ -924,7 +923,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 			const QString error = watcher->result();
 			watcher->deleteLater();
 			if (!error.isEmpty())
-				QMessageBox::critical(this, QStringLiteral("Error"), kmlExportFailedText(fileName, error));
+				showKmlExportFailed(this, fileName, error);
 		});
 		watcher->setFuture(QtConcurrent::run([tripId, aircraftTitle, departureZuluTime, fileName]() -> QString {
 			DbConnection sql = openForReading(QStringLiteral("export trip %1 to KML").arg(tripId));

@@ -1,10 +1,17 @@
 // KML export (kml_export.cpp): document structure, placemark contents,
-// escaping, event grouping, and write failures.
+// escaping, event grouping, and write failures; and the error box both export
+// menus show (kml_export_dialog.cpp).
+#include "test_support.h"
+
 #include "kml_export.h"
+#include "kml_export_dialog.h"
 
 #include <QFile>
+#include <QMessageBox>
 #include <QTemporaryDir>
 #include <QtTest>
+
+using namespace TestSupport;
 
 namespace {
 
@@ -202,12 +209,22 @@ private slots:
 		QVERIFY(!exportTripDatasetToKmlFile(fullDataset(), dir_.filePath("missing/dir/trip.kml")));
 	}
 
-	void failureTextNamesTheFileAndTheReason() {
-		const QString text = kmlExportFailedText(QStringLiteral("C:/out/trip.kml"), QStringLiteral("Access denied"));
+	void failureBoxIsAnErrorNamingTheFileAndTheReason() {
+		QMessageBox::Icon icon = QMessageBox::NoIcon;
+		QString text;
+		onNextModal([&](QWidget* dialog) {
+			if (auto* box = qobject_cast<QMessageBox*>(dialog)) {
+				icon = box->icon();
+				text = box->text();
+			}
+			clickDialogButton(dialog, QStringLiteral("OK"));
+		});
+		showKmlExportFailed(nullptr, QStringLiteral("C:/out/trip.kml"), QStringLiteral("Access denied"));
+		QCOMPARE(icon, QMessageBox::Critical);
 		QVERIFY(text.contains(QStringLiteral("C:/out/trip.kml")));
 		QVERIFY(text.contains(QStringLiteral("Access denied")));
 	}
 };
 
-QTEST_APPLESS_MAIN(TstKml)
+QTEST_MAIN(TstKml)
 #include "tst_kml.moc"

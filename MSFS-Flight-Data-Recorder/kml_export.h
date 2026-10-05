@@ -10,6 +10,3 @@
 // Returns true on success; on failure returns false and, if errorMessage is
 // non-null, fills it with a human-readable reason.
 bool exportTripDatasetToKmlFile(const TripDataset& dataset, const QString& fileName, QString* errorMessage = nullptr);
-
-// The error box text for an export to fileName that failed with reason.
-QString kmlExportFailedText(const QString& fileName, const QString& reason);

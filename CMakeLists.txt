@@ -69,6 +69,7 @@ set(CORE_SOURCES
     ${SRC_DIR}/map_script.cpp
     ${SRC_DIR}/map_widget.cpp
     ${SRC_DIR}/kml_export.cpp
+    ${SRC_DIR}/kml_export_dialog.cpp
     ${SRC_DIR}/trajectory_view.cpp
     ${SRC_DIR}/main_window.cpp
     ${SRC_DIR}/app_paths.cpp
