@@ -118,9 +118,11 @@ private:
 		bool valid = false;
 	} cache_;
 
-	// Extents of the whole loaded trip. setVisibleRange restores the Y axes to
-	// these on zoom-out.
+	// Extents and X axis range (at least 1 s wide, see ChartSeriesData) of the
+	// whole loaded trip. setVisibleRange restores the axes to these on zoom-out.
 	ChartExtents fullExtents_;
+	QDateTime fullAxisLo_;
+	QDateTime fullAxisHi_;
 	// What the engine power chart is labeled by (setEngine()).
 	EnginePower engine_;
 

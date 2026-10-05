@@ -632,6 +632,26 @@ private slots:
 		QVERIFY(root->property("isFullRangeVisible").toBool());
 	}
 
+	void zoomingOutOfAOneSampleTripKeepsTheTimeAxisOneSecondWide() {
+		ChartsPanel panel;
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
+		QDateTimeAxis* timeAxis = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
+		QVERIFY(timeAxis);
+
+		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
+		TripDataset trip;
+		trip.points = { samplePoint(1, QStringLiteral("2026-03-05T12:00:00.000+00:00_4")) };
+		panel.setDataset(trip);
+		QVERIFY(spy.wait(5000));
+		const qint64 sampleMs = QDateTime(QDate(2026, 3, 5), QTime(12, 0, 0), QTimeZone::UTC).toMSecsSinceEpoch();
+
+		panel.setVisibleRange(0, 0);
+		panel.setVisibleRange(-1, -1);
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), sampleMs);
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), sampleMs + 1000);
+	}
+
 	void setVisibleRangeZoomsToASliceAndIgnoresADuplicateRange() {
 		ChartsPanel panel;
 		QQuickItem* root = shownRoot(panel);

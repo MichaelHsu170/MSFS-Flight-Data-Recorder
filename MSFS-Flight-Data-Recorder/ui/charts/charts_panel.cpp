@@ -198,7 +198,9 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		const int pointCount = (int)pointTimesMs_.size();
 
 		buildSeriesCache();
-		setAllXAxisRange(data.axisLo, data.axisHi);
+		fullAxisLo_ = data.axisLo;
+		fullAxisHi_ = data.axisHi;
+		setAllXAxisRange(fullAxisLo_, fullAxisHi_);
 		fullExtents_ = data.extents;
 		setEngine(engine);
 		setYAxes(fullExtents_);
@@ -271,8 +273,7 @@ void ChartsPanel::setVisibleRange(int startIndex, int endIndex) {
 
 	if (startIndex < 0 || endIndex < 0) {
 		Logger::log(Logger::Trace, "Charts", QStringLiteral("setVisibleRange: full range requested (zoomed all the way out); reloading full-resolution decimated view"));
-		setAllXAxisRange(QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.front()),
-		                 QDateTime::fromMSecsSinceEpoch((qint64)pointTimesMs_.back()));
+		setAllXAxisRange(fullAxisLo_, fullAxisHi_);
 		root->setProperty("isFullRangeVisible", true);
 		setYAxes(fullExtents_);
 		// Replace the zoomed slice with the whole trip's thinned view.
