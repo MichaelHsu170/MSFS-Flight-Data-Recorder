@@ -102,6 +102,16 @@ inline QDateTime parseZuluTime(const QString& value) {
 	return QDateTime::fromString(isoPart, Qt::ISODateWithMs);
 }
 
+// "ICAO (Name)", or just "ICAO" without a name; empty without an ICAO. The
+// one airport label shared by the Trip History table, its delete
+// confirmation and kml_export.cpp's descriptions (resources/map.html's popup
+// builds the same format in JavaScript).
+inline QString airportLabel(const QString& icao, const QString& airportName) {
+	if (icao.isEmpty())
+		return QString();
+	return airportName.isEmpty() ? icao : QStringLiteral("%1 (%2)").arg(icao, airportName);
+}
+
 // "<departure>-<destination>" / "<departure>" / "<destination>" / fallback --
 // shared by MapWidget's default Save Image/KML file name, TripHistoryPanel's
 // row-menu KML file name, and kml_export.cpp's KML document title.

@@ -30,6 +30,12 @@ private slots:
 		QCOMPARE(airportPairName("", "", "fallback"), QStringLiteral("fallback"));
 	}
 
+	void airportLabels() {
+		QCOMPARE(airportLabel("EGLL", "Heathrow"), QStringLiteral("EGLL (Heathrow)"));
+		QCOMPARE(airportLabel("EGLL", ""), QStringLiteral("EGLL"));
+		QCOMPARE(airportLabel("", "Heathrow"), QString());
+	}
+
 	void airportPairFromFirstLiftoffAndLastTouchdown() {
 		LiftoffPoint lo1, lo2;
 		lo1.icao = "AAAA";

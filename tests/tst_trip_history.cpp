@@ -9,6 +9,7 @@
 #include <QComboBox>
 #include <QLabel>
 #include <QMenu>
+#include <QMessageBox>
 #include <QTableView>
 #include <QThread>
 #include <QtTest>
@@ -110,7 +111,7 @@ private slots:
 		QCOMPARE(text(TripHistoryModel::TitleColumn), QStringLiteral("A320"));
 		QCOMPARE(text(TripHistoryModel::FlightColumn), QStringLiteral("AIR 123"));
 		QCOMPARE(text(TripHistoryModel::GroupColumn), QStringLiteral("-"));
-		QCOMPARE(text(TripHistoryModel::DepartureColumn), QStringLiteral("AAAA [Alpha]"));
+		QCOMPARE(text(TripHistoryModel::DepartureColumn), QStringLiteral("AAAA (Alpha)"));
 		QCOMPARE(text(TripHistoryModel::DestinationColumn), QStringLiteral("BBBB"));
 		QCOMPARE(text(TripHistoryModel::DepartureRwyColumn), QStringLiteral("09"));
 		QCOMPARE(text(TripHistoryModel::DestinationRwyColumn), QStringLiteral("-"));
@@ -118,7 +119,7 @@ private slots:
 		QCOMPARE(text(TripHistoryModel::DestinationRegionColumn), QStringLiteral("BB"));
 		QCOMPARE(text(TripHistoryModel::DepartureTimeColumn), QString::fromLatin1(kDep));
 		QCOMPARE(text(TripHistoryModel::DestinationTimeColumn), QString::fromLatin1(kArr));
-		QCOMPARE(model.index(0, TripHistoryModel::DepartureColumn).data(Qt::ToolTipRole).toString(), QStringLiteral("AAAA [Alpha]"));
+		QCOMPARE(model.index(0, TripHistoryModel::DepartureColumn).data(Qt::ToolTipRole).toString(), QStringLiteral("AAAA (Alpha)"));
 		QCOMPARE(model.headerData(TripHistoryModel::TitleColumn, Qt::Horizontal, Qt::DisplayRole).toString(), QStringLiteral("Aircraft"));
 		QCOMPARE(model.headerData(TripHistoryModel::DurationColumn, Qt::Horizontal, Qt::DisplayRole).toString(), QStringLiteral("Duration"));
 		QCOMPARE(model.columnCount(), (int)TripHistoryModel::ColumnCount);
@@ -315,16 +316,24 @@ private slots:
 		QCOMPARE(deselected.count(), 1);
 	}
 
+	// The confirmation names the airports the same way the table does; "-"
+	// where none was found.
 	void cancellingDeleteKeepsTheTrip() {
 		FlightDriver sim;
 		addTrip(1, 0, kDep, kArr);
+		exec("UPDATE trips SET departure_icao='AAAA', departure_name='Alpha' WHERE id=1");
 		TripHistoryPanel panel(sim.bridge());
-		onNextModal([](QWidget* menu) {
-			onNextModal([](QWidget* confirm) { clickDialogButton(confirm, "Cancel"); });
+		QString details;
+		onNextModal([&details](QWidget* menu) {
+			onNextModal([&details](QWidget* confirm) {
+				details = static_cast<QMessageBox*>(confirm)->informativeText();
+				clickDialogButton(confirm, "Cancel");
+			});
 			chooseMenuItem(menu, "Delete Trip");
 		});
 		openRowMenu(view(panel), 0);
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM trips").toInt(), 1);
+		QVERIFY2(details.contains("From: AAAA (Alpha)\nTo: -\n"), qPrintable(details));
 	}
 
 	void setGroupFromTheRowMenu() {

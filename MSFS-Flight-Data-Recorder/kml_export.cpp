@@ -47,12 +47,6 @@ QString descRow(const QString& key, const QString& value) {
 	return QStringLiteral("<b>%1:</b> %2<br/>").arg(xmlEscape(key), xmlEscape(value));
 }
 
-QString airportLabel(const QString& icao, const QString& airportName) {
-	if (icao.isEmpty())
-		return QString();
-	return airportName.isEmpty() ? icao : QStringLiteral("%1 (%2)").arg(icao, airportName);
-}
-
 // A liftoff or touchdown placemark's description. gForceRow (touchdowns only)
 // goes right after V/S. The same rows, in the same order and format, as the
 // map's marker popup (runwayContactPopupHtml() in resources/map.html), which

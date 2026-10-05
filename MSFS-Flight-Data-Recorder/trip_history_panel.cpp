@@ -185,10 +185,10 @@ QVariant TripHistoryModel::data(const QModelIndex& index, int role) const {
 		case FlightColumn: return dashIfEmpty((trip.atcAirline + " " + trip.atcFlightNumber).trimmed());
 		case GroupColumn: return trip.groupId == 0 ? QStringLiteral("-") : dashIfEmpty(trip.groupName);
 		case DepartureRegionColumn: return dashIfEmpty(trip.departureRegion);
-		case DepartureColumn: return dashIfEmpty(trip.departureName.isEmpty() ? trip.departureIcao : trip.departureIcao + " [" + trip.departureName + "]");
+		case DepartureColumn: return dashIfEmpty(airportLabel(trip.departureIcao, trip.departureName));
 		case DepartureRwyColumn: return dashIfEmpty(trip.departureRwy);
 		case DestinationRegionColumn: return dashIfEmpty(trip.destinationRegion);
-		case DestinationColumn: return dashIfEmpty(trip.destinationName.isEmpty() ? trip.destinationIcao : trip.destinationIcao + " [" + trip.destinationName + "]");
+		case DestinationColumn: return dashIfEmpty(airportLabel(trip.destinationIcao, trip.destinationName));
 		case DestinationRwyColumn: return dashIfEmpty(trip.destinationRwy);
 		case DepartureTimeColumn: return dashIfEmpty(trip.departureZuluTime);
 		case DestinationTimeColumn: return dashIfEmpty(trip.destinationZuluTime);
@@ -837,13 +837,8 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		deleteName = rightClickedTrip->title.isEmpty()
 			? QStringLiteral("Trip #%1").arg(rightClickedTrip->id)
 			: rightClickedTrip->title;
-		auto airportLabel = [](const QString& icao, const QString& name) {
-			return icao.isEmpty() ? QStringLiteral("-")
-			     : name.isEmpty() ? icao
-			     : QStringLiteral("%1 (%2)").arg(name, icao);
-		};
-		deleteFrom = airportLabel(rightClickedTrip->departureIcao,   rightClickedTrip->departureName);
-		deleteTo   = airportLabel(rightClickedTrip->destinationIcao, rightClickedTrip->destinationName);
+		deleteFrom = dashIfEmpty(airportLabel(rightClickedTrip->departureIcao,   rightClickedTrip->departureName));
+		deleteTo   = dashIfEmpty(airportLabel(rightClickedTrip->destinationIcao, rightClickedTrip->destinationName));
 	}
 
 	// "Set Group" submenu, listing every group as a checkable action (checked
