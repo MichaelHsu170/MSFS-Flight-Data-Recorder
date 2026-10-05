@@ -83,11 +83,9 @@ EnginePower chartEngine(const std::vector<TripSamplePoint>& points);
 QVariantMap chartEngineSpec(const EnginePower& engine);
 
 // A zulu-time string (parseZuluTime() in trip_dataset.h) as chart X-axis
-// epoch ms. Qt Graphs' DateTimeAxis always labels in local time, so the zulu
-// clock is read as a local time -- the labels then show zulu. Known flaw: in
-// a time zone with daylight saving time, zulu times inside the local clock
-// change hour map wrongly (skipped hour: shifted +1 h, then the axis goes
-// backwards; repeated hour: a 1 h gap). NaN for a string parseZuluTime()
+// epoch ms: the real UTC instant, which charts_panel.qml's time axis labels in
+// UTC, so a trip across the PC's DST change plots and reads as zulu time
+// without a skipped or repeated hour. NaN for a string parseZuluTime()
 // rejects rather than epoch 0 (1970), so a bad point can't drag an axis back
 // to 1970.
 double chartTimeMs(const QString& zuluTime);

@@ -1,9 +1,11 @@
 // Chart data module (chart_data.cpp) on its own: made-up samples in, series
 // points, axis ranges and hover values out.
 #include "chart_data.h"
+#include "local_time_zone.h"
 
 #include <QFile>
 #include <QRegularExpression>
+#include <QTimeZone>
 #include <QtTest>
 
 #include <set>
@@ -16,9 +18,9 @@ QString zulu(int hour, int minute, int second, int ms = 0) {
 		.arg(second, 2, 10, QLatin1Char('0')).arg(ms, 3, 10, QLatin1Char('0'));
 }
 
-// What chartTimeMs() should give: the zulu components read as local time.
-double localMs(int hour, int minute, int second, int ms = 0) {
-	return (double)QDateTime(QDate(2026, 3, 4), QTime(hour, minute, second, ms)).toMSecsSinceEpoch();
+// What chartTimeMs() should give for zulu(): that UTC instant in epoch ms.
+double utcMs(int hour, int minute, int second, int ms = 0) {
+	return (double)QDateTime(QDate(2026, 3, 4), QTime(hour, minute, second, ms), QTimeZone::UTC).toMSecsSinceEpoch();
 }
 
 ChartValues valuesWith(double vs, double ias, double gs, double alt, double fuel, double pitch, double bank) {
@@ -49,6 +51,10 @@ class TstChartData : public QObject {
 	Q_OBJECT
 
 private slots:
+	// Every test runs in a local time zone with DST changes, so none can rely
+	// on local time matching zulu time or on a day without a skipped hour.
+	void initTestCase() { TestSupport::usePacificLocalTime(); }
+
 	void seriesTableMatchesTheQml() {
 		QFile qml(QStringLiteral(CHARTS_QML));
 		QVERIFY(qml.open(QIODevice::ReadOnly));
@@ -89,11 +95,21 @@ private slots:
 			QCOMPARE(v[s], expected[s]);
 	}
 
-	void chartTimeReadsZuluComponentsAsLocalTime() {
-		QCOMPARE(chartTimeMs(zulu(10, 20, 30, 450)), localMs(10, 20, 30, 450));
-		// So the axis labels (local time) show the zulu time.
-		QCOMPARE(QDateTime::fromMSecsSinceEpoch((qint64)chartTimeMs(zulu(23, 59, 59, 999)))
-			.toString(QStringLiteral("HH:mm:ss.zzz")), QStringLiteral("23:59:59.999"));
+	void chartTimeIsTheUtcInstant() {
+		QCOMPARE(chartTimeMs(zulu(10, 20, 30, 450)), 1772619630450.0);
+		QCOMPARE(chartTimeMs(zulu(23, 59, 59, 999)), 1772668799999.0);
+	}
+
+	// US Pacific time skips 02:00-03:00 local on 2026-03-08. Read as local
+	// time, zulu times in that hour would be shifted an hour and the hover
+	// time with them; as UTC instants they keep their order and their time.
+	void chartTimesIgnoreTheLocalDstChange() {
+		QVERIFY(QDateTime(QDate(2026, 3, 8), QTime(2, 30)).time() != QTime(2, 30)); // the zone is in effect
+		QCOMPARE(chartTimeMs(QStringLiteral("2026-03-08T01:59:00.000+00:00_0")), 1772935140000.0);
+		QCOMPARE(chartTimeMs(QStringLiteral("2026-03-08T02:30:00.000+00:00_0")), 1772937000000.0);
+		QCOMPARE(chartTimeMs(QStringLiteral("2026-03-08T03:00:00.000+00:00_0")), 1772938800000.0);
+		QCOMPARE(chartValueMap(1772937000000.0, ChartValues{}).value("timeStr").toString(),
+			QStringLiteral("02:30:00.000 UTC"));
 	}
 
 	void malformedTimeIsNaN() {
@@ -201,9 +217,9 @@ private slots:
 			sample(zulu(10, 0, 0), 0), sample(zulu(10, 0, 1), 1), sample(zulu(10, 0, 2), 2),
 		};
 		const ChartSeriesData data = buildChartSeries(samples);
-		QCOMPARE(data.pointTimesMs, (std::vector<double>{ localMs(10, 0, 0), localMs(10, 0, 1), localMs(10, 0, 2) }));
-		QCOMPARE(data.axisLo.toMSecsSinceEpoch(), (qint64)localMs(10, 0, 0));
-		QCOMPARE(data.axisHi.toMSecsSinceEpoch(), (qint64)localMs(10, 0, 2));
+		QCOMPARE(data.pointTimesMs, (std::vector<double>{ utcMs(10, 0, 0), utcMs(10, 0, 1), utcMs(10, 0, 2) }));
+		QCOMPARE(data.axisLo.toMSecsSinceEpoch(), (qint64)utcMs(10, 0, 0));
+		QCOMPARE(data.axisHi.toMSecsSinceEpoch(), (qint64)utcMs(10, 0, 2));
 		for (int s = 0; s < CHART_SERIES_COUNT; ++s) {
 			QCOMPARE(data.series[s].size(), 3);
 			for (int i = 0; i < 3; ++i)
@@ -225,10 +241,10 @@ private slots:
 		QCOMPARE(data.pointTimesMs.size(), size_t(5));
 		QCOMPARE(data.series[CHART_ALTITUDE].size(), 5);
 		// A leading bad one gets the first valid time; the axis ignores bad ones.
-		QCOMPARE(data.pointTimesMs, (std::vector<double>{ localMs(10, 0, 5), localMs(10, 0, 5), localMs(10, 0, 5),
-			localMs(10, 0, 9), localMs(10, 0, 9) }));
-		QCOMPARE(data.axisLo.toMSecsSinceEpoch(), (qint64)localMs(10, 0, 5));
-		QCOMPARE(data.axisHi.toMSecsSinceEpoch(), (qint64)localMs(10, 0, 9));
+		QCOMPARE(data.pointTimesMs, (std::vector<double>{ utcMs(10, 0, 5), utcMs(10, 0, 5), utcMs(10, 0, 5),
+			utcMs(10, 0, 9), utcMs(10, 0, 9) }));
+		QCOMPARE(data.axisLo.toMSecsSinceEpoch(), (qint64)utcMs(10, 0, 5));
+		QCOMPARE(data.axisHi.toMSecsSinceEpoch(), (qint64)utcMs(10, 0, 9));
 	}
 
 	void singleSampleGetsAOneSecondAxis() {
@@ -296,7 +312,7 @@ private slots:
 			v[s] = s + 0.5;
 		v[CHART_GEAR_ON_GROUND_0] = 1;
 		v[CHART_GEAR_ON_GROUND_1] = 0;
-		const QVariantMap m = chartValueMap(localMs(14, 5, 6, 789), v);
+		const QVariantMap m = chartValueMap(utcMs(14, 5, 6, 789), v);
 		QCOMPARE(m.value("timeStr").toString(), QStringLiteral("14:05:06.789 UTC"));
 		QCOMPARE((int)m.size(), CHART_SERIES_COUNT + 1);
 		QCOMPARE(m.value("ias").toDouble(), CHART_AIRSPEED + 0.5);

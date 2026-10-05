@@ -94,9 +94,35 @@ Item {
         max: new Date(2020, 0, 1, 0, 0, 1)
     }
 
+    // Chart times are UTC instants (chartTimeMs()), so the axis labels them
+    // in UTC: zulu time, whatever the PC's time zone and its DST changes.
+    // Qt Graphs 6.11 draws DateTimeAxis labels in local time whatever its
+    // timeZone, so labelFormat writes the local time with its UTC offset (one
+    // unambiguous instant, even in a repeated DST hour) and the delegate shows
+    // that instant in UTC.
     component SyncedXAxis: DateTimeAxis {
-        labelFormat: "yyyy-MM-dd\nHH:mm:ss.zzz"
+        labelFormat: "yyyy-MM-dd'T'HH:mm:ss.zzzttt"
+        labelDelegate: Item {
+            property string text
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                horizontalAlignment: Text.AlignHCenter
+                text: root.zuluAxisLabel(parent.text)
+                font: chartTheme.axisXLabelFont
+                color: chartTheme.axisX.labelTextColor
+            }
+        }
         titleVisible: false
+    }
+
+    // "yyyy-MM-dd\nHH:mm:ss.zzz" in UTC for an axis label written with its UTC
+    // offset (SyncedXAxis).
+    function zuluAxisLabel(localLabel) {
+        const ms = Date.parse(localLabel)
+        if (isNaN(ms))
+            return localLabel
+        const iso = new Date(ms).toISOString() // "yyyy-MM-ddTHH:mm:ss.sssZ"
+        return iso.slice(0, 10) + "\n" + iso.slice(11, 23)
     }
 
     component CursorLine: Rectangle {

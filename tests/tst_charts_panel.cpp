@@ -3,6 +3,7 @@
 // valueAt() driving the real QML series objects, not the pure chart-data math
 // (already covered standalone in tst_chart_data.cpp).
 #include "charts_panel.h"
+#include "local_time_zone.h"
 
 #include <QDateTimeAxis>
 #include <QJSValue>
@@ -10,10 +11,13 @@
 #include <QQuickWidget>
 #include <QQuickItem>
 #include <QSignalSpy>
+#include <QTimeZone>
 #include <QValueAxis>
 #include <QtTest>
 
 #include <algorithm>
+#include <functional>
+#include <optional>
 
 namespace {
 
@@ -40,9 +44,9 @@ QString zuluAt(int hour, int second) {
 	return QStringLiteral("2026-03-05T%1:00:%2.000+00:00_4").arg(hour, 2, 10, QLatin1Char('0')).arg(second, 2, 10, QLatin1Char('0'));
 }
 
-// Where zuluAt() lands on the time axis: its zulu time read as local time.
-qint64 localMsAt(int hour, int second) {
-	return QDateTime(QDate(2026, 3, 5), QTime(hour, 0, second)).toMSecsSinceEpoch();
+// Where zuluAt() lands on the time axis: that UTC instant in epoch ms.
+qint64 utcMsAt(int hour, int second) {
+	return QDateTime(QDate(2026, 3, 5), QTime(hour, 0, second), QTimeZone::UTC).toMSecsSinceEpoch();
 }
 
 // count samples one second apart from hour:00:00, sample i with every value i.
@@ -101,11 +105,12 @@ int shownAxes(QObject* root) {
 	return shown;
 }
 
-// The tick labels drawn along a chart's left-hand Y axis, top to bottom:
-// the text items of the chart (GraphsView) whose axisY is axis that sit left
-// of its plot and within its height, other than the axis title. Renders a
-// frame first, since Qt Graphs lays the labels out when it draws.
-QStringList leftAxisLabels(ChartsPanel& panel, QValueAxis* axis) {
+// The texts drawn by the chart (GraphsView) whose axisY is axis, other than
+// its title, that sit where `at` (given the text's and the plot's scene
+// rects) accepts, ordered by the key `at` returns for them. Renders a frame
+// first, since Qt Graphs lays the labels out when it draws.
+QStringList chartLabels(ChartsPanel& panel, QValueAxis* axis,
+		const std::function<std::optional<double>(const QRectF& text, const QRectF& plot)>& at) {
 	panel.findChild<QQuickWidget*>()->grabFramebuffer();
 	QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
 	for (QQuickItem* view : root->findChildren<QQuickItem*>()) {
@@ -114,13 +119,13 @@ QStringList leftAxisLabels(ChartsPanel& panel, QValueAxis* axis) {
 		const QRectF plot = view->mapRectToScene(view->property("plotArea").toRectF());
 		QList<std::pair<double, QString>> labels;
 		for (QQuickItem* item : view->findChildren<QQuickItem*>()) {
-			if (!item->isVisible() || item->metaObject()->indexOfProperty("text") < 0)
+			if (!item->isVisible() || !item->inherits("QQuickText"))
 				continue;
 			const QRectF r = item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
 			const QString text = item->property("text").toString();
-			if (r.right() <= plot.left() && r.center().y() >= plot.top() - 1 && r.center().y() <= plot.bottom() + 1
-					&& !text.isEmpty() && text != axis->titleText())
-				labels.append({ r.center().y(), text });
+			const std::optional<double> key = at(r, plot);
+			if (key && !text.isEmpty() && text != axis->titleText())
+				labels.append({ *key, text });
 		}
 		std::sort(labels.begin(), labels.end());
 		QStringList texts;
@@ -129,6 +134,25 @@ QStringList leftAxisLabels(ChartsPanel& panel, QValueAxis* axis) {
 		return texts;
 	}
 	return {};
+}
+
+// The tick labels drawn along the left-hand Y axis of the chart whose axisY
+// is axis, top to bottom.
+QStringList leftAxisLabels(ChartsPanel& panel, QValueAxis* axis) {
+	return chartLabels(panel, axis, [](const QRectF& r, const QRectF& plot) -> std::optional<double> {
+		if (r.right() <= plot.left() && r.center().y() >= plot.top() - 1 && r.center().y() <= plot.bottom() + 1)
+			return r.center().y();
+		return std::nullopt;
+	});
+}
+
+// The time labels drawn under the chart whose axisY is axis, left to right.
+QStringList timeAxisLabels(ChartsPanel& panel, QValueAxis* axis) {
+	return chartLabels(panel, axis, [](const QRectF& r, const QRectF& plot) -> std::optional<double> {
+		if (r.top() >= plot.bottom() - 1 && r.center().x() >= plot.left() - 1 && r.center().x() <= plot.right() + 1)
+			return r.center().x();
+		return std::nullopt;
+	});
 }
 
 // How many charts show their legend.
@@ -153,6 +177,35 @@ class TstChartsPanel : public QObject {
 	Q_OBJECT
 
 private slots:
+	// Every test runs in a local time zone with DST changes, so none can rely
+	// on local time matching zulu time or on a day without a skipped hour.
+	void initTestCase() { TestSupport::usePacificLocalTime(); }
+
+	// US Pacific clocks jump from 02:00 PST to 03:00 PDT at 10:00Z on
+	// 2026-03-08. A trip across that change still reads in zulu time along
+	// the time axis, evenly spaced, with no skipped hour.
+	void timeAxisLabelsAreZuluAcrossTheLocalDstChange() {
+		QVERIFY(QDateTime(QDate(2026, 3, 8), QTime(2, 30)).time() != QTime(2, 30)); // Pacific time is in effect
+		ChartsPanel panel;
+		QQuickItem* root = shownRoot(panel, QSize(900, 400));
+		QVERIFY(root);
+		TripDataset dataset;
+		for (int i = 0; i < 20; ++i)
+			dataset.points.push_back(samplePoint(i, QStringLiteral("2026-03-08T%1.000+00:00_0")
+				.arg(QTime(9, 59, 50).addSecs(i).toString(QStringLiteral("HH:mm:ss")))));
+		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
+		panel.setDataset(dataset);
+		QVERIFY(spy.wait(5000));
+		const QStringList zulu = {
+			QStringLiteral("2026-03-08\n09:59:50.000"), QStringLiteral("2026-03-08\n09:59:52.000"),
+			QStringLiteral("2026-03-08\n09:59:54.000"), QStringLiteral("2026-03-08\n09:59:56.000"),
+			QStringLiteral("2026-03-08\n09:59:58.000"), QStringLiteral("2026-03-08\n10:00:00.000"),
+			QStringLiteral("2026-03-08\n10:00:02.000"), QStringLiteral("2026-03-08\n10:00:04.000"),
+			QStringLiteral("2026-03-08\n10:00:06.000"), QStringLiteral("2026-03-08\n10:00:08.000"),
+		};
+		QCOMPARE(timeAxisLabels(panel, root->findChild<QValueAxis*>(QStringLiteral("vsYAxis"))), zulu);
+	}
+
 	// Engine load series 2-4 re-add series 1's right-hand axis, and Qt Graphs
 	// warns once for each (main.cpp filters these from the log). Any further
 	// one would be an axis wired to a second chart by mistake.
@@ -260,7 +313,7 @@ private slots:
 		second.points = { samplePoint(2, QStringLiteral("2026-03-05T12:00:00.000+00:00_4")) };
 		panel.setDataset(second);
 		QVERIFY(spy.wait(5000));
-		const qint64 secondMs = QDateTime(QDate(2026, 3, 5), QTime(12, 0, 0)).toMSecsSinceEpoch();
+		const qint64 secondMs = QDateTime(QDate(2026, 3, 5), QTime(12, 0, 0), QTimeZone::UTC).toMSecsSinceEpoch();
 		QCOMPARE(pointsInLines(root), 25);
 		// A one-sample trip still gets a 1 s wide axis (chart_data.h).
 		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), secondMs);
@@ -297,8 +350,8 @@ private slots:
 		panel.setDataset(dataset);
 		QVERIFY(spy.wait(5000));
 
-		// t1 on the time axis: its zulu time read as local time.
-		const double t1Ms = (double)QDateTime(QDate(2026, 3, 5), QTime(15, 0, 1)).toMSecsSinceEpoch();
+		// t1 on the time axis: its UTC instant.
+		const double t1Ms = (double)QDateTime(QDate(2026, 3, 5), QTime(15, 0, 1), QTimeZone::UTC).toMSecsSinceEpoch();
 		panel.setCursorIndex(1);
 		QCOMPARE(root->property("cursorTime").toDouble(), t1Ms);
 
@@ -318,7 +371,7 @@ private slots:
 		dataset.points = { samplePoint(1, t0), samplePoint(2, t1) };
 		panel.setDataset(dataset);
 		QVERIFY(spy.wait(5000));
-		const double t1Ms = (double)QDateTime(QDate(2026, 3, 5), QTime(15, 30, 1)).toMSecsSinceEpoch();
+		const double t1Ms = (double)QDateTime(QDate(2026, 3, 5), QTime(15, 30, 1), QTimeZone::UTC).toMSecsSinceEpoch();
 
 		// Reloading the same trip: the old cursor time lies inside the new X
 		// axis range, so a stale value would stay drawn.
@@ -349,7 +402,7 @@ private slots:
 		panel.setCursorIndex(1);
 		QCOMPARE(root->property("cursorTime").toDouble(), -1.0); // not the first trip's sample 1
 		QVERIFY(spy.wait(5000));
-		QCOMPARE(root->property("cursorTime").toDouble(), (double)localMsAt(11, 1));
+		QCOMPARE(root->property("cursorTime").toDouble(), (double)utcMsAt(11, 1));
 
 		// An index for a trip replaced before it loaded isn't applied to the next.
 		panel.setDataset(tripAt(12, 3));
@@ -572,8 +625,8 @@ private slots:
 		panel.setVisibleRange(2, 5);
 		QCOMPARE(pointsInLines(root), 4 * 25);
 		panel.setVisibleRange(-1, -1); // zoomed all the way out: the whole trip again
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(18, 0));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(18, 9));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(18, 0));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(18, 9));
 		QCOMPARE(pointsInLines(root), 10 * 25);
 		QCOMPARE(altAxis->max(), fullAltMax);
 		QVERIFY(root->property("isFullRangeVisible").toBool());
@@ -598,8 +651,8 @@ private slots:
 		QVERIFY(line);
 		QSignalSpy replaced(line, &QXYSeries::pointsReplaced);
 		panel.setVisibleRange(2, 5);
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(19, 2));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(19, 5));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(19, 2));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(19, 5));
 		QCOMPARE(pointsInLines(root), 4 * 25);
 		QVERIFY(altAxis->max() < fullAltMax);
 		QVERIFY(!root->property("isFullRangeVisible").toBool());
@@ -610,8 +663,8 @@ private slots:
 
 		// A single-sample slice is widened by a second so the axis isn't empty.
 		panel.setVisibleRange(3, 3);
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(19, 3));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(19, 4));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(19, 3));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(19, 4));
 		QCOMPARE(pointsInLines(root), 25);
 	}
 
@@ -630,29 +683,29 @@ private slots:
 		panel.setDataset(tripAt(20));
 		QVERIFY(spy.wait(5000));
 		panel.setVisibleRange(2, 5);
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(20, 2));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(20, 5));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(20, 2));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(20, 5));
 		QCOMPARE(speedAxis->max(), 110.0);  // the jet's fixed N1 axis
 
 		panel.setDataset(tripAt(21));
 		panel.setVisibleRange(-1, -1);
 		panel.setVisibleRange(3, 4);
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(20, 2));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(20, 5));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(20, 2));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(20, 5));
 		QCOMPARE(speedAxis->max(), 110.0);
 
 		QVERIFY(spy.wait(5000));
 		// The last range sent while loading.
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(21, 3));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(21, 4));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(21, 3));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(21, 4));
 
 		// A range for a trip replaced before it loaded isn't applied to the next.
 		panel.setDataset(tripAt(22));
 		panel.setVisibleRange(3, 4);
 		panel.setDataset(tripAt(23));
 		QVERIFY(spy.wait(5000));
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(23, 0));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(23, 9));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(23, 0));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(23, 9));
 
 		// The full range, sent while loading or after (Leaflet's second
 		// event), is what loads: not drawn again.
@@ -664,8 +717,8 @@ private slots:
 		QVERIFY(spy.wait(5000));
 		panel.setVisibleRange(-1, -1);
 		QCOMPARE(replaced.count(), 1);
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(19, 0));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(19, 9));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(19, 0));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(19, 9));
 	}
 };
 

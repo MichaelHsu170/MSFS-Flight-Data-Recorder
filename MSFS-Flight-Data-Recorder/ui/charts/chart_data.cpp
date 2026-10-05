@@ -1,6 +1,7 @@
 #include "chart_data.h"
 #include "trip_dataset.h"
 
+#include <QTimeZone>
 #include <QtMath>
 
 #include <algorithm>
@@ -65,7 +66,7 @@ double chartTimeMs(const QString& zuluTime) {
 	const QDateTime zulu = parseZuluTime(zuluTime);
 	if (!zulu.isValid())
 		return qQNaN();
-	return (double)QDateTime(zulu.date(), zulu.time()).toMSecsSinceEpoch(); // local time
+	return (double)zulu.toMSecsSinceEpoch();
 }
 
 namespace {
@@ -207,7 +208,7 @@ int nearestSampleIndex(const std::vector<double>& timesMs, double timeMs) {
 
 QVariantMap chartValueMap(double sampleTimeMs, const ChartValues& values) {
 	QVariantMap m;
-	m[QStringLiteral("timeStr")] = QDateTime::fromMSecsSinceEpoch((qint64)sampleTimeMs)
+	m[QStringLiteral("timeStr")] = QDateTime::fromMSecsSinceEpoch((qint64)sampleTimeMs, QTimeZone::UTC)
 		.toString(QStringLiteral("HH:mm:ss.zzz")) + QStringLiteral(" UTC");
 	for (int s = 0; s < CHART_SERIES_COUNT; ++s) {
 		const QString key = QString::fromLatin1(CHART_SERIES[s].valueKey);
