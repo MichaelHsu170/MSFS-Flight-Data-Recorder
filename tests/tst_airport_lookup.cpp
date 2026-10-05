@@ -88,7 +88,7 @@ QList<QVariantMap> touchdowns(int tripId) {
 // in db.cpp).
 void execOnRecorder(FlightDriver& sim, const QString& sql) {
 	std::lock_guard<std::mutex> lock(sim.status().mutex_db_commit);
-	QCOMPARE(sqlite3_exec(sim.status().sql, sql.toUtf8().constData(), nullptr, nullptr, nullptr), SQLITE_OK);
+	exec(sim.status().sql, sql.toUtf8().constData());
 }
 
 // Every later UPDATE of table fails, until stopFailingUpdates(); inserts and

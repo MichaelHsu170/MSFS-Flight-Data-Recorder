@@ -129,8 +129,8 @@ private slots:
 		addTrip(1);
 		setTripGroup(db_, 1, g);
 		// The ungrouping UPDATE succeeds, then the group's DELETE fails.
-		QCOMPARE(sqlite3_exec(db_, "CREATE TRIGGER block_delete BEFORE DELETE ON trip_groups "
-			"BEGIN SELECT RAISE(ABORT, 'blocked'); END;", nullptr, nullptr, nullptr), SQLITE_OK);
+		exec(db_, "CREATE TRIGGER block_delete BEFORE DELETE ON trip_groups "
+			"BEGIN SELECT RAISE(ABORT, 'blocked'); END;");
 		QVERIFY(!deleteGroup(db_, g));
 		QCOMPARE(groupNames(), (QStringList{ "Training" }));
 		QCOMPARE(groupOfTrip(1).toInt(), g);
@@ -149,15 +149,15 @@ private slots:
 		const int a = insertGroup(db_, "A");
 		const int b = insertGroup(db_, "B");
 		const int c = insertGroup(db_, "C");
-		QCOMPARE(sqlite3_exec(db_, QStringLiteral("CREATE TRIGGER block_c BEFORE UPDATE ON trip_groups WHEN OLD.id = %1 "
-			"BEGIN SELECT RAISE(ABORT, 'blocked'); END;").arg(c).toUtf8().constData(), nullptr, nullptr, nullptr), SQLITE_OK);
+		exec(db_, QStringLiteral("CREATE TRIGGER block_c BEFORE UPDATE ON trip_groups WHEN OLD.id = %1 "
+			"BEGIN SELECT RAISE(ABORT, 'blocked'); END;").arg(c).toUtf8().constData());
 		QVERIFY(!reorderGroups(db_, { b, a, c })); // b and a are updated, then c fails
 		QCOMPARE(groupNames(), (QStringList{ "A", "B", "C" }));
 		QVERIFY(warningLogged(logPath_, { QStringLiteral("reorderGroups"), QStringLiteral("blocked") }));
 	}
 
 	void equalSortOrderFallsBackToName() {
-		QCOMPARE(sqlite3_exec(db_, "INSERT INTO trip_groups (name, sort_order) VALUES ('beta',0),('Alpha',0);", nullptr, nullptr, nullptr), SQLITE_OK);
+		exec(db_, "INSERT INTO trip_groups (name, sort_order) VALUES ('beta',0),('Alpha',0);");
 		QCOMPARE(groupNames(), (QStringList{ "Alpha", "beta" }));
 	}
 };
