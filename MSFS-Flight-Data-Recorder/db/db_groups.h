@@ -8,8 +8,9 @@ struct sqlite3;
 
 // Read/write queries against the trip_groups table and the trips.group_id
 // column. Plain sqlite3 in, plain structs out -- mirrors db_history.h.
-// Callers open/close their own connection (connect_db_readonly() for reads,
-// connect_db_readwrite() for writes), same convention as deleteTripData().
+// Callers open their own connection (a DbConnection, see db_connection.h:
+// openForReading() for reads, openForWriting() for writes), same convention
+// as deleteTripData().
 
 // Ordered by the user-customized sort_order (ties broken alphabetically --
 // only relevant for groups created before the sort_order column existed,
