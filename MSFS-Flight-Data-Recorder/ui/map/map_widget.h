@@ -85,7 +85,8 @@ private:
 	// it's what stops re-saving/re-exporting the same trip later (or two
 	// trips between the same airports) from overwriting the earlier file.
 	QString defaultBaseFileName() const;
-	// Wired to the map context menu's "Export to KML" action.
+	// Wired to the map context menu's "Export to KML" action: exports the
+	// shown trip, loaded again from the database, in the background.
 	void exportKml();
 
 	QWebEngineView* view_;

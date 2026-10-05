@@ -264,7 +264,7 @@ MSFS-Flight-Data-Recorder/
 │   │       └── map.qrc           Qt resource file bundling map.html
 │   └── export/                   KML export
 │       ├── kml_export.h / .cpp   Builds and writes a trip's KML file
-│       └── kml_export_dialog.h/.cpp  Save dialog and error box shared by both Export to KML menus
+│       └── kml_export_dialog.h/.cpp  Export to KML for both menus: save dialog, background export, error box
 ├── tests/                        Automated tests (Qt Test + CTest) -- see tests/README.md
 │   ├── fake_simconnect.h / .cpp  Stand-in for SimConnect.lib driven by made-up packets
 │   ├── test_support.h / .cpp     Packet builders, FlightDriver, fake airport world, DB/dialog/mouse helpers

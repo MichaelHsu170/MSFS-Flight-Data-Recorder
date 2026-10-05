@@ -1,7 +1,6 @@
 #include "map_widget.h"
 #include "map_bridge.h"
 #include "app_settings.h"
-#include "kml_export.h"
 #include "kml_export_dialog.h"
 #include "map_script.h"
 #include "version.h"
@@ -296,11 +295,7 @@ void MapWidget::exportKml() {
 	// The menu only offers this with a trip loaded, but it's a non-modal
 	// popup: the map can switch to the overview while it's still open.
 	if (!dataset_) return;
-	const QString fileName = askKmlSaveFileName(this, defaultBaseFileName());
-	if (fileName.isEmpty()) return;
-	QString error;
-	if (!exportTripDatasetToKmlFile(*dataset_, fileName, &error))
-		showKmlExportFailed(this, fileName, error);
+	exportTripToKml(this, defaultBaseFileName(), dataset_->tripId, dataset_->aircraftTitle, dataset_->departureZuluTime);
 }
 
 void MapWidget::onLoadFinished(bool ok) {

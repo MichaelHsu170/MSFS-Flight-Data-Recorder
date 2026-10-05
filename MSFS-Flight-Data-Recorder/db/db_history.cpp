@@ -291,6 +291,22 @@ void resolveEventPositions(TripDataset& dataset) {
 	}
 }
 
+TripDataset tripSamples(sqlite3* sql, int tripId, const QString& aircraftTitle, const QString& departureZuluTime) {
+	TripDataset dataset = sql ? queryTripData(sql, tripId) : TripDataset();
+	dataset.tripId = tripId;
+	dataset.aircraftTitle = aircraftTitle;
+	dataset.departureZuluTime = departureZuluTime;
+	return dataset;
+}
+
+void completeTripDataset(TripDataset& dataset, std::vector<LiftoffPoint> liftoffPoints,
+	std::vector<TouchdownPoint> touchdowns, std::vector<TripEvent> events) {
+	dataset.liftoffPoints = std::move(liftoffPoints);
+	dataset.touchdowns = std::move(touchdowns);
+	dataset.events = std::move(events);
+	resolveEventPositions(dataset);
+}
+
 bool deleteTripData(sqlite3* sql, int tripId) {
 	// Child tables first (trip_data is largest), then the trip row itself.
 	const char* stmts[] = {

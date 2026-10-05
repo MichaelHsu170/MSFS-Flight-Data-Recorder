@@ -38,6 +38,15 @@ std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId);
 // and timezone). Call after populating dataset.points and dataset.events.
 void resolveEventPositions(TripDataset& dataset);
 
+// A trip's dataset is put together the same way whether Trip History loads it
+// for display (its parts in parallel) or a KML export does (in one go):
+// tripSamples() first, then completeTripDataset() with the rest.
+// The trip's samples (none without a connection), named after the trip.
+TripDataset tripSamples(sqlite3* sql, int tripId, const QString& aircraftTitle, const QString& departureZuluTime);
+// Adds the liftoffs, touchdowns and events, placing each event on the trajectory.
+void completeTripDataset(TripDataset& dataset, std::vector<LiftoffPoint> liftoffPoints,
+	std::vector<TouchdownPoint> touchdowns, std::vector<TripEvent> events);
+
 // Deletes all rows in trip_data, trip_events, trip_liftoffs, trip_touchdowns,
 // and trips for the given trip id. Caller opens and closes the (readwrite) connection.
 // Returns true on success.

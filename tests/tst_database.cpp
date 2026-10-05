@@ -682,6 +682,39 @@ private slots:
 		QCOMPARE(dataset.events[0].sampleIndex, -1);
 	}
 
+	void tripSamplesAreNamedAfterTheTrip() {
+		sqlite3* db = freshDatabase();
+		const TripDataset loaded = tripSamples(db, 4, QStringLiteral("Cessna"), QStringLiteral("z0"));
+		sqlite3_close(db);
+		const TripDataset none = tripSamples(nullptr, 5, QStringLiteral("Piper"), QStringLiteral("z1"));
+		QCOMPARE(loaded.tripId, 4);
+		QCOMPARE(loaded.aircraftTitle, QStringLiteral("Cessna"));
+		QCOMPARE(loaded.departureZuluTime, QStringLiteral("z0"));
+		QCOMPARE(none.tripId, 5);
+		QCOMPARE(none.aircraftTitle, QStringLiteral("Piper"));
+		QCOMPARE(none.departureZuluTime, QStringLiteral("z1"));
+		QVERIFY(none.points.empty());
+	}
+
+	void completingADatasetAddsItsPartsAndPlacesEvents() {
+		TripDataset dataset;
+		dataset.points = { point("2026-01-01T10:00:00.000", 1), point("2026-01-01T10:00:01.000", 2) };
+		LiftoffPoint liftoff;
+		liftoff.icao = "AAAA";
+		TouchdownPoint touchdown;
+		touchdown.icao = "BBBB";
+		TripEvent event;
+		event.zuluTime = "2026-01-01T10:00:00.500";
+		completeTripDataset(dataset, { liftoff }, { touchdown }, { event });
+		QCOMPARE(dataset.liftoffPoints.size(), size_t(1));
+		QCOMPARE(dataset.liftoffPoints[0].icao, QStringLiteral("AAAA"));
+		QCOMPARE(dataset.touchdowns.size(), size_t(1));
+		QCOMPARE(dataset.touchdowns[0].icao, QStringLiteral("BBBB"));
+		QCOMPARE(dataset.events.size(), size_t(1));
+		QCOMPARE(dataset.events[0].sampleIndex, 1);
+		QCOMPARE(dataset.events[0].latitude, 2.0);
+	}
+
 	void deletingATripRemovesOnlyItsRows() {
 		sqlite3* db = freshDatabase();
 		for (int trip : { 1, 2 }) {

@@ -4,7 +4,6 @@
 #include "db_groups.h"
 #include "manage_groups_dialog.h"
 #include "app_settings.h"
-#include "kml_export.h"
 #include "kml_export_dialog.h"
 #include "logger.h"
 
@@ -94,27 +93,6 @@ QString formatDuration(const QString& departureZuluTime, const QString& destinat
 // number assigned, etc).
 QString dashIfEmpty(const QString& value) {
 	return value.trimmed().isEmpty() ? QStringLiteral("-") : value;
-}
-
-// A trip's dataset is put together the same way whether onRowActivated()
-// loads it (its parts in parallel) or the row menu's Export to KML does (in
-// one go): tripSamples() first, then completeTripDataset() with the rest.
-// The trip's samples (none without a connection), named after the trip.
-TripDataset tripSamples(sqlite3* sql, int tripId, const QString& aircraftTitle, const QString& departureZuluTime) {
-	TripDataset dataset = sql ? queryTripData(sql, tripId) : TripDataset();
-	dataset.tripId = tripId;
-	dataset.aircraftTitle = aircraftTitle;
-	dataset.departureZuluTime = departureZuluTime;
-	return dataset;
-}
-
-// Adds the liftoffs, touchdowns and events, placing each event on the trajectory.
-void completeTripDataset(TripDataset& dataset, std::vector<LiftoffPoint> liftoffPoints,
-	std::vector<TouchdownPoint> touchdowns, std::vector<TripEvent> events) {
-	dataset.liftoffPoints = std::move(liftoffPoints);
-	dataset.touchdowns = std::move(touchdowns);
-	dataset.events = std::move(events);
-	resolveEventPositions(dataset);
 }
 
 }
@@ -818,8 +796,12 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	menu.setStyle(&redStyle);
 
 	// Identify the right-clicked row up front — used by both action groups below.
+	// Copied, not pointed at: menu.exec() runs a nested event loop, and a
+	// tripUpdated/recordingStateChanged signal delivered while the menu is open
+	// can reallocate the model's backing vector.
 	QModelIndex index = table_->indexAt(pos);
-	const TripSummary* rightClickedTrip = index.isValid() ? model_->tripAt(index.row()) : nullptr;
+	const TripSummary* rowTrip = index.isValid() ? model_->tripAt(index.row()) : nullptr;
+	const std::optional<TripSummary> rightClickedTrip = rowTrip ? std::optional<TripSummary>(*rowTrip) : std::nullopt;
 
 	// Deselect / Reset Zoom — only when right-clicking the currently selected row.
 	QAction* deselectAction = nullptr;
@@ -832,34 +814,13 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	// "Export to KML" / row-specific "Delete Trip" at the bottom — only for the
 	// right-clicked, non-Live row (can't export/delete a still-recording trip).
 	QAction* exportKmlAction = nullptr;
-	int exportKmlTripId = -1;
-	QString exportKmlAircraftTitle;
-	QString exportKmlDeparture;
-	QString exportKmlDestination;
-	QString exportKmlDepartureZulu;
 	QAction* deleteAction = nullptr;
-	int deleteId = -1;
-	QString deleteName;
-	QString deleteFrom;
-	QString deleteTo;
 	if (rightClickedTrip && rightClickedTrip->status != TripStatus::Live) {
 		if (!menu.isEmpty())
 			menu.addSeparator();
 		exportKmlAction = menu.addAction(QStringLiteral("Export to KML"));
-		exportKmlTripId = rightClickedTrip->id;
-		exportKmlAircraftTitle = rightClickedTrip->title;
-		exportKmlDeparture = rightClickedTrip->departureIcao;
-		exportKmlDestination = rightClickedTrip->destinationIcao;
-		exportKmlDepartureZulu = rightClickedTrip->departureZuluTime;
-
 		menu.addSeparator();
 		deleteAction = menu.addAction(QStringLiteral("Delete Trip"));
-		deleteId = rightClickedTrip->id;
-		deleteName = rightClickedTrip->title.isEmpty()
-			? QStringLiteral("Trip #%1").arg(rightClickedTrip->id)
-			: rightClickedTrip->title;
-		deleteFrom = dashIfEmpty(airportLabel(rightClickedTrip->departureIcao,   rightClickedTrip->departureName));
-		deleteTo   = dashIfEmpty(airportLabel(rightClickedTrip->destinationIcao, rightClickedTrip->destinationName));
 	}
 
 	// "Set Group" submenu, listing every group as a checkable action (checked
@@ -868,11 +829,6 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	QAction* ungroupedAction = nullptr;
 	QAction* manageGroupsAction = nullptr;
 	QMap<QAction*, int> groupActionIds;
-	// Captured up front (not read from rightClickedTrip after menu.exec()) because
-	// menu.exec() runs a nested event loop; a tripUpdated/recordingStateChanged
-	// signal delivered while the menu is open can reallocate the model's backing
-	// vector and dangle rightClickedTrip.
-	const int rightClickedTripId = rightClickedTrip ? rightClickedTrip->id : -1;
 	// Only guard "Set Group" against the right-clicked row when some other row
 	// is actually selected (guard against retargeting the selected trip's map/
 	// chart view via an unrelated row's context menu). With no selection at
@@ -909,39 +865,19 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		return;
 
 	if (chosen == ungroupedAction) {
-		setTripGroupFromUi(rightClickedTripId, 0);
+		setTripGroupFromUi(rightClickedTrip->id, 0);
 	} else if (chosen == manageGroupsAction) {
 		openManageGroupsDialog();
 	} else if (groupActionIds.contains(chosen)) {
-		setTripGroupFromUi(rightClickedTripId, groupActionIds.value(chosen));
+		setTripGroupFromUi(rightClickedTrip->id, groupActionIds.value(chosen));
 	} else if (chosen == exportKmlAction) {
-		const QString baseName = appendDepartureTimestamp(
-			airportPairName(exportKmlDeparture, exportKmlDestination, QStringLiteral("trip")), exportKmlDepartureZulu);
-		const QString fileName = askKmlSaveFileName(this, baseName);
-		if (fileName.isEmpty())
-			return;
-
-		int tripId = exportKmlTripId;
-		QString aircraftTitle = exportKmlAircraftTitle;
-		QString departureZuluTime = exportKmlDepartureZulu;
-		auto* watcher = new QFutureWatcher<QString>(this);
-		connect(watcher, &QFutureWatcher<QString>::finished, this, [this, watcher, fileName]() {
-			const QString error = watcher->result();
-			watcher->deleteLater();
-			if (!error.isEmpty())
-				showKmlExportFailed(this, fileName, error);
-		});
-		watcher->setFuture(QtConcurrent::run([tripId, aircraftTitle, departureZuluTime, fileName]() -> QString {
-			DbConnection sql = openForReading(QStringLiteral("export trip %1 to KML").arg(tripId));
-			if (!sql)
-				return QStringLiteral("Could not open the trip database.");
-			TripDataset dataset = tripSamples(sql.get(), tripId, aircraftTitle, departureZuluTime);
-			completeTripDataset(dataset, queryLiftoffs(sql.get(), tripId), queryTouchdowns(sql.get(), tripId), queryEvents(sql.get(), tripId));
-			QString error;
-			exportTripDatasetToKmlFile(dataset, fileName, &error);
-			return error;
-		}));
+		const TripSummary& trip = *rightClickedTrip;
+		exportTripToKml(this,
+			appendDepartureTimestamp(airportPairName(trip.departureIcao, trip.destinationIcao, QStringLiteral("trip")), trip.departureZuluTime),
+			trip.id, trip.title, trip.departureZuluTime);
 	} else if (chosen == deleteAction) {
+		const TripSummary& trip = *rightClickedTrip;
+		const int deleteId = trip.id;
 		// Re-check right before deleting (not just via the TripStatus::Live
 		// filter that built the menu): a trip that just stopped recording can
 		// still have samples draining onto the DB-write thread even though it
@@ -956,7 +892,9 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		confirm.setText(QStringLiteral("Delete the trip?"));
 		confirm.setInformativeText(
 			QStringLiteral("Aircraft: %1\nFrom: %2\nTo: %3\n\nAll flight data for this trip will be permanently deleted.")
-				.arg(deleteName, deleteFrom, deleteTo));
+				.arg(trip.title.isEmpty() ? QStringLiteral("Trip #%1").arg(trip.id) : trip.title,
+					dashIfEmpty(airportLabel(trip.departureIcao, trip.departureName)),
+					dashIfEmpty(airportLabel(trip.destinationIcao, trip.destinationName))));
 		confirm.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
 		confirm.setDefaultButton(QMessageBox::Cancel);
 		confirm.setIcon(QMessageBox::Warning);
