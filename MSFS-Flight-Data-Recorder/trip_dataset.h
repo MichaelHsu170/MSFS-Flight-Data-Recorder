@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QString>
 #include <QtGlobal>
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -31,13 +32,12 @@ struct TripSamplePoint {
 	QString localTime;
 
 	// Raw values for all TRIP_DATA_NUM_FIELDS entries, in macro-list order.
-	// Raw bool groups (bit-packed ints) for all TRIP_DATA_BOOL_FIELDS entries.
+	// Raw bool groups (bit-packed ints) for all TRIP_DATA_BOOL_FIELDS entries,
+	// indexed by group number as tripBoolGroups() returns them ([0] unused).
 	// DataTablePanel formats these to strings on demand for the one point it
 	// is currently displaying, avoiding ~7M QString constructions per load.
 	std::vector<double> rawNums;
-	uint32_t boolGroup1 = 0;
-	uint32_t boolGroup2 = 0;
-	uint32_t boolGroup3 = 0;
+	std::array<uint32_t, 4> boolGroups{};
 };
 
 // What a liftoff and a touchdown both record (trip_liftoffs/trip_touchdowns

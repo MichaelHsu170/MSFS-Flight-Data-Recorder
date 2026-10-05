@@ -37,9 +37,9 @@ TripSamplePoint makePoint(double base, const char* zulu) {
 		p.rawNums.push_back(base + i);
 	p.rawNums[numIndex("gps_position_lat")] = 43.5;
 	p.rawNums[numIndex("gps_position_lon")] = -1.25;
-	p.boolGroup1 = 0x1;        // autopilot_airspeed_hold only
-	p.boolGroup2 = 1u << 30;   // general_eng_generator_switch_2 only
-	p.boolGroup3 = 1u << 31;   // kohlsman_setting_std only
+	p.boolGroups[1] = 0x1;        // autopilot_airspeed_hold only
+	p.boolGroups[2] = 1u << 30;   // general_eng_generator_switch_2 only
+	p.boolGroups[3] = 1u << 31;   // kohlsman_setting_std only
 	return p;
 }
 

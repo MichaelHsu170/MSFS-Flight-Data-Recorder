@@ -273,9 +273,8 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 			for (int i = 0; i < MAX_ENGINES; ++i)
 				setValue(row++, formatEngineValue(quantity, *values, i, point.engine.count));
 		}
-		const std::array<uint32_t, 4> boolGroups = { 0, point.boolGroup1, point.boolGroup2, point.boolGroup3 };
 #define TRIP_BOOL_DISP(name, group, bit) \
-		setValue(row++, TripBoolBit{ group, bit }.isSet(boolGroups) ? QStringLiteral("Yes") : QStringLiteral("No"));
+		setValue(row++, TripBoolBit{ group, bit }.isSet(point.boolGroups) ? QStringLiteral("Yes") : QStringLiteral("No"));
 		TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_DISP)
 #undef TRIP_BOOL_DISP
 	}

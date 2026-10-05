@@ -166,15 +166,15 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 
 	forEachRow(sql, stmt, context, [&](sqlite3_stmt*) {
 		TripSamplePoint point;
-		const std::array<uint32_t, 4> boolGroups = { 0, (uint32_t)colInt(idxBoolGroup1),
+		point.boolGroups = { 0, (uint32_t)colInt(idxBoolGroup1),
 			(uint32_t)colInt(idxBoolGroup2), (uint32_t)colInt(idxBoolGroup3) };
 		point.gearHandlePosition = colDouble(idxGearHandlePosition);
 		point.gearPosition[0] = colInt(idxGearPosition0);
 		point.gearPosition[1] = colInt(idxGearPosition1);
 		point.gearPosition[2] = colInt(idxGearPosition2);
-		point.gearOnGround[0] = TripBoolBits::gear_is_on_ground_0.isSet(boolGroups);
-		point.gearOnGround[1] = TripBoolBits::gear_is_on_ground_1.isSet(boolGroups);
-		point.gearOnGround[2] = TripBoolBits::gear_is_on_ground_2.isSet(boolGroups);
+		point.gearOnGround[0] = TripBoolBits::gear_is_on_ground_0.isSet(point.boolGroups);
+		point.gearOnGround[1] = TripBoolBits::gear_is_on_ground_1.isSet(point.boolGroups);
+		point.gearOnGround[2] = TripBoolBits::gear_is_on_ground_2.isSet(point.boolGroups);
 		point.latitude = colDouble(idxLatitude);
 		point.longitude = colDouble(idxLongitude);
 		point.altitude = colInt(idxAltitude);
@@ -196,9 +196,6 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 		point.rawNums.reserve(numFieldIndices.size());
 		for (int idx : numFieldIndices)
 			point.rawNums.push_back(colDouble(idx));
-		point.boolGroup1 = boolGroups[1];
-		point.boolGroup2 = boolGroups[2];
-		point.boolGroup3 = boolGroups[3];
 
 		dataset.points.push_back(point);
 		return true;

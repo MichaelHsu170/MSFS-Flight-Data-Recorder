@@ -368,9 +368,8 @@ private slots:
 		QCOMPARE((int)p.rawNums.size(), i);
 
 		const std::array<uint32_t, 4> groups = tripBoolGroups(expected);
-		QCOMPARE(p.boolGroup1, groups[1]);
-		QCOMPARE(p.boolGroup2, groups[2]);
-		QCOMPARE(p.boolGroup3, groups[3]);
+		for (int g = 1; g <= 3; ++g)
+			QCOMPARE(p.boolGroups[g], groups[g]);
 
 		// The named fields, as the map, charts and data table read them.
 		QCOMPARE(p.latitude, expected.plane_coordinate.latitude);
