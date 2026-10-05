@@ -145,20 +145,17 @@ const std::vector<TableDef>& database_tables() {
 
 }
 
-// Logs and throws db_exception for a failed statement: an SQLite error code
-// (sql_ret != 0) and/or an error message from sqlite3_exec (freed here).
+// Logs and throws db_exception for a failed statement, naming the error
+// message from sqlite3_exec (freed here) if given, else the SQLite error code.
 static void db_error(const char* stmt_txt, int sql_ret, char** errmsg) {
-	std::string msg;
-	if (sql_ret != 0) {
-		msg = std::string("db operation \"") + stmt_txt + "\" failed with error " + std::to_string(sql_ret);
-		log_c(1, "DB", msg.c_str());
-	}
+	std::string error = std::to_string(sql_ret);
 	if (errmsg != NULL && *errmsg != NULL) {
-		msg = std::string("db operation \"") + stmt_txt + "\" failed with error " + *errmsg;
-		log_c(1, "DB", msg.c_str());
+		error = *errmsg;
 		sqlite3_free(*errmsg);
 		*errmsg = NULL;
 	}
+	const std::string msg = std::string("db operation \"") + stmt_txt + "\" failed with error " + error;
+	log_c(1, "DB", msg.c_str());
 	throw db_exception(msg);
 }
 
@@ -914,7 +911,8 @@ static bool migrate_local_time_offsets(sqlite3* sql) {
 	static const std::pair<const char*, const char*> kLocalTimes[] = {
 		{ "trips", "departure_local_time" }, { "trips", "destination_local_time" },
 		{ "trip_data", "local_time" }, { "trip_events", "time_local" },
-		{ "trip_liftoffs", "time_local" }, { "trip_touchdowns", "time_local" },
+		{ contactTableName(CONTACT_TABLE::LIFTOFFS), "time_local" },
+		{ contactTableName(CONTACT_TABLE::TOUCHDOWNS), "time_local" },
 	};
 	bool ok = exec_sql(sql, "BEGIN TRANSACTION;");
 	for (const auto& [table, column] : kLocalTimes) {
