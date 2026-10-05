@@ -126,6 +126,9 @@ private:
 	// Forgets the selected trip and unhighlights its row; the caller decides
 	// whether the map gets the overview (tripDeselected).
 	void clearTripSelection();
+	// clearTripSelection(), then shows the overview map for the trips in the
+	// table (tripDeselected).
+	void deselectTrip();
 	// refreshTrips(), then, if no trip is selected (the overview map is on
 	// screen), re-sends the overview its trips. changedTripId, if it's the
 	// selected trip, is deselected first -- it may have been deleted or left

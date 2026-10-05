@@ -418,8 +418,7 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 		// a previously selected trip may not even be in it anymore, so drop
 		// the selection and show the overview map for the newly filtered set
 		// instead, keeping the map aligned with the table.
-		clearTripSelection();
-		emit tripDeselected(model_->trips());
+		deselectTrip();
 	});
 
 	reloadGroupFilterCombo();
@@ -529,6 +528,11 @@ bool TripHistoryPanel::refuseWhileFlushing(int tripId, const char* action) {
 void TripHistoryPanel::clearTripSelection() {
 	selectedTripId_ = -1;
 	table_->clearSelection();
+}
+
+void TripHistoryPanel::deselectTrip() {
+	clearTripSelection();
+	emit tripDeselected(model_->trips());
 }
 
 void TripHistoryPanel::refreshTripsAndOverview(int changedTripId) {
@@ -980,8 +984,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		// the selected one.
 		refreshTripsAndOverview(deleteId);
 	} else if (chosen == deselectAction) {
-		clearTripSelection();
-		emit tripDeselected(model_->trips());
+		deselectTrip();
 	} else if (chosen == resetZoomAction) {
 		emit zoomResetRequested();
 	}
