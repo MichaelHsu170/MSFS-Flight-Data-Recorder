@@ -6,8 +6,6 @@
 
 #include <QtTest>
 
-#include <algorithm>
-
 using namespace TestSupport;
 
 namespace {
@@ -218,11 +216,7 @@ private slots:
 		// The trace's key facts (which runway, which end, the verdict), not its
 		// exact wording.
 		QStringList lines;
-		const auto hasLine = [&lines](const QStringList& parts) {
-			return std::any_of(lines.begin(), lines.end(), [&parts](const QString& line) {
-				return std::all_of(parts.begin(), parts.end(), [&line](const QString& p) { return line.contains(p); });
-			});
-		};
+		const auto hasLine = [&lines](const QStringList& parts) { return anyLineWith(lines, parts); };
 		match(a.airport, pointOnRunway(r, 1000, 5), 90, true, &lines);
 		QVERIFY(hasLine({ "09L/27R", "hit" }));
 		QVERIFY(hasLine({ "09L/27R", "pass" }));

@@ -34,10 +34,12 @@ void removeSettings();
 // timeoutMs elapses. Returns cond()'s final value.
 bool waitFor(const std::function<bool()>& cond, int timeoutMs = 10000);
 
+// Whether one of lines contains every one of parts. Tests match a message's
+// key facts (ids, counts, names), not its exact wording.
+bool anyLineWith(const QStringList& lines, const QStringList& parts);
 // The last line in log (a spy on a QString signal such as
 // RecorderBridge::logMessage) that contains every one of parts, or an empty
-// string. Tests match a message's key facts (ids, counts, names), not its
-// exact wording.
+// string.
 QString lastLogWith(const QSignalSpy& log, const QStringList& parts);
 // Whether the log file at logPath (one the test passed to Logger::init) has a
 // line of level levelTag (as the file shows it: "FATAL", "WARN ", ...) that
@@ -86,6 +88,9 @@ void exec(const char* sql);
 // these filled, through exec(): groupId 0 is no group, a null
 // destinationZulu an open trip.
 void addTrip(int id, int groupId = 0, const char* departureZulu = "z", const char* destinationZulu = nullptr);
+// Adds a group through the app's insertGroup() on a fresh read-write
+// connection and returns its id; a failure fails the current test.
+int addGroup(const char* name);
 // Creates flight_data.db with only a trip_data from before engine_speed/
 // engine_load: N1/N2 of engines 1-2 in their own columns, 5 rows.
 void createLegacyTripData();

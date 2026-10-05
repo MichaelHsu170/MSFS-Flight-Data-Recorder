@@ -2,6 +2,7 @@
 
 #include "app_settings.h"
 #include "db.h"
+#include "db_groups.h"
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -50,11 +51,23 @@ bool waitFor(const std::function<bool()>& cond, int timeoutMs) {
 	return true;
 }
 
+namespace {
+
+bool containsAll(const QString& line, const QStringList& parts) {
+	return std::all_of(parts.begin(), parts.end(), [&line](const QString& part) { return line.contains(part); });
+}
+
+}
+
+bool anyLineWith(const QStringList& lines, const QStringList& parts) {
+	return std::any_of(lines.begin(), lines.end(), [&parts](const QString& line) { return containsAll(line, parts); });
+}
+
 QString lastLogWith(const QSignalSpy& log, const QStringList& parts) {
 	QString found;
 	for (const QList<QVariant>& args : log) {
 		const QString line = args.value(0).toString();
-		if (std::all_of(parts.begin(), parts.end(), [&line](const QString& part) { return line.contains(part); }))
+		if (containsAll(line, parts))
 			found = line;
 	}
 	return found;
@@ -65,11 +78,7 @@ bool lineLogged(const QString& logPath, const char* levelTag, const QStringList&
 	if (!f.open(QIODevice::ReadOnly))
 		return false;
 	const QString tag = QStringLiteral("[%1]").arg(QLatin1String(levelTag));
-	const QStringList lines = QString::fromUtf8(f.readAll()).split('\n');
-	return std::any_of(lines.begin(), lines.end(), [&tag, &parts](const QString& line) {
-		return line.contains(tag)
-			&& std::all_of(parts.begin(), parts.end(), [&line](const QString& part) { return line.contains(part); });
-	});
+	return anyLineWith(QString::fromUtf8(f.readAll()).split('\n'), parts + QStringList{ tag });
 }
 
 bool warningLogged(const QString& logPath, const QStringList& parts) {
@@ -210,6 +219,15 @@ void addTrip(int id, int groupId, const char* departureZulu, const char* destina
 		.arg(id).arg(departureZulu).arg(destinationZulu ? QStringLiteral("'%1'").arg(destinationZulu) : QStringLiteral("NULL"))
 		.arg(groupId ? QString::number(groupId) : QStringLiteral("NULL"));
 	exec(sql.toUtf8().constData());
+}
+
+int addGroup(const char* name) {
+	sqlite3* db = connect_db_readwrite();
+	const int id = insertGroup(db, name);
+	sqlite3_close(db);
+	if (id <= 0)
+		QTest::qFail(qPrintable(QStringLiteral("could not add group %1").arg(name)), __FILE__, __LINE__);
+	return id;
 }
 
 void createLegacyTripData() {

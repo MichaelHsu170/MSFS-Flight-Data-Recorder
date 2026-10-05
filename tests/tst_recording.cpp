@@ -450,7 +450,7 @@ private slots:
 		sim.simEvent(EVENT_SIM, 0);
 		QVERIFY(!sim.bridge().isRecording());
 		QVERIFY(waitFor([&sim, tripId] { return !sim.bridge().isTripFlushing(tripId); }));
-		QVERIFY(!queryValue(QStringLiteral("SELECT destination_zulu_time FROM trips WHERE id=%1").arg(tripId)).isNull());
+		QVERIFY(!tripRow(tripId)["destination_zulu_time"].isNull());
 	}
 
 	void closingTheAppEndsTheTrip() {
@@ -460,7 +460,7 @@ private slots:
 			tripId = sim.startTrip();
 			sim.tick();
 		}
-		QVERIFY(!queryValue(QStringLiteral("SELECT destination_zulu_time FROM trips WHERE id=%1").arg(tripId)).isNull());
+		QVERIFY(!tripRow(tripId)["destination_zulu_time"].isNull());
 		QCOMPARE(sampleCount(tripId), 2);
 	}
 
@@ -471,7 +471,7 @@ private slots:
 		sim.pump();
 		QVERIFY(!sim.bridge().isRecording());
 		QVERIFY(waitFor([&sim, tripId] { return !sim.bridge().isTripFlushing(tripId); }));
-		QVERIFY(!queryValue(QStringLiteral("SELECT destination_zulu_time FROM trips WHERE id=%1").arg(tripId)).isNull());
+		QVERIFY(!tripRow(tripId)["destination_zulu_time"].isNull());
 	}
 
 	void secondTripGetsItsOwnRows() {
@@ -538,7 +538,7 @@ private slots:
 		QCOMPARE(sim.bridge().currentTripId(), -1);
 		QVERIFY(waitFor([&ended] { return ended.count() == 1; }));
 		QVERIFY(!lastLogWith(log, { QStringLiteral("destination time"), QStringLiteral("trip %1").arg(tripId) }).isEmpty());
-		QVERIFY(queryValue(QStringLiteral("SELECT destination_zulu_time FROM trips WHERE id=%1").arg(tripId)).isNull());
+		QVERIFY(tripRow(tripId)["destination_zulu_time"].isNull());
 	}
 
 	// --- RecorderBridge guards ---

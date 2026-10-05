@@ -45,12 +45,6 @@ private:
 		sqlite3_close(db);
 		return out;
 	}
-	static int addGroup(const char* name) {
-		sqlite3* db = connect_db_readwrite();
-		const int id = insertGroup(db, name);
-		sqlite3_close(db);
-		return id;
-	}
 	// Stores the text of the next message box in *message and closes it.
 	static void captureNextMessage(QString* message) {
 		onNextModal([message](QWidget* box) {

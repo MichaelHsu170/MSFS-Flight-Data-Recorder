@@ -3,8 +3,6 @@
 #include "test_support.h"
 
 #include "app_settings.h"
-#include "db_connection.h"
-#include "db_groups.h"
 #include "trip_history_panel.h"
 
 #include <QApplication>
@@ -209,10 +207,8 @@ private slots:
 
 	void groupFilterNarrowsTableAndOverview() {
 		FlightDriver sim;
-		sqlite3* db = connect_db_readwrite();
-		const int training = insertGroup(db, "Training");
-		insertGroup(db, "Ops");
-		sqlite3_close(db);
+		const int training = addGroup("Training");
+		addGroup("Ops");
 		addTrip(1, training, kDep, kArr);
 		addTrip(2, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
@@ -333,9 +329,7 @@ private slots:
 
 	void setGroupFromTheRowMenu() {
 		FlightDriver sim;
-		sqlite3* db = connect_db_readwrite();
-		const int training = insertGroup(db, "Training");
-		sqlite3_close(db);
+		const int training = addGroup("Training");
 		addTrip(1, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
 		onNextModal([](QWidget* menu) {
@@ -343,7 +337,7 @@ private slots:
 			chooseMenuItem(menu, "Set Group");
 		});
 		openRowMenu(view(panel), 0);
-		QCOMPARE(queryValue("SELECT group_id FROM trips WHERE id=1").toInt(), training);
+		QCOMPARE(tripRow(1)["group_id"].toInt(), training);
 		QCOMPARE(cell(view(panel), 0, TripHistoryModel::GroupColumn), QStringLiteral("Training"));
 
 		onNextModal([](QWidget* menu) {
@@ -351,7 +345,7 @@ private slots:
 			chooseMenuItem(menu, "Set Group");
 		});
 		openRowMenu(view(panel), 0);
-		QVERIFY(queryValue("SELECT group_id FROM trips WHERE id=1").isNull());
+		QVERIFY(tripRow(1)["group_id"].isNull());
 	}
 
 	void deselectAndResetZoomOnlyForTheSelectedTrip() {
