@@ -215,7 +215,16 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 
 namespace {
 
-const int CONTACT_POINT_COLUMN_COUNT = 21;
+// Number of comma-separated names in a column list.
+constexpr int columnCount(const char* columns) {
+	int count = 1;
+	for (; *columns; ++columns)
+		if (*columns == ',')
+			++count;
+	return count;
+}
+
+constexpr int CONTACT_POINT_COLUMN_COUNT = columnCount(CONTACT_POINT_COLUMNS);
 
 void readContactPoint(sqlite3_stmt* stmt, RunwayContactPoint& point) {
 	point.rowId                 = sqlite3_column_int(stmt, 0);
