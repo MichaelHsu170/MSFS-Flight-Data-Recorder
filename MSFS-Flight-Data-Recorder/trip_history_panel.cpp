@@ -408,11 +408,8 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 }
 
 sqlite3* TripHistoryPanel::ensureHistoryConnection() {
-	if (!history_) {
-		history_ = DbConnection::readOnly();
-		if (!history_)
-			Logger::log(Logger::Warning, "DB", QStringLiteral("Trip history: failed to open a read-only database connection"));
-	}
+	if (!history_)
+		history_ = openForReading(QStringLiteral("Trip history"));
 	return history_.get();
 }
 

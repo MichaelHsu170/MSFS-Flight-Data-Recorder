@@ -161,7 +161,8 @@ struct TripDataset {
 	QString aircraftTitle;  // trips.title — human-readable name like "Airbus A320neo FlyByWire"
 	// trips.departure_zulu_time -- set at trip creation, so unlike
 	// liftoffPoints.front().zuluTime it's available even when the trip has no
-	// detected liftoff. The authoritative source for KML export file names.
+	// detected liftoff. The authoritative source for the Save Image and KML
+	// file names' timestamp (appendDepartureTimestamp()).
 	QString departureZuluTime;
 	std::vector<TripSamplePoint> points;
 	std::vector<LiftoffPoint> liftoffPoints;

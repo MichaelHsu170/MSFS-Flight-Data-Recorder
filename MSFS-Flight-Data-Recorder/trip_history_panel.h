@@ -119,9 +119,9 @@ private slots:
 	void openManageGroupsDialog();
 
 private:
-	// Lazily (re)opens history_ if the database file didn't exist yet the
-	// last time this was called (e.g. app launched before any flight was ever
-	// recorded). Returns nullptr if it still can't be opened.
+	// Opens history_ if it isn't open yet (it couldn't be the last time this
+	// was called), logging a failure. Returns nullptr if it still can't be
+	// opened.
 	sqlite3* ensureHistoryConnection();
 	// refreshTrips(), then, if no trip is selected (the overview map is on
 	// screen), re-sends the overview its trips. changedTripId, if it's the
