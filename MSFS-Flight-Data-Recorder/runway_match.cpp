@@ -131,9 +131,9 @@ RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bea
 				// clamped at 0 after subtraction: a touchdown short of the
 				// marked threshold (e.g. on a blast pad) reporting a negative
 				// distance is meaningful, not an error.
-				float threshold_offset_m = candidate.is_primary
-					? (rwy->primary_threshold_enable ? rwy->primary_threshold_offset_m : 0)
-					: (rwy->secondary_threshold_enable ? rwy->secondary_threshold_offset_m : 0);
+				const float primary_offset_m = rwy->primary_threshold_enable ? rwy->primary_threshold_offset_m : 0;
+				const float secondary_offset_m = rwy->secondary_threshold_enable ? rwy->secondary_threshold_offset_m : 0;
+				const float threshold_offset_m = candidate.is_primary ? primary_offset_m : secondary_offset_m;
 				double distance_before_correction_ft = candidate.distances[0];
 				candidate.distances[0] -= threshold_offset_m * M_2_FT;
 				// Percent is of landing distance available (physical length
@@ -141,8 +141,6 @@ RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bea
 				// physical length, so 100% still means "the far threshold" now
 				// that the numerator starts from the near threshold instead of
 				// the near physical end.
-				float primary_offset_m = rwy->primary_threshold_enable ? rwy->primary_threshold_offset_m : 0;
-				float secondary_offset_m = rwy->secondary_threshold_enable ? rwy->secondary_threshold_offset_m : 0;
 				double landing_distance_available_m = rwy->length - primary_offset_m - secondary_offset_m;
 				if (landing_distance_available_m <= 0)
 					landing_distance_available_m = rwy->length;

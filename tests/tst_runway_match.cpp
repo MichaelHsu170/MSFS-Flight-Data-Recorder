@@ -174,6 +174,12 @@ private slots:
 		QVERIFY(qAbs(liftoff.candidates[0].distances_percent[0] - 700.0 / 3000) < 0.001);
 		QVERIFY(qAbs(touchdown.candidates[0].distances[0] - 400 * kFeetPerMeter) < 2);
 		QVERIFY(qAbs(touchdown.candidates[0].distances_percent[0] - 400.0 / 2500) < 0.001);
+		// Landing the other way is measured from the secondary end's threshold:
+		// 2000 m from that end, less its 200 m offset.
+		const RUNWAY_MATCH reverse = match(a.airport, pointOnRunway(r, 1000, 5), 270, true);
+		QVERIFY(!reverse.candidates[0].is_primary);
+		QVERIFY(qAbs(reverse.candidates[0].distances[0] - 1800 * kFeetPerMeter) < 2);
+		QVERIFY(qAbs(reverse.candidates[0].distances_percent[0] - 1800.0 / 2500) < 0.001);
 	}
 
 	void northPrimaryEndStoredAsZeroIsReportedAs360() {
