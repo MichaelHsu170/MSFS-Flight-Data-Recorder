@@ -185,6 +185,18 @@ private slots:
 		QCOMPARE(changed.count(), 1);
 	}
 
+	// The renamed group stays selected, so it can be deleted next without
+	// clicking it again.
+	void aRenamedGroupStaysSelected() {
+		addGroup("Training");
+		addGroup("Ops");
+		ManageGroupsDialog dialog;
+		list(dialog)->setCurrentRow(1);
+		list(dialog)->item(1)->setText("Operations");
+		QVERIFY(list(dialog)->currentItem());
+		QCOMPARE(list(dialog)->currentItem()->text(), QStringLiteral("Operations"));
+	}
+
 	void renameToAnExistingNameIsRejectedWithAMessage() {
 		addGroup("Training");
 		addGroup("Ops");

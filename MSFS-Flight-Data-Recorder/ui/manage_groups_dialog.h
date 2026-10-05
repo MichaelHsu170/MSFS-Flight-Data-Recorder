@@ -6,15 +6,12 @@
 class QDropEvent;
 class QLabel;
 
-// Plain QListWidget with QAbstractItemView::InternalMove doesn't emit any
-// reliable signal when the user finishes a drag-reorder: rowsMoved is never
-// fired for it (Qt implements InternalMove as a remove+insert through
-// QAbstractItemModel::dropMimeData, not moveRows/beginMoveRows/endMoveRows --
-// a long-standing, documented Qt limitation), and rowsInserted/rowsRemoved
-// fire mid-gesture in an order that isn't safe to rebuild the list from
-// (Qt's own drop handling is still running further down the call stack).
-// Overriding dropEvent() to let the base class finish the move and then
-// emit our own signal is the standard, safe workaround.
+// Plain QListWidget with QAbstractItemView::InternalMove has no signal for "a
+// drag-reorder finished": the model's row signals fire while Qt's own drop
+// handling is still running further down the call stack (possibly once per
+// row moved), where rebuilding the list isn't safe. Overriding dropEvent() to
+// let the base class finish the move and then emit our own signal gives one
+// signal after the whole drop has been applied.
 class ReorderableListWidget : public QListWidget {
 	Q_OBJECT
 public:

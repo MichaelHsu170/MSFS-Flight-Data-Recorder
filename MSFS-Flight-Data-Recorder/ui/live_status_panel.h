@@ -18,7 +18,7 @@ class RecorderBridge;
 // color emoji font and ignore QLabel's text color entirely) with the
 // descriptive text in a tooltip. Recording's label+dot are also a click
 // target (recordingToggle_): clicking enables/disables automatic recording
-// (a no-op while a trip is currently recording), a static outline marks it
+// (a no-op while a trip is recording or still being saved), a static outline marks it
 // as clickable at rest, and its tooltip is shown instantly on hover rather
 // than after Qt's default delay -- see updateRecordingIndicator() and
 // eventFilter(). Connection stays a plain non-interactive indicator. The
@@ -69,13 +69,13 @@ private:
 	// never itself the one pruned).
 	QListWidgetItem* appendHistoryItem(const QString& text);
 	// Repaints recordingIcon_ (green/red/grey) and refreshes recordingToggle_'s
-	// tooltip + cursor from the current bridge_.isRecording()/
-	// isRecordingEnabled() state. Called after anything that can change
-	// either of those.
+	// tooltip + cursor from recordingTripId_ (a trip shows as recording until
+	// its tripEnded(), after it has been saved) and bridge_.isRecordingEnabled().
+	// Called after anything that can change either of those.
 	void updateRecordingIndicator();
-	// Flips recordingEnabled via the bridge; a no-op while bridge_.isRecording()
-	// is true, per the user-facing rule that the toggle can't interrupt a trip
-	// already in progress.
+	// Flips recordingEnabled via the bridge; a no-op while a trip shows as
+	// recording (recordingTripId_ set), per the user-facing rule that the
+	// toggle can't interrupt a trip in progress.
 	void toggleRecordingEnabled();
 
 	RecorderBridge& bridge_;
@@ -86,9 +86,10 @@ private:
 	QWidget* recordingToggle_;
 	QLabel* snapshotLabel_;
 	QListWidget* historyList_;
-	// Trip currently shown as "Recording" -- lets a tripEnded() for a stale
-	// (already-superseded) trip arriving late from the DB writer's queue be
-	// ignored instead of clearing the indicator for the trip that replaced it.
+	// Trip currently shown as "Recording" (-1 for none), from its
+	// recordingStateChanged() until its tripEnded() -- lets a tripEnded() for a
+	// stale (already-superseded) trip arriving late from the DB writer's queue
+	// be ignored instead of clearing the indicator for the trip that replaced it.
 	int recordingTripId_ = -1;
 	// Tracks history-list items added via onEventCommitted by their
 	// event_seq, so onEventsRetracted can remove the right one by identity

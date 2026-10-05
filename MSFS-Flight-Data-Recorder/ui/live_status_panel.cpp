@@ -219,9 +219,7 @@ void LiveStatusPanel::onEventsRetracted(const QList<quint64>& seqs) {
 			continue;
 		QListWidgetItem* item = it.value();
 		eventItems_.erase(it);
-		int row = historyList_->row(item);
-		if (row >= 0)
-			delete historyList_->takeItem(row);
+		delete historyList_->takeItem(historyList_->row(item));
 	}
 }
 
@@ -251,7 +249,7 @@ void LiveStatusPanel::onTripEnded(int tripId) {
 }
 
 void LiveStatusPanel::updateRecordingIndicator() {
-	const bool recording = bridge_.isRecording();
+	const bool recording = recordingTripId_ >= 0;
 	const bool enabled = bridge_.isRecordingEnabled();
 
 	DotState state;
@@ -277,7 +275,10 @@ void LiveStatusPanel::updateRecordingIndicator() {
 }
 
 void LiveStatusPanel::toggleRecordingEnabled() {
-	if (bridge_.isRecording())
+	// Also while a stopped trip is still being saved (tripEnded not yet
+	// delivered), when the bridge itself would allow it: the click follows
+	// what the dot shows.
+	if (recordingTripId_ >= 0)
 		return;
 	bridge_.setRecordingEnabled(!bridge_.isRecordingEnabled());
 }

@@ -169,6 +169,37 @@ private slots:
 		QVERIFY(sim.bridge().isRecordingEnabled());
 	}
 
+	// A stopped trip still being saved: the recorder has stopped, but its
+	// tripEnded hasn't arrived. The dot still says the trip is recording, and
+	// a click doesn't toggle until the trip has ended.
+	void toggleDoesNothingUntilTheStoppedTripIsSaved() {
+		FlightDriver sim;
+		LiveStatusPanel panel(sim.bridge());
+		QWidget* toggle = recordingToggle(panel);
+		toggle->resize(100, 20);
+		emit sim.bridge().recordingStateChanged(7);
+		QVERIFY(!sim.bridge().isRecording());
+		sendLeftButton(toggle, QEvent::MouseButtonRelease, QPoint(5, 5));
+		QVERIFY(sim.bridge().isRecordingEnabled());
+		QCOMPARE(toggle->toolTip(), QStringLiteral("Recording trip #7 (can't be toggled while a trip is recording)"));
+		emit sim.bridge().tripEnded(7);
+		sendLeftButton(toggle, QEvent::MouseButtonRelease, QPoint(5, 5));
+		QVERIFY(!sim.bridge().isRecordingEnabled());
+	}
+
+	// Only a left click toggles.
+	void rightClickingTheToggleDoesNothing() {
+		FlightDriver sim;
+		LiveStatusPanel panel(sim.bridge());
+		QWidget* toggle = recordingToggle(panel);
+		toggle->resize(100, 20);
+		QMouseEvent release(QEvent::MouseButtonRelease, QPointF(5, 5), toggle->mapToGlobal(QPointF(5, 5)),
+			Qt::RightButton, Qt::NoButton, Qt::NoModifier);
+		QCoreApplication::sendEvent(toggle, &release);
+		QVERIFY(sim.bridge().isRecordingEnabled());
+		QCOMPARE(toggle->toolTip(), QStringLiteral("Click to disable automatic recording."));
+	}
+
 	void committedEventsShowAndRetractionsRemoveThem() {
 		FlightDriver sim;
 		LiveStatusPanel panel(sim.bridge());
