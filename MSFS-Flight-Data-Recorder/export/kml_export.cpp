@@ -49,7 +49,7 @@ QString descRow(const QString& key, const QString& value) {
 
 // A liftoff or touchdown placemark's description. gForceRow (touchdowns only)
 // goes right after V/S. The same rows, in the same order and format, as the
-// map's marker popup (runwayContactPopupHtml() in resources/map.html), which
+// map's marker popup (runwayContactPopupHtml() in ui/map/map.html), which
 // adds a Coordinate row; keep the two in step (tst_map_widget's
 // touchdownPopupMatchesTheKmlDescription checks it).
 QString runwayContactDescription(const RunwayContactPoint& t, const QString& gForceRow = QString()) {
@@ -93,7 +93,7 @@ struct EventGroup {
 };
 
 // Groups events within ~11 m of each other (same or adjacent sample) into one
-// placemark, mirroring resources/map.html's setEvents(). Without this,
+// placemark, mirroring ui/map/map.html's setEvents(). Without this,
 // closely-timed events resolve to the same/adjacent sample position and their
 // <name> labels stack illegibly on top of each other in Google Earth.
 std::vector<EventGroup> groupNearbyEvents(const std::vector<TripEvent>& events) {

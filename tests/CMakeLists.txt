@@ -68,7 +68,7 @@ fdr_add_test(tst_event_filter)
 fdr_add_test(tst_engine_power)
 fdr_add_test(tst_chart_data)
 # Checks the series table against the QML that declares the series.
-target_compile_definitions(tst_chart_data PRIVATE CHARTS_QML="${SRC_DIR}/resources/charts_panel.qml")
+target_compile_definitions(tst_chart_data PRIVATE CHARTS_QML="${SRC_DIR}/ui/charts/charts_panel.qml")
 fdr_add_test(tst_map_script)
 fdr_add_test(tst_splitter_utils)
 fdr_add_test(tst_charts_panel)

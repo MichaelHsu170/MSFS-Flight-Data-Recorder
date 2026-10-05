@@ -40,52 +40,64 @@ set(SRC_DIR "${PROJECT_SOURCE_DIR}/MSFS-Flight-Data-Recorder")
 # Generate version.h from the project() VERSION above so the C++ sources and
 # app.rc all pick up the same number without duplicating it.
 set(GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
-configure_file("${SRC_DIR}/version.h.in" "${GENERATED_DIR}/version.h" @ONLY)
+configure_file("${SRC_DIR}/app/version.h.in" "${GENERATED_DIR}/version.h" @ONLY)
+
+# The source is split into one folder per feature. Every folder is on the
+# include path, so #include names a header by its file name alone.
+set(SRC_FEATURE_DIRS
+    ${SRC_DIR}/app         # main(), settings, file locations, logging
+    ${SRC_DIR}/recording   # SimConnect, flight phases, airports/runways, Qt bridge
+    ${SRC_DIR}/db          # SQLite schema, writes, history/group queries, trip data structs
+    ${SRC_DIR}/ui          # main window, panels, dialogs, trajectory view
+    ${SRC_DIR}/ui/charts   # timeline charts (QML) and their series data
+    ${SRC_DIR}/ui/map      # Leaflet map (HTML), its bridge and scripts
+    ${SRC_DIR}/export      # KML export
+)
 
 # Everything except main() and the Windows/Qt resources lives in fdr_core, so
 # the app and the tests (tests/) link the same compiled code. The app links
 # the real SimConnect.lib; the tests link tests/fake_simconnect.cpp instead.
 set(CORE_SOURCES
-    ${SRC_DIR}/db.cpp
-    ${SRC_DIR}/recorder.cpp
-    ${SRC_DIR}/sim_link.cpp
-    ${SRC_DIR}/engine_power.cpp
-    ${SRC_DIR}/runway_match.cpp
-    ${SRC_DIR}/airport_lookup.cpp
-    ${SRC_DIR}/flight_phase.cpp
-    ${SRC_DIR}/event_filter.cpp
-    ${SRC_DIR}/recorder_bridge.cpp
-    ${SRC_DIR}/live_status_panel.cpp
-    ${SRC_DIR}/db_connection.cpp
-    ${SRC_DIR}/db_query.cpp
-    ${SRC_DIR}/db_history.cpp
-    ${SRC_DIR}/db_groups.cpp
-    ${SRC_DIR}/trip_history_panel.cpp
-    ${SRC_DIR}/manage_groups_dialog.cpp
-    ${SRC_DIR}/chart_data.cpp
-    ${SRC_DIR}/charts_panel.cpp
-    ${SRC_DIR}/data_table_panel.cpp
-    ${SRC_DIR}/map_bridge.cpp
-    ${SRC_DIR}/map_script.cpp
-    ${SRC_DIR}/map_widget.cpp
-    ${SRC_DIR}/kml_export.cpp
-    ${SRC_DIR}/kml_export_dialog.cpp
-    ${SRC_DIR}/trajectory_view.cpp
-    ${SRC_DIR}/main_window.cpp
-    ${SRC_DIR}/app_paths.cpp
-    ${SRC_DIR}/app_settings.cpp
-    ${SRC_DIR}/logger.cpp
+    ${SRC_DIR}/db/db.cpp
+    ${SRC_DIR}/recording/recorder.cpp
+    ${SRC_DIR}/recording/sim_link.cpp
+    ${SRC_DIR}/recording/engine_power.cpp
+    ${SRC_DIR}/recording/runway_match.cpp
+    ${SRC_DIR}/recording/airport_lookup.cpp
+    ${SRC_DIR}/recording/flight_phase.cpp
+    ${SRC_DIR}/recording/event_filter.cpp
+    ${SRC_DIR}/recording/recorder_bridge.cpp
+    ${SRC_DIR}/ui/live_status_panel.cpp
+    ${SRC_DIR}/db/db_connection.cpp
+    ${SRC_DIR}/db/db_query.cpp
+    ${SRC_DIR}/db/db_history.cpp
+    ${SRC_DIR}/db/db_groups.cpp
+    ${SRC_DIR}/ui/trip_history_panel.cpp
+    ${SRC_DIR}/ui/manage_groups_dialog.cpp
+    ${SRC_DIR}/ui/charts/chart_data.cpp
+    ${SRC_DIR}/ui/charts/charts_panel.cpp
+    ${SRC_DIR}/ui/data_table_panel.cpp
+    ${SRC_DIR}/ui/map/map_bridge.cpp
+    ${SRC_DIR}/ui/map/map_script.cpp
+    ${SRC_DIR}/ui/map/map_widget.cpp
+    ${SRC_DIR}/export/kml_export.cpp
+    ${SRC_DIR}/export/kml_export_dialog.cpp
+    ${SRC_DIR}/ui/trajectory_view.cpp
+    ${SRC_DIR}/ui/main_window.cpp
+    ${SRC_DIR}/app/app_paths.cpp
+    ${SRC_DIR}/app/app_settings.cpp
+    ${SRC_DIR}/app/logger.cpp
     # charts_panel.cpp loads qrc:/charts/charts_panel.qml and map_widget.cpp
     # loads qrc:/map/map.html -- compiled in here (rather than SOURCES below)
     # so the tests, which link fdr_core, can load them too.
-    ${SRC_DIR}/resources/charts.qrc
-    ${SRC_DIR}/resources/map.qrc
+    ${SRC_DIR}/ui/charts/charts.qrc
+    ${SRC_DIR}/ui/map/map.qrc
 )
 
 set(SOURCES
-    ${SRC_DIR}/main.cpp
-    ${SRC_DIR}/resources/app.qrc
-    ${SRC_DIR}/resources/app.rc
+    ${SRC_DIR}/app/main.cpp
+    ${SRC_DIR}/app/app.qrc
+    ${SRC_DIR}/app/app.rc
 )
 
 # rc.exe searches the directory of the .rc file itself, but passing the
@@ -93,13 +105,13 @@ set(SOURCES
 # generated version.h regardless of how CMake invokes the resource compiler.
 if(MSVC)
     set_source_files_properties(
-        ${SRC_DIR}/resources/app.rc
-        PROPERTIES COMPILE_FLAGS "/I \"${SRC_DIR}/resources\" /I \"${GENERATED_DIR}\""
+        ${SRC_DIR}/app/app.rc
+        PROPERTIES COMPILE_FLAGS "/I \"${SRC_DIR}/app\" /I \"${GENERATED_DIR}\""
     )
 endif()
 
 add_library(fdr_core STATIC ${CORE_SOURCES})
-target_include_directories(fdr_core PUBLIC ${GENERATED_DIR} ${SRC_DIR})
+target_include_directories(fdr_core PUBLIC ${GENERATED_DIR} ${SRC_FEATURE_DIRS})
 target_link_libraries(fdr_core PUBLIC Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Graphs Qt${QT_VERSION_MAJOR}::Concurrent Qt${QT_VERSION_MAJOR}::Quick Qt${QT_VERSION_MAJOR}::QuickWidgets Qt${QT_VERSION_MAJOR}::QuickControls2 Qt${QT_VERSION_MAJOR}::WebEngineWidgets Qt${QT_VERSION_MAJOR}::WebChannel)
 
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES})
@@ -196,7 +208,7 @@ endif()
 #                                  gif, macOS icns, pdf, svg-as-image, tga, tiff, wbmp, webp
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND Qt${QT_VERSION_MAJOR}::windeployqt
-        --qmldir "${SRC_DIR}/resources"
+        --qmldir "${SRC_DIR}/ui/charts"
         --no-translations
         --no-opengl-sw
         --skip-plugin-types qmltooling,generic,platforminputcontexts

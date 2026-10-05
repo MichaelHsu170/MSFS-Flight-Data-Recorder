@@ -24,7 +24,7 @@ class QValueAxis;
 //
 // Qt Graphs' 2D chart surface (GraphsView) has no public C++/QWidget header
 // in this Qt version -- only QML (QML_NAMED_ELEMENT) -- so the chart layout
-// lives in resources/charts_panel.qml, hosted here via QQuickWidget. The
+// lives in ui/charts/charts_panel.qml, hosted here via QQuickWidget. The
 // series/axis objects it declares (QLineSeries, QValueAxis) are plain public
 // QObjects though, so setDataset() drives them straight from C++ by
 // objectName, with no QML scripting involved.

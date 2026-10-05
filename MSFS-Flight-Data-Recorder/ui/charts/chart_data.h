@@ -29,7 +29,7 @@ enum ChartSeriesId {
 };
 
 struct ChartSeriesDef {
-	// The LineSeries' objectName in resources/charts_panel.qml.
+	// The LineSeries' objectName in ui/charts/charts_panel.qml.
 	const char* objectName;
 	// Its key in chartValueMap(), read by charts_panel.qml's hover readout.
 	const char* valueKey;

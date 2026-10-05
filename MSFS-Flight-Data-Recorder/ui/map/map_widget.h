@@ -13,7 +13,7 @@ class QWebChannel;
 class MapBridge;
 class QToolButton;
 
-// Trajectory map: QWebEngineView loading bundled resources/map.html, which
+// Trajectory map: QWebEngineView loading bundled ui/map/map.html, which
 // draws the trip's polyline + a draggable cursor marker via Leaflet/OSM.
 // Bridged to the page's JS via QWebChannel/MapBridge. A small floating icon
 // button in the top-right corner toggles cockpit-event markers.

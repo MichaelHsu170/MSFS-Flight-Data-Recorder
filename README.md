@@ -215,50 +215,57 @@ Trips can be sorted into user-defined groups. **Manage Groups…** (above the tr
 
 ```
 MSFS-Flight-Data-Recorder/
-├── MSFS-Flight-Data-Recorder/    C++ source
-│   ├── main.cpp                  Entry point: log file, Qt style, window setup
-│   ├── types.h                   Core C structs shared across all modules
-│   ├── simconnect_defs.h         SimConnect enums, the cockpit event list (COCKPIT_EVENTS) and FLIGHT_DATA_RECORD
-│   ├── recorder.h / .cpp         SimConnect dispatch callback (routes each message), cockpit event commit, DB writer shutdown
-│   ├── sim_link.h / .cpp         What is asked of SimConnect: flight data definition, cockpit event registration and names, sample decoding
-│   ├── flight_phase.h / .cpp     Trip start/stop, liftoff/touchdown detection, applying airport lookup results
-│   ├── airport_lookup.h / .cpp   Which airport a departure/liftoff/touchdown was at: SimConnect facility requests, nearest candidates, fallbacks
-│   ├── runway_match.h / .cpp     Which runway a liftoff/touchdown point is on, and its threshold/centerline distances
-│   ├── event_filter.h / .cpp     Flood protection for cockpit events (fast bursts, slow repeats)
-│   ├── recorder_bridge.h / .cpp  Qt wrapper: QTimer-driven dispatch, connection retry, Qt signals
-│   ├── gui_notify.h              Free functions called by recorder.cpp, flight_phase.cpp, airport_lookup.cpp and db.cpp to report state changes
-│   ├── db.h / .cpp               SQLite write path: schema creation, the recorder's writes, buffered telemetry flush
-│   ├── db_connection.h / .cpp    Read-only/read-write connections for the UI and background queries
-│   ├── db_query.h / .cpp         Statement helpers shared by the UI-side queries: row loop, single statements, transactions
-│   ├── db_history.h / .cpp       Read-only queries: trip list, telemetry, events, liftoff points, touchdowns; trip deletion, AI reports
-│   ├── db_groups.h / .cpp        Trip-group queries: list, add, rename, delete, reorder, assign a trip
-│   ├── logger.h / .cpp           Unified logger: level-filtered (Fatal/Warning/Info/Trace/Profile), module-tagged output to msfs_fdr_debug.log
-│   ├── logger_c.h                C-compatible shim (log_c / log_cf) for Qt-free translation units (db.cpp)
-│   ├── app_paths.h / .cpp        Where settings.ini, flight_data.db and the log live (working dir in Debug, exe folder in Release)
-│   ├── app_settings.h / .cpp     QSettings wrapper for settings.ini
-│   ├── trip_dataset.h            Shared data structs (TripSamplePoint, TripEvent, TripDataset, etc.) and helpers
-│   ├── trip_data_fields.h        X-macro list of all trip_data columns (keeps the schema, writes, reads and data table in sync)
-│   ├── engine_power.h / .cpp     Per-engine-type speed/load SimVars, labels and units; engine_speed/engine_load BLOB format
-│   ├── version.h.in              Template for the generated version.h (APP_VERSION from CMakeLists.txt)
-│   ├── main_window.h / .cpp      Top-level QMainWindow shell, startup database migration notice, cross-feature signal wiring
-│   ├── live_status_panel.h/.cpp  Connection/recording status widget and scrolling log
-│   ├── trip_history_panel.h/.cpp Trip list table with background dataset loading, group filter, trip deletion
-│   ├── manage_groups_dialog.h/.cpp Dialog to add, rename, delete and reorder trip groups
-│   ├── kml_export.h / .cpp       Builds and writes a trip's KML file
-│   ├── kml_export_dialog.h/.cpp Save dialog and error box shared by both Export to KML menus
-│   ├── splitter_utils.h          Splitter helpers: act once a drag ends; size the second section
-│   ├── trajectory_view.h / .cpp  Composite view: owns map, data table, and charts; cursor-sync wiring
-│   ├── map_script.h / .cpp       The JavaScript calls sent to map.html, built from trip data
-│   ├── map_widget.h / .cpp       QWebEngineView hosting map.html (Leaflet/OSM trajectory map)
-│   ├── map_bridge.h / .cpp       QWebChannel QObject bridging JS ↔ C++ for the map
-│   ├── chart_data.h / .cpp       Chart series, axis ranges and hover values, built from trip data
-│   ├── charts_panel.h / .cpp     QQuickWidget hosting charts_panel.qml (timeline charts with hover tooltip)
-│   ├── data_table_panel.h / .cpp Per-sample field/value table with Visible Fields dialog
-│   └── resources/
-│       ├── app.qrc / app.rc / app_icon.ico  Application icon and Windows version resource
-│       ├── charts.qrc / map.qrc  Qt resource files bundling the QML and HTML below
-│       ├── charts_panel.qml      QML layout for stacked timeline charts (engine power, speed, altitude, gear, etc.)
-│       └── map.html              Leaflet map: trajectory polyline, liftoff/touchdown markers with AI analysis popup, event markers
+├── MSFS-Flight-Data-Recorder/    C++ source, one folder per feature (every folder is on the include path)
+│   ├── app/                      Application startup and shared services
+│   │   ├── main.cpp              Entry point: log file, Qt style, window setup
+│   │   ├── logger.h / .cpp       Unified logger: level-filtered (Fatal/Warning/Info/Trace/Profile), module-tagged output to msfs_fdr_debug.log
+│   │   ├── logger_c.h            C-compatible shim (log_c / log_cf) for Qt-free translation units (db.cpp)
+│   │   ├── app_paths.h / .cpp    Where settings.ini, flight_data.db and the log live (working dir in Debug, exe folder in Release)
+│   │   ├── app_settings.h / .cpp QSettings wrapper for settings.ini
+│   │   ├── version.h.in          Template for the generated version.h (APP_VERSION from CMakeLists.txt)
+│   │   └── app.qrc / app.rc / app_icon.ico  Application icon and Windows version resource
+│   ├── recording/                Recording a flight from SimConnect
+│   │   ├── types.h               Core C structs shared across all modules
+│   │   ├── simconnect_defs.h     SimConnect enums, the cockpit event list (COCKPIT_EVENTS) and FLIGHT_DATA_RECORD
+│   │   ├── recorder.h / .cpp     SimConnect dispatch callback (routes each message), cockpit event commit, DB writer shutdown
+│   │   ├── sim_link.h / .cpp     What is asked of SimConnect: flight data definition, cockpit event registration and names, sample decoding
+│   │   ├── flight_phase.h / .cpp Trip start/stop, liftoff/touchdown detection, applying airport lookup results
+│   │   ├── airport_lookup.h / .cpp  Which airport a departure/liftoff/touchdown was at: SimConnect facility requests, nearest candidates, fallbacks
+│   │   ├── runway_match.h / .cpp Which runway a liftoff/touchdown point is on, and its threshold/centerline distances
+│   │   ├── event_filter.h / .cpp Flood protection for cockpit events (fast bursts, slow repeats)
+│   │   ├── engine_power.h / .cpp Per-engine-type speed/load SimVars, labels and units; engine_speed/engine_load BLOB format
+│   │   ├── trip_data_fields.h    X-macro list of all trip_data columns (keeps the schema, writes, reads and data table in sync)
+│   │   ├── recorder_bridge.h / .cpp  Qt wrapper: QTimer-driven dispatch, connection retry, Qt signals
+│   │   └── gui_notify.h          Free functions called by recorder.cpp, flight_phase.cpp, airport_lookup.cpp and db.cpp to report state changes
+│   ├── db/                       The SQLite database
+│   │   ├── db.h / .cpp           SQLite write path: schema creation, the recorder's writes, buffered telemetry flush
+│   │   ├── db_connection.h / .cpp  Read-only/read-write connections for the UI and background queries
+│   │   ├── db_query.h / .cpp     Statement helpers shared by the UI-side queries: row loop, single statements, transactions
+│   │   ├── db_history.h / .cpp   Read-only queries: trip list, telemetry, events, liftoff points, touchdowns; trip deletion, AI reports
+│   │   ├── db_groups.h / .cpp    Trip-group queries: list, add, rename, delete, reorder, assign a trip
+│   │   └── trip_dataset.h        Shared data structs (TripSamplePoint, TripEvent, TripDataset, etc.) and helpers
+│   ├── ui/                       The main window and its panels
+│   │   ├── main_window.h / .cpp  Top-level QMainWindow shell, startup database migration notice, cross-feature signal wiring
+│   │   ├── live_status_panel.h/.cpp  Connection/recording status widget and scrolling log
+│   │   ├── trip_history_panel.h/.cpp Trip list table with background dataset loading, group filter, trip deletion
+│   │   ├── manage_groups_dialog.h/.cpp Dialog to add, rename, delete and reorder trip groups
+│   │   ├── trajectory_view.h / .cpp  Composite view: owns map, data table, and charts; cursor-sync wiring
+│   │   ├── data_table_panel.h / .cpp Per-sample field/value table with Visible Fields dialog
+│   │   ├── splitter_utils.h      Splitter helpers: act once a drag ends; size the second section
+│   │   ├── charts/               Timeline charts
+│   │   │   ├── chart_data.h / .cpp   Chart series, axis ranges and hover values, built from trip data
+│   │   │   ├── charts_panel.h / .cpp QQuickWidget hosting charts_panel.qml (timeline charts with hover tooltip)
+│   │   │   ├── charts_panel.qml  QML layout for stacked timeline charts (engine power, speed, altitude, gear, etc.)
+│   │   │   └── charts.qrc        Qt resource file bundling charts_panel.qml
+│   │   └── map/                  Trajectory map
+│   │       ├── map_widget.h / .cpp   QWebEngineView hosting map.html (Leaflet/OSM trajectory map)
+│   │       ├── map_bridge.h / .cpp   QWebChannel QObject bridging JS ↔ C++ for the map
+│   │       ├── map_script.h / .cpp   The JavaScript calls sent to map.html, built from trip data
+│   │       ├── map.html          Leaflet map: trajectory polyline, liftoff/touchdown markers with AI analysis popup, event markers
+│   │       └── map.qrc           Qt resource file bundling map.html
+│   └── export/                   KML export
+│       ├── kml_export.h / .cpp   Builds and writes a trip's KML file
+│       └── kml_export_dialog.h/.cpp  Save dialog and error box shared by both Export to KML menus
 ├── tests/                        Automated tests (Qt Test + CTest) -- see tests/README.md
 │   ├── fake_simconnect.h / .cpp  Stand-in for SimConnect.lib driven by made-up packets
 │   ├── test_support.h / .cpp     Packet builders, FlightDriver, fake airport world, DB/dialog/mouse helpers

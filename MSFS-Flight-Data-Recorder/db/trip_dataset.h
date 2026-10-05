@@ -104,7 +104,7 @@ inline QDateTime parseZuluTime(const QString& value) {
 
 // "ICAO (Name)", or just "ICAO" without a name; empty without an ICAO. The
 // one airport label shared by the Trip History table, its delete
-// confirmation and kml_export.cpp's descriptions (resources/map.html's
+// confirmation and kml_export.cpp's descriptions (ui/map/map.html's
 // contactAirportLabel() builds the same format in JavaScript for its popup
 // and AI prompt).
 inline QString airportLabel(const QString& icao, const QString& airportName) {

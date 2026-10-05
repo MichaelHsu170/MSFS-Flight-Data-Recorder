@@ -7,7 +7,7 @@
 
 #include "trip_dataset.h"
 
-// The JavaScript calls MapWidget runs in resources/map.html, built from trip
+// The JavaScript calls MapWidget runs in ui/map/map.html, built from trip
 // data with no WebEngine involved. Each returns one complete statement; data
 // is passed as compact JSON, so any string is escaped correctly.
 
