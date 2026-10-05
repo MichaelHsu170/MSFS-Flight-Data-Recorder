@@ -34,6 +34,9 @@ private slots:
 private:
 	void showPoint(const TripSamplePoint& point);
 	void showEmpty();
+	// Shows text in row's value cell, and as its tooltip so a value clipped
+	// by the narrow column can still be read in full.
+	void setValue(int row, const QString& text);
 	void applyHiddenFields();
 
 	QTableWidget* table_;

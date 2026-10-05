@@ -38,6 +38,7 @@ TripSamplePoint makePoint(double base, const char* zulu) {
 	p.rawNums[numIndex("gps_position_lat")] = 43.5;
 	p.rawNums[numIndex("gps_position_lon")] = -1.25;
 	p.boolGroup1 = 0x1;        // autopilot_airspeed_hold only
+	p.boolGroup2 = 1u << 31;   // general_eng_master_alternator only
 	p.boolGroup3 = 1u << 31;   // kohlsman_setting_std only
 	return p;
 }
@@ -115,6 +116,8 @@ private slots:
 		QCOMPARE(value(t, "GPS Position"), QString::fromUtf8("43°30'00.0\"N 1°15'00.0\"W"));
 		QCOMPARE(value(t, "Autopilot Airspeed Hold"), QStringLiteral("Yes"));
 		QCOMPARE(value(t, "Autopilot Master"), QStringLiteral("No"));
+		QCOMPARE(value(t, "General Eng Master Alternator"), QStringLiteral("Yes"));
+		QCOMPARE(value(t, "Flap Damage By Speed"), QStringLiteral("No"));
 		QCOMPARE(value(t, "Kohlsman Setting Std"), QStringLiteral("Yes"));
 		QCOMPARE(value(t, "Sim On Ground"), QStringLiteral("No"));
 	}

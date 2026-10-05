@@ -232,10 +232,8 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 	QHeaderView* vh = table_->verticalHeader();
 	vh->setSectionResizeMode(QHeaderView::Fixed);
 
-	table_->item(0, 1)->setText(point.zuluTime);
-	table_->item(0, 1)->setToolTip(point.zuluTime);
-	table_->item(1, 1)->setText(point.localTime);
-	table_->item(1, 1)->setToolTip(point.localTime);
+	setValue(0, point.zuluTime);
+	setValue(1, point.localTime);
 	{
 		// Index of gps_position_lat/gps_position_lon within TRIP_DATA_NUM_FIELDS'
 		// ni-ordering (== point.rawNums[] index) -- computed once from the
@@ -256,19 +254,15 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 		if (gpsLatIdx >= 0 && gpsLonIdx >= 0
 				&& gpsLatIdx < (int)point.rawNums.size() && gpsLonIdx < (int)point.rawNums.size())
 			gpsPos = formatDMS(point.rawNums[gpsLatIdx], point.rawNums[gpsLonIdx]);
-		table_->item(2, 1)->setText(gpsPos);
-		table_->item(2, 1)->setToolTip(gpsPos);
+		setValue(2, gpsPos);
 
 		// The rows were built from the same macros (buildFieldRowLabels()), so
 		// row stays within the table.
 		int ni = 0, row = 3;
 #define TRIP_NUM_DISP(dbColumn, memberExpr, sqlType) \
 		if (!isGpsPositionColumn(QLatin1String(#dbColumn))) { \
-			QString v = ni < (int)point.rawNums.size() \
-				? QString::number(point.rawNums[ni], 'g', 6) : QString(); \
-			table_->item(row, 1)->setText(v); \
-			table_->item(row, 1)->setToolTip(v); \
-			++row; \
+			setValue(row++, ni < (int)point.rawNums.size() \
+				? QString::number(point.rawNums[ni], 'g', 6) : QString()); \
 		} \
 		++ni;
 		TRIP_DATA_NUM_FIELDS(TRIP_NUM_DISP)
@@ -276,21 +270,12 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 		const EnginePowerSpec* spec = enginePowerSpec(point.engine.engineType);
 		for (const auto& [quantity, values] : { std::pair{ spec ? &spec->speed : nullptr, &point.engine.speed },
 		                                        std::pair{ spec ? &spec->load : nullptr, &point.engine.load } }) {
-			for (int i = 0; i < MAX_ENGINES; ++i, ++row) {
-				const QString v = formatEngineValue(quantity, *values, i, point.engine.count);
-				table_->item(row, 1)->setText(v);
-				table_->item(row, 1)->setToolTip(v);
-			}
+			for (int i = 0; i < MAX_ENGINES; ++i)
+				setValue(row++, formatEngineValue(quantity, *values, i, point.engine.count));
 		}
+		const std::array<uint32_t, 4> boolGroups = { 0, point.boolGroup1, point.boolGroup2, point.boolGroup3 };
 #define TRIP_BOOL_DISP(name, group, bit) \
-		{ \
-			uint32_t bg = (group) == 1 ? point.boolGroup1 \
-						: (group) == 2 ? point.boolGroup2 : point.boolGroup3; \
-			QString v = (bg >> (bit)) & 1u ? QStringLiteral("Yes") : QStringLiteral("No"); \
-			table_->item(row, 1)->setText(v); \
-			table_->item(row, 1)->setToolTip(v); \
-			++row; \
-		}
+		setValue(row++, TripBoolBit{ group, bit }.isSet(boolGroups) ? QStringLiteral("Yes") : QStringLiteral("No"));
 		TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_DISP)
 #undef TRIP_BOOL_DISP
 	}
@@ -302,10 +287,14 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 void DataTablePanel::showEmpty() {
 	QHeaderView* vh = table_->verticalHeader();
 	vh->setSectionResizeMode(QHeaderView::Fixed);
-	for (int row = 0; row < rowLabels_.size(); ++row) {
-		table_->item(row, 1)->setText(QString());
-		table_->item(row, 1)->setToolTip(QString());
-	}
+	for (int row = 0; row < rowLabels_.size(); ++row)
+		setValue(row, QString());
 	vh->setSectionResizeMode(QHeaderView::ResizeToContents);
 	table_->resizeRowsToContents();
+}
+
+void DataTablePanel::setValue(int row, const QString& text) {
+	QTableWidgetItem* item = table_->item(row, 1);
+	item->setText(text);
+	item->setToolTip(text);
 }
