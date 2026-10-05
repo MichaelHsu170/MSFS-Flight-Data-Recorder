@@ -2,6 +2,7 @@
 #include "gui_notify.h"
 #include "runway_match.h"
 
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 
@@ -197,11 +198,8 @@ void lookup_on_airport_list(struct STATUS* status, SIMCONNECT_RECV_AIRPORT_LIST*
 	// accumulate the running top-N nearest across all chunks in status,
 	// and only act once the last chunk has been folded in.
 	if (pWxData->dwEntryNumber == 0) {
-		for (int k = 0; k < AIRPORT_LOOKUP::TOP_N; k++) {
-			status->lookup.top[k].distance = 1e9;
-			status->lookup.top[k].ident[0] = '\0';
-			status->lookup.top[k].region[0] = '\0';
-		}
+		for (AIRPORT_LOOKUP::CANDIDATE& candidate : status->lookup.top)
+			candidate = {};
 		status->lookup.candidate_index = 0;
 		status->lookup.margin_cache.found = false;
 	}
@@ -277,16 +275,17 @@ void lookup_on_facility_data(struct STATUS* status, SIMCONNECT_RECV_FACILITY_DAT
 			break;
 		}
 		memset(&rep[pWxData->ItemIndex], 0, sizeof(RUNWAY));
-		// Wire payload is only placeholder..coordinate -- start_points[] and
+		// Wire payload is only length..coordinate -- start_points[] and
 		// the threshold/correlation fields below it are computed/populated
 		// locally (start_points by match_runways(), threshold fields by the nested
 		// FACILITY_DATA_PAVEMENT case below), never sent over the wire, so
 		// all of them must stay excluded from this copy's size.
-		memcpy((char*)&rep[pWxData->ItemIndex] + sizeof(rep->placeholder), &pWxData->Data,
-			sizeof(RUNWAY) - sizeof(rep->placeholder) - sizeof(rep->start_points)
-			- sizeof(rep->primary_threshold_offset_m) - sizeof(rep->secondary_threshold_offset_m)
-			- sizeof(rep->primary_threshold_enable) - sizeof(rep->secondary_threshold_enable)
-			- sizeof(rep->pending_request_id) - sizeof(rep->threshold_pavement_seen));
+		// The definition above sends LENGTH, WIDTH, HEADING (float), the four
+		// numbers/designators (int), then LATITUDE, LONGITUDE (double).
+		constexpr size_t runway_wire_size = offsetof(RUNWAY, start_points) - offsetof(RUNWAY, length);
+		static_assert(runway_wire_size == 3 * sizeof(float) + 4 * sizeof(int) + 2 * sizeof(double),
+			"RUNWAY's length..coordinate must match DEFINITION_RUNWAYS' runway fields");
+		memcpy((char*)&rep[pWxData->ItemIndex] + offsetof(RUNWAY, length), &pWxData->Data, runway_wire_size);
 		rep[pWxData->ItemIndex].pending_request_id = pWxData->UniqueRequestId;
 		rep[pWxData->ItemIndex].threshold_pavement_seen = 0;
 	}

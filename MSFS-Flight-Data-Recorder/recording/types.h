@@ -227,8 +227,8 @@ struct RUNWAY_OPERATION {
 	int index = -1;
 	bool is_primary = TRUE;
 	double diff_bearing_tra = 0;
-	double distances[2];
-	double distances_percent[2];
+	double distances[2] = {-1, -1};
+	double distances_percent[2] = {-1, -1};
 	// Operational heading (1-360, aviation convention -- due north is 360,
 	// never 0) of the runway end actually used -- i.e.
 	// AIRPORT::runways[index].heading, flipped 180° if !is_primary. Captured
@@ -267,14 +267,7 @@ public:
 		if (runways != NULL)
 			free(runways);
 		runways = NULL;
-		runway_act.index = -1;
-		runway_act.is_primary = TRUE;
-		runway_act.diff_bearing_tra = 0;
-		for (int i = 0; i < (int)(sizeof(runway_act.distances) / sizeof(double)); i++)
-			runway_act.distances[i] = -1;
-		for (int i = 0; i < (int)(sizeof(runway_act.distances_percent) / sizeof(double)); i++)
-			runway_act.distances_percent[i] = -1;
-		runway_act.heading = -1;
+		runway_act = RUNWAY_OPERATION{};
 	}
 
 	void copy(AIRPORT* src) {
