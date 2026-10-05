@@ -69,8 +69,9 @@ using MigrationProgress = std::function<void(int percent)>;
 // Asked during a long migration; true stops it and rolls it back.
 using MigrationCancelled = std::function<bool()>;
 
-// Creates the schema and migrates any missing or legacy columns on an
-// ephemeral R/W connection. Called at app startup (by MainWindow, on a worker
+// Creates the schema and migrates any missing or legacy columns, and once
+// corrects the UTC offset sign of local times stored by older builds
+// (PRAGMA user_version 0 -> 1), on an ephemeral R/W connection. Called at app startup (by MainWindow, on a worker
 // thread, before anything else opens the database) so read-only queries always
 // see the current schema, even when the simulator has never connected this
 // session. progress, if set, is called on the calling thread while trip_data

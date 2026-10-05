@@ -76,6 +76,39 @@ FLIGHT_DATA contactData() {
 	return d;
 }
 
+// Every column that stores a local time (DATETIME::format_date_time()).
+const std::pair<const char*, const char*> kLocalTimeColumns[] = {
+	{ "trips", "departure_local_time" }, { "trips", "destination_local_time" },
+	{ "trip_data", "local_time" }, { "trip_events", "time_local" },
+	{ "trip_liftoffs", "time_local" }, { "trip_touchdowns", "time_local" },
+};
+
+// Creates flight_data.db as an older build left it (user_version 0), with
+// only the local-time columns, each holding in rowid order: UTC+2 and
+// UTC-5:30 with the old reversed sign, UTC, and a value not in that format.
+void createOldLocalTimes() {
+	sqlite3* db = openDatabaseFile();
+	QVERIFY(db);
+	exec(db, "CREATE TABLE trips (id INTEGER PRIMARY KEY, departure_local_time, destination_local_time);"
+		"CREATE TABLE trip_data (local_time);"
+		"CREATE TABLE trip_events (time_local);"
+		"CREATE TABLE trip_liftoffs (time_local);"
+		"CREATE TABLE trip_touchdowns (time_local);");
+	for (const char* value : { "2026-07-03T06:33:15.303-02:00_5", "2026-07-03T08:00:00.000+05:30_1",
+			"2026-07-03T08:00:00.000+00:00_1", "l" }) {
+		const QByteArray v = QByteArray("'") + value + "'";
+		exec(db, "INSERT INTO trips (departure_local_time, destination_local_time) VALUES (" + v + "," + v + ");");
+		for (const char* table : { "trip_data (local_time)", "trip_events (time_local)", "trip_liftoffs (time_local)", "trip_touchdowns (time_local)" })
+			exec(db, QByteArray("INSERT INTO ") + table + " VALUES (" + v + ");");
+	}
+	sqlite3_close(db);
+}
+
+// The column's values in rowid order, comma-separated.
+QString localTimes(const char* table, const char* column) {
+	return queryValue(QStringLiteral("SELECT group_concat(%2) FROM (SELECT %2 FROM %1 ORDER BY rowid)").arg(table, column)).toString();
+}
+
 TripSamplePoint point(const char* zulu, double lat) {
 	TripSamplePoint p;
 	p.zuluTime = QString::fromLatin1(zulu);
@@ -331,6 +364,48 @@ private slots:
 		QVERIFY(migrate_db({}, [&asked] { ++asked; return false; }));
 		QCOMPARE(asked, 6);
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data WHERE engine_speed IS NOT NULL").toInt(), 3);
+	}
+
+	// Older builds stored local times with the UTC offset's sign reversed
+	// (UTC+2 as "-02:00"). The first migration flips it in every local-time
+	// column; later ones leave the values alone.
+	void migrateCorrectsTheSignOfOldLocalTimeOffsetsOnce() {
+		createOldLocalTimes();
+		QVERIFY(migrate_db());
+		const QString fixed = QStringLiteral("2026-07-03T06:33:15.303+02:00_5,2026-07-03T08:00:00.000-05:30_1,"
+			"2026-07-03T08:00:00.000+00:00_1,l");
+		for (const auto& [table, column] : kLocalTimeColumns)
+			QCOMPARE(localTimes(table, column), fixed);
+		QCOMPARE(queryValue("PRAGMA user_version").toInt(), 1);
+
+		QVERIFY(migrate_db());
+		for (const auto& [table, column] : kLocalTimeColumns)
+			QCOMPARE(localTimes(table, column), fixed);
+	}
+
+	void aNewDatabaseNeedsNoLocalTimeCorrection() {
+		QVERIFY(migrate_db());
+		QCOMPARE(queryValue("PRAGMA user_version").toInt(), 1);
+	}
+
+	// A failure rolls back every column (recording can't start with only
+	// some corrected) and the next migration redoes it.
+	void aFailedLocalTimeCorrectionChangesNothingAndIsRedoneNextTime() {
+		createOldLocalTimes();
+		exec("CREATE TRIGGER blocks_fix BEFORE UPDATE ON trip_events BEGIN SELECT RAISE(ABORT, 'blocked'); END;");
+		const QString old = QStringLiteral("2026-07-03T06:33:15.303-02:00_5,2026-07-03T08:00:00.000+05:30_1,"
+			"2026-07-03T08:00:00.000+00:00_1,l");
+
+		QVERIFY(!migrate_db());
+		QVERIFY(lineLogged(logPath_, "FATAL", { QStringLiteral("local times") }));
+		for (const auto& [table, column] : kLocalTimeColumns)
+			QCOMPARE(localTimes(table, column), old);
+		QCOMPARE(queryValue("PRAGMA user_version").toInt(), 0);
+
+		exec("DROP TRIGGER blocks_fix;");
+		QVERIFY(migrate_db());
+		QCOMPARE(localTimes("trip_events", "time_local"),
+			QStringLiteral("2026-07-03T06:33:15.303+02:00_5,2026-07-03T08:00:00.000-05:30_1,2026-07-03T08:00:00.000+00:00_1,l"));
 	}
 
 	void groupNamesAreUniqueIgnoringAsciiCase() {

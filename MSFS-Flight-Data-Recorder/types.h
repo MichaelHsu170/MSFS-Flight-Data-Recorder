@@ -63,9 +63,10 @@ public:
 		int minute = ((int)time_day - 3600 * hour) / 60;
 		double second = time_day - 3600 * hour - 60 * minute;
 
-		char sign = '+';
-		if (timezone_offset < 0)
-			sign = '-';
+		// SimConnect's TIME ZONE OFFSET is UTC minus local time, so a zone
+		// east of Greenwich (UTC+2) has a negative offset; the ISO 8601
+		// suffix is local minus UTC.
+		const char sign = timezone_offset > 0 ? '-' : '+';
 		double timezone = abs(timezone_offset);
 		timezone /= 3600;
 		int timezone_hour = (int)timezone;

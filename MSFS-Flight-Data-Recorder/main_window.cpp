@@ -68,7 +68,8 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 	setCentralWidget(mainSplitter);
 
 	// Upgrading a large database after an app update can take a while (moving
-	// legacy columns rebuilds trip_data), so the window opens first and says
+	// legacy columns rebuilds trip_data; correcting old local times rewrites
+	// every sample's once), so the window opens first and says
 	// what it waits for. migrate_db() reports progress only for that upgrade;
 	// a normal start's quick schema check just has the notice replaced by
 	// addTripHistory(). If it fails, the notice says so and stays: neither

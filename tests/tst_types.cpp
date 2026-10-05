@@ -110,11 +110,14 @@ private slots:
 		t.day_of_month = 2;
 		t.day_of_week = 5;
 		t.time_day = 36000.5;
+		// timezone_offset is SimConnect's UTC minus local: 3600 is UTC-1.
 		t.timezone_offset = 3600;
-		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T10:00:00.500+01:00_5"));
+		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T10:00:00.500-01:00_5"));
 		t.timezone_offset = -5400;
 		t.time_day = 3 * 3600 + 4 * 60 + 5.25;
-		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T03:04:05.250-01:30_5"));
+		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T03:04:05.250+01:30_5"));
+		t.timezone_offset = 0;
+		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T03:04:05.250+00:00_5"));
 	}
 
 	void runwayCodes_data() {

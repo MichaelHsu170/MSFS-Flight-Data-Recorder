@@ -915,6 +915,56 @@ static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, 
 	return true;
 }
 
+// Builds before user_version 1 stored local times (DATETIME::format_date_time())
+// with the UTC offset's sign reversed: UTC+2 was stored as "-02:00". This
+// flips that sign in every stored local time, once, in one transaction, then
+// sets user_version to 1 so it never runs again. "+00:00" and values not in
+// that format are left as they are. False on failure (logged, rolled back):
+// recording can't start, since rows written with the correct sign would be
+// flipped by the next start's retry.
+static bool migrate_local_time_offsets(sqlite3* sql) {
+	sqlite3_stmt* version = nullptr;
+	if (sqlite3_prepare_v2(sql, "PRAGMA user_version;", -1, &version, nullptr) != SQLITE_OK) {
+		log_cf(0, "DB", "Schema migration failed to read user_version: %s", sqlite3_errmsg(sql));
+		return false;
+	}
+	const bool read = sqlite3_step(version) == SQLITE_ROW;
+	const int user_version = read ? sqlite3_column_int(version, 0) : 0;
+	sqlite3_finalize(version);
+	if (!read) {
+		log_cf(0, "DB", "Schema migration failed to read user_version: %s", sqlite3_errmsg(sql));
+		return false;
+	}
+	if (user_version >= 1)
+		return true;
+
+	static const std::pair<const char*, const char*> kLocalTimes[] = {
+		{ "trips", "departure_local_time" }, { "trips", "destination_local_time" },
+		{ "trip_data", "local_time" }, { "trip_events", "time_local" },
+		{ "trip_liftoffs", "time_local" }, { "trip_touchdowns", "time_local" },
+	};
+	bool ok = exec_sql(sql, "BEGIN TRANSACTION;");
+	for (const auto& [table, column] : kLocalTimes) {
+		if (!ok)
+			break;
+		// "YYYY-MM-DDThh:mm:ss.sss" is 23 characters; the sign is the 24th.
+		char stmt_txt[512];
+		snprintf(stmt_txt, sizeof(stmt_txt),
+			"UPDATE %s SET %s = substr(%s,1,23) || CASE substr(%s,24,1) WHEN '+' THEN '-' ELSE '+' END || substr(%s,25)"
+			" WHERE %s GLOB '????-??-??T??:??:??.???[+-]??:??*' AND substr(%s,25,5) <> '00:00';",
+			table, column, column, column, column, column, column);
+		ok = exec_sql(sql, stmt_txt);
+	}
+	ok = ok && exec_sql(sql, "PRAGMA user_version = 1;") && exec_sql(sql, "COMMIT TRANSACTION;");
+	if (!ok) {
+		log_cf(0, "DB", "Schema migration failed (%s); local times left unchanged", sqlite3_errmsg(sql));
+		exec_sql(sql, "ROLLBACK TRANSACTION");
+		return false;
+	}
+	log_cf(2, "DB", "Schema migration: local time UTC offsets corrected");
+	return true;
+}
+
 // Part of create_schema() (also recreating the index that
 // migrate_legacy_engine_columns()' rebuild drops), so Trip History reads stay
 // indexed even when the schema was created/updated by migrate_db() alone (SimConnect
@@ -961,7 +1011,8 @@ static void create_db_indexes(sqlite3* sql) {
 
 // Creates any missing table, adds columns missing from tables made by an
 // older build (see migrate_table_columns()), moves legacy N1/N2 columns (see
-// migrate_legacy_engine_columns()) and creates the indexes. False if a table
+// migrate_legacy_engine_columns()), corrects old local-time offsets (see
+// migrate_local_time_offsets()) and creates the indexes. False if a table
 // couldn't be created or migrated (already logged). progress, cancelled: see
 // migrate_db().
 static bool create_schema(sqlite3* sql, const MigrationProgress& progress, const MigrationCancelled& cancelled) {
@@ -979,6 +1030,8 @@ static bool create_schema(sqlite3* sql, const MigrationProgress& progress, const
 	StepProgress rebuild_progress(progress, kRebuildStepWeights);
 	bool rebuilt = false;
 	if (!migrate_legacy_engine_columns(sql, rebuild_progress, cancelled, rebuilt))
+		ok = false;
+	if (!migrate_local_time_offsets(sql))
 		ok = false;
 	create_db_indexes(sql);
 	if (rebuilt)
