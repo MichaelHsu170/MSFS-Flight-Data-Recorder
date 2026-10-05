@@ -20,6 +20,7 @@
 // A single instance loads and runs fine, so every slot after the one that
 // establishes readiness shares that one instance instead of making its own.
 #include "kml_export.h"
+#include "logger.h"
 #include "map_bridge.h"
 #include "map_widget.h"
 #include "test_support.h"
@@ -84,6 +85,8 @@ class TstMapWidget : public QObject {
 	Q_OBJECT
 
 	MapWidget* widget_ = nullptr;
+	QTemporaryDir logDir_;
+	QString logPath_;
 
 	// Runs the page's AI analysis of a liftoff with fetch() stubbed: attempt n
 	// gets attempts[n] (the last one repeated), each delivered in the given
@@ -122,7 +125,10 @@ class TstMapWidget : public QObject {
 	}
 
 private slots:
+	// Logger::init() takes effect once per process, so it runs here.
 	void initTestCase() {
+		logPath_ = logDir_.filePath(QStringLiteral("map.log"));
+		Logger::init(Logger::Info, logPath_);
 		widget_ = new MapWidget;
 		widget_->resize(400, 300);
 		widget_->show();
@@ -491,6 +497,19 @@ private slots:
 		const QString text = r.value("text").toString();
 		QVERIFY2(text.startsWith(QStringLiteral("Grade: A")), qPrintable(text));
 		QVERIFY2(text.contains(QStringLiteral("Couldn't save this analysis")), qPrintable(text));
+	}
+
+	// The page's console goes to the debug log under MapJS: errors and
+	// warnings as WARN, anything else as INFO.
+	void pageConsoleMessagesAreLoggedAtTheirLevel() {
+		evalPageJs(widget_, QStringLiteral(
+			"console.error('console-error-1'); console.warn('console-warn-2'); console.log('console-log-3'); true"));
+		const QString log = logPath_;
+		QVERIFY(QTest::qWaitFor([&log] { return lineLogged(log, "INFO ", { "MapJS", "console-log-3" }); }, 5000));
+		QVERIFY(warningLogged(log, { "MapJS", "console-error-1" }));
+		QVERIFY(warningLogged(log, { "MapJS", "console-warn-2" }));
+		QVERIFY(!lineLogged(log, "INFO ", { "console-error-1" }));
+		QVERIFY(!lineLogged(log, "WARN ", { "console-log-3" }));
 	}
 };
 

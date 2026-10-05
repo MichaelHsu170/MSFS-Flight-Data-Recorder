@@ -10,9 +10,13 @@
 #include <QLabel>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPainter>
+#include <QStyleFactory>
 #include <QTableView>
 #include <QThread>
 #include <QtTest>
+
+#include <memory>
 
 using namespace TestSupport;
 
@@ -336,6 +340,30 @@ private slots:
 		QVERIFY2(details.contains("From: AAAA (Alpha)\nTo: -\n"), qPrintable(details));
 	}
 
+	// A delete that fails (here: a child table is gone) says so and keeps the
+	// trip listed.
+	void failedDeleteShowsAnErrorAndKeepsTheTrip() {
+		FlightDriver sim;
+		addTrip(1, 0, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		exec("DROP TABLE trip_liftoffs");
+		QString error;
+		onNextModal([&error](QWidget* menu) {
+			onNextModal([&error](QWidget* confirm) {
+				onNextModal([&error](QWidget* box) {
+					error = static_cast<QMessageBox*>(box)->text();
+					clickDialogButton(box, "OK");
+				});
+				clickDialogButton(confirm, "Yes");
+			});
+			chooseMenuItem(menu, "Delete Trip");
+		});
+		openRowMenu(view(panel), 0);
+		QCOMPARE(error, QStringLiteral("Failed to delete trip data."));
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trips").toInt(), 1);
+		QCOMPARE(view(panel)->model()->rowCount(), 1);
+	}
+
 	void setGroupFromTheRowMenu() {
 		FlightDriver sim;
 		const int training = addGroup("Training");
@@ -356,6 +384,31 @@ private slots:
 		openRowMenu(view(panel), 0);
 		QVERIFY(tripRow(1)["group_id"].isNull());
 	}
+
+	// A group change the database refuses says so and leaves the trip as it was.
+	void failedSetGroupShowsAnErrorAndKeepsTheGroup() {
+		FlightDriver sim;
+		addGroup("Training");
+		addTrip(1, 0, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		exec("CREATE TRIGGER refuse BEFORE UPDATE ON trips BEGIN SELECT RAISE(ABORT, 'refused'); END");
+		QString error;
+		onNextModal([&error](QWidget* menu) {
+			onNextModal([&error](QWidget* submenu) {
+				onNextModal([&error](QWidget* box) {
+					error = static_cast<QMessageBox*>(box)->text();
+					clickDialogButton(box, "OK");
+				});
+				chooseMenuItem(submenu, "Training");
+			});
+			chooseMenuItem(menu, "Set Group");
+		});
+		openRowMenu(view(panel), 0);
+		QCOMPARE(error, QStringLiteral("Failed to update the trip's group."));
+		QVERIFY(tripRow(1)["group_id"].isNull());
+		QCOMPARE(cell(view(panel), 0, TripHistoryModel::GroupColumn), QStringLiteral("-"));
+	}
+
 
 	void deselectAndResetZoomOnlyForTheSelectedTrip() {
 		FlightDriver sim;
@@ -471,6 +524,33 @@ private slots:
 		openRowMenu(view(panel), rowOfTrip(view(panel), 1));
 		QCOMPARE(deselected.count(), 1);
 		QVERIFY(view(panel)->selectionModel()->selectedRows().isEmpty());
+	}
+
+	// The mouse-over state is dropped before a cell is painted, so a hovered
+	// row keeps its own status color in every cell instead of the style's
+	// per-cell hover highlight. Painted with the Windows 11 style the app uses
+	// on Windows, which draws that highlight.
+	void hoveredCellsPaintLikeUnhoveredOnes() {
+		std::unique_ptr<QStyle> style(QStyleFactory::create(QStringLiteral("windows11")));
+		QVERIFY(style);
+		FlightDriver sim;
+		TripHistoryPanel panel(sim.bridge());
+		sim.startTrip(); // a live row, painted green
+		QTableView* v = view(panel);
+		v->setStyle(style.get());
+		auto paintCell = [v](QStyle::State extra) {
+			QImage image(120, 24, QImage::Format_ARGB32);
+			image.fill(Qt::white);
+			QPainter painter(&image);
+			QStyleOptionViewItem option;
+			option.rect = image.rect();
+			option.state = QStyle::State_Enabled | extra;
+			option.palette = v->palette();
+			option.widget = v;
+			v->itemDelegate()->paint(&painter, option, v->model()->index(0, TripHistoryModel::TitleColumn));
+			return image;
+		};
+		QVERIFY(paintCell(QStyle::State_MouseOver) == paintCell(QStyle::State_None));
 	}
 
 	void resizedColumnWidthsArePersisted() {
