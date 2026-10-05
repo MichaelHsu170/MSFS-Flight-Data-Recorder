@@ -125,6 +125,7 @@ enabled=true
 ; Default: INFO
 verbose=INFO
 
+; Auto-managed by the app.
 [layout]
 ; Width in pixels of the Live Status panel (top-right) and Data Table panel
 ; (bottom-right). Both columns share one value so they stay aligned when
@@ -135,6 +136,7 @@ right_panel_width=260
 ; remaining vertical space. Default: 400.
 charts_panel_height=400
 
+; Auto-managed by the app.
 [data_table]
 ; Comma-separated list of field labels hidden in the Data Table panel via the
 ; Visible Fields dialog. Absent or empty means all fields are visible.

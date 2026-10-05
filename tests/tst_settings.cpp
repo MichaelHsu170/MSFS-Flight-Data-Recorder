@@ -8,6 +8,10 @@
 #include <QFile>
 #include <QtTest>
 
+#include <functional>
+#include <utility>
+#include <vector>
+
 using namespace TestSupport;
 
 namespace {
@@ -44,6 +48,12 @@ private slots:
 				"[data_table]", "hidden_fields=", "[table_column_width]", "data_table_field_column_width=140",
 				"trip_history_column_widths=" })
 			QVERIFY2(text.contains(QLatin1String(line) + QLatin1Char('\n')), line);
+		// The sections the app writes itself are labeled; the others aren't.
+		for (const char* block : { "\n\n[ai]\n", "\n\n[recording]\n", "\n\n[logging]\n",
+				"\n\n; Auto-managed by the app.\n[layout]\n", "\n\n; Auto-managed by the app.\n[data_table]\n",
+				"\n\n; Auto-managed by the app. Persisted column widths for the tables in the\n"
+				"; UI that support user resizing.\n[table_column_width]\n" })
+			QVERIFY2(text.contains(QLatin1String(block)), block);
 	}
 
 	void defaultFileReadsAsDefaults() {
@@ -112,6 +122,29 @@ private slots:
 		QVERIFY(text.contains("[table_column_width]\n"));
 		QVERIFY(text.contains("data_table_field_column_width=180\n"));
 		QCOMPARE(AppSettings::instance().dataTableFieldColumnWidth(), 180);
+	}
+
+	// Each setter adds its missing section under the same header block the
+	// default file has (see firstUseCreatesTheDefaultFile).
+	void setterAddsAMissingSectionUnderItsDefaultHeader() {
+		AppSettings& s = AppSettings::instance();
+		const QString autoManaged = QStringLiteral("; Auto-managed by the app.\n");
+		const QString columnWidths = QStringLiteral("; Auto-managed by the app. Persisted column widths for the tables in the\n"
+			"; UI that support user resizing.\n");
+		const std::vector<std::pair<std::function<void()>, QString>> cases = {
+			{ [&s] { s.setRightPanelWidth(300); }, autoManaged + "[layout]\n" },
+			{ [&s] { s.setChartsPanelHeight(500); }, autoManaged + "[layout]\n" },
+			{ [&s] { s.setDataTableHiddenFields({ "G Force" }); }, autoManaged + "[data_table]\n" },
+			{ [&s] { s.setDataTableFieldColumnWidth(180); }, columnWidths + "[table_column_width]\n" },
+			{ [&s] { s.setTripHistoryColumnWidths({ { "TitleColumn", 120 } }); }, columnWidths + "[table_column_width]\n" },
+			{ [&s] { s.setRecordingEnabled(false); }, QStringLiteral("[recording]\n") },
+		};
+		for (const auto& [set, header] : cases) {
+			removeSettings();
+			set();
+			const QString text = readSettingsFile();
+			QVERIFY2(text.startsWith(header), qPrintable(text));
+		}
 	}
 
 	void hiddenFieldsRoundTrip() {

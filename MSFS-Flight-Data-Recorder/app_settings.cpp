@@ -48,12 +48,22 @@ constexpr int kDefaultSampleIntervalMs = 500;
 constexpr int kDefaultChartsPanelHeight = 400;
 constexpr int kDefaultFieldColumnWidth = 140;
 
-// Key and section comments written both into the default settings.ini and
-// when the setter adds the key to an existing file that lacks it.
-QString autoManagedSectionComment() {
-	return QStringLiteral("Auto-managed by the app.");
+// A section's header line, after the comment that goes above it. Sections the
+// app writes itself say so; the others have no comment. Written both into the
+// default settings.ini and when a setter adds the section to a file that
+// lacks it, so the two always match.
+QStringList sectionHeaderLines(const QString& section) {
+	QString comment;
+	if (section == QLatin1String("layout") || section == QLatin1String("data_table"))
+		comment = QStringLiteral("Auto-managed by the app.");
+	else if (section == QLatin1String("table_column_width"))
+		comment = QStringLiteral("Auto-managed by the app. Persisted column widths for the tables in the\n"
+		                         "UI that support user resizing.");
+	return commentLines(comment) << '[' + section + ']';
 }
 
+// Key comments written both into the default settings.ini and when the
+// setter adds the key to an existing file that lacks it.
 QString recordingEnabledComment() {
 	return QStringLiteral("Auto-managed by the app. Whether automatic recording is allowed to start,\n"
 	                      "toggled via the Recording indicator in the Live Status panel. Disabling it\n"
@@ -64,11 +74,6 @@ QString recordingEnabledComment() {
 QString chartsPanelHeightComment() {
 	return QStringLiteral("Height in pixels of the Charts panel (below the map). The map takes the\n"
 	                      "remaining vertical space. Default: %1.").arg(kDefaultChartsPanelHeight);
-}
-
-QString columnWidthsSectionComment() {
-	return QStringLiteral("Auto-managed by the app. Persisted column widths for the tables in the\n"
-	                      "UI that support user resizing.");
 }
 
 QString fieldColumnWidthComment() {
@@ -98,17 +103,16 @@ QString rightPanelWidthComment() {
 // line. Every other line — comments, blank lines, other keys, other sections —
 // is preserved exactly.
 //
-// sectionComment and keyComment are plain text (no leading "; "). They are
-// written only when new content is appended to the file:
-//   - sectionComment is written before the [section] header when the section
-//     itself is absent from the file.
-//   - keyComment is written before the key=value line when the key is absent
-//     (whether or not the section already existed).
+// Comments are written only when new content is appended to the file:
+//   - a section that is absent is added with sectionHeaderLines(), its
+//     comment included.
+//   - keyComment (plain text, no leading "; ") is written before the
+//     key=value line when the key is absent (whether or not the section
+//     already existed).
 // This means the file stays self-documenting even when keys are added by a
 // newer version of the app to an older settings.ini.
 void writeIniValue(const QString& section, const QString& key, const QString& value,
-                   const QString& sectionComment = {},
-                   const QString& keyComment = {}) {
+                   const QString& keyComment) {
 	const QString path = settingsFilePath();
 	QFile file(path);
 	QStringList lines;
@@ -165,7 +169,7 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 	// A trailing blank line + comment here aren't necessarily this section's
 	// own trailing content -- they're also exactly what the "section not
 	// present" branch below writes as the auto-generated preamble (blank
-	// separator + sectionComment) of a *later* section, written before its
+	// separator + section comment) of a *later* section, written before its
 	// own header ever appeared in the file. Trim them back off the end of
 	// this section so a later insertion into *this* section can't land
 	// inside that preamble and separate it from the header it belongs to.
@@ -200,8 +204,7 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 		// Section not present — append section header and key at end of file.
 		if (!lines.isEmpty() && !lines.last().trimmed().isEmpty())
 			lines.append(QString());
-		lines << commentLines(sectionComment);
-		lines.append(sectionHeader);
+		lines << sectionHeaderLines(section);
 		lines << commentLines(keyComment);
 		lines.append(entry);
 	}
@@ -235,20 +238,21 @@ void ensureSettingsFileExists() {
 		return;
 	}
 
+	const auto header = [](const char* section) { return sectionHeaderLines(QLatin1String(section)).join('\n'); };
 	QTextStream out(&file);
 	out.setEncoding(QStringConverter::Utf8);
 	out <<
 		"; MSFS Flight Data Recorder — settings\n"
 		"; Edit while the app is not running. All values are human-readable.\n"
 		"\n"
-		"[ai]\n"
+		<< header("ai") << "\n"
 		"; Gemini API key for the AI liftoff/landing analysis feature.\n"
 		"; Obtain a free key from Google AI Studio (aistudio.google.com), then paste it\n"
 		"; here and restart the app. The app never writes this value.\n"
 		"; Without a key the Analyze Liftoff and Analyze Landing buttons are disabled.\n"
 		"gemini_api_key=\n"
 		"\n"
-		"[recording]\n"
+		<< header("recording") << "\n"
 		"; Maximum time between telemetry samples written to trip_data, in milliseconds.\n"
 		"; Lower values produce finer trajectory and chart resolution at the cost of\n"
 		"; a larger database and slower trip load times. Must be a positive integer.\n"
@@ -259,7 +263,7 @@ void ensureSettingsFileExists() {
 		<< commentLines(recordingEnabledComment()).join('\n') << "\n"
 		"enabled=true\n"
 		"\n"
-		"[logging]\n"
+		<< header("logging") << "\n"
 		"; Maximum log level written to msfs_fdr_debug.log.\n"
 		"; Levels (inclusive — each includes all levels above it):\n"
 		";   FATAL    — unrecoverable errors only\n"
@@ -270,19 +274,18 @@ void ensureSettingsFileExists() {
 		"; Default: INFO\n"
 		"verbose=INFO\n"
 		"\n"
-		"[layout]\n"
+		<< header("layout") << "\n"
 		<< commentLines(rightPanelWidthComment()).join('\n') << "\n"
 		"right_panel_width=" << kRightPanelWidth << "\n"
 		"\n"
 		<< commentLines(chartsPanelHeightComment()).join('\n') << "\n"
 		"charts_panel_height=" << kDefaultChartsPanelHeight << "\n"
 		"\n"
-		"[data_table]\n"
+		<< header("data_table") << "\n"
 		<< commentLines(hiddenFieldsComment()).join('\n') << "\n"
 		"hidden_fields=\n"
 		"\n"
-		<< commentLines(columnWidthsSectionComment()).join('\n') << "\n"
-		"[table_column_width]\n"
+		<< header("table_column_width") << "\n"
 		<< commentLines(fieldColumnWidthComment()).join('\n') << "\n"
 		"data_table_field_column_width=" << kDefaultFieldColumnWidth << "\n"
 		"\n"
@@ -315,7 +318,6 @@ void AppSettings::setDataTableHiddenFields(const QStringList& fields) {
 		QStringLiteral("data_table"),
 		QStringLiteral("hidden_fields"),
 		fields.join(','),
-		autoManagedSectionComment(),
 		hiddenFieldsComment()
 	);
 }
@@ -329,7 +331,6 @@ void AppSettings::setDataTableFieldColumnWidth(int w) {
 		QStringLiteral("table_column_width"),
 		QStringLiteral("data_table_field_column_width"),
 		QString::number(w),
-		columnWidthsSectionComment(),
 		fieldColumnWidthComment()
 	);
 }
@@ -343,7 +344,6 @@ void AppSettings::setRightPanelWidth(int w) {
 		QStringLiteral("layout"),
 		QStringLiteral("right_panel_width"),
 		QString::number(w),
-		autoManagedSectionComment(),
 		rightPanelWidthComment()
 	);
 }
@@ -357,7 +357,6 @@ void AppSettings::setChartsPanelHeight(int h) {
 		QStringLiteral("layout"),
 		QStringLiteral("charts_panel_height"),
 		QString::number(h),
-		{},
 		chartsPanelHeightComment()
 	);
 }
@@ -384,7 +383,6 @@ void AppSettings::setTripHistoryColumnWidths(const QMap<QString, int>& widths) {
 		QStringLiteral("table_column_width"),
 		QStringLiteral("trip_history_column_widths"),
 		parts.join(','),
-		columnWidthsSectionComment(),
 		tripHistoryColumnWidthsComment()
 	);
 }
@@ -420,7 +418,6 @@ void AppSettings::setRecordingEnabled(bool enabled) {
 		QStringLiteral("recording"),
 		QStringLiteral("enabled"),
 		enabled ? QStringLiteral("true") : QStringLiteral("false"),
-		{},
 		recordingEnabledComment()
 	);
 }
