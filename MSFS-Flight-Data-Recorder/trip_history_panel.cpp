@@ -97,6 +97,27 @@ QString dashIfEmpty(const QString& value) {
     return value.trimmed().isEmpty() ? QStringLiteral("-") : value;
 }
 
+// A trip's dataset is put together the same way whether onRowActivated()
+// loads it (its parts in parallel) or the row menu's Export to KML does (in
+// one go): tripSamples() first, then completeTripDataset() with the rest.
+// The trip's samples (none without a connection), named after the trip.
+TripDataset tripSamples(sqlite3* sql, int tripId, const QString& aircraftTitle, const QString& departureZuluTime) {
+	TripDataset dataset = sql ? queryTripData(sql, tripId) : TripDataset();
+	dataset.tripId = tripId;
+	dataset.aircraftTitle = aircraftTitle;
+	dataset.departureZuluTime = departureZuluTime;
+	return dataset;
+}
+
+// Adds the liftoffs, touchdowns and events, placing each event on the trajectory.
+void completeTripDataset(TripDataset& dataset, std::vector<LiftoffPoint> liftoffPoints,
+	std::vector<TouchdownPoint> touchdowns, std::vector<TripEvent> events) {
+	dataset.liftoffPoints = std::move(liftoffPoints);
+	dataset.touchdowns = std::move(touchdowns);
+	dataset.events = std::move(events);
+	resolveEventPositions(dataset);
+}
+
 }
 
 TripHistoryModel::TripHistoryModel(QObject* parent) : QAbstractTableModel(parent) {}
@@ -662,10 +683,7 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	pointsWatcher_->setFuture(QtConcurrent::run([tripId, aircraftTitle, departureZuluTime]() {
 		QElapsedTimer t; t.start();
 		DbConnection sql = openForReading(QStringLiteral("queryTripData(trip %1)").arg(tripId));
-		auto dataset = std::make_shared<TripDataset>(sql ? queryTripData(sql.get(), tripId) : TripDataset());
-		dataset->tripId = tripId;
-		dataset->aircraftTitle = aircraftTitle;
-		dataset->departureZuluTime = departureZuluTime;
+		auto dataset = std::make_shared<TripDataset>(tripSamples(sql.get(), tripId, aircraftTitle, departureZuluTime));
 		Logger::logf(Logger::Profile, "DB", "queryTripData: %lld ms  (%zu pts)", t.nsecsElapsed() / 1000000, dataset->points.size());
 		return dataset;
 	}));
@@ -705,12 +723,9 @@ void TripHistoryPanel::tryFinishLoad() {
 
 	auto dataset = pointsWatcher_->result();
 	auto liftoffTouchdowns = liftoffTouchdownsWatcher_->result();
-	dataset->liftoffPoints = liftoffTouchdowns.first;
-	dataset->touchdowns = liftoffTouchdowns.second;
-	dataset->events = eventsWatcher_->result();
 	Logger::logf(Logger::Profile, "DB", "all joined: %lld ms wall time from click", loadTimer_.nsecsElapsed() / 1000000);
 
-	resolveEventPositions(*dataset);
+	completeTripDataset(*dataset, liftoffTouchdowns.first, liftoffTouchdowns.second, eventsWatcher_->result());
 
 	selectedTripId_ = pendingTripId_;
 	// Keep loading_ = true and table disabled until TrajectoryView signals that
@@ -915,14 +930,8 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 			DbConnection sql = openForReading(QStringLiteral("export trip %1 to KML").arg(tripId));
 			if (!sql)
 				return QStringLiteral("Could not open the trip database.");
-			TripDataset dataset = queryTripData(sql.get(), tripId);
-			dataset.tripId = tripId;
-			dataset.aircraftTitle = aircraftTitle;
-			dataset.departureZuluTime = departureZuluTime;
-			dataset.liftoffPoints = queryLiftoffs(sql.get(), tripId);
-			dataset.touchdowns = queryTouchdowns(sql.get(), tripId);
-			dataset.events = queryEvents(sql.get(), tripId);
-			resolveEventPositions(dataset);
+			TripDataset dataset = tripSamples(sql.get(), tripId, aircraftTitle, departureZuluTime);
+			completeTripDataset(dataset, queryLiftoffs(sql.get(), tripId), queryTouchdowns(sql.get(), tripId), queryEvents(sql.get(), tripId));
 			QString error;
 			exportTripDatasetToKmlFile(dataset, fileName, &error);
 			return error;
