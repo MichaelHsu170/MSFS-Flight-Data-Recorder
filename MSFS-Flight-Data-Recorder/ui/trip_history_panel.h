@@ -123,6 +123,9 @@ private:
 	// was called), logging a failure. Returns nullptr if it still can't be
 	// opened.
 	sqlite3* ensureHistoryConnection();
+	// Forgets the selected trip and unhighlights its row; the caller decides
+	// whether the map gets the overview (tripDeselected).
+	void clearTripSelection();
 	// refreshTrips(), then, if no trip is selected (the overview map is on
 	// screen), re-sends the overview its trips. changedTripId, if it's the
 	// selected trip, is deselected first -- it may have been deleted or left

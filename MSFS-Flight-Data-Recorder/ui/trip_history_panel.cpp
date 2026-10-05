@@ -6,6 +6,7 @@
 #include "app_settings.h"
 #include "kml_export.h"
 #include "kml_export_dialog.h"
+#include "logger.h"
 
 #include <memory>
 #include <optional>
@@ -30,8 +31,6 @@
 #include <QBrush>
 #include <QColor>
 #include <QDateTime>
-#include "logger.h"
-
 #include <QEvent>
 #include <QMouseEvent>
 #include <QStyledItemDelegate>
@@ -42,27 +41,27 @@ namespace {
 // BackgroundRole color shows uniformly across all cells in the hovered row.
 class HoverStripDelegate : public QStyledItemDelegate {
 public:
-    using QStyledItemDelegate::QStyledItemDelegate;
-    void paint(QPainter* p, const QStyleOptionViewItem& opt, const QModelIndex& idx) const override {
-        QStyleOptionViewItem o = opt;
-        o.state &= ~QStyle::State_MouseOver;
-        QStyledItemDelegate::paint(p, o, idx);
-    }
+	using QStyledItemDelegate::QStyledItemDelegate;
+	void paint(QPainter* p, const QStyleOptionViewItem& opt, const QModelIndex& idx) const override {
+		QStyleOptionViewItem o = opt;
+		o.state &= ~QStyle::State_MouseOver;
+		QStyledItemDelegate::paint(p, o, idx);
+	}
 };
 
 // Destination - departure in seconds. Returns nullopt for open/incomplete
 // trips (empty destinationZuluTime) or any parse failure.
 std::optional<qint64> tripDurationSeconds(const QString& departureZuluTime, const QString& destinationZuluTime) {
-    if (departureZuluTime.isEmpty() || destinationZuluTime.isEmpty())
-        return std::nullopt;
-    const QDateTime departure = parseZuluTime(departureZuluTime);
-    const QDateTime destination = parseZuluTime(destinationZuluTime);
-    if (!departure.isValid() || !destination.isValid())
-        return std::nullopt;
-    const qint64 seconds = departure.secsTo(destination);
-    if (seconds < 0)
-        return std::nullopt;
-    return seconds;
+	if (departureZuluTime.isEmpty() || destinationZuluTime.isEmpty())
+		return std::nullopt;
+	const QDateTime departure = parseZuluTime(departureZuluTime);
+	const QDateTime destination = parseZuluTime(destinationZuluTime);
+	if (!departure.isValid() || !destination.isValid())
+		return std::nullopt;
+	const qint64 seconds = departure.secsTo(destination);
+	if (seconds < 0)
+		return std::nullopt;
+	return seconds;
 }
 
 // "Dd Hh MMm" once the span reaches a full day (relevant for the summed
@@ -75,26 +74,26 @@ std::optional<qint64> tripDurationSeconds(const QString& departureZuluTime, cons
 // 59 seconds, and a real, non-zero duration under a minute would floor to
 // "0h 00m" -- indistinguishable from an actual zero-length span.
 QString formatDurationSeconds(qint64 seconds) {
-    const qint64 totalMinutes = seconds > 0 ? (seconds + 59) / 60 : 0;
-    const qint64 days = totalMinutes / 1440;
-    const qint64 hours = (totalMinutes % 1440) / 60;
-    const qint64 minutes = totalMinutes % 60;
-    if (days > 0)
-        return QStringLiteral("%1d %2h %3m").arg(days).arg(hours).arg(minutes, 2, 10, QChar('0'));
-    return QStringLiteral("%1h %2m").arg(hours).arg(minutes, 2, 10, QChar('0'));
+	const qint64 totalMinutes = seconds > 0 ? (seconds + 59) / 60 : 0;
+	const qint64 days = totalMinutes / 1440;
+	const qint64 hours = (totalMinutes % 1440) / 60;
+	const qint64 minutes = totalMinutes % 60;
+	if (days > 0)
+		return QStringLiteral("%1d %2h %3m").arg(days).arg(hours).arg(minutes, 2, 10, QChar('0'));
+	return QStringLiteral("%1h %2m").arg(hours).arg(minutes, 2, 10, QChar('0'));
 }
 
 // Falls back to a dash for open/incomplete trips or any parse failure.
 QString formatDuration(const QString& departureZuluTime, const QString& destinationZuluTime) {
-    const auto seconds = tripDurationSeconds(departureZuluTime, destinationZuluTime);
-    return seconds ? formatDurationSeconds(*seconds) : QStringLiteral("-");
+	const auto seconds = tripDurationSeconds(departureZuluTime, destinationZuluTime);
+	return seconds ? formatDurationSeconds(*seconds) : QStringLiteral("-");
 }
 
 // A blank table cell reads as "still loading" -- an explicit dash tells the
 // user this field just has nothing to show (unresolved region, no ATC flight
 // number assigned, etc).
 QString dashIfEmpty(const QString& value) {
-    return value.trimmed().isEmpty() ? QStringLiteral("-") : value;
+	return value.trimmed().isEmpty() ? QStringLiteral("-") : value;
 }
 
 // A trip's dataset is put together the same way whether onRowActivated()
@@ -419,8 +418,7 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 		// a previously selected trip may not even be in it anymore, so drop
 		// the selection and show the overview map for the newly filtered set
 		// instead, keeping the map aligned with the table.
-		selectedTripId_ = -1;
-		table_->clearSelection();
+		clearTripSelection();
 		emit tripDeselected(model_->trips());
 	});
 
@@ -464,8 +462,7 @@ void TripHistoryPanel::reloadGroupFilterCombo() {
 	// don't affect the current filter.
 	if (newData != previousData) {
 		Logger::logf(Logger::Trace, "DB", "reloadGroupFilterCombo: active filter changed externally (%d -> %d, e.g. selected group was deleted); deselecting current trip", previousData, newData);
-		selectedTripId_ = -1;
-		table_->clearSelection();
+		clearTripSelection();
 		// Deliberately not emitting tripDeselected here: model_->trips() at
 		// this point is still filtered from the pre-mutation allTrips_ (this
 		// only re-filters, it never re-derives a TripSummary's fields -- see
@@ -527,6 +524,11 @@ bool TripHistoryPanel::refuseWhileFlushing(int tripId, const char* action) {
 	QMessageBox::information(this, QStringLiteral("Trip Still Saving"),
 		QStringLiteral("This trip's data is still being saved. Please wait a moment and try again."));
 	return true;
+}
+
+void TripHistoryPanel::clearTripSelection() {
+	selectedTripId_ = -1;
+	table_->clearSelection();
 }
 
 void TripHistoryPanel::refreshTripsAndOverview(int changedTripId) {
@@ -978,8 +980,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		// the selected one.
 		refreshTripsAndOverview(deleteId);
 	} else if (chosen == deselectAction) {
-		table_->clearSelection();
-		selectedTripId_ = -1;
+		clearTripSelection();
 		emit tripDeselected(model_->trips());
 	} else if (chosen == resetZoomAction) {
 		emit zoomResetRequested();
