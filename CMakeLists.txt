@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.17)
+cmake_minimum_required(VERSION 3.22)
 # Single source of truth for the app version -- generated into version.h
 # below, consumed by the C++ sources (the Live Status "ver." label, the debug
 # log header and the map's HTTP user agent) and app.rc (Windows exe
