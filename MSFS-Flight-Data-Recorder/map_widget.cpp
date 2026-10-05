@@ -300,7 +300,7 @@ void MapWidget::exportKml() {
 	if (fileName.isEmpty()) return;
 	QString error;
 	if (!exportTripDatasetToKmlFile(*dataset_, fileName, &error))
-		QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to export KML to %1.\n%2").arg(fileName, error));
+		QMessageBox::critical(this, QStringLiteral("Error"), kmlExportFailedText(fileName, error));
 }
 
 void MapWidget::onLoadFinished(bool ok) {

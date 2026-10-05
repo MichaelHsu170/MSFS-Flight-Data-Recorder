@@ -924,7 +924,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 			const QString error = watcher->result();
 			watcher->deleteLater();
 			if (!error.isEmpty())
-				QMessageBox::critical(this, QStringLiteral("Error"), QStringLiteral("Failed to export KML to %1.\n%2").arg(fileName, error));
+				QMessageBox::critical(this, QStringLiteral("Error"), kmlExportFailedText(fileName, error));
 		});
 		watcher->setFuture(QtConcurrent::run([tripId, aircraftTitle, departureZuluTime, fileName]() -> QString {
 			DbConnection sql = openForReading(QStringLiteral("export trip %1 to KML").arg(tripId));

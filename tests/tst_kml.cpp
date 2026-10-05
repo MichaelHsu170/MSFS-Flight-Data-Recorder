@@ -201,6 +201,12 @@ private slots:
 		QVERIFY(!error.isEmpty());
 		QVERIFY(!exportTripDatasetToKmlFile(fullDataset(), dir_.filePath("missing/dir/trip.kml")));
 	}
+
+	void failureTextNamesTheFileAndTheReason() {
+		const QString text = kmlExportFailedText(QStringLiteral("C:/out/trip.kml"), QStringLiteral("Access denied"));
+		QVERIFY(text.contains(QStringLiteral("C:/out/trip.kml")));
+		QVERIFY(text.contains(QStringLiteral("Access denied")));
+	}
 };
 
 QTEST_APPLESS_MAIN(TstKml)
