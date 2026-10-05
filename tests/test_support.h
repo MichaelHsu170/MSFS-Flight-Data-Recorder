@@ -70,6 +70,9 @@ void clickDialogButton(QWidget* dialog, const QString& text);
 // Runs sql on a fresh read-only connection to flight_data.db.
 QList<QVariantMap> queryRows(const QString& sql);
 QVariant queryValue(const QString& sql);
+// The trips row with this id, column name -> value. A missing row fails the
+// current test, so a NULL column can't pass for a trip that isn't there.
+QVariantMap tripRow(int id);
 // Opens flight_data.db read-write, creating it if missing (unlike the app's
 // connect_db_readwrite()), so a test can build a database in any state;
 // nullptr if that fails. Caller must sqlite3_close().

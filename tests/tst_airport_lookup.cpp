@@ -71,10 +71,6 @@ void touchDown(FlightDriver& sim, const COORDINATE& at) {
 	sim.tick();
 }
 
-QVariantMap trip(int id) {
-	return queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id)).value(0);
-}
-
 QList<QVariantMap> liftoffs(int tripId) {
 	return queryRows(QStringLiteral("SELECT * FROM trip_liftoffs WHERE trip=%1 ORDER BY id").arg(tripId));
 }
@@ -163,7 +159,7 @@ private slots:
 		QCOMPARE(QString::fromStdString(FakeSim::state().facilityDataRequests[0].icao), QStringLiteral("TEST"));
 		QCOMPARE(QString::fromStdString(FakeSim::state().facilityDataRequests[0].region), QStringLiteral("XX"));
 
-		const QVariantMap t = trip(tripId);
+		const QVariantMap t = tripRow(tripId);
 		QCOMPARE(t["departure_icao"].toString(), QStringLiteral("TEST"));
 		QCOMPARE(t["departure_rwy"].toString(), QStringLiteral("09"));
 		QCOMPARE(t["departure_region"].toString(), QStringLiteral("XX"));
@@ -219,7 +215,7 @@ private slots:
 		QVERIFY(!lastLogWith(log, { QStringLiteral("(TEST) runway 09"), QStringLiteral("trip_touchdowns"),
 			QStringLiteral("never inserted") }).isEmpty());
 		// The trip still gets its destination, and the lookups carry on.
-		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(tripRow(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
 		QCOMPARE(liftoffs(tripId).value(1)["icao"].toString(), QStringLiteral("TEST"));
 	}
 
@@ -242,7 +238,7 @@ private slots:
 			QStringLiteral("never inserted") });
 		QVERIFY(!warning.isEmpty());
 		QVERIFY2(!warning.contains(QStringLiteral("runway 09")), qPrintable(warning)); // resolved without a runway
-		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(tripRow(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
 		QVERIFY(!sim.status().lookup.pending);
 	}
 
@@ -262,7 +258,7 @@ private slots:
 			QStringLiteral("destination") }).isEmpty());
 		QCOMPARE(touchdowns(tripId).size(), 1);
 		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(2));
-		QVERIFY(trip(tripId)["destination_latitude"].isNull());
+		QVERIFY(tripRow(tripId)["destination_latitude"].isNull());
 		// Served with the trigger gone, so the touchdown's own row gets its
 		// airport (a still-failing trips UPDATE throws before that write).
 		stopFailingUpdates(sim, "trips");
@@ -305,7 +301,8 @@ private slots:
 		QVERIFY(!lastLogWith(log, { QStringLiteral("Database error") }).isEmpty());
 		QVERIFY(!sim.status().lookup.pending);
 		// The trip's own destination write ran before the failing one.
-		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(tripRow(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(touchdowns(tripId).size(), 1);
 		QVERIFY(touchdowns(tripId).value(0)["icao"].isNull());
 		// The slot is free: the next liftoff gets its own lookup.
 		liftOff(sim, onRunway(rwy, 1800));
@@ -350,7 +347,7 @@ private slots:
 		QVERIFY(!lastLogWith(log, { QStringLiteral("trip %1").arg(tripId), QStringLiteral("trip_liftoffs insert failed") }).isEmpty());
 		QVERIFY(!lastLogWith(log, { QStringLiteral("(TEST) runway 09"), QStringLiteral("trip_liftoffs"),
 			QStringLiteral("never inserted") }).isEmpty());
-		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(tripRow(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
 	}
 
 	void departureInsertFailureIsLoggedAndRetriedOnNextLiftoff() {
@@ -374,8 +371,8 @@ private slots:
 		migrate_db();
 		liftOff(sim, onRunway(rwy, 1800));
 		sim.serviceLookups();
-		QCOMPARE(trip(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
-		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
+		QCOMPARE(tripRow(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
 		QCOMPARE(liftoffs(tripId).size(), 1);
 	}
 
@@ -386,7 +383,7 @@ private slots:
 		const int tripId = startOnRunway(sim, rwy, 2950, 270);
 		liftOff(sim, onRunway(rwy, 1000)); // 2000 m from the 27 end
 		sim.serviceLookups();
-		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("27"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("27"));
 		const QVariantMap lo = liftoffs(tripId).value(0);
 		QCOMPARE(lo["runway"].toString(), QStringLiteral("27"));
 		QCOMPARE(lo["runway_heading"].toInt(), 270);
@@ -402,7 +399,7 @@ private slots:
 		const int tripId = startOnRunway(sim, rwy);
 		liftOff(sim, onRunway(rwy, 1500));
 		sim.serviceLookups();
-		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("09L"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("09L"));
 	}
 
 	void offsetFromCenterlineIsSignedRightPositive() {
@@ -431,7 +428,7 @@ private slots:
 		const int tripId = startOnRunway(sim, rwy, 50, 175);
 		liftOff(sim, onRunway(rwy, 1500));
 		sim.serviceLookups();
-		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("27"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("27"));
 	}
 
 	void trueHeadingPastNorthIsCompared() {
@@ -457,7 +454,7 @@ private slots:
 		const int tripId = startOnRunway(sim, a, 50, 359);
 		liftOff(sim, center);
 		sim.serviceLookups();
-		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("01"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("01"));
 	}
 
 	void bestAlignedOfCrossingRunwaysIsChosen() {
@@ -477,7 +474,7 @@ private slots:
 		const int tripId = startOnRunway(sim, ew);
 		liftOff(sim, center);
 		sim.serviceLookups();
-		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
 	}
 
 	// --- Touchdown ---
@@ -500,12 +497,12 @@ private slots:
 		QCOMPARE(rows[0]["airspeed_indicated"].toInt(), 130);
 		QCOMPARE(rows[0]["vertical_speed"].toInt(), -180);
 		QCOMPARE(rows[0]["g_force"].toDouble(), 1.3);
-		const QVariantMap before = trip(tripId);
+		const QVariantMap before = tripRow(tripId);
 		QCOMPARE(before["destination_latitude"].toDouble(), tdz.latitude);
 		QCOMPARE(before["destination_longitude"].toDouble(), tdz.longitude);
 
 		sim.serviceLookups();
-		const QVariantMap after = trip(tripId);
+		const QVariantMap after = tripRow(tripId);
 		QCOMPARE(after["destination_icao"].toString(), QStringLiteral("TEST"));
 		QCOMPARE(after["destination_rwy"].toString(), QStringLiteral("09"));
 		QCOMPARE(after["destination_name"].toString(), QStringLiteral("Test Field"));
@@ -646,7 +643,7 @@ private slots:
 		QCOMPARE(touchdowns(tripId).size(), 2);
 		VERIFY_NEAR(touchdowns(tripId)[1]["distance_length"], 600 * kFeetPerMeter, 2);
 		// The departure stays the first liftoff.
-		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
 	}
 
 	void lookupsQueuedWhileOneIsPendingResolveInOrder() {
@@ -696,7 +693,8 @@ private slots:
 		liftOff(sim, onRunway(rwy, 1800));
 		sim.serviceLookups();
 		QVERIFY(FakeSim::state().facilityDataRequests.empty());
-		QVERIFY(trip(tripId)["departure_icao"].isNull());
+		QVERIFY(tripRow(tripId)["departure_icao"].isNull());
+		QCOMPARE(liftoffs(tripId).size(), 1);
 		QVERIFY(liftoffs(tripId).value(0)["icao"].isNull());
 		QCOMPARE(sim.status().departure.runway_act.index, -2);
 		QVERIFY(!sim.status().lookup.pending);
@@ -713,10 +711,11 @@ private slots:
 		sim.serviceLookups();
 		touchDown(sim, onRunway(rwy, 500));
 		sim.serviceLookups();
-		const QVariantMap t = trip(tripId);
+		const QVariantMap t = tripRow(tripId);
 		QVERIFY(t["destination_icao"].isNull());
 		QVERIFY(t["destination_rwy"].isNull());
 		QVERIFY(!t["destination_latitude"].isNull());
+		QCOMPARE(touchdowns(tripId).size(), 1);
 		QVERIFY(touchdowns(tripId).value(0)["icao"].isNull());
 	}
 
@@ -728,7 +727,7 @@ private slots:
 		const int tripId = startOnRunway(sim, rwy);
 		liftOff(sim, onRunway(rwy, 3100));
 		sim.serviceLookups();
-		const QVariantMap t = trip(tripId);
+		const QVariantMap t = tripRow(tripId);
 		QCOMPARE(t["departure_icao"].toString(), QStringLiteral("TEST"));
 		QCOMPARE(t["departure_name"].toString(), QStringLiteral("Test Field"));
 		QVERIFY(t["departure_rwy"].isNull());
@@ -757,8 +756,8 @@ private slots:
 		const QList<QVariantMap> tds = touchdowns(tripId);
 		QCOMPARE(tds[1]["icao"].toString(), QStringLiteral("TEST"));
 		QVERIFY(tds[1]["runway"].isNull());
-		QCOMPARE(trip(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
-		QVERIFY(trip(tripId)["destination_rwy"].isNull());
+		QCOMPARE(tripRow(tripId)["destination_icao"].toString(), QStringLiteral("TEST"));
+		QVERIFY(tripRow(tripId)["destination_rwy"].isNull());
 	}
 
 	void offAirportWithin5kmUsesNearestAirportIdentity() {
@@ -770,7 +769,7 @@ private slots:
 		const int tripId = startOnRunway(sim, rwy);
 		liftOff(sim, onRunway(rwy, 1500, -1500));
 		sim.serviceLookups();
-		const QVariantMap t = trip(tripId);
+		const QVariantMap t = tripRow(tripId);
 		QCOMPARE(t["departure_icao"].toString(), QStringLiteral("TEST"));
 		QVERIFY(t["departure_rwy"].isNull());
 		const QVariantMap lo = liftoffs(tripId).value(0);
@@ -785,7 +784,8 @@ private slots:
 		const int tripId = startOnRunway(sim, rwy);
 		liftOff(sim, onRunway(rwy, 1500, -8000));
 		sim.serviceLookups();
-		QVERIFY(trip(tripId)["departure_icao"].isNull());
+		QVERIFY(tripRow(tripId)["departure_icao"].isNull());
+		QCOMPARE(liftoffs(tripId).size(), 1);
 		QVERIFY(liftoffs(tripId).value(0)["icao"].isNull());
 	}
 
@@ -805,8 +805,8 @@ private slots:
 		sim.serviceLookups();
 		QCOMPARE(FakeSim::state().facilityDataRequests.size(), size_t(2));
 		QCOMPARE(QString::fromStdString(FakeSim::state().facilityDataRequests[0].icao), QStringLiteral("NEAR"));
-		QCOMPARE(trip(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
-		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
+		QCOMPARE(tripRow(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
 	}
 
 	void airportListSplitAcrossPacketsIsMergedBeforeDeciding() {
@@ -820,7 +820,7 @@ private slots:
 		liftOff(sim, onRunway(rwy, 1500));
 		sim.serviceLookups();
 		QCOMPARE(QString::fromStdString(FakeSim::state().facilityDataRequests.at(0).icao), QStringLiteral("TEST"));
-		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
 	}
 
 	void nonAirportFacilitiesAreIgnored() {
@@ -832,7 +832,7 @@ private slots:
 		liftOff(sim, onRunway(rwy, 1500));
 		sim.serviceLookups();
 		QCOMPARE(QString::fromStdString(FakeSim::state().facilityDataRequests.at(0).icao), QStringLiteral("TEST"));
-		QCOMPARE(trip(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(tripRow(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
 	}
 
 	// --- Failure and staleness handling ---
@@ -851,7 +851,7 @@ private slots:
 		// The queued touchdown lookup was sent right away.
 		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(2));
 		sim.serviceLookups();
-		QVERIFY(trip(tripId)["departure_icao"].isNull());
+		QVERIFY(tripRow(tripId)["departure_icao"].isNull());
 		QCOMPARE(touchdowns(tripId).value(0)["runway"].toString(), QStringLiteral("09"));
 	}
 
@@ -864,7 +864,7 @@ private slots:
 		sim.send(exceptionPacket(3, 1)); // SendID of an early registration call
 		QVERIFY(sim.status().lookup.pending);
 		sim.serviceLookups();
-		QCOMPARE(trip(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
 	}
 
 	void responseArrivingAfterTripEndedIsDropped() {
@@ -877,8 +877,8 @@ private slots:
 		sim.endTrip(); // departure lookup still unanswered
 		const int second = startOnRunway(sim, rwy);
 		sim.serviceLookups();
-		QVERIFY(trip(first)["departure_icao"].isNull());
-		QVERIFY(trip(second)["departure_icao"].isNull());
+		QVERIFY(tripRow(first)["departure_icao"].isNull());
+		QVERIFY(tripRow(second)["departure_icao"].isNull());
 		QVERIFY(!sim.status().lookup.pending);
 	}
 
@@ -894,7 +894,7 @@ private slots:
 		liftOff(sim, onRunway(rwy, 1700));
 		QVERIFY(sim.status().flight.departure_lookup_needed);
 		sim.serviceLookups();
-		QCOMPARE(trip(second)["departure_rwy"].toString(), QStringLiteral("09"));
+		QCOMPARE(tripRow(second)["departure_rwy"].toString(), QStringLiteral("09"));
 		VERIFY_NEAR(liftoffs(second).value(0)["distance_length"], 1700 * kFeetPerMeter, 2);
 	}
 
@@ -918,8 +918,8 @@ private slots:
 		QVERIFY(!lastLogWith(log, { QStringLiteral("n_runways=-1") }).isEmpty());
 		QVERIFY(!lastLogWith(log, { QStringLiteral("FACILITY_DATA_RUNWAY"), QStringLiteral("ItemIndex=0") }).isEmpty());
 		// No runways, but the airport is right here: its identity, no runway.
-		QCOMPARE(trip(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
-		QVERIFY(trip(tripId)["departure_rwy"].isNull());
+		QCOMPARE(tripRow(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
+		QVERIFY(tripRow(tripId)["departure_rwy"].isNull());
 		QVERIFY(!sim.status().lookup.pending);
 	}
 
@@ -935,8 +935,8 @@ private slots:
 		sim.send(facilityRunwayPacket(1, 101, rwy)); // slot 0 never arrives
 		sim.send(facilityEndPacket());
 		QVERIFY(!lastLogWith(log, { QStringLiteral("FACILITY_DATA_RUNWAY"), QStringLiteral("ItemIndex=1") }).isEmpty());
-		QCOMPARE(trip(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
-		QVERIFY(trip(tripId)["departure_rwy"].isNull());
+		QCOMPARE(tripRow(tripId)["departure_icao"].toString(), QStringLiteral("TEST"));
+		QVERIFY(tripRow(tripId)["departure_rwy"].isNull());
 	}
 
 	void orphanAndExtraPavementRecordsDoNotMoveTheThreshold() {
@@ -978,7 +978,7 @@ private slots:
 		QCOMPARE(sim.status().departure.runway_act.index, -2);
 		QVERIFY(sim.status().departure.runways == nullptr);
 		QVERIFY(!sim.status().lookup.pending);
-		QVERIFY(trip(tripId)["departure_icao"].isNull());
+		QVERIFY(tripRow(tripId)["departure_icao"].isNull());
 	}
 
 	// The first trip's facility data arrives after the next trip has already
@@ -1002,7 +1002,7 @@ private slots:
 		sim.send(facilityRunwayPacket(0, 100, rwy));
 		sim.send(facilityEndPacket());
 		sim.serviceLookups();
-		QVERIFY(trip(first)["departure_icao"].isNull());
+		QVERIFY(tripRow(first)["departure_icao"].isNull());
 		VERIFY_NEAR(liftoffs(second).value(0)["distance_length"], 1700 * kFeetPerMeter, 2);
 		VERIFY_NEAR(touchdowns(second).value(0)["distance_length"], 600 * kFeetPerMeter, 2);
 	}
@@ -1036,7 +1036,7 @@ private slots:
 		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), listRequests + 1);
 		sim.serviceLookups();
 		QCOMPARE(FakeSim::state().facilityDefinitionFields.size(), 2 * definitionFields);
-		QCOMPARE(trip(second)["departure_icao"].toString(), QStringLiteral("TEST"));
+		QCOMPARE(tripRow(second)["departure_icao"].toString(), QStringLiteral("TEST"));
 	}
 };
 

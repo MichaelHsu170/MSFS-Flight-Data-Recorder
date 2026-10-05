@@ -295,7 +295,7 @@ private slots:
 		QCOMPARE(started.at(0).at(0).toInt(), tripId);
 		QVERIFY(!lastLogWith(log, { QStringLiteral("Recording started") }).isEmpty());
 
-		const QVariantMap trip = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(tripId)).value(0);
+		const QVariantMap trip = tripRow(tripId);
 		QCOMPARE(trip["title"].toString(), QStringLiteral("Test Aircraft"));
 		QCOMPARE(trip["atc_airline"].toString(), QStringLiteral("TESTAIR"));
 		QCOMPARE(trip["atc_flight_number"].toString(), QStringLiteral("123"));
@@ -417,7 +417,7 @@ private slots:
 		QVERIFY(waitFor([&ended] { return ended.count() == 1; }));
 		QCOMPARE(ended.at(0).at(0).toInt(), tripId);
 		QVERIFY(waitFor([&log] { return !lastLogWith(log, { QStringLiteral("Recording stopped") }).isEmpty(); }));
-		const QVariantMap trip = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(tripId)).value(0);
+		const QVariantMap trip = tripRow(tripId);
 		// Arrival time is the last recorded sample's time (the tick before shutdown).
 		QCOMPARE(trip["destination_zulu_time"].toString(), QStringLiteral("2026-01-02T10:00:01.500+00:00_5"));
 		QCOMPARE(trip["destination_local_time"].toString(), QStringLiteral("2026-01-02T10:00:01.500+00:00_5"));

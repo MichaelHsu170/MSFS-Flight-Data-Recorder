@@ -242,6 +242,13 @@ QVariant queryValue(const QString& sql) {
 	return rows.first().first();
 }
 
+QVariantMap tripRow(int id) {
+	const QList<QVariantMap> rows = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id));
+	if (rows.isEmpty())
+		QTest::qFail(qPrintable(QStringLiteral("no trips row with id %1").arg(id)), __FILE__, __LINE__);
+	return rows.value(0);
+}
+
 FLIGHT_DATA_RECORD makeRecord() {
 	FLIGHT_DATA_RECORD r;
 	memset(static_cast<void*>(&r), 0, sizeof(r));

@@ -645,7 +645,7 @@ private slots:
 		const int id = db_insert_trip(w.status(), r);
 		QVERIFY(id > 0);
 		QCOMPARE(db_insert_trip(w.status(), r), id + 1);
-		const QVariantMap t = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id)).value(0);
+		const QVariantMap t = tripRow(id);
 		QCOMPARE(t["title"].toString(), QStringLiteral("Test Plane"));
 		QCOMPARE(t["atc_airline"].toString(), QStringLiteral("Air Test"));
 		QCOMPARE(t["atc_flight_number"].toString(), QStringLiteral("123"));
@@ -671,7 +671,7 @@ private slots:
 		position.latitude = 10.5;
 		position.longitude = 20.25;
 		db_set_trip_destination_position(w.status(), id, position);
-		const QVariantMap t = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id)).value(0);
+		const QVariantMap t = tripRow(id);
 		QCOMPARE(t["destination_zulu_time"].toString(), QString::fromStdString(r.time_zulu.format_date_time()));
 		QCOMPARE(t["destination_local_time"].toString(), QString::fromStdString(r.time_local.format_date_time()));
 		QCOMPARE(t["destination_latitude"].toDouble(), 10.5);
@@ -685,7 +685,7 @@ private slots:
 		const AIRPORT dest = airport("KPDX", "K2", "Portland");
 		db_set_trip_airport(w.status(), id, TRIP_END::DEPARTURE, dep, "16L");
 		db_set_trip_airport(w.status(), id, TRIP_END::DESTINATION, dest, "28R");
-		QVariantMap t = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id)).value(0);
+		QVariantMap t = tripRow(id);
 		QCOMPARE(t["departure_icao"].toString(), QStringLiteral("KSEA"));
 		QCOMPARE(t["departure_region"].toString(), QStringLiteral("K1"));
 		QCOMPARE(t["departure_name"].toString(), QStringLiteral("Seattle-Tacoma"));
@@ -694,7 +694,7 @@ private slots:
 		QCOMPARE(t["destination_rwy"].toString(), QStringLiteral("28R"));
 		// Airport found, no runway: the runway becomes NULL.
 		db_set_trip_airport(w.status(), id, TRIP_END::DESTINATION, airport("KBFI", "K1", "Boeing Field"), nullptr);
-		t = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id)).value(0);
+		t = tripRow(id);
 		QCOMPARE(t["destination_icao"].toString(), QStringLiteral("KBFI"));
 		QCOMPARE(t["destination_name"].toString(), QStringLiteral("Boeing Field"));
 		QVERIFY(t["destination_rwy"].isNull());
@@ -706,7 +706,8 @@ private slots:
 		const int id = db_insert_trip(w.status(), makeRecord());
 		db_set_trip_airport(w.status(), id, TRIP_END::DESTINATION, airport("KPDX", "K2", "Portland"), "28R");
 		db_clear_trip_destination_airport(w.status(), id);
-		const QVariantMap t = queryRows(QStringLiteral("SELECT * FROM trips WHERE id=%1").arg(id)).value(0);
+		const QVariantMap t = tripRow(id);
+		QCOMPARE(t["id"].toInt(), id); // the trip itself stays
 		QVERIFY(t["destination_icao"].isNull());
 		QVERIFY(t["destination_rwy"].isNull());
 		QVERIFY(t["destination_region"].isNull());
