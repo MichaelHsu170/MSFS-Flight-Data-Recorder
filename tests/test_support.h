@@ -68,6 +68,10 @@ void onNextModal(const std::function<void(QWidget*)>& action);
 void chooseMenuItem(QWidget* menu, const QString& text);
 // Clicks the button with this text in a dialog (QMessageBox, QInputDialog...).
 void clickDialogButton(QWidget* dialog, const QString& text);
+// Saves to path from a Qt file dialog (QFileDialog::getSaveFileName() with
+// Qt::AA_DontUseNativeDialogs set; a native dialog can't be answered) and
+// returns the file name it suggested; an empty string if dialog isn't one.
+QString saveFileDialogAs(QWidget* dialog, const QString& path);
 // Sends w a left-button press or release (type) at pos, in w's coordinates,
 // with the button state a real click has at that point.
 void sendLeftButton(QWidget* w, QEvent::Type type, const QPoint& pos);

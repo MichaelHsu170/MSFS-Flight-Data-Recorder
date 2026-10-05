@@ -7,9 +7,14 @@
 
 #include <QApplication>
 #include <QComboBox>
+#include <QDialog>
+#include <QDir>
+#include <QFile>
 #include <QLabel>
+#include <QListWidget>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QStyleFactory>
 #include <QTableView>
@@ -17,6 +22,7 @@
 #include <QtTest>
 
 #include <memory>
+#include <mutex>
 
 using namespace TestSupport;
 
@@ -70,7 +76,11 @@ private:
 	}
 
 private slots:
-	void initTestCase() { isolateFiles(); }
+	void initTestCase() {
+		isolateFiles();
+		// Save dialogs a test can answer (see saveFileDialogAs()).
+		QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+	}
 	void init() {
 		removeDatabase();
 		removeSettings();
@@ -523,6 +533,177 @@ private slots:
 		});
 		openRowMenu(view(panel), rowOfTrip(view(panel), 1));
 		QCOMPARE(deselected.count(), 1);
+		QVERIFY(view(panel)->selectionModel()->selectedRows().isEmpty());
+	}
+
+	// A trip whose last samples are still being written can't be deleted:
+	// checked when Delete Trip is chosen and again once it's confirmed.
+	void deletingATripStillSavingIsRefused_data() {
+		QTest::addColumn<bool>("startsSavingWhileConfirming");
+		QTest::newRow("saving when chosen") << false;
+		QTest::newRow("saving once confirmed") << true;
+	}
+
+	void deletingATripStillSavingIsRefused() {
+		QFETCH(bool, startsSavingWhileConfirming);
+		FlightDriver sim;
+		addTrip(1, 0, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		auto markSaving = [&sim] {
+			std::lock_guard<std::mutex> lock(sim.status().flushing_trip_ids_mutex);
+			sim.status().flushing_trip_ids.insert(1);
+		};
+		if (!startsSavingWhileConfirming)
+			markSaving();
+		QString refusal;
+		auto answerRefusal = [&refusal](QWidget* box) {
+			refusal = box->windowTitle();
+			box->close(); // whatever box it is, so a missed refusal fails instead of hanging
+		};
+		onNextModal([&](QWidget* menu) {
+			if (startsSavingWhileConfirming) {
+				onNextModal([&](QWidget* confirm) {
+					markSaving();
+					onNextModal(answerRefusal);
+					clickDialogButton(confirm, "Yes");
+				});
+			} else {
+				onNextModal(answerRefusal);
+			}
+			chooseMenuItem(menu, "Delete Trip");
+		});
+		openRowMenu(view(panel), 0);
+		QCOMPARE(refusal, QStringLiteral("Trip Still Saving"));
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trips").toInt(), 1);
+		QCOMPARE(view(panel)->model()->rowCount(), 1);
+	}
+
+	// Export to KML suggests "<departure>-<destination>_<departure time>.kml"
+	// and writes the trip's track to the chosen file.
+	void exportToKmlFromTheRowMenu() {
+		FlightDriver sim;
+		const int tripId = sim.startTrip(); // departs 2026-01-02 10:00:00.5Z
+		sim.ticks(3);
+		sim.endTrip();
+		exec("UPDATE trips SET departure_icao='AAAA', destination_icao='BBBB'");
+		TripHistoryPanel panel(sim.bridge());
+		const QString path = QDir::current().absoluteFilePath("export.kml");
+		QString suggested;
+		onNextModal([&](QWidget* menu) {
+			onNextModal([&](QWidget* dialog) { suggested = saveFileDialogAs(dialog, path); });
+			chooseMenuItem(menu, "Export to KML");
+		});
+		openRowMenu(view(panel), rowOfTrip(view(panel), tripId));
+		QCOMPARE(suggested, QStringLiteral("AAAA-BBBB_20260102100000.kml"));
+		QFile file(path);
+		QVERIFY(waitFor([&file] { return file.size() > 0; }));
+		QVERIFY(waitFor([&file] { return file.open(QIODevice::ReadOnly); }));
+		const QString kml = QString::fromUtf8(file.readAll());
+		QVERIFY2(kml.trimmed().endsWith("</kml>"), qPrintable(kml.right(200)));
+		QCOMPARE(kml.count("<when>"), 4); // the samples sent while the trip was recording
+	}
+
+	// An export that can't write its file says so, naming it.
+	void failedExportFromTheRowMenuShowsAnError() {
+		FlightDriver sim;
+		const int tripId = sim.startTrip();
+		sim.endTrip();
+		TripHistoryPanel panel(sim.bridge());
+		const QString path = QDir::current().absoluteFilePath("readonly.kml");
+		QFile existing(path);
+		QVERIFY(existing.open(QIODevice::WriteOnly));
+		existing.close();
+		QVERIFY(existing.setPermissions(QFileDevice::ReadOwner));
+		onNextModal([&](QWidget* menu) {
+			onNextModal([&](QWidget* dialog) {
+				onNextModal([](QWidget* replace) { clickDialogButton(replace, "Yes"); });
+				saveFileDialogAs(dialog, path);
+			});
+			chooseMenuItem(menu, "Export to KML");
+		});
+		openRowMenu(view(panel), rowOfTrip(view(panel), tripId));
+		QString error;
+		onNextModal([&error](QWidget* box) {
+			error = static_cast<QMessageBox*>(box)->text();
+			clickDialogButton(box, "OK");
+		});
+		const bool shown = waitFor([&error] { return !error.isEmpty(); });
+		existing.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner);
+		QVERIFY(shown);
+		QVERIFY2(error.startsWith(QStringLiteral("Failed to export KML to %1.").arg(path)), qPrintable(error));
+	}
+
+	// Pointing at a row tints it (a completed trip only has a color while
+	// hovered); leaving the table drops the tint.
+	void hoveringARowTintsIt() {
+		FlightDriver sim;
+		addTrip(1, 0, kDep, kArr);
+		addTrip(2, 0, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		panel.show();
+		QTableView* v = view(panel);
+		QWidget* viewport = v->viewport();
+		auto moveTo = [viewport](const QPoint& pos) {
+			QMouseEvent event(QEvent::MouseMove, QPointF(pos), viewport->mapToGlobal(QPointF(pos)), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+			QCoreApplication::sendEvent(viewport, &event);
+		};
+		auto tint = [v](int row) { return v->model()->index(row, 0).data(Qt::BackgroundRole); };
+		moveTo(v->visualRect(v->model()->index(1, 0)).center());
+		QCOMPARE(tint(1).value<QBrush>().color(), QColor(220, 230, 245));
+		QVERIFY(!tint(0).isValid());
+		moveTo(v->visualRect(v->model()->index(0, 0)).center());
+		QCOMPARE(tint(0).value<QBrush>().color(), QColor(220, 230, 245));
+		QVERIFY(!tint(1).isValid());
+		QEvent leave(QEvent::Leave);
+		QCoreApplication::sendEvent(viewport, &leave);
+		QVERIFY(!tint(0).isValid());
+	}
+
+	// A right-click only opens the row menu: the loaded trip stays selected.
+	void rightClickingAnotherRowKeepsTheSelection() {
+		FlightDriver sim;
+		addTrip(1, 0, kDep, kArr);
+		addTrip(2, 0, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		panel.show();
+		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
+		panel.selectTripById(1);
+		QVERIFY(waitFor([&ready] { return ready.count() == 1; }));
+		panel.setLoadingFinished();
+		QTableView* v = view(panel);
+		const QPoint other = v->visualRect(v->model()->index(rowOfTrip(v, 2), 0)).center();
+		QMouseEvent press(QEvent::MouseButtonPress, QPointF(other), v->viewport()->mapToGlobal(QPointF(other)), Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+		QCoreApplication::sendEvent(v->viewport(), &press);
+		QCOMPARE(v->selectionModel()->selectedRows().size(), 1);
+		QCOMPARE(v->selectionModel()->selectedRows().value(0).row(), rowOfTrip(v, 1));
+	}
+
+	// Deleting the group the table is filtered by, from Manage Groups opened
+	// on the panel, puts the filter back on "All Trips" and drops the
+	// selection.
+	void deletingTheFilteredGroupShowsAllTrips() {
+		FlightDriver sim;
+		const int training = addGroup("Training");
+		addTrip(1, training, kDep, kArr);
+		addTrip(2, 0, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		QComboBox* combo = groupCombo(panel);
+		combo->setCurrentIndex(combo->findText("Training"));
+		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
+		panel.selectTripById(1);
+		QVERIFY(waitFor([&ready] { return ready.count() == 1; }));
+		panel.setLoadingFinished();
+		onNextModal([](QWidget* dialog) {
+			dialog->findChild<QListWidget*>()->setCurrentRow(0);
+			onNextModal([](QWidget* confirm) { clickDialogButton(confirm, "Yes"); });
+			clickDialogButton(dialog, "Delete");
+			static_cast<QDialog*>(dialog)->reject();
+		});
+		clickDialogButton(&panel, "Manage Groups…");
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_groups").toInt(), 0);
+		QCOMPARE(combo->currentText(), QStringLiteral("All Trips"));
+		QCOMPARE(combo->count(), 2);
+		QCOMPARE(view(panel)->model()->rowCount(), 2);
 		QVERIFY(view(panel)->selectionModel()->selectedRows().isEmpty());
 	}
 

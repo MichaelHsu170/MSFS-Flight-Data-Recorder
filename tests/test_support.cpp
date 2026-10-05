@@ -13,6 +13,8 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QMetaObject>
 #include <QMouseEvent>
 #include <QTemporaryDir>
@@ -159,6 +161,16 @@ void clickDialogButton(QWidget* dialog, const QString& text) {
 			return;
 		}
 	}
+}
+
+QString saveFileDialogAs(QWidget* dialog, const QString& path) {
+	auto* fileDialog = qobject_cast<QFileDialog*>(dialog);
+	if (!fileDialog)
+		return QString();
+	const QString suggested = QFileInfo(fileDialog->selectedFiles().value(0)).fileName();
+	fileDialog->selectFile(path);
+	static_cast<QDialog*>(fileDialog)->accept(); // QFileDialog::accept(), which checks the file like the Save button
+	return suggested;
 }
 
 void sendLeftButton(QWidget* w, QEvent::Type type, const QPoint& pos) {
