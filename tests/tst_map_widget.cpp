@@ -98,6 +98,7 @@ class TstMapWidget : public QObject {
 	QTemporaryDir logDir_;
 	QTemporaryDir filesDir_; // files saved through the map's menu
 	QString logPath_;
+	TripDataset shown_; // see showTrip()
 
 	// Runs the page's AI analysis of a liftoff with fetch() stubbed: attempt n
 	// gets attempts[n] (the last one repeated), each delivered in the given
@@ -180,10 +181,18 @@ class TstMapWidget : public QObject {
 		return trip;
 	}
 
+	// Shows a copy of dataset: MapWidget keeps a pointer to the dataset it
+	// shows (as the app's TrajectoryView owns it), so it must outlive the
+	// test that passed it.
+	void showTrip(const TripDataset& dataset) {
+		shown_ = dataset;
+		widget_->setDataset(shown_);
+	}
+
 	// Shows dataset and waits until the page has drawn it and the animated
 	// fit has settled.
 	void loadTrip(const TripDataset& dataset) {
-		widget_->setDataset(dataset);
+		showTrip(dataset);
 		QTRY_COMPARE_WITH_TIMEOUT(mapTrajectoryPointCount(widget_), int(dataset.points.size()), 10000);
 		QTest::qWait(1500);
 	}
@@ -267,7 +276,7 @@ private slots:
 		QSignalSpy spy(widget_, &MapWidget::trajectoryLoaded);
 		TripDataset dataset;
 		dataset.points = { samplePoint(3, 4) };
-		widget_->setDataset(dataset);
+		showTrip(dataset);
 		QCOMPARE(spy.count(), 1); // page not ready: setDataset's immediate-emit path
 
 		// Let the page actually finish loading and refreshProvider() re-push the
@@ -287,7 +296,7 @@ private slots:
 		TripEvent event;
 		event.event = QStringLiteral("GEAR_UP");
 		dataset.events = { event };
-		widget_->setDataset(dataset);
+		showTrip(dataset);
 
 		QVERIFY(spy.wait(10000));
 		QCOMPARE(spy.count(), 1);
@@ -312,8 +321,8 @@ private slots:
 		first.points = { samplePoint(1, 2) };
 		TripDataset second;
 		second.points = { samplePoint(3, 4) };
-		widget_->setDataset(first);
-		widget_->setDataset(second); // supersedes the first before its background compute can finish
+		showTrip(first);
+		showTrip(second); // supersedes the first before its background compute can finish
 
 		QVERIFY(spy.wait(10000));
 		QTest::qWait(300); // give the superseded watcher a chance to finish too
@@ -327,7 +336,7 @@ private slots:
 		QSignalSpy forwarded(widget_, &MapWidget::visibleRangeChanged);
 		TripDataset dataset;
 		dataset.points = { samplePoint(10, 20), samplePoint(11, 21) };
-		widget_->setDataset(dataset);
+		showTrip(dataset);
 
 		// The page reports the range it fit the new trajectory to, tagged with
 		// that trajectory's version.
@@ -352,7 +361,7 @@ private slots:
 		QSignalSpy forwarded(widget_, &MapWidget::cursorIndexChanged);
 		TripDataset dataset;
 		dataset.points = { samplePoint(10, 20), samplePoint(11, 21), samplePoint(12, 22) };
-		widget_->setDataset(dataset);
+		showTrip(dataset);
 		QVERIFY(loaded.wait(10000)); // the page has drawn the new trajectory
 
 		// A click on the line moves the cursor to the nearest sample, tagged
@@ -376,7 +385,7 @@ private slots:
 		dataset.liftoffPoints = { liftoffAt(QStringLiteral("KJFK")) };
 		dataset.touchdowns = { touchdownAt(QStringLiteral("KLAX")) };
 		dataset.departureZuluTime = QStringLiteral("2024-03-15T10:30:00.000+00:00_0");
-		widget_->setDataset(dataset);
+		showTrip(dataset);
 		QCOMPARE(widget_->defaultMapImageFileName(), QStringLiteral("KJFK-KLAX_20240315103000.png"));
 
 		widget_->showOverview({});
@@ -393,7 +402,7 @@ private slots:
 		TripEvent event;
 		event.event = QStringLiteral("GEAR_UP");
 		dataset.events = { event };
-		widget_->setDataset(dataset);
+		showTrip(dataset);
 		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "liftoff-icon"), 1, 10000);
 		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "touchdown-icon"), 1, 5000);
 		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "event-icon"), 1, 5000);
@@ -419,7 +428,7 @@ private slots:
 	void resetZoomRefitsTheMapToTheTrajectory() {
 		TripDataset dataset;
 		dataset.points = { samplePoint(10, 20), samplePoint(11, 21) };
-		widget_->setDataset(dataset);
+		showTrip(dataset);
 		// Waits for this trip on the page, not for trajectoryLoaded: the
 		// previous slot's loads, never waited for, can still emit that late.
 		QTRY_COMPARE_WITH_TIMEOUT(mapTrajectoryPointCount(widget_), 2, 10000);
@@ -457,13 +466,13 @@ private slots:
 		QSignalSpy spy(widget_, &MapWidget::trajectoryLoaded);
 		TripDataset withPoints;
 		withPoints.points = { samplePoint(10, 20), samplePoint(11, 21) };
-		widget_->setDataset(withPoints);
+		showTrip(withPoints);
 		QVERIFY(spy.wait(10000));
 		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "leaflet-marker-draggable"), 1, 5000);
 
 		TripDataset empty;
 		empty.tripId = 9;
-		widget_->setDataset(empty);
+		showTrip(empty);
 		QVERIFY(spy.wait(10000));
 		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "leaflet-marker-draggable"), 0, 5000);
 	}
@@ -566,7 +575,7 @@ private slots:
 		TripDataset dataset;
 		dataset.points = { samplePoint(51.47, -0.45) };
 		dataset.touchdowns = { td };
-		widget_->setDataset(dataset);
+		showTrip(dataset);
 
 		const QString popupRowsJs = QStringLiteral(
 			"(function () { var rows = [];"
@@ -860,7 +869,7 @@ private slots:
 		QSignalSpy cursor(widget_, &MapWidget::cursorIndexChanged);
 		TripDataset dataset;
 		dataset.points = { samplePoint(10, 20), samplePoint(11, 21), samplePoint(12, 22) };
-		widget_->setDataset(dataset);
+		showTrip(dataset);
 		QVERIFY(loaded.wait(10000));
 		evalPageJs(widget_, QStringLiteral(
 			"leafletMapInstance.eachLayer(function (l) { if (l instanceof L.Polyline) l.fire('click', { latlng: L.latLng(12, 22) }); })"));
