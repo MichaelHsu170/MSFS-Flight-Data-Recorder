@@ -106,12 +106,12 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD /*cbData*/, void* pCo
 			gui_log_printf(status, GUI_LOG_WARNING, "Plane crashed!");
 			break;
 		default:
-			if (evt->uEventID > EVENT_CRASHED && evt->uEventID < EVENT_ID_COUNT) {
+			if (const char* name = event_name(evt->uEventID)) {
 				// A cockpit event (COCKPIT_EVENTS). Flood detection runs
 				// regardless of trip state; whether a trip exists to attach
 				// this occurrence to is decided per-occurrence by
 				// commit_event(), not here.
-				status->event_filter.record(event_name(evt->uEventID), status->id_trip,
+				status->event_filter.record(name, status->id_trip,
 					status->data.time_zulu.format_date_time(), status->data.time_local.format_date_time(),
 					event_output(status));
 			} else {

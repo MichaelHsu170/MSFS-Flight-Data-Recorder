@@ -49,7 +49,7 @@ void add_notification_event(HANDLE hSimConnect, EVENT_ID id) {
 }
 
 const char* event_name(DWORD id) {
-	return EVENT_NAMES[id];
+	return id < EVENT_ID_COUNT ? EVENT_NAMES[id] : nullptr;
 }
 
 const char* simconnect_exception_name(DWORD exception) {

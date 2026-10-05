@@ -18,8 +18,8 @@ void add_flight_definition(HANDLE hSimConnect);
 // each request's SendID at trace level.
 void add_client_events(HANDLE hSimConnect);
 
-// The name an EVENT_ID is logged and stored (trip_events.event) under; id
-// must be below EVENT_ID_COUNT.
+// The name an EVENT_ID is logged and stored (trip_events.event) under, or
+// nullptr for an id that isn't one (EVENT_ID_COUNT or above).
 const char* event_name(DWORD id);
 
 // The SIMCONNECT_EXCEPTION_ name without its prefix, or "UNKNOWN".
