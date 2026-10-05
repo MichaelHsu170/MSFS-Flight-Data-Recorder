@@ -157,9 +157,11 @@ private slots:
 	void quitPacketDisconnectsAndReconnects() {
 		FlightDriver sim;
 		QSignalSpy connected(&sim.bridge(), &RecorderBridge::connectionChanged);
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		sim.send(recvPacket(SIMCONNECT_RECV_ID_QUIT, sizeof(SIMCONNECT_RECV)));
 		QCOMPARE(connected.count(), 1);
 		QCOMPARE(connected.at(0).at(0).toBool(), false);
+		QVERIFY(!lastLogWith(log, { QStringLiteral("Disconnected") }).isEmpty());
 		sim.pump(); // sees quit -> shutdown()
 		QCOMPARE(FakeSim::state().closeCalls, 1);
 		QVERIFY(waitFor([] { return FakeSim::state().openCalls == 2; }, 5000));

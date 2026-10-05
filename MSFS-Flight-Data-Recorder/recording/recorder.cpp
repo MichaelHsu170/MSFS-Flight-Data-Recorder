@@ -73,6 +73,12 @@ void wait_for_db_writers(struct STATUS* status) {
 		status->event_writer_thread.join();
 }
 
+void sim_disconnected(struct STATUS* status) {
+	gui_notify_log(status, GUI_LOG_INFO, "Disconnected from Microsoft Flight Simulator");
+	gui_notify_connection_changed(status, false);
+	status->quit = TRUE;
+}
+
 void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD /*cbData*/, void* pContext) {
 	struct STATUS* status = (struct STATUS*)pContext;
 	try {
@@ -82,9 +88,7 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD /*cbData*/, void* pCo
 		gui_notify_connection_changed(status, true);
 		break;
 	case SIMCONNECT_RECV_ID_QUIT:
-		gui_log_printf(status, GUI_LOG_INFO, "Disconnected from Microsoft Flight Simulator");
-		gui_notify_connection_changed(status, false);
-		status->quit = TRUE;
+		sim_disconnected(status);
 		break;
 	case SIMCONNECT_RECV_ID_EVENT_EX1:
 	case SIMCONNECT_RECV_ID_EVENT:

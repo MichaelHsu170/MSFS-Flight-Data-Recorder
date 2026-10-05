@@ -8,6 +8,11 @@
 // Callers must call this before closing/nulling status->sql.
 void wait_for_db_writers(struct STATUS* status);
 
+// Tells the user the simulator is gone, reports the connection as down and
+// sets status->quit so the recorder shuts down. For an explicit quit message
+// and for a dead connection alike.
+void sim_disconnected(struct STATUS* status);
+
 // SimConnect dispatch callback; pContext is the STATUS. Handles connect/quit,
 // sim stop (ends a recording trip), cockpit events (through the flood filter),
 // flight samples (flight_on_sample()), the airport lookup's responses and

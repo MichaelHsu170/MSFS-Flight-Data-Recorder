@@ -125,9 +125,7 @@ void RecorderBridge::pollDispatch() {
 	HRESULT hr = SimConnect_CallDispatch(status_.hSimConnect, MyDispatchProc, &status_);
 	if (FAILED(hr)) {
 		Logger::logf(Logger::Warning, "Recorder", "SimConnect_CallDispatch failed (hr=0x%08lX); treating as disconnect", hr);
-		gui_notify_log(&status_, GUI_LOG_INFO, "Disconnected from Microsoft Flight Simulator");
-		gui_notify_connection_changed(&status_, false);
-		status_.quit = TRUE;
+		sim_disconnected(&status_);
 	}
 }
 
