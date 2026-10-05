@@ -253,10 +253,10 @@ make the other's map test time out.
     it only keeps that buffer from leaking, which no test can observe.
   - `LiveStatusPanel::eventFilter()`'s non-toggle branch: the filter is only
     installed on the toggle.
-  - `DataTablePanel::showPoint()`'s range checks: that each number field's
-    index is within the sample's `rawNums`, and `rawNum()`'s check that the
-    GPS latitude/longitude and engine count indices are in it (with the GPS
-    row's resulting NaN check). Every sample the app shows is loaded
+  - `DataTablePanel::showPoint()`'s range check, `rawNum()`'s check that a
+    number field's index is within the sample's `rawNums` (with the
+    resulting NaN checks of the GPS row and the number rows). Every sample
+    the app shows is loaded
     by `queryTripData()`, which fills one value per number field, and those
     columns are always in that field list, so none of these checks can fail.
     `tst_data_table_panel` passed with each one removed.

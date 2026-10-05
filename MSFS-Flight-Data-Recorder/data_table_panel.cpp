@@ -274,8 +274,8 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 		int ni = 0, row = 3;
 #define TRIP_NUM_DISP(dbColumn, memberExpr, sqlType) \
 		if (!isGpsPositionColumn(QLatin1String(#dbColumn))) { \
-			setValue(row++, ni < (int)point.rawNums.size() && engineShown(#dbColumn) \
-				? QString::number(point.rawNums[ni], 'g', 6) : QString()); \
+			const double v = rawNum(point, ni); \
+			setValue(row++, !std::isnan(v) && engineShown(#dbColumn) ? QString::number(v, 'g', 6) : QString()); \
 		} \
 		++ni;
 		TRIP_DATA_NUM_FIELDS(TRIP_NUM_DISP)

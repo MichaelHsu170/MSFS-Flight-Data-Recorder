@@ -193,7 +193,7 @@ Strengths:  • …
 Areas to improve:  • …
 ```
 
-While the model is reasoning the toggle label reads **Thinking…** and is non-interactive. When the reasoning phase ends it collapses into a **Show thinking** / **Hide thinking** toggle so the final report is always the first thing visible. A model that answers without reasoning shows just the report, with no toggle. A response counts as complete when the model says it finished and the report isn't empty; if it's cut off or empty, or the AI service can't be reached, the request is made up to three times in all before a plain-language error message is shown.
+While the model is reasoning the toggle label reads **Thinking…** and is non-interactive. When the reasoning phase ends it collapses into a **Show thinking** / **Hide thinking** toggle so the final report is always the first thing visible. A model that answers without reasoning shows just the report, with no toggle. A response counts as complete when the model says it finished and the report isn't empty; if it's cut off or empty, the AI service can't be reached, or it reports a server error or rate limit, the request is made up to three times in all before a plain-language error message is shown. A rejected request (e.g. an invalid API key) is not retried.
 
 ### Setup
 
