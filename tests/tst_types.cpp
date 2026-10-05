@@ -227,9 +227,12 @@ private slots:
 			q.push(nullptr, 7);
 		});
 		SAMPLE_QUEUE_ITEM item;
-		QVERIFY(q.pop(item));
-		QCOMPARE(item.trip_id, 7);
+		const bool popped = q.pop(item);
+		// Joined before checking: a failed check returns from here, and a
+		// still-joinable std::thread then aborts the whole test program.
 		producer.join();
+		QVERIFY(popped);
+		QCOMPARE(item.trip_id, 7);
 	}
 
 	void eventQueueKeepsInsertAndDeleteOrder() {

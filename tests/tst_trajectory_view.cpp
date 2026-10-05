@@ -163,10 +163,13 @@ private slots:
 		QVERIFY(splitter);
 		splitter->setSizes({ splitter->width() - 220, 220 });
 		const int rightWidth = splitter->sizes().last(); // setSizes() can clamp/round; read back what actually landed
+		const int savedWidth = AppSettings::instance().rightPanelWidth();
+		QVERIFY(savedWidth != rightWidth);
 		QSignalSpy spy(view_, &TrajectoryView::rightPanelWidthChanged);
 		emit splitter->splitterMoved(rightWidth, 1);
 		QVERIFY(spy.count() >= 1);
 		QCOMPARE(spy.last().at(0).toInt(), rightWidth);
+		QCOMPARE(AppSettings::instance().rightPanelWidth(), savedWidth); // not saved mid-drag
 
 		sendLeftButton(splitter->handle(1), QEvent::MouseButtonRelease, QPoint(5, 5));
 		QCOMPARE(AppSettings::instance().rightPanelWidth(), rightWidth);

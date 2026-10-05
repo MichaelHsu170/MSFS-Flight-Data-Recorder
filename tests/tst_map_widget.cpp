@@ -283,7 +283,13 @@ private slots:
 	void cleanupTestCase() {
 		delete widget_;
 	}
-	void cleanup() { cancelPendingModals(); } // no dialog action outlives its test
+	void cleanup() {
+		cancelPendingModals(); // no dialog action outlives its test
+		// reopeningAPopupMidAnalysisDoesNotRunItTwice() stubs the page's fetch
+		// and report save; if it failed midway, put the real ones back.
+		evalPageJs(widget_, QStringLiteral(
+			"if (window._dup) { window._dup.restore(); window._dup.marker.closePopup(); window._dup = null; } true"));
+	}
 
 	// Must run first (QTest runs slots in declaration order): right after
 	// initTestCase() constructs the widget, the page cannot possibly be ready
