@@ -47,7 +47,7 @@ Automated tests run the app's code against a fake SimConnect with made-up flight
 .\.vscode\scripts\build.bat Debug test
 ```
 
-Add `rebuild` (`build.bat Debug test rebuild`) to recompile everything first, so every file's compiler warnings show. The app and the tests compile at warning level 4 (`/W4`); warnings from Qt's and the SimConnect SDK's headers are turned off.
+Add `rebuild` as the third argument (`build.bat Debug test rebuild`, or `build.bat Debug notest rebuild` to skip the tests) to recompile everything first, so every file's compiler warnings show. Any other extra argument is an error. The app and the tests compile at warning level 4 (`/W4`); warnings from Qt's and the SimConnect SDK's headers are turned off.
 
 See [tests/README.md](tests/README.md) for what is covered, what still needs a manual check, and open questions for real sim data.
 

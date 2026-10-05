@@ -1,5 +1,5 @@
 @echo off
-REM build.bat <Debug|Release> [test [rebuild]]
+REM build.bat <Debug|Release> [test|notest [rebuild]]
 REM
 REM Single-process build task driven by VS Code's Ctrl+Shift+B menu (see
 REM ..\tasks.json). It sets up the MSVC x64 environment once, then
@@ -13,13 +13,24 @@ REM (ctest.exe, which ships next to cmake.exe -- see tests\README.md). With
 REM "rebuild" as the third argument, everything is recompiled first
 REM (--clean-first), so the output shows every file's compiler warnings, not
 REM just those of the files that were out of date -- the diff review's
-REM warning check (.github\diff-review.md) relies on that.
+REM warning check (.github\diff-review.md) relies on that. To rebuild without
+REM testing, pass "notest" second. Any other second or third argument is an
+REM error, so a misplaced "rebuild" (build.bat Release rebuild) isn't silently
+REM ignored.
 
 setlocal enabledelayedexpansion
 
 set "CONFIG=%~1"
 if "%CONFIG%"=="" (
   echo Error: build.bat requires a configuration argument ^(Debug or Release^).
+  exit /b 1
+)
+set "ARGS_OK=1"
+if not "%~2"=="" if /i not "%~2"=="test" if /i not "%~2"=="notest" set "ARGS_OK="
+if not "%~3"=="" if /i not "%~3"=="rebuild" set "ARGS_OK="
+if not "%~4"=="" set "ARGS_OK="
+if not defined ARGS_OK (
+  echo Error: usage: build.bat ^<Debug^|Release^> [test^|notest [rebuild]]
   exit /b 1
 )
 
