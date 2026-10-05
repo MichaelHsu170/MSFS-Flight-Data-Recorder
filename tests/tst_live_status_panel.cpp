@@ -1,5 +1,5 @@
 // Live Status panel (live_status_panel.cpp): indicators, the recording
-// toggle, the message history (events, retractions, cap) and the snapshot line.
+// toggle, the message history (events, retractions, cap, scrolling) and the snapshot line.
 #include "test_support.h"
 
 #include "live_status_panel.h"
@@ -33,6 +33,17 @@ private:
 				return l;
 		return nullptr;
 	}
+	static QLabel* recordingDot(LiveStatusPanel& p) {
+		for (QLabel* l : recordingToggle(p)->findChildren<QLabel*>())
+			if (!l->pixmap().isNull())
+				return l;
+		return nullptr;
+	}
+	// The color a dot is painted in, read from its middle.
+	static QColor dotColor(const QLabel* dot) {
+		const QImage image = dot->pixmap().toImage();
+		return image.pixelColor(image.width() / 2, image.height() / 2);
+	}
 	static QStringList lines(LiveStatusPanel& p) {
 		QStringList out;
 		for (int i = 0; i < history(p)->count(); ++i)
@@ -59,10 +70,13 @@ private slots:
 		QLabel* dot = connectionDot(panel);
 		QVERIFY(dot);
 		QCOMPARE(dot->toolTip(), QString::fromUtf8("Waiting for simulator…"));
+		QCOMPARE(dotColor(dot), QColor(0xd9, 0x3a, 0x3a)); // red
 		sim.send(recvPacket(SIMCONNECT_RECV_ID_OPEN, sizeof(SIMCONNECT_RECV)));
 		QCOMPARE(dot->toolTip(), QStringLiteral("Connected to Microsoft Flight Simulator"));
+		QCOMPARE(dotColor(dot), QColor(0x2e, 0xa8, 0x4f)); // green
 		sim.send(recvPacket(SIMCONNECT_RECV_ID_QUIT, sizeof(SIMCONNECT_RECV)));
 		QCOMPARE(dot->toolTip(), QString::fromUtf8("Waiting for simulator…"));
+		QCOMPARE(dotColor(dot), QColor(0xd9, 0x3a, 0x3a));
 	}
 
 	void logMessagesAreTimestampedAndTrimmed() {
@@ -94,16 +108,39 @@ private slots:
 		QCOMPARE(lines(panel).last(), QStringLiteral("509"));
 	}
 
+	// More lines than fit: the newest one is scrolled into view.
+	void historyScrollsToTheNewestLine() {
+		FlightDriver sim;
+		LiveStatusPanel panel(sim.bridge());
+		panel.resize(400, 200);
+		panel.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&panel));
+		for (int i = 0; i < 50; ++i)
+			emit sim.bridge().logMessage(QString::number(i));
+		QListWidget* list = history(panel);
+		const QRect shown = list->viewport()->rect();
+		QVERIFY(!shown.intersects(list->visualItemRect(list->item(0))));
+		QVERIFY(shown.contains(list->visualItemRect(list->item(list->count() - 1))));
+	}
+
+	// Red and clickable (a pointing hand) when it would record, green and not
+	// clickable (an arrow) while recording.
 	void recordingIndicatorStates() {
 		FlightDriver sim;
 		LiveStatusPanel panel(sim.bridge());
 		QWidget* toggle = recordingToggle(panel);
 		QVERIFY(toggle);
 		QCOMPARE(toggle->toolTip(), QStringLiteral("Click to disable automatic recording."));
+		QCOMPARE(dotColor(recordingDot(panel)), QColor(0xd9, 0x3a, 0x3a));
+		QCOMPARE(toggle->cursor().shape(), Qt::PointingHandCursor);
 		const int tripId = sim.startTrip();
 		QCOMPARE(toggle->toolTip(), QStringLiteral("Recording trip #%1 (can't be toggled while a trip is recording)").arg(tripId));
+		QCOMPARE(dotColor(recordingDot(panel)), QColor(0x2e, 0xa8, 0x4f));
+		QCOMPARE(toggle->cursor().shape(), Qt::ArrowCursor);
 		sim.endTrip();
 		QVERIFY(waitFor([toggle] { return toggle->toolTip() == QStringLiteral("Click to disable automatic recording."); }));
+		QCOMPARE(dotColor(recordingDot(panel)), QColor(0xd9, 0x3a, 0x3a));
+		QCOMPARE(toggle->cursor().shape(), Qt::PointingHandCursor);
 	}
 
 	void clickingTheToggleFlipsAutomaticRecording() {
@@ -114,6 +151,8 @@ private slots:
 		sendLeftButton(toggle, QEvent::MouseButtonRelease, QPoint(5, 5));
 		QVERIFY(!sim.bridge().isRecordingEnabled());
 		QCOMPARE(toggle->toolTip(), QStringLiteral("Click to enable automatic recording."));
+		QCOMPARE(dotColor(recordingDot(panel)), QColor(0x9a, 0x9a, 0x9a)); // grey
+		QCOMPARE(toggle->cursor().shape(), Qt::PointingHandCursor);
 		sendLeftButton(toggle, QEvent::MouseButtonRelease, QPoint(500, 500)); // dragged off before releasing: no toggle
 		QVERIFY(!sim.bridge().isRecordingEnabled());
 		sendLeftButton(toggle, QEvent::MouseButtonRelease, QPoint(5, 5));
