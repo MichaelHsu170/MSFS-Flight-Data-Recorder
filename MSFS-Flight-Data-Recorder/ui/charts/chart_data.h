@@ -16,15 +16,41 @@
 // objects involved: which series exist, their points and axis ranges, and
 // the hover readout. ChartsPanel only moves these into the QML series/axes.
 
+// Every chart series, in ChartSeriesId order -- the one list both the enum
+// and CHART_SERIES are built from: X(id, objectName, valueKey, isFlag), as
+// in ChartSeriesDef below. Engines 1..MAX_ENGINES' speed and load
+// (EnginePower in engine_power.h) come first.
+#define CHART_SERIES_LIST(X) \
+	X(CHART_ENG_SPEED_1,      "engSpeed1Series",     "engSpeed1",  false) \
+	X(CHART_ENG_SPEED_2,      "engSpeed2Series",     "engSpeed2",  false) \
+	X(CHART_ENG_SPEED_3,      "engSpeed3Series",     "engSpeed3",  false) \
+	X(CHART_ENG_SPEED_4,      "engSpeed4Series",     "engSpeed4",  false) \
+	X(CHART_ENG_LOAD_1,       "engLoad1Series",      "engLoad1",   false) \
+	X(CHART_ENG_LOAD_2,       "engLoad2Series",      "engLoad2",   false) \
+	X(CHART_ENG_LOAD_3,       "engLoad3Series",      "engLoad3",   false) \
+	X(CHART_ENG_LOAD_4,       "engLoad4Series",      "engLoad4",   false) \
+	X(CHART_VERTICAL_SPEED,   "verticalSpeedSeries", "vs",         false) \
+	X(CHART_AIRSPEED,         "airspeedSeries",      "ias",        false) \
+	X(CHART_GROUND_SPEED,     "groundSpeedSeries",   "gs",         false) \
+	X(CHART_ALTITUDE,         "altitudeSeries",      "alt",        false) \
+	X(CHART_GEAR_HANDLE,      "gearHandleSeries",    "gearHandle", false) \
+	X(CHART_GEAR_POS_0,       "gearPosition0Series", "gearPos0",   false) \
+	X(CHART_GEAR_POS_1,       "gearPosition1Series", "gearPos1",   false) \
+	X(CHART_GEAR_POS_2,       "gearPosition2Series", "gearPos2",   false) \
+	X(CHART_GEAR_ON_GROUND_0, "gearOnGround0Series", "onGnd0",     true)  \
+	X(CHART_GEAR_ON_GROUND_1, "gearOnGround1Series", "onGnd1",     true)  \
+	X(CHART_GEAR_ON_GROUND_2, "gearOnGround2Series", "onGnd2",     true)  \
+	X(CHART_BRAKE,            "brakeSeries",         "brake",      false) \
+	X(CHART_FLAPS,            "flapsSeries",         "flaps",      false) \
+	X(CHART_SPOILERS,         "spoilersSeries",      "spoilers",   false) \
+	X(CHART_FUEL_WEIGHT,      "fuelWeightSeries",    "fuel",       false) \
+	X(CHART_PITCH,            "pitchSeries",         "pitch",      false) \
+	X(CHART_BANK,             "bankSeries",          "bank",       false)
+
 enum ChartSeriesId {
-	// Engines 1..MAX_ENGINES' speed and load (EnginePower in engine_power.h).
-	CHART_ENG_SPEED_1, CHART_ENG_SPEED_2, CHART_ENG_SPEED_3, CHART_ENG_SPEED_4,
-	CHART_ENG_LOAD_1, CHART_ENG_LOAD_2, CHART_ENG_LOAD_3, CHART_ENG_LOAD_4,
-	CHART_VERTICAL_SPEED, CHART_AIRSPEED, CHART_GROUND_SPEED, CHART_ALTITUDE,
-	CHART_GEAR_HANDLE, CHART_GEAR_POS_0, CHART_GEAR_POS_1, CHART_GEAR_POS_2,
-	CHART_GEAR_ON_GROUND_0, CHART_GEAR_ON_GROUND_1, CHART_GEAR_ON_GROUND_2,
-	CHART_BRAKE, CHART_FLAPS, CHART_SPOILERS, CHART_FUEL_WEIGHT,
-	CHART_PITCH, CHART_BANK,
+#define CHART_SERIES_ID(id, objectName, valueKey, isFlag) id,
+	CHART_SERIES_LIST(CHART_SERIES_ID)
+#undef CHART_SERIES_ID
 	CHART_SERIES_COUNT
 };
 

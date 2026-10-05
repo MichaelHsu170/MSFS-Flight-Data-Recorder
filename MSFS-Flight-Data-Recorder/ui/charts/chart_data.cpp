@@ -6,31 +6,9 @@
 #include <algorithm>
 
 const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES = { {
-	{ "engSpeed1Series", "engSpeed1", false },
-	{ "engSpeed2Series", "engSpeed2", false },
-	{ "engSpeed3Series", "engSpeed3", false },
-	{ "engSpeed4Series", "engSpeed4", false },
-	{ "engLoad1Series", "engLoad1", false },
-	{ "engLoad2Series", "engLoad2", false },
-	{ "engLoad3Series", "engLoad3", false },
-	{ "engLoad4Series", "engLoad4", false },
-	{ "verticalSpeedSeries", "vs", false },
-	{ "airspeedSeries", "ias", false },
-	{ "groundSpeedSeries", "gs", false },
-	{ "altitudeSeries", "alt", false },
-	{ "gearHandleSeries", "gearHandle", false },
-	{ "gearPosition0Series", "gearPos0", false },
-	{ "gearPosition1Series", "gearPos1", false },
-	{ "gearPosition2Series", "gearPos2", false },
-	{ "gearOnGround0Series", "onGnd0", true },
-	{ "gearOnGround1Series", "onGnd1", true },
-	{ "gearOnGround2Series", "onGnd2", true },
-	{ "brakeSeries", "brake", false },
-	{ "flapsSeries", "flaps", false },
-	{ "spoilersSeries", "spoilers", false },
-	{ "fuelWeightSeries", "fuel", false },
-	{ "pitchSeries", "pitch", false },
-	{ "bankSeries", "bank", false },
+#define CHART_SERIES_DEF(id, objectName, valueKey, isFlag) { objectName, valueKey, isFlag },
+	CHART_SERIES_LIST(CHART_SERIES_DEF)
+#undef CHART_SERIES_DEF
 } };
 
 ChartValues chartValues(const TripSamplePoint& p) {
