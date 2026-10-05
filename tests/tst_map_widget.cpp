@@ -276,6 +276,39 @@ private slots:
 		QCOMPARE(widget_->defaultMapImageFileName(), QStringLiteral("trips.png"));
 	}
 
+	// The overview replaces the trip: its line, cursor, liftoff/touchdown/event
+	// markers and their popups' stored points all go, and the route is drawn.
+	void showOverviewRemovesTheTripFromTheMap() {
+		TripDataset dataset;
+		dataset.points = { samplePoint(10, 20), samplePoint(11, 21) };
+		dataset.liftoffPoints = { liftoffAt(QStringLiteral("KJFK")) };
+		dataset.touchdowns = { touchdownAt(QStringLiteral("KLAX")) };
+		TripEvent event;
+		event.event = QStringLiteral("GEAR_UP");
+		dataset.events = { event };
+		widget_->setDataset(dataset);
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "liftoff-icon"), 1, 10000);
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "touchdown-icon"), 1, 5000);
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "event-icon"), 1, 5000);
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "leaflet-marker-draggable"), 1, 5000);
+
+		TripSummary trip;
+		trip.id = 1;
+		trip.departureLat = 10;
+		trip.departureLng = 20;
+		trip.destinationLat = 11;
+		trip.destinationLng = 21;
+		widget_->showOverview({ trip });
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "overview-endpoint"), 2, 5000);
+		QCOMPARE(mapTrajectoryPointCount(widget_), 0);
+		QCOMPARE(mapElementCount(widget_, "leaflet-marker-draggable"), 0);
+		QCOMPARE(mapElementCount(widget_, "liftoff-icon"), 0);
+		QCOMPARE(mapElementCount(widget_, "touchdown-icon"), 0);
+		QCOMPARE(mapElementCount(widget_, "event-icon"), 0);
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(
+			"Object.keys(_liftoffStore).length + Object.keys(_touchdownStore).length")).toInt(), 0);
+	}
+
 	void resetZoomRefitsTheMapToTheTrajectory() {
 		TripDataset dataset;
 		dataset.points = { samplePoint(10, 20), samplePoint(11, 21) };

@@ -1071,8 +1071,12 @@ function initLeafletProvider() {
         });
     }
 
+    function removeMarkers(markers) {
+        markers.forEach(function (m) { map.removeLayer(m); });
+    }
+
     function clearOverview() {
-        overviewLines.forEach(function(l) { map.removeLayer(l); });
+        removeMarkers(overviewLines);
         overviewLines = [];
         overviewBounds = null;
         deferredFitBounds = null;  // a waiting fit is for what was shown before
@@ -1135,7 +1139,7 @@ function initLeafletProvider() {
             marker.setLatLng(trajectoryLatLngs[best]);
         },
         setLiftoffs: function (points) {
-            liftoffMarkers.forEach(function (m) { map.removeLayer(m); });
+            removeMarkers(liftoffMarkers);
             // Every entry belonged to a marker/popup just removed above (and
             // analyzeLiftoff() already no-ops once its popup's DOM is gone,
             // via the missing-btn check), so nothing still needs them --
@@ -1146,14 +1150,14 @@ function initLeafletProvider() {
                 function () { return _liftoffStore; });
         },
         setTouchdowns: function (points) {
-            touchdownMarkers.forEach(function (m) { map.removeLayer(m); });
+            removeMarkers(touchdownMarkers);
             // Same store-reset rationale as setLiftoffs() above.
             _touchdownStore = {};
             touchdownMarkers = addContactMarkers(points, '\u{1F6EC}', 'touchdown-icon', touchdownPopupHtml,
                 function () { return _touchdownStore; });
         },
         setEvents: function (points) {
-            eventMarkers.forEach(function (m) { map.removeLayer(m); });
+            removeMarkers(eventMarkers);
             eventMarkers = [];
             // Group events within ~11 m of each other (same or adjacent sample)
             // into one marker so overlapping flags don't stack unclickably.
@@ -1201,18 +1205,10 @@ function initLeafletProvider() {
             origIndices = [];
             polyline.setLatLngs([]);
             if (marker !== null) { map.removeLayer(marker); marker = null; }
-            liftoffMarkers.forEach(function(m) { map.removeLayer(m); });
-            liftoffMarkers = [];
-            // Same store-reset rationale as setLiftoffs()/setTouchdowns() above --
-            // every entry belonged to a marker just removed above, so nothing still
-            // needs them, and skipping this leaks one entry per liftoff/touchdown
-            // ever shown for the lifetime of the page.
-            _liftoffStore = {};
-            _touchdownStore = {};
-            touchdownMarkers.forEach(function(m) { map.removeLayer(m); });
-            touchdownMarkers = [];
-            eventMarkers.forEach(function(m) { map.removeLayer(m); });
-            eventMarkers = [];
+            // Empty lists: removes the markers and empties the popup stores.
+            currentProvider.setLiftoffs([]);
+            currentProvider.setTouchdowns([]);
+            currentProvider.setEvents([]);
             clearOverview();
 
             // Marks a segment endpoint so departure/destination points stand out
