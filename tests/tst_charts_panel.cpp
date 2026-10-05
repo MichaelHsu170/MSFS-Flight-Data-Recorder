@@ -101,6 +101,36 @@ int shownAxes(QObject* root) {
 	return shown;
 }
 
+// The tick labels drawn along a chart's left-hand Y axis, top to bottom:
+// the text items of the chart (GraphsView) whose axisY is axis that sit left
+// of its plot and within its height, other than the axis title. Renders a
+// frame first, since Qt Graphs lays the labels out when it draws.
+QStringList leftAxisLabels(ChartsPanel& panel, QValueAxis* axis) {
+	panel.findChild<QQuickWidget*>()->grabFramebuffer();
+	QQuickItem* root = panel.findChild<QQuickWidget*>()->rootObject();
+	for (QQuickItem* view : root->findChildren<QQuickItem*>()) {
+		if (!view->property("plotArea").isValid() || view->property("axisY").value<QObject*>() != axis)
+			continue;
+		const QRectF plot = view->mapRectToScene(view->property("plotArea").toRectF());
+		QList<std::pair<double, QString>> labels;
+		for (QQuickItem* item : view->findChildren<QQuickItem*>()) {
+			if (!item->isVisible() || item->metaObject()->indexOfProperty("text") < 0)
+				continue;
+			const QRectF r = item->mapRectToScene(QRectF(0, 0, item->width(), item->height()));
+			const QString text = item->property("text").toString();
+			if (r.right() <= plot.left() && r.center().y() >= plot.top() - 1 && r.center().y() <= plot.bottom() + 1
+					&& !text.isEmpty() && text != axis->titleText())
+				labels.append({ r.center().y(), text });
+		}
+		std::sort(labels.begin(), labels.end());
+		QStringList texts;
+		for (const auto& label : labels)
+			texts << label.second;
+		return texts;
+	}
+	return {};
+}
+
 // How many charts show their legend.
 int shownLegends(QObject* root) {
 	int shown = 0;
@@ -406,6 +436,40 @@ private slots:
 		QCOMPARE(visibleEngineLines(root), QStringList());
 		QCOMPARE(engineLegend(root), QStringList());
 		QVERIFY(!loadAxis->isVisible());
+	}
+
+	// The "%.0f" axes label a short range (a level or empty trip) once per
+	// whole unit instead of repeating rounded labels like "1 1 1 0 0 0" or
+	// "-0"; a range of 10 or more keeps Qt Graphs' automatic ticks.
+	void wholeNumberAxesNeverRepeatALabel() {
+		ChartsPanel panel;
+		QQuickItem* root = shownRoot(panel, QSize(800, 1600));
+		QVERIFY(root);
+		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
+		struct Case { double value; QStringList speed, vs; };
+		const Case cases[] = {
+			{ 0, { "1", "0" }, { "2", "1", "0", "-1", "-2" } },
+			{ 3, { "4", "3", "2", "1", "0" }, { "4", "3", "2", "1", "0", "-1" } },
+			{ 9, { "14", "12", "10", "8", "6", "4", "2", "0" }, { "14", "12", "10", "8", "6", "4", "2", "0", "-2", "-4" } },
+			{ 50, { "80", "72", "64", "56", "48", "40", "32", "24", "16", "8", "0" },
+				{ "80", "70", "60", "50", "40", "30", "20", "10", "0", "-10", "-20" } },
+		};
+		for (const Case& c : cases) {
+			TripDataset dataset;
+			dataset.points = { samplePoint(0, zuluAt(10, 0)), samplePoint(c.value, zuluAt(10, 1)) };
+			panel.setDataset(dataset);
+			QVERIFY(spy.wait(5000));
+			// samplePoint puts the value in every chart: speed, altitude and
+			// fuel share one range, as do V/S, pitch and bank.
+			for (const char* name : { "speedYAxis", "altYAxis", "fuelYAxis" })
+				QCOMPARE(leftAxisLabels(panel, root->findChild<QValueAxis*>(QLatin1String(name))), c.speed);
+			for (const char* name : { "vsYAxis", "pitchYAxis", "bankYAxis" })
+				QCOMPARE(leftAxisLabels(panel, root->findChild<QValueAxis*>(QLatin1String(name))), c.vs);
+		}
+		// The engine axes go through the same rule: samplePoint's jet has a
+		// fixed 0-110 % scale, which keeps its automatic ticks.
+		QCOMPARE(leftAxisLabels(panel, root->findChild<QValueAxis*>(QStringLiteral("engSpeedYAxis"))),
+			QStringList({ "100", "80", "60", "40", "20", "0" }));
 	}
 
 	// The engine power chart's right-hand axis narrows its plot; the other

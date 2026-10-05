@@ -21,11 +21,16 @@ QValueAxis* findYAxis(QQuickItem* root, const char* objectName) {
 	return root->findChild<QValueAxis*>(QString::fromLatin1(objectName));
 }
 
+// The axes set here label whole numbers ("%.0f"). On a range shorter than 10,
+// Qt Graphs' automatic tick interval goes below 1 and the rounded labels
+// repeat ("1 1 1 0 0 0", "-0"), so those ranges get one tick per unit; longer
+// ranges keep the automatic interval (0).
 void setAxisRange(QValueAxis* axis, std::pair<double, double> range) {
 	if (!axis)
 		return;
 	axis->setMin(range.first);
 	axis->setMax(range.second);
+	axis->setTickInterval(range.second - range.first < 10 ? 1 : 0);
 }
 
 }
@@ -83,16 +88,11 @@ void ChartsPanel::setYAxes(const ChartExtents& extents) {
 	const auto engineAxisMax = [](double fixedMax, double dataMax) {
 		return fixedMax > 0 && dataMax <= fixedMax ? fixedMax : niceAxisMax(dataMax);
 	};
-	if (cache_.engSpeedYAxis)
-		cache_.engSpeedYAxis->setMax(engineAxisMax(spec ? spec->speed.axisMax : 0, extents.engSpeedMax));
-	if (cache_.engLoadYAxis)
-		cache_.engLoadYAxis->setMax(engineAxisMax(spec ? spec->load.axisMax : 0, extents.engLoadMax));
-	if (cache_.speedYAxis)
-		cache_.speedYAxis->setMax(niceAxisMax(extents.speedMax));
-	if (cache_.altYAxis)
-		cache_.altYAxis->setMax(niceAxisMax(extents.altMax));
-	if (cache_.fuelYAxis)
-		cache_.fuelYAxis->setMax(niceAxisMax(extents.fuelMax));
+	setAxisRange(cache_.engSpeedYAxis, { 0, engineAxisMax(spec ? spec->speed.axisMax : 0, extents.engSpeedMax) });
+	setAxisRange(cache_.engLoadYAxis, { 0, engineAxisMax(spec ? spec->load.axisMax : 0, extents.engLoadMax) });
+	setAxisRange(cache_.speedYAxis, { 0, niceAxisMax(extents.speedMax) });
+	setAxisRange(cache_.altYAxis, { 0, niceAxisMax(extents.altMax) });
+	setAxisRange(cache_.fuelYAxis, { 0, niceAxisMax(extents.fuelMax) });
 	setAxisRange(cache_.vsYAxis, niceSignedAxisRange(extents.vsMin, extents.vsMax));
 	setAxisRange(cache_.pitchYAxis, niceSignedAxisRange(extents.pitchMin, extents.pitchMax));
 	setAxisRange(cache_.bankYAxis, niceSignedAxisRange(extents.bankMin, extents.bankMax));
