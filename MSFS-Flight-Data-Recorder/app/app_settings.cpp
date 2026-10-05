@@ -392,8 +392,7 @@ QString AppSettings::logLevel() {
 }
 
 QString AppSettings::geminiApiKey() const {
-	QSettings settings = makeSettings();
-	return settings.value(QStringLiteral("ai/gemini_api_key")).toString();
+	return makeSettings().value(QStringLiteral("ai/gemini_api_key")).toString();
 }
 
 int AppSettings::sampleIntervalMs() const {
@@ -408,8 +407,7 @@ int AppSettings::sampleIntervalMs() const {
 }
 
 bool AppSettings::recordingEnabled() const {
-	QSettings settings = makeSettings();
-	return settings.value(QStringLiteral("recording/enabled"), true).toBool();
+	return makeSettings().value(QStringLiteral("recording/enabled"), true).toBool();
 }
 
 void AppSettings::setRecordingEnabled(bool enabled) {
