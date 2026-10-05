@@ -28,22 +28,24 @@ const char* const ENGINE_POWER_SIMVARS[][2] = {
 	{ "PROP RPM", "rpm" },
 };
 
-// Logs the dwSendID SimConnect actually assigned to this request, so a later
-// SIMCONNECT_RECV_ID_EXCEPTION's dwSendID can be matched back to a specific
-// event/name by reading the log instead of manually counting call order,
-// which is error-prone.
-void map_client_event(HANDLE hSimConnect, EVENT_ID id, const char* name) {
-	SimConnect_MapClientEventToSimEvent(hSimConnect, id, name);
+// Logs the dwSendID SimConnect actually assigned to the request just sent, so
+// a later SIMCONNECT_RECV_ID_EXCEPTION's dwSendID can be matched back to a
+// specific event/name by reading the log instead of manually counting call
+// order, which is error-prone.
+void log_last_send_id(HANDLE hSimConnect, const char* call, const char* name) {
 	DWORD sendId = 0;
 	SimConnect_GetLastSentPacketID(hSimConnect, &sendId);
-	Logger::logf(Logger::Trace, "Recorder", "MapClientEventToSimEvent(%s) -> SendID=%lu", name, sendId);
+	Logger::logf(Logger::Trace, "Recorder", "%s(%s) -> SendID=%lu", call, name, sendId);
+}
+
+void map_client_event(HANDLE hSimConnect, EVENT_ID id, const char* name) {
+	SimConnect_MapClientEventToSimEvent(hSimConnect, id, name);
+	log_last_send_id(hSimConnect, "MapClientEventToSimEvent", name);
 }
 
 void add_notification_event(HANDLE hSimConnect, EVENT_ID id) {
 	SimConnect_AddClientEventToNotificationGroup(hSimConnect, GROUP_1, id);
-	DWORD sendId = 0;
-	SimConnect_GetLastSentPacketID(hSimConnect, &sendId);
-	Logger::logf(Logger::Trace, "Recorder", "AddClientEventToNotificationGroup(%s) -> SendID=%lu", event_name(id), sendId);
+	log_last_send_id(hSimConnect, "AddClientEventToNotificationGroup", event_name(id));
 }
 
 }
