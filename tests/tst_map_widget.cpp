@@ -1,8 +1,10 @@
 // Map widget (map_widget.cpp): the QWebEngineView wrapper around the
 // Leaflet/OSM trajectory map -- setDataset()/showOverview()/
 // resetZoom()/setEventsVisible() driving the real page, and the page's cursor
-// and range forwarded only for the current trajectory; not the pure JS
-// string-building math (already covered standalone in tst_map_script.cpp).
+// and range forwarded only for the current trajectory, the right-click menu
+// and an overview route clicked with the mouse, and a page reload; not the
+// pure JS string-building math (already covered standalone in
+// tst_map_script.cpp).
 //
 // Needs a custom main(), not QTEST_MAIN: QWebEngineView requires
 // Qt::AA_ShareOpenGLContexts to be set before QApplication is constructed
@@ -26,14 +28,22 @@
 #include "test_support.h"
 
 #include <QApplication>
+#include <QClipboard>
 #include <QFile>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMenu>
+#include <QMessageBox>
+#include <QMimeData>
 #include <QRegularExpression>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QWebEngineView>
 #include <QtTest>
+
+#include <functional>
 
 using namespace TestSupport;
 
@@ -86,6 +96,7 @@ class TstMapWidget : public QObject {
 
 	MapWidget* widget_ = nullptr;
 	QTemporaryDir logDir_;
+	QTemporaryDir filesDir_; // files saved through the map's menu
 	QString logPath_;
 
 	// Runs the page's AI analysis of a liftoff with fetch() stubbed: attempt n
@@ -133,9 +144,105 @@ class TstMapWidget : public QObject {
 			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none' })")).toMap();
 	}
 
+
+	QWebEngineView* mapView() { return widget_->findChild<QWebEngineView*>(); }
+	// The widget a user's mouse input reaches the page through.
+	QWidget* mapInput() {
+		QWidget* proxy = mapView()->focusProxy();
+		return proxy ? proxy : mapView();
+	}
+
+	// A trip from (10, 20) to (11, 21), KJFK to KLAX, departing
+	// 2026-01-02 10:00:00.5Z.
+	static TripDataset tripToSave() {
+		TripDataset dataset;
+		dataset.points = { samplePoint(10, 20), samplePoint(11, 21) };
+		LiftoffPoint liftoff = liftoffAt(QStringLiteral("KJFK"));
+		liftoff.latitude = 10;
+		liftoff.longitude = 20;
+		TouchdownPoint touchdown = touchdownAt(QStringLiteral("KLAX"));
+		touchdown.latitude = 11;
+		touchdown.longitude = 21;
+		dataset.liftoffPoints = { liftoff };
+		dataset.touchdowns = { touchdown };
+		dataset.departureZuluTime = QStringLiteral("2026-01-02T10:00:00.500+00:00_5");
+		return dataset;
+	}
+
+	// An overview route from (10, 20) to (11, 21).
+	static TripSummary overviewTrip(int id) {
+		TripSummary trip;
+		trip.id = id;
+		trip.departureLat = 10;
+		trip.departureLng = 20;
+		trip.destinationLat = 11;
+		trip.destinationLng = 21;
+		return trip;
+	}
+
+	// Shows dataset and waits until the page has drawn it and the animated
+	// fit has settled.
+	void loadTrip(const TripDataset& dataset) {
+		widget_->setDataset(dataset);
+		QTRY_COMPARE_WITH_TIMEOUT(mapTrajectoryPointCount(widget_), int(dataset.points.size()), 10000);
+		QTest::qWait(1500);
+	}
+
+	// The middle of the straight line from (lat1, lng1) to (lat2, lng2) as
+	// the page draws it, in the view's coordinates.
+	QPoint midpointOnScreen(double lat1, double lng1, double lat2, double lng2) {
+		const QVariantList xy = evalPageJs(widget_, QStringLiteral(
+			"var a = leafletMapInstance.latLngToContainerPoint([%1, %2]), b = leafletMapInstance.latLngToContainerPoint([%3, %4]);"
+			"[(a.x + b.x) / 2, (a.y + b.y) / 2]").arg(lat1).arg(lng1).arg(lat2).arg(lng2)).toList();
+		return QPoint(qRound(xy.value(0).toDouble()), qRound(xy.value(1).toDouble()));
+	}
+
+	// Right-clicks the map with the mouse, away from the trip, and returns
+	// the items of the menu that pops up; then chooses choose from it, or
+	// closes it if that's empty. onDialog runs on the dialog choosing it
+	// opens.
+	QStringList rightClickMenu(const QString& choose = QString(), const std::function<void(QWidget*)>& onDialog = {}) {
+		QTest::mouseClick(mapInput(), Qt::RightButton, Qt::NoModifier, QPoint(60, 250));
+		QMenu* menu = nullptr;
+		if (!QTest::qWaitFor([&menu] { return (menu = qobject_cast<QMenu*>(QApplication::activePopupWidget())) != nullptr; }, 5000))
+			return {};
+		QStringList items;
+		for (QAction* action : menu->actions())
+			if (!action->isSeparator())
+				items << action->text();
+		if (choose.isEmpty()) {
+			menu->close();
+			return items;
+		}
+		if (onDialog)
+			onNextModal(onDialog);
+		chooseMenuItem(menu, choose);
+		return items;
+	}
+
+	// image (a grab of the map showing tripToSave()) is the whole view, with
+	// the trajectory's blue line across its middle.
+	void checkShowsTheTrajectory(const QImage& image) {
+		const qreal scale = image.devicePixelRatio();
+		QCOMPARE(image.size(), mapView()->size() * scale);
+		const QColor middle = image.pixelColor(midpointOnScreen(10, 20, 11, 21) * scale);
+		QVERIFY2(middle.blue() > 200 && middle.red() < 60 && middle.green() < 60, qPrintable(middle.name()));
+	}
+
+	// Reloads map.html, as if it was opened anew, and waits until it loaded.
+	void reloadPage() {
+		QSignalSpy loaded(mapView(), &QWebEngineView::loadFinished);
+		mapView()->reload();
+		QVERIFY(loaded.wait(15000));
+		QVERIFY(loaded.value(0).value(0).toBool());
+	}
+
 private slots:
 	// Logger::init() takes effect once per process, so it runs here.
 	void initTestCase() {
+		isolateFiles(); // the database and settings.ini the map's menu reads
+		// Save dialogs a test can answer (see saveFileDialogAs()).
+		QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
 		logPath_ = logDir_.filePath(QStringLiteral("map.log"));
 		Logger::init(Logger::Info, logPath_);
 		widget_ = new MapWidget;
@@ -643,6 +750,126 @@ private slots:
 		QVERIFY(warningLogged(log, { "MapJS", "console-warn-2" }));
 		QVERIFY(!lineLogged(log, "INFO ", { "console-error-1" }));
 		QVERIFY(!lineLogged(log, "WARN ", { "console-log-3" }));
+	}
+
+	// --- Through the real mouse and the map's right-click menu ---
+
+	// With a trip shown the right-click menu offers Export to KML; the
+	// overview of every trip has no single trip to export.
+	void rightClickMenuOffersExportOnlyForATrip() {
+		loadTrip(tripToSave());
+		QCOMPARE(rightClickMenu(), (QStringList{ "Reset Zoom", "Save Image", "Copy Image", "Export to KML" }));
+		widget_->showOverview({ overviewTrip(7) });
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "overview-endpoint"), 2, 5000);
+		QCOMPARE(rightClickMenu(), (QStringList{ "Reset Zoom", "Save Image", "Copy Image" }));
+	}
+
+	// Save Image suggests the trip's file name and saves the whole map as
+	// the view shows it: the trajectory line is in the image.
+	void saveImageWritesTheMapAsAPng() {
+		loadTrip(tripToSave());
+		const QString path = filesDir_.filePath(QStringLiteral("map.png"));
+		QString suggested;
+		rightClickMenu(QStringLiteral("Save Image"), [&](QWidget* dialog) { suggested = saveFileDialogAs(dialog, path); });
+		QCOMPARE(suggested, QStringLiteral("KJFK-KLAX_20260102100000.png"));
+		const QImage image(path);
+		QVERIFY(!image.isNull());
+		checkShowsTheTrajectory(image);
+	}
+
+	void aMapImageThatCantBeSavedSaysSo() {
+		loadTrip(tripToSave());
+		const QString path = filesDir_.filePath(QStringLiteral("no-such-folder/map.png"));
+		QString error;
+		rightClickMenu(QStringLiteral("Save Image"), [&](QWidget* dialog) {
+			onNextModal([&error](QWidget* box) {
+				error = static_cast<QMessageBox*>(box)->text();
+				box->close();
+			});
+			saveFileDialogAs(dialog, path);
+		});
+		// Waits out the box handler too, so it can't outlive error.
+		QVERIFY(waitFor([&error] { return !error.isEmpty(); }));
+		QCOMPARE(error, QStringLiteral("Failed to save the map image to %1.").arg(path));
+	}
+
+	// Copy Image puts the same picture on the clipboard. The clipboard is
+	// the desktop's own, so what was on it is put back afterwards.
+	void copyImagePutsTheMapOnTheClipboard() {
+		loadTrip(tripToSave());
+		QClipboard* clipboard = QGuiApplication::clipboard();
+		auto* saved = new QMimeData;
+		if (const QMimeData* before = clipboard->mimeData())
+			for (const QString& format : before->formats())
+				saved->setData(format, before->data(format));
+		clipboard->clear();
+		rightClickMenu(QStringLiteral("Copy Image"));
+		const QImage image = clipboard->image();
+		clipboard->setMimeData(saved);
+		QVERIFY(!image.isNull());
+		checkShowsTheTrajectory(image);
+	}
+
+	// Export to KML from the map exports the shown trip from the database
+	// (its 4 recorded samples, not the 2 points the map was given), under
+	// the trip's file name.
+	void exportToKmlFromTheMap() {
+		FlightDriver sim;
+		TripDataset dataset = tripToSave();
+		dataset.tripId = sim.startTrip();
+		sim.ticks(3);
+		sim.endTrip();
+		loadTrip(dataset);
+		const QString path = filesDir_.filePath(QStringLiteral("map.kml"));
+		QString suggested;
+		rightClickMenu(QStringLiteral("Export to KML"), [&](QWidget* dialog) { suggested = saveFileDialogAs(dialog, path); });
+		QCOMPARE(suggested, QStringLiteral("KJFK-KLAX_20260102100000.kml"));
+		QFile file(path);
+		QVERIFY(QTest::qWaitFor([&file] { return file.size() > 0 && file.open(QIODevice::ReadOnly); }, 5000));
+		const QString kml = QString::fromUtf8(file.readAll());
+		QVERIFY2(kml.trimmed().endsWith("</kml>"), qPrintable(kml.right(200)));
+		QCOMPARE(kml.count("<when>"), 4);
+	}
+
+	// Clicking a trip's route on the overview asks for that trip.
+	void clickingAnOverviewRouteAsksForThatTrip() {
+		QSignalSpy clicked(widget_, &MapWidget::overviewTripClicked);
+		widget_->showOverview({ overviewTrip(7) });
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "overview-endpoint"), 2, 5000);
+		QTest::qWait(1500); // let the animated fit settle
+		QTest::mouseClick(mapInput(), Qt::LeftButton, Qt::NoModifier, midpointOnScreen(10, 20, 11, 21));
+		QTRY_COMPARE_WITH_TIMEOUT(clicked.count(), 1, 5000);
+		QCOMPARE(clicked.value(0).value(0).toInt(), 7);
+	}
+
+	// --- A page reload (the page is rebuilt from scratch) ---
+
+	// The overview is drawn again on the new page.
+	void aReloadedPageShowsTheOverviewAgain() {
+		widget_->showOverview({ overviewTrip(7) });
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "overview-endpoint"), 2, 5000);
+		reloadPage();
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "overview-endpoint"), 2, 5000);
+		QCOMPARE(mapTrajectoryPointCount(widget_), 0);
+	}
+
+	// The trip is drawn again with its cursor where the user left it, not
+	// back at the first sample.
+	void aReloadedPageKeepsTheTripsCursor() {
+		QSignalSpy loaded(widget_, &MapWidget::trajectoryLoaded);
+		QSignalSpy cursor(widget_, &MapWidget::cursorIndexChanged);
+		TripDataset dataset;
+		dataset.points = { samplePoint(10, 20), samplePoint(11, 21), samplePoint(12, 22) };
+		widget_->setDataset(dataset);
+		QVERIFY(loaded.wait(10000));
+		evalPageJs(widget_, QStringLiteral(
+			"leafletMapInstance.eachLayer(function (l) { if (l instanceof L.Polyline) l.fire('click', { latlng: L.latLng(12, 22) }); })"));
+		QTRY_COMPARE_WITH_TIMEOUT(cursor.count(), 1, 5000);
+		reloadPage();
+		QTRY_COMPARE_WITH_TIMEOUT(mapTrajectoryPointCount(widget_), 3, 10000);
+		QTRY_COMPARE_WITH_TIMEOUT(evalPageJs(widget_, QStringLiteral(
+			"var at = null; leafletMapInstance.eachLayer(function (l) { if (l instanceof L.Marker && l.dragging && l.dragging.enabled()) at = l.getLatLng(); });"
+			"at ? at.lat + ',' + at.lng : ''")).toString(), QStringLiteral("12,22"), 5000);
 	}
 };
 
