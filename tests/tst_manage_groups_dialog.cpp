@@ -1,5 +1,5 @@
 // Manage Groups dialog (manage_groups_dialog.cpp): list, add, rename,
-// delete and reorder, each written straight to the database.
+// delete and reorder, each written straight to the database, and closing.
 #include "test_support.h"
 
 #include "db.h"
@@ -7,6 +7,7 @@
 #include "logger.h"
 #include "manage_groups_dialog.h"
 
+#include <QDialogButtonBox>
 #include <QDropEvent>
 #include <QInputDialog>
 #include <QLabel>
@@ -148,6 +149,23 @@ private slots:
 		QCOMPARE(dbGroups(), QStringList{ "Training" });
 	}
 
+	void failedCreateShowsAnError() {
+		exec("CREATE TRIGGER block_insert BEFORE INSERT ON trip_groups BEGIN SELECT RAISE(ABORT, 'blocked'); END;");
+		ManageGroupsDialog dialog;
+		QSignalSpy changed(&dialog, &ManageGroupsDialog::groupsChanged);
+		QString message;
+		onNextModal([&message](QWidget* input) {
+			captureNextMessage(&message);
+			static_cast<QInputDialog*>(input)->setTextValue("New One");
+			clickDialogButton(input, "OK");
+		});
+		button(dialog, QString::fromUtf8("New Group…"))->click();
+		QCOMPARE(message, QStringLiteral("Failed to create group."));
+		QVERIFY(dbGroups().isEmpty());
+		QVERIFY(items(dialog).isEmpty());
+		QCOMPARE(changed.count(), 0);
+	}
+
 	void cancellingAddChangesNothing() {
 		ManageGroupsDialog dialog;
 		onNextModal([](QWidget* input) {
@@ -178,6 +196,20 @@ private slots:
 		QCOMPARE(message, QStringLiteral("A group named \"OPS\" already exists."));
 		QCOMPARE(dbGroups(), (QStringList{ "Training", "Ops" }));
 		QCOMPARE(items(dialog), (QStringList{ "Training", "Ops" }));
+		QCOMPARE(changed.count(), 0);
+	}
+
+	void failedRenameShowsAnErrorAndKeepsTheName() {
+		addGroup("Training");
+		exec("CREATE TRIGGER block_update BEFORE UPDATE ON trip_groups BEGIN SELECT RAISE(ABORT, 'blocked'); END;");
+		ManageGroupsDialog dialog;
+		QSignalSpy changed(&dialog, &ManageGroupsDialog::groupsChanged);
+		QString message;
+		captureNextMessage(&message);
+		list(dialog)->item(0)->setText("Renamed");
+		QCOMPARE(message, QStringLiteral("Failed to rename group."));
+		QCOMPARE(dbGroups(), QStringList{ "Training" });
+		QCOMPARE(items(dialog), QStringList{ "Training" });
 		QCOMPARE(changed.count(), 0);
 	}
 
@@ -305,6 +337,14 @@ private slots:
 		dragLastItemToTop(dialog);
 		QCOMPARE(message, QStringLiteral("Could not open the database for writing."));
 		QVERIFY(items(dialog).isEmpty());
+	}
+
+	void closeButtonClosesTheDialog() {
+		ManageGroupsDialog dialog;
+		dialog.show();
+		QVERIFY(dialog.isVisible());
+		dialog.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Close)->click();
+		QVERIFY(!dialog.isVisible());
 	}
 };
 
