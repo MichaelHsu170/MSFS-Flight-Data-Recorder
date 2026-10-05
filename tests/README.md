@@ -68,7 +68,7 @@ make the other's map test time out.
 | Map scripts (`map_script.cpp`) | `tst_map_script` | string globals escaped, trajectory whole (with its version) / thinned (indices, ends) / empty, liftoff and touchdown popup fields, events, empty lists, events toggle, overview segments and "Ungrouped" |
 | KML export | `tst_kml` | header/name, path and track in meters, liftoff/touchdown descriptions, no-airport and no-runway rows, event grouping, XML escaping of names, description values shown literally (escaped, so a "]]>" in one can't end the CDATA), empty trip, unparseable times, write failure, the export-failed error box names the file and the reason |
 | settings.ini | `tst_settings` | default file (app-written sections labeled "Auto-managed"), defaults for missing/invalid values, values from file, in-place edits keep comments and other sections, new key, new section under the default file's header, section header with a trailing comment, unreadable and read-only files left alone, hidden fields, column widths, recording toggle, log level |
-| Logging | `tst_logger` | `.old` rotation, header, level filter, line format, C shim (incl. levels beyond Profile and an out-of-range level), crash logging and its level filter, second init keeps the file but takes the new level, level names |
+| Logging | `tst_logger` | `.old` rotation, header, level filter, line format, crash logging and its level filter, second init keeps the file but takes the new level, level names |
 | Data Table panel | `tst_data_table_panel` | rows for every field, value formatting (numbers, DMS, Yes/No, engine speed/load by engine type, fields of engines past the engine count left blank), which point is shown, cursor, clearing, hidden fields, Visible Fields dialog OK/Cancel, column width, right-click Copy on a value cell only |
 | Trip History | `tst_trip_history` | durations and totals, column text (airports as "ICAO (Name)"), nothing for an invalid or out-of-range index, status colors, selectability, group filter, newest-first list, overview signal, loading a trip (samples, liftoffs, touchdowns, events), select by id (incl. reentrant-load guard), unknown group id falls back to Ungrouped, live trips, delete with confirm/cancel (incl. the confirmation naming the airports as "ICAO (Name)" or "-", and clearing the selection when the deleted trip was selected), a failed delete or group change saying so and changing nothing, Set Group menu, hovered cells painted like unhovered ones, Deselect/Reset Zoom menu, selection surviving a bridge-triggered refresh, context menu suppressed while loading, idempotent load-finished, column widths |
 | Live Status panel | `tst_live_status_panel` | version, connection indicator, log lines, recording messages, 500-line cap, recording indicator states, toggle click (and drag-off), toggle while recording, event lines and retraction (incl. an event line already pruned by the cap), blank event text, hover tooltip on the toggle, stale trip end, snapshot line |
@@ -211,7 +211,9 @@ make the other's map test time out.
   calls throws only `db_exception`, which the preceding handler catches.
 - **Logger I/O failures** (`logger.cpp`): `CreateFile` failing in `init()`
   and `WriteFile` failing in `writeLine()`; also `writeLine()`'s "no file
-  open" return, which `formatLine()` already rules out before calling it.
+  open" return, which `formatLine()` already rules out before calling it;
+  and `levelTag()`'s `"?    "` tag for a value outside `Logger::Level`,
+  which every caller passes by name.
 - **settings.ini default-file creation failure** (`app_settings.cpp`): the
   file is created when it is missing, and the test can't make the working
   directory unwritable while still letting the process run there.

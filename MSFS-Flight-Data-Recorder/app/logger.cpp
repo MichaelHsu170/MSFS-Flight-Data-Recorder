@@ -1,5 +1,4 @@
 #include "logger.h"
-#include "logger_c.h"
 
 #include <QDateTime>
 #include <QFile>
@@ -171,22 +170,6 @@ void logCrashf(Level level, const char* module, const char* fmt, ...) {
 	const QString msg = formatArgs(level, fmt, args);
 	va_end(args);
 	logCrash(level, module, msg);
-}
-
-}
-
-extern "C" {
-
-void log_c(int level, const char* module, const char* msg) {
-	Logger::log(static_cast<Logger::Level>(level), module, QString::fromUtf8(msg));
-}
-
-void log_cf(int level, const char* module, const char* fmt, ...) {
-	va_list args;
-	va_start(args, fmt);
-	const QString msg = formatArgs(static_cast<Logger::Level>(level), fmt, args);
-	va_end(args);
-	Logger::log(static_cast<Logger::Level>(level), module, msg);
 }
 
 }

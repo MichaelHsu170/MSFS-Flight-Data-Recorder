@@ -1,7 +1,6 @@
 #include "recorder.h"
 #include "db.h"
 #include "gui_notify.h"
-#include "logger.h"
 #include "airport_lookup.h"
 #include "flight_phase.h"
 #include "sim_link.h"

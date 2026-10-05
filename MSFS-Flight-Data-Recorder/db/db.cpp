@@ -1,6 +1,6 @@
 #include "db.h"
 #include "app_paths.h"
-#include "logger_c.h"
+#include "logger.h"
 #include "simconnect_defs.h"
 #include "gui_notify.h"
 #include "trip_data_fields.h"
@@ -155,7 +155,7 @@ static void db_error(const char* stmt_txt, int sql_ret, char** errmsg) {
 		*errmsg = NULL;
 	}
 	const std::string msg = std::string("db operation \"") + stmt_txt + "\" failed with error " + error;
-	log_c(1, "DB", msg.c_str());
+	Logger::log(Logger::Warning, "DB", QString::fromStdString(msg));
 	throw db_exception(msg);
 }
 
@@ -207,7 +207,7 @@ using DbBinder = std::function<void(sqlite3_stmt* stmt, const char* stmt_txt)>;
 // id once committed. Throws db_exception (after rolling back) on failure.
 static void db_insert_update_table(STATUS* status, const char* stmt_txt, const DbBinder& bind, int* out_rowid = nullptr) {
 	sqlite3* sql = status->sql;
-	status->mutex_db_commit.lock();
+	std::lock_guard<std::mutex> lock(status->mutex_db_commit);
 	sqlite3_stmt* stmt = NULL;
 	int sql_ret = 0;
 	char* errmsg = NULL;
@@ -241,20 +241,17 @@ static void db_insert_update_table(STATUS* status, const char* stmt_txt, const D
 		sql_ret = sqlite3_finalize(stmt);
 		stmt = NULL;
 		if (sql_ret)
-			log_cf(1, "DB", "db_insert_update_table: finalize failed after commit (data already saved): %s", sqlite3_errmsg(sql));
+			Logger::logf(Logger::Warning, "DB", "db_insert_update_table: finalize failed after commit (data already saved): %s", sqlite3_errmsg(sql));
 	}
 	catch (...) {
 		// Catch-all, not just db_exception -- bind is caller-supplied and
-		// could throw something else entirely, and mutex_db_commit must be
-		// released (and the transaction rolled back) either way, or every later
-		// call deadlocks/finds a transaction still open.
+		// could throw something else entirely, and the transaction must be
+		// rolled back either way, or every later call finds one still open.
 		if (stmt != NULL)
 			sqlite3_finalize(stmt);
 		sqlite3_exec(sql, "ROLLBACK TRANSACTION", NULL, NULL, NULL);
-		status->mutex_db_commit.unlock();
 		throw;
 	}
-	status->mutex_db_commit.unlock();
 }
 
 int db_insert_trip(STATUS* status, const FLIGHT_DATA_RECORD& departure) {
@@ -454,7 +451,7 @@ static std::string current_exception_message() {
 // retraction can never be dequeued and executed ahead of the inserts that
 // created the rows it's retracting.
 static void event_write_worker(STATUS* status) {
-	log_cf(3, "DB", "event_write_worker: thread started");
+	Logger::logf(Logger::Trace, "DB", "event_write_worker: thread started");
 	EVENT_QUEUE_ITEM item;
 	while (status->event_write_queue.pop(item)) {
 		try {
@@ -482,7 +479,7 @@ static void event_write_worker(STATUS* status) {
 			}
 		}
 	}
-	log_cf(3, "DB", "event_write_worker: queue stopped; thread exiting");
+	Logger::logf(Logger::Trace, "DB", "event_write_worker: queue stopped; thread exiting");
 }
 
 // Runs on the single persistent DB-write worker thread (started in
@@ -492,7 +489,7 @@ static void event_write_worker(STATUS* status) {
 // threads racing each other, or a new trip's samples being interleaved with
 // (or lost during) a previous trip's flush.
 static void db_write_worker(STATUS* status) {
-	log_cf(3, "DB", "db_write_worker: thread started");
+	Logger::logf(Logger::Trace, "DB", "db_write_worker: thread started");
 	const std::string insert_txt = trip_data_insert();
 	SAMPLE_QUEUE_ITEM item;
 	while (status->sample_write_queue.pop(item)) {
@@ -544,7 +541,7 @@ static void db_write_worker(STATUS* status) {
 		}
 		free(pS);
 	}
-	log_cf(3, "DB", "db_write_worker: queue stopped; thread exiting");
+	Logger::logf(Logger::Trace, "DB", "db_write_worker: queue stopped; thread exiting");
 }
 
 std::string db_file_path() {
@@ -621,7 +618,7 @@ static std::vector<TableColumn> table_columns(sqlite3* sql, const char* table_na
 	}
 	sqlite3_finalize(stmt);
 	if (columns.empty())
-		log_cf(0, "DB", "Schema migration failed to read %s's columns: %s", table_name, sqlite3_errmsg(sql));
+		Logger::logf(Logger::Fatal, "DB", "Schema migration failed to read %s's columns: %s", table_name, sqlite3_errmsg(sql));
 	return columns;
 }
 
@@ -674,9 +671,9 @@ static bool migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 						"ALTER TABLE %s ADD COLUMN %s;", table_name, safe_def);
 
 					if (exec_sql(sql, alter_sql)) {
-						log_cf(2, "DB", "Schema migration: %s — added column %s", table_name, col_name.c_str());
+						Logger::logf(Logger::Info, "DB", "Schema migration: %s — added column %s", table_name, col_name.c_str());
 					} else {
-						log_cf(0, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
+						Logger::logf(Logger::Fatal, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
 						ok = false;
 					}
 				}
@@ -821,10 +818,10 @@ static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, 
 		return false; // can't be read (logged), so it may still have the old columns
 	if (find_column(old_columns, kLegacyColumns[0]) == old_columns.end())
 		return true;
-	log_cf(2, "DB", "Schema migration: trip_data -- moving N1/N2 into engine_speed/engine_load");
+	Logger::logf(Logger::Info, "DB", "Schema migration: trip_data -- moving N1/N2 into engine_speed/engine_load");
 	if (sqlite3_create_function_v2(sql, "engine_pack", 3, SQLITE_UTF8 | SQLITE_DETERMINISTIC,
 			nullptr, sql_engine_pack, nullptr, nullptr, nullptr) != SQLITE_OK) {
-		log_cf(0, "DB", "Schema migration failed to register engine_pack: %s", sqlite3_errmsg(sql));
+		Logger::logf(Logger::Fatal, "DB", "Schema migration failed to register engine_pack: %s", sqlite3_errmsg(sql));
 		return false;
 	}
 
@@ -873,15 +870,15 @@ static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, 
 	}
 	if (!ok) {
 		if (stopped)
-			log_cf(2, "DB", "Schema migration cancelled; trip_data left unchanged");
+			Logger::logf(Logger::Info, "DB", "Schema migration cancelled; trip_data left unchanged");
 		else
-			log_cf(0, "DB", "Schema migration failed (%s); trip_data left unchanged", sqlite3_errmsg(sql));
+			Logger::logf(Logger::Fatal, "DB", "Schema migration failed (%s); trip_data left unchanged", sqlite3_errmsg(sql));
 		exec_sql(sql, "ROLLBACK TRANSACTION");
 		return false;
 	}
 	progress.report(kRebuildCommit);
 	rebuilt = true;
-	log_cf(2, "DB", "Schema migration: trip_data -- N1/N2 moved, old columns dropped");
+	Logger::logf(Logger::Info, "DB", "Schema migration: trip_data -- N1/N2 moved, old columns dropped");
 	return true;
 }
 
@@ -895,14 +892,14 @@ static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, 
 static bool migrate_local_time_offsets(sqlite3* sql) {
 	sqlite3_stmt* version = nullptr;
 	if (sqlite3_prepare_v2(sql, "PRAGMA user_version;", -1, &version, nullptr) != SQLITE_OK) {
-		log_cf(0, "DB", "Schema migration failed to read user_version: %s", sqlite3_errmsg(sql));
+		Logger::logf(Logger::Fatal, "DB", "Schema migration failed to read user_version: %s", sqlite3_errmsg(sql));
 		return false;
 	}
 	const bool read = sqlite3_step(version) == SQLITE_ROW;
 	const int user_version = read ? sqlite3_column_int(version, 0) : 0;
 	sqlite3_finalize(version);
 	if (!read) {
-		log_cf(0, "DB", "Schema migration failed to read user_version: %s", sqlite3_errmsg(sql));
+		Logger::logf(Logger::Fatal, "DB", "Schema migration failed to read user_version: %s", sqlite3_errmsg(sql));
 		return false;
 	}
 	if (user_version >= 1)
@@ -928,11 +925,11 @@ static bool migrate_local_time_offsets(sqlite3* sql) {
 	}
 	ok = ok && exec_sql(sql, "PRAGMA user_version = 1;") && exec_sql(sql, "COMMIT TRANSACTION;");
 	if (!ok) {
-		log_cf(0, "DB", "Schema migration failed (%s); local times left unchanged", sqlite3_errmsg(sql));
+		Logger::logf(Logger::Fatal, "DB", "Schema migration failed (%s); local times left unchanged", sqlite3_errmsg(sql));
 		exec_sql(sql, "ROLLBACK TRANSACTION");
 		return false;
 	}
-	log_cf(2, "DB", "Schema migration: local time UTC offsets corrected");
+	Logger::logf(Logger::Info, "DB", "Schema migration: local time UTC offsets corrected");
 	return true;
 }
 
@@ -977,7 +974,7 @@ static void create_db_indexes(sqlite3* sql) {
 	};
 	for (const char* stmt_txt : index_stmts)
 		if (!exec_sql(sql, stmt_txt))
-			log_cf(1, "DB", "Failed to create index \"%s\": %s", stmt_txt, sqlite3_errmsg(sql));
+			Logger::logf(Logger::Warning, "DB", "Failed to create index \"%s\": %s", stmt_txt, sqlite3_errmsg(sql));
 }
 
 // Creates any missing table, adds columns missing from tables made by an
@@ -991,7 +988,7 @@ static bool create_schema(sqlite3* sql, const MigrationProgress& progress, const
 	for (const TableDef& table : database_tables()) {
 		const std::string stmt_txt = std::string("CREATE TABLE IF NOT EXISTS ") + table.name + " (" + table.fields + ");";
 		if (!exec_sql(sql, stmt_txt.c_str())) {
-			log_cf(0, "DB", "Failed to create table %s: %s", table.name, sqlite3_errmsg(sql));
+			Logger::logf(Logger::Fatal, "DB", "Failed to create table %s: %s", table.name, sqlite3_errmsg(sql));
 			ok = false;
 		}
 	}
@@ -1012,16 +1009,16 @@ static bool create_schema(sqlite3* sql, const MigrationProgress& progress, const
 
 bool migrate_db(const MigrationProgress& progress, const MigrationCancelled& cancelled) {
 	const std::string fn_db = db_file_path();
-	log_cf(3, "DB", "migrate_db: checking schema for %s", fn_db.c_str());
+	Logger::logf(Logger::Trace, "DB", "migrate_db: checking schema for %s", fn_db.c_str());
 	sqlite3* sql = nullptr;
 	if (sqlite3_open_v2(fn_db.c_str(), &sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
-		log_cf(0, "DB", "migrate_db: cannot open database %s: %s", fn_db.c_str(), sql ? sqlite3_errmsg(sql) : "unknown error");
+		Logger::logf(Logger::Fatal, "DB", "migrate_db: cannot open database %s: %s", fn_db.c_str(), sql ? sqlite3_errmsg(sql) : "unknown error");
 		if (sql) sqlite3_close(sql);
 		return false;
 	}
 	sqlite3_busy_timeout(sql, 5000);
 	const bool ok = create_schema(sql, progress, cancelled);
-	log_cf(3, "DB", "migrate_db: schema check complete");
+	Logger::logf(Logger::Trace, "DB", "migrate_db: schema check complete");
 	sqlite3_close(sql);
 	return ok;
 }
@@ -1029,9 +1026,9 @@ bool migrate_db(const MigrationProgress& progress, const MigrationCancelled& can
 void connect_db(struct STATUS* status) {
 	const std::string fn_db = db_file_path();
 	if (sqlite3_open_v2(fn_db.c_str(), &status->sql, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_SHAREDCACHE, NULL) == SQLITE_OK)
-		log_cf(2, "DB", "Opened database %s", fn_db.c_str());
+		Logger::logf(Logger::Info, "DB", "Opened database %s", fn_db.c_str());
 	else {
-		log_cf(0, "DB", "Cannot open database: %s", sqlite3_errmsg(status->sql));
+		Logger::logf(Logger::Fatal, "DB", "Cannot open database: %s", sqlite3_errmsg(status->sql));
 		exit(1);
 	}
 	// Without this, a lock held by connect_db_readwrite() (group/delete-trip
@@ -1047,10 +1044,10 @@ void connect_db(struct STATUS* status) {
 	// clears any stop() left over from a previous connection's shutdown, so
 	// the freshly-started thread's pop() loop doesn't exit immediately.
 	status->sample_write_queue.reset();
-	log_cf(3, "DB", "connect_db: schema ready; starting db_write_worker");
+	Logger::logf(Logger::Trace, "DB", "connect_db: schema ready; starting db_write_worker");
 	status->db_writer_thread = std::thread(db_write_worker, status);
 
 	status->event_write_queue.reset();
-	log_cf(3, "DB", "connect_db: schema ready; starting event_write_worker");
+	Logger::logf(Logger::Trace, "DB", "connect_db: schema ready; starting event_write_worker");
 	status->event_writer_thread = std::thread(event_write_worker, status);
 }

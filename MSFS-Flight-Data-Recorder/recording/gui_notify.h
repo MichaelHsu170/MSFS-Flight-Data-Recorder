@@ -2,18 +2,18 @@
 
 #include <cstddef>
 
-// Qt-free notification hooks called from recorder.cpp, flight_phase.cpp,
+// Notification hooks called from recorder.cpp, flight_phase.cpp,
 // airport_lookup.cpp and db.cpp at the points where they transition state.
-// Implemented in recorder_bridge.cpp, the only file that depends on both the
-// plain-C++ recording core and Qt.
+// Implemented in recorder_bridge.cpp, which turns them into RecorderBridge's
+// Qt signals.
 
 struct STATUS;
 
-// C-compatible log level. Integer values match Logger::Level in logger.h so
-// recorder_bridge.cpp can cast directly with no runtime conversion table.
-// Only the levels the recording core uses: its fatal paths run before there's
-// a STATUS to report through (they log with log_cf, logger_c.h), and it takes
-// no timing measurements.
+// The levels of the recording core's messages that can reach the Live Status
+// list. Integer values match Logger::Level in logger.h so recorder_bridge.cpp
+// can cast directly with no runtime conversion table. Only the levels the
+// recording core uses: its fatal paths run before there's a STATUS to report
+// through (they log with Logger::logf), and it takes no timing measurements.
 typedef enum GuiLogLevel {
 	GUI_LOG_WARNING = 1,
 	GUI_LOG_INFO    = 2,

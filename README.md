@@ -219,7 +219,6 @@ MSFS-Flight-Data-Recorder/
 │   ├── app/                      Application startup and shared services
 │   │   ├── main.cpp              Entry point: log file, Qt style, window setup
 │   │   ├── logger.h / .cpp       Unified logger: level-filtered (Fatal/Warning/Info/Trace/Profile), module-tagged output to msfs_fdr_debug.log
-│   │   ├── logger_c.h            C-compatible shim (log_c / log_cf) for Qt-free translation units (db.cpp)
 │   │   ├── app_paths.h / .cpp    Where settings.ini, flight_data.db and the log live (working dir in Debug, exe folder in Release)
 │   │   ├── app_settings.h / .cpp QSettings wrapper for settings.ini
 │   │   ├── version.h.in          Template for the generated version.h (APP_VERSION from CMakeLists.txt)

@@ -1,7 +1,5 @@
-// Logger (logger.cpp): log rotation, header, level filtering, line format,
-// and the C shim used by db.cpp.
+// Logger (logger.cpp): log rotation, header, level filtering, line format.
 #include "logger.h"
-#include "logger_c.h"
 
 #include <QFile>
 #include <QTemporaryDir>
@@ -65,21 +63,6 @@ private slots:
 		QVERIFY(logText().contains("[INFO ] [Long    ] " + QString(1023, 'y') + "\n"));
 	}
 
-	void cShimUsesTheSameLevels() {
-		log_c(1, "DB", "c warning");
-		log_cf(2, "DB", "c info %d", 7);
-		log_cf(3, "DB", "c trace");
-		const QString text = logText();
-		QVERIFY(text.contains("[WARN ] [DB      ] c warning\n"));
-		QVERIFY(text.contains("[INFO ] [DB      ] c info 7\n"));
-		QVERIFY(!text.contains("c trace"));
-	}
-
-	void cShimDropsLevelsBeyondProfile() {
-		log_cf(5, "DB", "beyond profile");
-		QVERIFY(!logText().contains("beyond profile"));
-	}
-
 	void crashLoggingWritesToo() {
 		Logger::logCrashf(Logger::Fatal, "Crash", "code %d", 5);
 		QVERIFY(logText().contains("[FATAL] [Crash   ] code 5\n"));
@@ -104,11 +87,6 @@ private slots:
 		QVERIFY(text.contains("still here"));
 		QVERIFY(text.contains("[TRACE] [Test    ] now traced\n"));
 		QVERIFY(text.contains("[PROF ] [Test    ] now profiled\n"));
-	}
-
-	void outOfRangeLevelFromTheCShimIsTaggedUnknown() {
-		log_c(-1, "DB", "odd level");
-		QVERIFY(logText().contains("[?    ] [DB      ] odd level\n"));
 	}
 
 	void levelNames_data() {
