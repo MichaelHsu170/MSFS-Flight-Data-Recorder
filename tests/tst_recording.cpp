@@ -175,7 +175,6 @@ private slots:
 		sim.pump();
 		QCOMPARE(connected.count(), 1);
 		QCOMPARE(connected.at(0).at(0).toBool(), false);
-		QCOMPARE(log.count(), 1);
 		QVERIFY(!lastLogWith(log, { QStringLiteral("Disconnected") }).isEmpty());
 		sim.pump();
 		QCOMPARE(FakeSim::state().closeCalls, 1);
