@@ -733,7 +733,7 @@ private slots:
 		QCOMPARE(t["departure_rwy"].toString(), QStringLiteral("16L"));
 	}
 
-	void clearingTheDestinationAirportKeepsItsName() {
+	void clearingTheDestinationAirportClearsItsName() {
 		Writer w;
 		const int id = db_insert_trip(w.status(), makeRecord());
 		db_set_trip_airport(w.status(), id, TRIP_END::DESTINATION, airport("KPDX", "K2", "Portland"), "28R");
@@ -742,7 +742,7 @@ private slots:
 		QVERIFY(t["destination_icao"].isNull());
 		QVERIFY(t["destination_rwy"].isNull());
 		QVERIFY(t["destination_region"].isNull());
-		QCOMPARE(t["destination_name"].toString(), QStringLiteral("Portland"));
+		QVERIFY(t["destination_name"].isNull());
 	}
 
 	void contactRowsStoreTheirFlightData() {

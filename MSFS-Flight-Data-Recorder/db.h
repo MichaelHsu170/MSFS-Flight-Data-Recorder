@@ -30,8 +30,8 @@ void db_set_trip_destination_position(STATUS* status, int trip_id, const COORDIN
 // The trip's departure or destination airport (ICAO, region, name) and
 // runway; runway nullptr stores NULL (airport found, no runway matched).
 void db_set_trip_airport(STATUS* status, int trip_id, TRIP_END end, const AIRPORT& airport, const char* runway);
-// No airport found for the destination: ICAO, runway and region become NULL
-// (the name is left as it was).
+// No airport found for the destination: ICAO, runway, region and name become
+// NULL, replacing an earlier touchdown's airport.
 void db_clear_trip_destination_airport(STATUS* status, int trip_id);
 // New trip_liftoffs/trip_touchdowns row for one liftoff or touchdown, with
 // NULL airport/runway until db_set_contact_airport(); returns its id.

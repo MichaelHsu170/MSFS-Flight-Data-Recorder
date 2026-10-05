@@ -349,7 +349,7 @@ void db_set_trip_airport(STATUS* status, int trip_id, TRIP_END end, const AIRPOR
 
 void db_clear_trip_destination_airport(STATUS* status, int trip_id) {
 	db_insert_update_table(status,
-		"UPDATE trips SET destination_icao=NULL,destination_rwy=NULL,destination_region=NULL WHERE id=?;",
+		"UPDATE trips SET destination_icao=NULL,destination_rwy=NULL,destination_region=NULL,destination_name=NULL WHERE id=?;",
 		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
 			db_bind(stmt, stmt_txt, 1, trip_id);
 		});
