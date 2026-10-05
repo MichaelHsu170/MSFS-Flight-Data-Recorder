@@ -59,9 +59,17 @@ public:
 	}
 
 	std::string format_date_time() const {
-		int hour = (int)time_day / 3600;
-		int minute = ((int)time_day - 3600 * hour) / 60;
-		double second = time_day - 3600 * hour - 60 * minute;
+		// Rounded to whole milliseconds before splitting, so a time a hair
+		// under the next second (59.9996) carries into it instead of printing
+		// as second 60. The date isn't carried: the day's last half
+		// millisecond stays on 23:59:59.999.
+		long long ms = std::llround(time_day * 1000);
+		if (ms > 86399999)
+			ms = 86399999;
+		const int hour = (int)(ms / 3600000);
+		const int minute = (int)(ms / 60000 % 60);
+		const int second = (int)(ms / 1000 % 60);
+		const int millisecond = (int)(ms % 1000);
 
 		// SimConnect's TIME ZONE OFFSET is UTC minus local time, so a zone
 		// east of Greenwich (UTC+2) has a negative offset; the ISO 8601
@@ -74,8 +82,8 @@ public:
 
 		char ret[32];
 		memset(ret, 0, sizeof(ret));
-		snprintf(ret, sizeof(ret), "%04.0f-%02.0f-%02.0fT%02d:%02d:%06.3f%c%02d:%02d_%1.0f",
-			year, month_of_year, day_of_month, hour, minute, second,
+		snprintf(ret, sizeof(ret), "%04.0f-%02.0f-%02.0fT%02d:%02d:%02d.%03d%c%02d:%02d_%1.0f",
+			year, month_of_year, day_of_month, hour, minute, second, millisecond,
 			sign, timezone_hour, timezone_minute, day_of_week);
 		return std::string(ret);
 	}

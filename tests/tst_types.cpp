@@ -118,6 +118,13 @@ private slots:
 		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T03:04:05.250+01:30_5"));
 		t.timezone_offset = 0;
 		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T03:04:05.250+00:00_5"));
+		// Under half a millisecond before the next minute, hour, or day.
+		t.time_day = 59 * 60 + 59.9996;
+		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T01:00:00.000+00:00_5"));
+		t.time_day = 3 * 3600 + 4 * 60 + 59.9996;
+		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T03:05:00.000+00:00_5"));
+		t.time_day = 86399.9996;
+		QCOMPARE(QString::fromStdString(t.format_date_time()), QStringLiteral("2026-01-02T23:59:59.999+00:00_5"));
 	}
 
 	void runwayCodes_data() {
