@@ -35,6 +35,24 @@ TripSamplePoint samplePoint(double base, const QString& zulu) {
 	return p;
 }
 
+// Sample `second`'s zulu time in a trip recorded from hour:00:00 on 2026-03-05.
+QString zuluAt(int hour, int second) {
+	return QStringLiteral("2026-03-05T%1:00:%2.000+00:00_4").arg(hour, 2, 10, QLatin1Char('0')).arg(second, 2, 10, QLatin1Char('0'));
+}
+
+// Where zuluAt() lands on the time axis: its zulu time read as local time.
+qint64 localMsAt(int hour, int second) {
+	return QDateTime(QDate(2026, 3, 5), QTime(hour, 0, second)).toMSecsSinceEpoch();
+}
+
+// count samples one second apart from hour:00:00, sample i with every value i.
+TripDataset tripAt(int hour, int count = 10) {
+	TripDataset dataset;
+	for (int i = 0; i < count; ++i)
+		dataset.points.push_back(samplePoint(i, zuluAt(hour, i)));
+	return dataset;
+}
+
 // The engine power chart's lines that are drawn, e.g. { "engSpeed1", "engLoad1" }.
 QStringList visibleEngineLines(QObject* root) {
 	QStringList names;
@@ -293,26 +311,20 @@ private slots:
 		ChartsPanel panel;
 		QQuickItem* root = shownRoot(panel);
 		QVERIFY(root);
-		const auto trip = [](int hour) {
-			TripDataset dataset;
-			for (int second = 0; second < 3; ++second)
-				dataset.points.push_back(samplePoint(second, QStringLiteral("2026-03-05T%1:00:0%2.000+00:00_4").arg(hour).arg(second)));
-			return dataset;
-		};
 		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
-		panel.setDataset(trip(10));
+		panel.setDataset(tripAt(10, 3));
 		QVERIFY(spy.wait(5000));
 
-		panel.setDataset(trip(11));
+		panel.setDataset(tripAt(11, 3));
 		panel.setCursorIndex(1);
 		QCOMPARE(root->property("cursorTime").toDouble(), -1.0); // not the first trip's sample 1
 		QVERIFY(spy.wait(5000));
-		QCOMPARE(root->property("cursorTime").toDouble(), (double)QDateTime(QDate(2026, 3, 5), QTime(11, 0, 1)).toMSecsSinceEpoch());
+		QCOMPARE(root->property("cursorTime").toDouble(), (double)localMsAt(11, 1));
 
 		// An index for a trip replaced before it loaded isn't applied to the next.
-		panel.setDataset(trip(12));
+		panel.setDataset(tripAt(12, 3));
 		panel.setCursorIndex(2);
-		panel.setDataset(trip(13));
+		panel.setDataset(tripAt(13, 3));
 		QVERIFY(spy.wait(5000));
 		QCOMPARE(root->property("cursorTime").toDouble(), -1.0);
 	}
@@ -446,28 +458,22 @@ private slots:
 		ChartsPanel panel;
 		QVERIFY(shownRoot(panel));
 
-		const auto at = [](int hour, int second) {
-			return QStringLiteral("2026-03-05T%1:00:%2.000+00:00_4").arg(hour).arg(second, 2, 10, QLatin1Char('0'));
-		};
 		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
-		TripDataset first;
-		for (int i = 0; i < 10; ++i)
-			first.points.push_back(samplePoint(i, at(16, i)));
-		panel.setDataset(first);
+		panel.setDataset(tripAt(16));
 		QVERIFY(spy.wait(5000));
 		panel.setVisibleRange(2, 5);
 
 		TripDataset second;
 		for (int i = 0; i < 10; ++i)
-			second.points.push_back(samplePoint(100 + i, at(17, i)));
+			second.points.push_back(samplePoint(100 + i, zuluAt(17, i)));
 		panel.setDataset(second);
 		QCOMPARE(spy.count(), 1);  // still loading
-		QCOMPARE(panel.valueAt(chartTimeMs(at(16, 4)))[QStringLiteral("alt")].toDouble(), 4.0);
+		QCOMPARE(panel.valueAt(chartTimeMs(zuluAt(16, 4)))[QStringLiteral("alt")].toDouble(), 4.0);
 		// Past the zoomed slice's 4 shown samples.
-		QCOMPARE(panel.valueAt(chartTimeMs(at(16, 8)))[QStringLiteral("alt")].toDouble(), 8.0);
+		QCOMPARE(panel.valueAt(chartTimeMs(zuluAt(16, 8)))[QStringLiteral("alt")].toDouble(), 8.0);
 
 		QVERIFY(spy.wait(5000));
-		QCOMPARE(panel.valueAt(chartTimeMs(at(17, 8)))[QStringLiteral("alt")].toDouble(), 108.0);
+		QCOMPARE(panel.valueAt(chartTimeMs(zuluAt(17, 8)))[QStringLiteral("alt")].toDouble(), 108.0);
 	}
 
 	void setVisibleRangeWithNoTripLeavesTheTimeAxisAlone() {
@@ -493,22 +499,17 @@ private slots:
 		QDateTimeAxis* timeAxis = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
 		QValueAxis* altAxis = root->findChild<QValueAxis*>(QStringLiteral("altYAxis"));
 		QVERIFY(timeAxis && altAxis);
-		// Where each sample lands on the time axis: its zulu time read as local time.
-		const auto localMs = [](int second) { return QDateTime(QDate(2026, 3, 5), QTime(18, 0, second)).toMSecsSinceEpoch(); };
 
-		TripDataset dataset;
-		for (int i = 0; i < 10; ++i)
-			dataset.points.push_back(samplePoint(i, QStringLiteral("2026-03-05T18:00:%1.000+00:00_4").arg(i, 2, 10, QLatin1Char('0'))));
 		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
-		panel.setDataset(dataset);
+		panel.setDataset(tripAt(18));
 		QVERIFY(spy.wait(5000));
 		const double fullAltMax = altAxis->max();
 
 		panel.setVisibleRange(2, 5);
 		QCOMPARE(pointsInLines(root), 4 * 25);
 		panel.setVisibleRange(-1, -1); // zoomed all the way out: the whole trip again
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMs(0));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMs(9));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(18, 0));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(18, 9));
 		QCOMPARE(pointsInLines(root), 10 * 25);
 		QCOMPARE(altAxis->max(), fullAltMax);
 		QVERIFY(root->property("isFullRangeVisible").toBool());
@@ -521,13 +522,9 @@ private slots:
 		QDateTimeAxis* timeAxis = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
 		QValueAxis* altAxis = root->findChild<QValueAxis*>(QStringLiteral("altYAxis"));
 		QVERIFY(timeAxis && altAxis);
-		const auto localMs = [](int second) { return QDateTime(QDate(2026, 3, 5), QTime(19, 0, second)).toMSecsSinceEpoch(); };
 
-		TripDataset dataset;
-		for (int i = 0; i < 10; ++i)
-			dataset.points.push_back(samplePoint(i, QStringLiteral("2026-03-05T19:00:%1.000+00:00_4").arg(i, 2, 10, QLatin1Char('0'))));
 		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
-		panel.setDataset(dataset);
+		panel.setDataset(tripAt(19));
 		QVERIFY(spy.wait(5000));
 		const double fullAltMax = altAxis->max();
 
@@ -537,8 +534,8 @@ private slots:
 		QVERIFY(line);
 		QSignalSpy replaced(line, &QXYSeries::pointsReplaced);
 		panel.setVisibleRange(2, 5);
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMs(2));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMs(5));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(19, 2));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(19, 5));
 		QCOMPARE(pointsInLines(root), 4 * 25);
 		QVERIFY(altAxis->max() < fullAltMax);
 		QVERIFY(!root->property("isFullRangeVisible").toBool());
@@ -549,8 +546,8 @@ private slots:
 
 		// A single-sample slice is widened by a second so the axis isn't empty.
 		panel.setVisibleRange(3, 3);
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMs(3));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMs(4));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(19, 3));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(19, 4));
 		QCOMPARE(pointsInLines(root), 25);
 	}
 
@@ -564,60 +561,47 @@ private slots:
 		QDateTimeAxis* timeAxis = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
 		QValueAxis* speedAxis = root->findChild<QValueAxis*>(QStringLiteral("engSpeedYAxis"));
 		QVERIFY(timeAxis && speedAxis);
-		const auto at = [](int hour, int second) {
-			return QStringLiteral("2026-03-05T%1:00:%2.000+00:00_4").arg(hour).arg(second, 2, 10, QLatin1Char('0'));
-		};
-		// Where at() lands on the time axis: its zulu time read as local time.
-		const auto localMs = [](int hour, int second) {
-			return QDateTime(QDate(2026, 3, 5), QTime(hour, 0, second)).toMSecsSinceEpoch();
-		};
-		const auto trip = [&at](int hour) {
-			TripDataset dataset;
-			for (int i = 0; i < 10; ++i)
-				dataset.points.push_back(samplePoint(i, at(hour, i)));
-			return dataset;
-		};
 
 		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
-		panel.setDataset(trip(20));
+		panel.setDataset(tripAt(20));
 		QVERIFY(spy.wait(5000));
 		panel.setVisibleRange(2, 5);
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMs(20, 2));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMs(20, 5));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(20, 2));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(20, 5));
 		QCOMPARE(speedAxis->max(), 110.0);  // the jet's fixed N1 axis
 
-		panel.setDataset(trip(21));
+		panel.setDataset(tripAt(21));
 		panel.setVisibleRange(-1, -1);
 		panel.setVisibleRange(3, 4);
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMs(20, 2));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMs(20, 5));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(20, 2));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(20, 5));
 		QCOMPARE(speedAxis->max(), 110.0);
 
 		QVERIFY(spy.wait(5000));
 		// The last range sent while loading.
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMs(21, 3));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMs(21, 4));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(21, 3));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(21, 4));
 
 		// A range for a trip replaced before it loaded isn't applied to the next.
-		panel.setDataset(trip(22));
+		panel.setDataset(tripAt(22));
 		panel.setVisibleRange(3, 4);
-		panel.setDataset(trip(23));
+		panel.setDataset(tripAt(23));
 		QVERIFY(spy.wait(5000));
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMs(23, 0));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMs(23, 9));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(23, 0));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(23, 9));
 
 		// The full range, sent while loading or after (Leaflet's second
 		// event), is what loads: not drawn again.
 		QLineSeries* line = root->findChildren<QLineSeries*>().value(0);
 		QVERIFY(line);
 		QSignalSpy replaced(line, &QXYSeries::pointsReplaced);
-		panel.setDataset(trip(19));
+		panel.setDataset(tripAt(19));
 		panel.setVisibleRange(-1, -1);
 		QVERIFY(spy.wait(5000));
 		panel.setVisibleRange(-1, -1);
 		QCOMPARE(replaced.count(), 1);
-		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMs(19, 0));
-		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMs(19, 9));
+		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), localMsAt(19, 0));
+		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), localMsAt(19, 9));
 	}
 };
 
