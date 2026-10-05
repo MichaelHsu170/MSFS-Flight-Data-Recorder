@@ -18,7 +18,6 @@
 #include <QPainter>
 #include <QStyleFactory>
 #include <QTableView>
-#include <QThread>
 #include <QtTest>
 
 #include <memory>
@@ -252,7 +251,6 @@ private slots:
 		sim.simEvent(EVENT_GEAR_UP, 1);
 		sim.setOnGround(false);
 		sim.tick();
-		QThread::msleep(600);
 		sim.tick();
 		sim.setOnGround(true);
 		sim.tick();

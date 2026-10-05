@@ -20,16 +20,31 @@
 #include <QLabel>
 #include <QPointer>
 #include <QRegularExpression>
+#include <QThreadPool>
 #include <QtTest>
+
+#include <memory>
 
 using namespace TestSupport;
 
 namespace {
 
+struct Unlock {
+	void operator()(sqlite3* lock) const {
+		exec(lock, "COMMIT;");
+		sqlite3_close(lock);
+	}
+};
+// Released by reset(), or when it goes out of scope (a test that fails
+// first); cleanup() then waits for the migration it held up, so a later test
+// never finds the database locked or still being migrated.
+using DatabaseLock = std::unique_ptr<sqlite3, Unlock>;
+
 // A legacy database with enough jet rows that copying them takes long enough
 // to see progress, held locked so the migration waits at its first read
-// until unlock(). Unlock within its 5 s busy timeout (migrate_db()).
-sqlite3* lockedLegacyDatabase() {
+// until the lock is released. Release it within the migration's 5 s busy
+// timeout (migrate_db()).
+DatabaseLock lockedLegacyDatabase() {
 	removeDatabase();
 	createLegacyTripData();
 	addLegacyJetRows(200000);
@@ -37,12 +52,7 @@ sqlite3* lockedLegacyDatabase() {
 	if (!lock)
 		qFatal("can't open the test database");
 	exec(lock, "BEGIN EXCLUSIVE;");
-	return lock;
-}
-
-void unlock(sqlite3* lock) {
-	exec(lock, "COMMIT;");
-	sqlite3_close(lock);
+	return DatabaseLock(lock);
 }
 
 // The migration's watcher, a direct child of the window until it finishes.
@@ -58,6 +68,13 @@ class TstMainWindow : public QObject {
 private slots:
 	void initTestCase() {
 		isolateFiles();
+	}
+
+	// The window doesn't wait for the migration's worker (QtConcurrent::run(),
+	// on the global pool), so one a failed test left running would still have
+	// the database open when the next test replaces it.
+	void cleanup() {
+		QThreadPool::globalInstance()->waitForDone();
 	}
 
 	void aQuickMigrationReplacesTheCheckingNoticeWithTripHistory() {
@@ -100,7 +117,7 @@ private slots:
 	}
 
 	void aSlowMigrationShowsItsProgressThenTheWindowFillsIn() {
-		sqlite3* lock = lockedLegacyDatabase();
+		DatabaseLock lock = lockedLegacyDatabase();
 		FakeSim::reset();
 		RecorderBridge bridge;
 		MainWindow window(bridge);
@@ -115,7 +132,7 @@ private slots:
 		QVERIFY(!window.findChild<TripHistoryPanel*>());
 		QCOMPARE(FakeSim::state().openCalls, 0);
 
-		unlock(lock);
+		lock.reset();
 		const QRegularExpression percent(QStringLiteral("^Updating the database for this version… \\d{1,3}%$"));
 		QVERIFY(waitFor([notice, &percent] { return notice && percent.match(notice->text()).hasMatch(); }, 10000));
 		QVERIFY(waitFor([&window] { return window.findChild<TripHistoryPanel*>() != nullptr; }, 10000));
@@ -142,7 +159,7 @@ private slots:
 	}
 
 	void closingTheWindowMidRebuildCancelsIt() {
-		sqlite3* lock = lockedLegacyDatabase();
+		DatabaseLock lock = lockedLegacyDatabase();
 		FakeSim::reset();
 		RecorderBridge bridge;
 		MainWindow window(bridge);
@@ -152,7 +169,7 @@ private slots:
 		// after the first batch.
 		QTest::qWait(500);
 		window.close();
-		unlock(lock);
+		lock.reset();
 		QVERIFY(waitFor([&window] { return migrationWatcher(window) == nullptr; }, 10000));
 		const QVariantMap row = queryRows("SELECT * FROM trip_data LIMIT 1").value(0);
 		QVERIFY(row.contains("engine_speed"));  // the migration did run
