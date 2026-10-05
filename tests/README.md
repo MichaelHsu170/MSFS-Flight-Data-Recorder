@@ -227,6 +227,12 @@ verification machine.
     guard removed and was dropped (the same guard on ENGINE TYPE is covered).
   - `LiveStatusPanel::eventFilter()`'s non-toggle branch: the filter is only
     installed on the toggle.
+  - `DataTablePanel::showPoint()`'s range checks: that each number field's
+    index is within the sample's `rawNums`, and that the GPS latitude and
+    longitude indices aren't negative. Every sample the app shows is loaded
+    by `queryTripData()`, which fills one value per number field, and both
+    GPS columns are always in that field list, so neither check can fail.
+    `tst_data_table_panel` passed with each one removed.
   - `MapWidget::resetZoom()`'s `pageReady_` guard: without it the call runs
     `resetZoom();` on a page still loading, where the function and its map
     don't exist yet, so the call does nothing either way.

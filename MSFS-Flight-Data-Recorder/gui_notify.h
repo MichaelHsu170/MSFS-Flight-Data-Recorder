@@ -55,7 +55,7 @@ void gui_notify_event_committed(struct STATUS* status, int tripId, unsigned long
 // write fails, to pull that one occurrence back out since it never actually
 // made it into trip_events. That second caller runs on the event-write worker
 // thread, and db_write_worker()'s gui_notify_recording_changed() and some
-// gui_log_printf() calls on the DB-write worker thread, not the thread
-// SimConnect dispatches on -- safe because each of these ends in a Qt signal
-// emit, which queues across threads.
+// gui_log_printf() calls run on the DB-write worker thread; none of them run
+// on the thread SimConnect dispatches on. That's safe because each one ends
+// in a Qt signal emit, which queues across threads.
 void gui_notify_events_retracted(struct STATUS* status, const unsigned long long* seqs, size_t count);
