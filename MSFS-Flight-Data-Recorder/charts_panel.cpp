@@ -93,8 +93,6 @@ void ChartsPanel::setYAxes(const ChartExtents& extents) {
 		cache_.altYAxis->setMax(niceAxisMax(extents.altMax));
 	if (cache_.fuelYAxis)
 		cache_.fuelYAxis->setMax(niceAxisMax(extents.fuelMax));
-	if (!extents.valid)
-		return;
 	setAxisRange(cache_.vsYAxis, niceSignedAxisRange(extents.vsMin, extents.vsMax));
 	setAxisRange(cache_.pitchYAxis, niceSignedAxisRange(extents.pitchMin, extents.pitchMax));
 	setAxisRange(cache_.bankYAxis, niceSignedAxisRange(extents.bankMin, extents.bankMax));

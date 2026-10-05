@@ -77,8 +77,8 @@ private:
 	// SyncedXAxis instances) so QML date-binding conversion never touches the values.
 	void setAllXAxisRange(const QDateTime& lo, const QDateTime& hi);
 	// Sizes the Y axes to extents (see niceAxisMax()/niceSignedAxisRange(),
-	// or engine_'s fixed axis max); the signed axes only once extents is
-	// valid.
+	// or engine_'s fixed axis max). extents is always of at least one sample:
+	// an empty trip never gets here.
 	void setYAxes(const ChartExtents& extents);
 	// Labels the engine power chart for engine (chartEngineSpec()): its
 	// series, axis titles and, for no recorded power, the no-data message.
