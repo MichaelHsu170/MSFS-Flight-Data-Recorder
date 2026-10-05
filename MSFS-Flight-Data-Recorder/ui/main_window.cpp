@@ -70,7 +70,7 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 	// Upgrading a large database after an app update can take a while (moving
 	// legacy columns rebuilds trip_data; correcting old local times rewrites
 	// every sample's once), so the window opens first and says
-	// what it waits for. migrate_db() reports progress only for that upgrade;
+	// what it waits for. migrate_db() reports progress only for the rebuild;
 	// a normal start's quick schema check just has the notice replaced by
 	// addTripHistory(). If it fails, the notice says so and stays: neither
 	// Trip History nor recording can work on that database, and starting the
@@ -113,8 +113,9 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 // exit: left running, a long rebuild would keep the process (and its
 // single-instance lock) alive with no window until it finished. Cancelling
 // rolls it back once the batch being copied (or the old table's drop)
-// finishes, to be redone on the next start; once it is committing or
-// recreating the indexes it can't be stopped, and the app still waits for it.
+// finishes, to be redone on the next start; once it is committing, recreating
+// the indexes or correcting old local times it can't be stopped, and the app
+// still waits for it.
 void MainWindow::closeEvent(QCloseEvent* event) {
 	if (migration_)
 		migration_->cancel();
