@@ -11,7 +11,8 @@ class QTableWidget;
 // field of TripSamplePoint (every trip_data column -- see rawNums/boolGroups
 // in trip_dataset.h -- plus one row per engine speed/load), showing the
 // sample at the map's cursor (dragged or clicked) once one has been set,
-// otherwise the trip's last point. Row labels
+// otherwise the trip's last point; fields of an engine past the aircraft's
+// engine count are left blank (tripFieldEngine()). Row labels
 // are fixed at construction time (same field list/order every point
 // produces, see trip_data_fields.h), so the table is built once and only the
 // value column is refreshed per point. A filter icon

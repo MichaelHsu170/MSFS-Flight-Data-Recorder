@@ -18,6 +18,8 @@
 #include <QVBoxLayout>
 #include <QVector>
 
+#include <cmath>
+
 namespace {
 
 // The two columns shown together in the "GPS Position" row, not in rows of
@@ -53,6 +55,24 @@ QStringList buildFieldRowLabels() {
 #undef TRIP_BOOL_FIELD
 
 	return labels;
+}
+
+// The index of column in TRIP_DATA_NUM_FIELDS' order (== TripSamplePoint::
+// rawNums index), from the X-macro itself so it stays right when fields are
+// added or reordered; -1 if it isn't one.
+int numFieldIndex(QLatin1String column) {
+	int idx = 0;
+#define TRIP_NUM_INDEX(dbColumn, memberExpr, sqlType) \
+	if (QLatin1String(#dbColumn) == column) return idx; \
+	++idx;
+	TRIP_DATA_NUM_FIELDS(TRIP_NUM_INDEX)
+#undef TRIP_NUM_INDEX
+	return -1;
+}
+
+// point's rawNums[index] (numFieldIndex()), or NaN if it has none.
+double rawNum(const TripSamplePoint& point, int index) {
+	return index >= 0 && index < (int)point.rawNums.size() ? point.rawNums[index] : std::nan("");
 }
 
 // Decimal degrees -> "lat lng" in DMS (COORDINATE::coordinate_decimal_to_dms()).
@@ -235,33 +255,26 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 	setValue(0, point.zuluTime);
 	setValue(1, point.localTime);
 	{
-		// Index of gps_position_lat/gps_position_lon within TRIP_DATA_NUM_FIELDS'
-		// ni-ordering (== point.rawNums[] index) -- computed once from the
-		// X-macro itself, rather than hardcoded, so the combined "GPS Position"
-		// row below can't silently point at the wrong two rawNums entries if
-		// fields are reordered/added above them in trip_data_fields.h.
-		static int gpsLatIdx = -1, gpsLonIdx = -1;
-		if (gpsLatIdx < 0) {
-			int idx = 0;
-#define TRIP_NUM_INDEX(dbColumn, memberExpr, sqlType) \
-			if (QLatin1String(#dbColumn) == QLatin1String("gps_position_lat")) gpsLatIdx = idx; \
-			else if (QLatin1String(#dbColumn) == QLatin1String("gps_position_lon")) gpsLonIdx = idx; \
-			++idx;
-			TRIP_DATA_NUM_FIELDS(TRIP_NUM_INDEX)
-#undef TRIP_NUM_INDEX
-		}
-		QString gpsPos;
-		if (gpsLatIdx >= 0 && gpsLonIdx >= 0
-				&& gpsLatIdx < (int)point.rawNums.size() && gpsLonIdx < (int)point.rawNums.size())
-			gpsPos = formatDMS(point.rawNums[gpsLatIdx], point.rawNums[gpsLonIdx]);
-		setValue(2, gpsPos);
+		static const int gpsLatIdx = numFieldIndex(QLatin1String("gps_position_lat"));
+		static const int gpsLonIdx = numFieldIndex(QLatin1String("gps_position_lon"));
+		static const int engineCountIdx = numFieldIndex(QLatin1String("number_of_engines"));
+		const double lat = rawNum(point, gpsLatIdx), lon = rawNum(point, gpsLonIdx);
+		setValue(2, std::isnan(lat) || std::isnan(lon) ? QString() : formatDMS(lat, lon));
+
+		// A field of an engine the aircraft doesn't have (tripFieldEngine())
+		// is left blank, like the engine speed/load rows past the engine
+		// count.
+		const double engineCount = rawNum(point, engineCountIdx);
+		const auto engineShown = [engineCount](const char* name) {
+			return tripFieldEngine(name) <= engineCount;
+		};
 
 		// The rows were built from the same macros (buildFieldRowLabels()), so
 		// row stays within the table.
 		int ni = 0, row = 3;
 #define TRIP_NUM_DISP(dbColumn, memberExpr, sqlType) \
 		if (!isGpsPositionColumn(QLatin1String(#dbColumn))) { \
-			setValue(row++, ni < (int)point.rawNums.size() \
+			setValue(row++, ni < (int)point.rawNums.size() && engineShown(#dbColumn) \
 				? QString::number(point.rawNums[ni], 'g', 6) : QString()); \
 		} \
 		++ni;
@@ -274,7 +287,8 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 				setValue(row++, formatEngineValue(quantity, *values, i, point.engine.count));
 		}
 #define TRIP_BOOL_DISP(name, group, bit) \
-		setValue(row++, TripBoolBit{ group, bit }.isSet(point.boolGroups) ? QStringLiteral("Yes") : QStringLiteral("No"));
+		setValue(row++, !engineShown(#name) ? QString() \
+			: TripBoolBit{ group, bit }.isSet(point.boolGroups) ? QStringLiteral("Yes") : QStringLiteral("No"));
 		TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_DISP)
 #undef TRIP_BOOL_DISP
 	}

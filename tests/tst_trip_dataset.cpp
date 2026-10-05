@@ -58,6 +58,18 @@ private slots:
 		QCOMPARE(tripFieldLabel("g_force"), QStringLiteral("G Force"));
 	}
 
+	void fieldEngines() {
+		QCOMPARE(tripFieldEngine("eng_oil_temperature_2"), 2);
+		QCOMPARE(tripFieldEngine("general_eng_starter_active_1"), 1);
+		QCOMPARE(tripFieldEngine("turb_eng_ignition_switch_ex1_2"), 2);
+		QCOMPARE(tripFieldEngine("bleed_air_engine_2"), 2);
+		QCOMPARE(tripFieldEngine("general_eng_master_alternator"), 0);
+		QCOMPARE(tripFieldEngine("hydraulic_pressure_2"), 0);
+		QCOMPARE(tripFieldEngine("gear_position_1"), 0);
+		QCOMPARE(tripFieldEngine("eng_"), 0);
+		QCOMPARE(tripFieldEngine("turb_eng_ignition_switch_ex1"), 0);
+	}
+
 	void fieldListsHaveNoDuplicates() {
 		QSet<QString> names;
 		int count = 0;

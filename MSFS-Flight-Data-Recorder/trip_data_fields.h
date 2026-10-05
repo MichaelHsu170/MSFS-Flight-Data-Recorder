@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <string_view>
 
 // Turns a trip_data column / FLIGHT_DATA_RECORD member name like
 // "plane_touchdown_latitude" into a display label like "Plane Touchdown
@@ -24,7 +25,7 @@ inline QString tripFieldLabel(const char* name) {
 // schema, INSERT and binds (db.cpp), db_history.cpp (fills
 // TripSamplePoint::rawNums from sqlite3_column_double), and
 // data_table_panel.cpp (formats rawNums/boolGroups to display strings in
-// showPoint).
+// showPoint, blanking other engines' fields by tripFieldEngine() below).
 //
 // TRIP_DATA_NUM_FIELDS(X): X(dbColumn, recordMemberExpr, sqlType) -- a plain
 // numeric trip_data column. recordMemberExpr is the FLIGHT_DATA_RECORD
@@ -272,6 +273,24 @@ inline QString tripFieldLabel(const char* name) {
 	X(warning_voltage, 3, 29) \
 	X(sim_on_ground, 3, 30) \
 	X(kohlsman_setting_std, 3, 31)
+
+// The engine (1-based) a field above belongs to, from its name: a per-engine
+// SimVar's field starts with "eng_", "general_eng_", "turb_eng_" or
+// "bleed_air_engine_" and ends in "_<engine>". 0 for every other field
+// (including those prefixes without an engine suffix, e.g.
+// general_eng_master_alternator). Such a field of an engine past the
+// aircraft's NUMBER OF ENGINES holds whatever SimConnect returns for a missing
+// engine (e.g. -273.15 for its temperatures), not data.
+constexpr int tripFieldEngine(std::string_view name) {
+	constexpr std::string_view prefixes[] = { "eng_", "general_eng_", "turb_eng_", "bleed_air_engine_" };
+	bool engineField = false;
+	for (std::string_view prefix : prefixes)
+		engineField = engineField || name.substr(0, prefix.size()) == prefix;
+	const size_t n = name.size(); // >= 4 once a prefix matched
+	if (!engineField || name[n - 2] != '_' || name[n - 1] < '1' || name[n - 1] > '9')
+		return 0;
+	return name[n - 1] - '0';
+}
 
 // The bool_group_<n> values for a FLIGHT_DATA_RECORD (indexed 1-3; [0] is
 // unused): each TRIP_DATA_BOOL_FIELDS member that is non-zero sets its bit.

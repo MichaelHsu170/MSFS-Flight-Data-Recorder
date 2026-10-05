@@ -148,6 +148,39 @@ private slots:
 		QCOMPARE(value(t, "Engine Load 1"), QString());
 	}
 
+	// SimConnect returns made-up values for an engine the aircraft doesn't
+	// have (-273.15 for its temperatures), so those fields stay blank.
+	void fieldsOfEnginesPastTheEngineCountAreBlank() {
+		DataTablePanel panel;
+		TripDataset d;
+		TripSamplePoint p = makePoint(0, "t");
+		p.rawNums[numIndex("number_of_engines")] = 1;
+		p.rawNums[numIndex("eng_exhaust_gas_temperature_1")] = 650;
+		p.rawNums[numIndex("eng_exhaust_gas_temperature_2")] = -273.15;
+		p.rawNums[numIndex("hydraulic_pressure_2")] = 3000;
+		p.boolGroups[2] |= (1u << 17) | (1u << 18); // eng_combustion_1, eng_combustion_2
+		d.points = { p };
+		panel.setDataset(&d);
+		QTableWidget* t = table(panel);
+		QCOMPARE(value(t, "Number Of Engines"), QStringLiteral("1"));
+		QCOMPARE(value(t, "Eng Exhaust Gas Temperature 1"), QStringLiteral("650"));
+		QCOMPARE(value(t, "Eng Combustion 1"), QStringLiteral("Yes"));
+		for (const char* label : { "Eng Exhaust Gas Temperature 2", "Eng Oil Temperature 2", "General Eng Elapsed Time 2",
+				"Turb Eng Vibration 2", "Turb Eng Ignition Switch Ex1 2", "Eng Combustion 2", "Bleed Air Engine 2",
+				"General Eng Generator Switch 2" })
+			QVERIFY2(value(t, label).isEmpty(), label);
+		// Not per-engine fields: shown whatever the engine count.
+		QCOMPARE(value(t, "Hydraulic Pressure 2"), QStringLiteral("3000"));
+		QCOMPARE(value(t, "General Eng Master Alternator"), QStringLiteral("No"));
+
+		// No engines (a glider): no engine's fields.
+		p.rawNums[numIndex("number_of_engines")] = 0;
+		d.points = { p };
+		panel.setDataset(&d);
+		QCOMPARE(value(t, "Eng Exhaust Gas Temperature 1"), QString());
+		QCOMPARE(value(t, "Eng Combustion 1"), QString());
+	}
+
 	void dmsCarriesInsteadOfShowingSixtySeconds() {
 		DataTablePanel panel;
 		TripDataset d;
