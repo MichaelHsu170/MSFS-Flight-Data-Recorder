@@ -92,6 +92,8 @@ struct ChartExtents {
 // Every series' points: X = chartTimeMs(), Y = the value. Indexed by
 // ChartSeriesId; every list has one point per sample.
 using ChartSeriesLists = std::array<QList<QPointF>, CHART_SERIES_COUNT>;
+// Sample index's values, read back from series.
+ChartValues chartValuesAt(const ChartSeriesLists& series, int index);
 // Extents of samples lo..hi of series.
 ChartExtents chartExtents(const ChartSeriesLists& series, int lo, int hi);
 

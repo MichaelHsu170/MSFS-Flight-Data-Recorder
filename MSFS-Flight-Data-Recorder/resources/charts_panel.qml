@@ -87,13 +87,11 @@ Item {
         titleVisible: root.hasData
     }
 
-    DateTimeAxis {
+    SyncedXAxis {
         id: driverXAxis
         objectName: "sharedXAxis"
         min: new Date(2020, 0, 1, 0, 0, 0)
         max: new Date(2020, 0, 1, 0, 0, 1)
-        labelFormat: "yyyy-MM-dd\nHH:mm:ss.zzz"
-        titleVisible: false
     }
 
     component SyncedXAxis: DateTimeAxis {

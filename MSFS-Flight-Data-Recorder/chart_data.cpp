@@ -153,14 +153,17 @@ void ChartExtents::add(const ChartValues& v) {
 	}
 }
 
+ChartValues chartValuesAt(const ChartSeriesLists& series, int index) {
+	ChartValues v{};
+	for (int s = 0; s < CHART_SERIES_COUNT; ++s)
+		v[s] = series[s][index].y();
+	return v;
+}
+
 ChartExtents chartExtents(const ChartSeriesLists& series, int lo, int hi) {
 	ChartExtents extents;
-	for (int i = lo; i <= hi; ++i) {
-		ChartValues v{};
-		for (int s = 0; s < CHART_SERIES_COUNT; ++s)
-			v[s] = series[s][i].y();
-		extents.add(v);
-	}
+	for (int i = lo; i <= hi; ++i)
+		extents.add(chartValuesAt(series, i));
 	return extents;
 }
 

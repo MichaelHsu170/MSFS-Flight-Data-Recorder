@@ -258,6 +258,14 @@ private slots:
 		QCOMPARE(e.bankMin, 20.0 + CHART_BANK);
 	}
 
+	void valuesAtReadsBackOneSample() {
+		const ChartSeriesData data = buildChartSeries({
+			sample(zulu(9, 0, 0), 0), sample(zulu(9, 0, 1), 1), sample(zulu(9, 0, 2), 2) });
+		const ChartValues v = chartValuesAt(data.series, 1);
+		for (int s = 0; s < CHART_SERIES_COUNT; ++s)
+			QCOMPARE(v[s], 10.0 + s);
+	}
+
 	void decimateSeriesKeepsFirstAndLast() {
 		QList<QPointF> full;
 		for (int i = 0; i < 10; ++i)

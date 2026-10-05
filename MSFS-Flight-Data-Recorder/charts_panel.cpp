@@ -307,8 +307,5 @@ QVariantMap ChartsPanel::valueAt(double timeMs) const {
 		return {};
 
 	const int idx = nearestSampleIndex(pointTimesMs_, timeMs);
-	ChartValues values{};
-	for (int s = 0; s < CHART_SERIES_COUNT; ++s)
-		values[s] = full_[s][idx].y();
-	return chartValueMap(pointTimesMs_[idx], values);
+	return chartValueMap(pointTimesMs_[idx], chartValuesAt(full_, idx));
 }
