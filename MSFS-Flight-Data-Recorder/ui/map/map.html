@@ -392,14 +392,23 @@ async function analyzeTouchdown(id) {
     }, 'Analyze Landing');
 }
 
-async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
-    var btn     = document.getElementById('td-btn-'    + id);
-    var spinner = document.getElementById('td-spin-'   + id);
-    var result  = document.getElementById('td-result-' + id);
-    if (!btn || !t) return;
+// Shows point id's analysis as running (button disabled, spinner) or not, in
+// its popup as it is now: Leaflet rebuilds a popup's DOM each time it opens.
+function showAnalysisRunning(id, running) {
+    var btn     = document.getElementById('td-btn-'  + id);
+    var spinner = document.getElementById('td-spin-' + id);
+    if (btn) btn.disabled = running;
+    if (spinner) spinner.style.display = running ? 'inline-block' : 'none';
+}
 
-    btn.disabled = true;
-    spinner.style.display = 'inline-block';
+async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
+    var result  = document.getElementById('td-result-' + id);
+    // t.analyzing: already running for this point, from a popup since closed
+    // and reopened.
+    if (!result || !t || t.analyzing) return;
+
+    t.analyzing = true;
+    showAnalysisRunning(id, true);
 
     var key = window._geminiApiKey || '';
     var MAX_ATTEMPTS = 3;
@@ -468,10 +477,8 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
         finishReason = reason;
     }
 
-    var fatalError = false;
     for (var attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         initAttempt();
-        fatalError = false;
 
         try {
             var res = await fetch(
@@ -509,7 +516,6 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
                     + (apiMsg ? ': ' + escapeHtml(apiMsg) : '')
                     + '</i>' + guidance;
                 console.error('Gemini API error:', res.status, errBody);
-                fatalError = true;
                 break;
             }
             var reader = res.body.getReader();
@@ -528,7 +534,6 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
             if (attempt === MAX_ATTEMPTS - 1) {
                 finalDiv.innerHTML = '<span style="color:#64748b">Couldn\'t reach the AI service after '
                     + MAX_ATTEMPTS + ' attempts. Check your internet connection and try again.</span>';
-                fatalError = true;
             }
             continue;
         }
@@ -558,9 +563,13 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
         }
     }
 
-    btn.disabled = false;
-    spinner.style.display = 'none';
+    t.analyzing = false;
+    showAnalysisRunning(id, false);
     result.scrollTop = 0;
+    // Reopened while running: the answer streamed into the old popup's DOM.
+    var liveResult = document.getElementById('td-result-' + id);
+    if (liveResult && liveResult !== result && t.analysisReport)
+        renderStoredReport(id, t.analysisReport);
 }
 
 // ── Popup builders ───────────────────────────────────────────────────────────
@@ -1066,6 +1075,7 @@ function initLeafletProvider() {
             m.on('popupopen', function () {
                 var stored = currentStore()[popup.id];
                 if (stored && stored.analysisReport) renderStoredReport(popup.id, stored.analysisReport);
+                if (stored && stored.analyzing) showAnalysisRunning(popup.id, true);
             });
             return m;
         });

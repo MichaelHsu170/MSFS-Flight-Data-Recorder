@@ -708,6 +708,69 @@ private slots:
 		QVERIFY2(text.contains(QStringLiteral("Couldn't save this analysis")), qPrintable(text));
 	}
 
+	// Closing and reopening a popup while its analysis runs rebuilds the
+	// popup: the new Analyze button shows the run still going, a second run
+	// isn't started, and the answer shows in the reopened popup when it's in.
+	void reopeningAPopupMidAnalysisDoesNotRunItTwice() {
+		evalPageJs(widget_, QStringLiteral("window._geminiApiKey = 'test-key'")); // the popups are built with it
+		TripDataset dataset = tripToSave();
+		dataset.liftoffPoints[0].rowId = 5;
+		loadTrip(dataset);
+		evalPageJs(widget_, QStringLiteral(R"JS(
+			window._geminiApiKey = '';
+			var id = Object.keys(_liftoffStore)[0];
+			var marker = null;
+			leafletMapInstance.eachLayer(function (l) {
+			    if (l.getPopup && l.getPopup() && String(l.getPopup().getContent()).indexOf('td-btn-' + id + '\x22') >= 0) marker = l;
+			});
+			var realFetch = window.fetch, realSave = mapBridge.saveLiftoffAnalysisReport;
+			var ai = window._dup = { id: id, marker: marker, calls: 0, saves: 0, release: null };
+			window.fetch = function () {
+			    ai.calls++;
+			    return new Promise(function (resolve) { ai.release = resolve; });
+			};
+			mapBridge.saveLiftoffAnalysisReport = function (rowId, report, onSaved) { ai.saves++; onSaved(true); };
+			ai.restore = function () { window.fetch = realFetch; mapBridge.saveLiftoffAnalysisReport = realSave; };
+			marker.openPopup();
+			ai.firstButton = document.getElementById('td-btn-' + id);
+			ai.firstButton.click();
+		)JS"));
+		QCOMPARE(evalPageJs(widget_, QStringLiteral("window._dup.calls")).toInt(), 1);
+
+		const QString reopened = evalPageJs(widget_, QStringLiteral(R"JS(
+			var ai = window._dup;
+			ai.marker.closePopup();
+			ai.marker.openPopup();
+			var btn = document.getElementById('td-btn-' + ai.id);
+			analyzeLiftoff(ai.id); // what clicking it would do were it enabled
+			[btn !== ai.firstButton, btn.disabled, document.getElementById('td-spin-' + ai.id).style.display, ai.calls].join('|')
+		)JS")).toString();
+		QCOMPARE(reopened, QStringLiteral("true|true|inline-block|1"));
+
+		evalPageJs(widget_, QStringLiteral(R"JS(
+			var stream = %1, ai = window._dup;
+			ai.release({ ok: true, status: 200, body: { getReader: function () {
+			    var sent = false;
+			    return { read: function () {
+			        if (sent) return Promise.resolve({ done: true });
+			        sent = true;
+			        return Promise.resolve({ done: false, value: new TextEncoder().encode(stream) });
+			    } };
+			} } });
+		)JS").arg(QString::fromUtf8(QJsonDocument(QJsonArray{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) })
+			.toJson(QJsonDocument::Compact)).chopped(1).mid(1)));
+		QTRY_VERIFY(!evalPageJs(widget_, QStringLiteral("_liftoffStore[window._dup.id].analyzing")).toBool());
+		const QString done = evalPageJs(widget_, QStringLiteral(R"JS(
+			var ai = window._dup;
+			ai.restore();
+			var shown = [ai.calls, ai.saves, document.getElementById('td-btn-' + ai.id).disabled,
+			             document.getElementById('td-result-' + ai.id).textContent].join('|');
+			ai.marker.closePopup();
+			shown
+		)JS")).toString();
+		QCOMPARE(done, QStringLiteral("1|1|false|Grade: A"));
+	}
+
 	// A server error or rate limit is often gone a moment later: the request
 	// is retried, and the answer that follows is saved.
 	void aServerErrorOrRateLimitIsRetried_data() {
