@@ -13,8 +13,7 @@ void showKmlExportFailed(QWidget* parent, const QString& fileName, const QString
 		QStringLiteral("Failed to export KML to %1.\n%2").arg(fileName, reason));
 }
 
-void exportTripToKml(QWidget* parent, const QString& baseName, int tripId,
-	const QString& aircraftTitle, const QString& departureZuluTime) {
+void exportTripToKml(QWidget* parent, const QString& baseName, int tripId) {
 	const QString fileName = QFileDialog::getSaveFileName(parent, QStringLiteral("Export to KML"),
 		baseName + QStringLiteral(".kml"), QStringLiteral("KML File (*.kml)"));
 	if (fileName.isEmpty())
@@ -27,11 +26,12 @@ void exportTripToKml(QWidget* parent, const QString& baseName, int tripId,
 		if (!error.isEmpty())
 			showKmlExportFailed(parent, fileName, error);
 	});
-	watcher->setFuture(QtConcurrent::run([tripId, aircraftTitle, departureZuluTime, fileName]() -> QString {
+	watcher->setFuture(QtConcurrent::run([tripId, fileName]() -> QString {
 		DbConnection sql = openForReading(QStringLiteral("export trip %1 to KML").arg(tripId));
 		if (!sql)
 			return QStringLiteral("Could not open the trip database.");
-		TripDataset dataset = tripSamples(sql.get(), tripId, aircraftTitle, departureZuluTime);
+		// The KML has no use for the aircraft title or departure time.
+		TripDataset dataset = tripSamples(sql.get(), tripId, QString(), QString());
 		// None recorded, or the read failed: there's no track to export.
 		if (dataset.points.empty())
 			return QStringLiteral("No recorded samples of this trip could be read.");

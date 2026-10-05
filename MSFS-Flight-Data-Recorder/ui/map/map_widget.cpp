@@ -295,7 +295,7 @@ void MapWidget::exportKml() {
 	// The menu only offers this with a trip loaded, but it's a non-modal
 	// popup: the map can switch to the overview while it's still open.
 	if (!dataset_) return;
-	exportTripToKml(this, defaultBaseFileName(), dataset_->tripId, dataset_->aircraftTitle, dataset_->departureZuluTime);
+	exportTripToKml(this, defaultBaseFileName(), dataset_->tripId);
 }
 
 void MapWidget::onLoadFinished(bool ok) {

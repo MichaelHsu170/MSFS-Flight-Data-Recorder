@@ -874,7 +874,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		const TripSummary& trip = *rightClickedTrip;
 		exportTripToKml(this,
 			appendDepartureTimestamp(airportPairName(trip.departureIcao, trip.destinationIcao, QStringLiteral("trip")), trip.departureZuluTime),
-			trip.id, trip.title, trip.departureZuluTime);
+			trip.id);
 	} else if (chosen == deleteAction) {
 		const TripSummary& trip = *rightClickedTrip;
 		const int deleteId = trip.id;
