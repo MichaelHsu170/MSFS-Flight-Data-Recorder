@@ -22,19 +22,19 @@ function(fdr_add_test_common name)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SQLITE3_DIR}/sqlite3.dll" "$<TARGET_FILE_DIR:${name}>")
     endif()
     add_test(NAME ${name} COMMAND ${name} WORKING_DIRECTORY "${FDR_TEST_OUTPUT_DIR}")
-endfunction()
-
-function(fdr_add_test name)
-    fdr_add_test_common(${name})
-    # offscreen: widget tests need no visible desktop. The PATH prepend lets
-    # the executables find Qt's DLLs without running windeployqt on them.
-    # RESOURCE_LOCK: in Release builds every test uses the same
-    # flight_data.db/settings.ini next to the executables, so none may run in
-    # parallel with another (ctest -j).
+    # The PATH prepend lets the executables find Qt's DLLs without running
+    # windeployqt on them. RESOURCE_LOCK: in Release builds every test uses
+    # the same flight_data.db/settings.ini next to the executables, so none
+    # may run in parallel with another (ctest -j).
     set_tests_properties(${name} PROPERTIES
         RESOURCE_LOCK fdr_data_files
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>")
+endfunction()
+
+# offscreen: widget tests need no visible desktop.
+function(fdr_add_test name)
+    fdr_add_test_common(${name})
+    set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endfunction()
 
 # QWebEngineView (map_widget.cpp) can't load under QT_QPA_PLATFORM=offscreen --
@@ -44,9 +44,6 @@ endfunction()
 # platform plugin.
 function(fdr_add_webengine_test name)
     fdr_add_test_common(${name})
-    set_tests_properties(${name} PROPERTIES
-        RESOURCE_LOCK fdr_data_files
-        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt${QT_VERSION_MAJOR}::Core>")
 endfunction()
 
 fdr_add_test(tst_types)

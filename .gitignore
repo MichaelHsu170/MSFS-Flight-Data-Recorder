@@ -58,7 +58,6 @@ cmake_install.cmake
 # SQLite database files
 *.db
 *.sqlite
-flight_data.db
 
 # Logs
 *.log

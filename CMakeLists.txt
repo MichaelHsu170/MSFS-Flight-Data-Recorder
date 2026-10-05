@@ -9,7 +9,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_AUTOMOC ON)
-set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 # Qt (MSVC kit). Compiler/linker is still cl.exe/link.exe from VS Build Tools —
@@ -206,14 +205,14 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 #   Qt6Lottie / Qt6LottieVectorImageGenerator  — Lottie animation engine
 #   Qt6Pdf                                     — PDF rendering
 #   Qt6SerialPort                              — serial port (SimConnect uses SDK)
-# Note: Qt6Positioning and Qt6PrintSupport are kept — Qt6WebEngineCore.dll loads
-# them at startup as hard runtime dependencies even though the app never calls
-# their C++ APIs directly.
 #   Qt6VirtualKeyboard                         — touch-screen virtual keyboard
 #   Qt6QuickVectorImageGenerator               — SVG/Lottie vector rendering
 #   QuickControls2 extra styles                — only Windows (default) + Basic
 #                                                (fallback) are needed; the rest
 #                                                are selectable themes we don't use
+# Note: Qt6Positioning and Qt6PrintSupport are kept — Qt6WebEngineCore.dll loads
+# them at startup as hard runtime dependencies even though the app never calls
+# their C++ APIs directly.
 #
 # Plugin subdirectories:
 #   position/             — Qt Positioning runtime plugins
