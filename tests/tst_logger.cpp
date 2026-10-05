@@ -59,6 +59,12 @@ private slots:
 		QVERIFY(!text.contains("profile line"));
 	}
 
+	void formattedMessagesAreCutTo1023Bytes() {
+		const std::string longText(2000, 'y');
+		Logger::logf(Logger::Info, "Long", "%s", longText.c_str());
+		QVERIFY(logText().contains("[INFO ] [Long    ] " + QString(1023, 'y') + "\n"));
+	}
+
 	void cShimUsesTheSameLevels() {
 		log_c(1, "DB", "c warning");
 		log_cf(2, "DB", "c info %d", 7);

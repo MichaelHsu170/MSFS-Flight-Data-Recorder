@@ -2,6 +2,9 @@
 
 #include <QString>
 
+#include <cstdarg>
+#include <string>
+
 // Unified application logger. All log output goes to msfs_fdr_debug.log.
 // The verbose level configured in settings.ini controls which messages
 // are written; messages above the configured level are silently dropped.
@@ -37,6 +40,10 @@ Level levelFromString(const QString& s);
 // Write one log line if level <= the configured maximum.
 // module is printed as a left-justified 8-char column, e.g. "Charts  ".
 void log(Level level, const char* module, const QString& msg);
+
+// printf-style formatting of args, cut to 1023 bytes. The one formatter behind
+// logf(), logCrashf() and the recording core's own printf-style helpers.
+std::string vformat(const char* fmt, va_list args);
 
 // printf-style convenience wrapper around log().
 void logf(Level level, const char* module, const char* fmt, ...);

@@ -1,8 +1,8 @@
 #include "runway_match.h"
+#include "logger.h"
 
 #include <cmath>
 #include <cstdarg>
-#include <cstdio>
 #include <string>
 
 namespace {
@@ -16,12 +16,11 @@ const double RUNWAY_MARGIN_LENGTH_M = 200; // past each end
 const double RUNWAY_MARGIN_WIDTH_M = 60;   // past each edge
 
 void tracef(const std::function<void(const char*)>& trace, const char* fmt, ...) {
-	char buf[512];
 	va_list args;
 	va_start(args, fmt);
-	vsnprintf(buf, sizeof(buf), fmt, args);
+	const std::string line = Logger::vformat(fmt, args);
 	va_end(args);
-	trace(buf);
+	trace(line.c_str());
 }
 
 // Single-corner-referenced polar footprint check shared by the margin and

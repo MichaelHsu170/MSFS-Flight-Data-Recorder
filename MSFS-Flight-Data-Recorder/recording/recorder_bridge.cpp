@@ -187,12 +187,11 @@ void gui_notify_log(struct STATUS* status, GuiLogLevel level, const char* text) 
 }
 
 void gui_log_printf(struct STATUS* status, GuiLogLevel level, const char* fmt, ...) {
-	char buf[512];
 	va_list args;
 	va_start(args, fmt);
-	vsnprintf(buf, sizeof(buf), fmt, args);
+	const std::string text = Logger::vformat(fmt, args);
 	va_end(args);
-	gui_notify_log(status, level, buf);
+	gui_notify_log(status, level, text.c_str());
 }
 
 void gui_notify_connection_changed(struct STATUS* status, bool connected) {

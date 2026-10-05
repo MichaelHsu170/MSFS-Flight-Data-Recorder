@@ -32,50 +32,48 @@ QMutex              g_mutex;
 std::atomic<int>    g_maxLevel{static_cast<int>(Logger::Info)};
 
 const char* levelTag(Logger::Level level) {
-    switch (level) {
-    case Logger::Fatal:   return "FATAL";
-    case Logger::Warning: return "WARN ";
-    case Logger::Info:    return "INFO ";
-    case Logger::Trace:   return "TRACE";
-    case Logger::Profile: return "PROF ";
-    }
-    return "?    ";
+	switch (level) {
+	case Logger::Fatal:   return "FATAL";
+	case Logger::Warning: return "WARN ";
+	case Logger::Info:    return "INFO ";
+	case Logger::Trace:   return "TRACE";
+	case Logger::Profile: return "PROF ";
+	}
+	return "?    ";
 }
 
 void writeLine(const QString& line) {
-    HANDLE h = g_fileHandle.load(std::memory_order_acquire);
-    if (h == INVALID_HANDLE_VALUE)
-        return;
-    QByteArray utf8 = line.toUtf8();
-    DWORD written = 0;
-    if (!WriteFile(h, utf8.constData(), static_cast<DWORD>(utf8.size()), &written, nullptr)) {
-        // The log file itself is the usual place failures get reported, so a
-        // WriteFile failure here has nowhere else to go -- surface it to a
-        // debugger (if attached) rather than dropping it silently.
-        OutputDebugStringA("Logger::writeLine: WriteFile failed\n");
-    }
+	HANDLE h = g_fileHandle.load(std::memory_order_acquire);
+	if (h == INVALID_HANDLE_VALUE)
+		return;
+	QByteArray utf8 = line.toUtf8();
+	DWORD written = 0;
+	if (!WriteFile(h, utf8.constData(), static_cast<DWORD>(utf8.size()), &written, nullptr)) {
+		// The log file itself is the usual place failures get reported, so a
+		// WriteFile failure here has nowhere else to go -- surface it to a
+		// debugger (if attached) rather than dropping it silently.
+		OutputDebugStringA("Logger::writeLine: WriteFile failed\n");
+	}
 }
 
 // The log-file line for msg, or a null QString when level is filtered out or
 // no log file is open.
 QString formatLine(Logger::Level level, const char* module, const QString& msg) {
-    if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
-        return QString();
-    if (g_fileHandle.load(std::memory_order_acquire) == INVALID_HANDLE_VALUE)
-        return QString();
-    return QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
-        + QStringLiteral(" [") + QLatin1String(levelTag(level)) + QStringLiteral("] [")
-        + QString::fromUtf8(module).leftJustified(8) + QStringLiteral("] ") + msg + QStringLiteral("\n");
+	if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
+		return QString();
+	if (g_fileHandle.load(std::memory_order_acquire) == INVALID_HANDLE_VALUE)
+		return QString();
+	return QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"))
+		+ QStringLiteral(" [") + QLatin1String(levelTag(level)) + QStringLiteral("] [")
+		+ QString::fromUtf8(module).leftJustified(8) + QStringLiteral("] ") + msg + QStringLiteral("\n");
 }
 
-// printf-style formatting, cut to 1023 bytes, read as UTF-8; skipped (a null
-// QString) when level is filtered out, since the message would be dropped.
+// Logger::vformat() read as UTF-8; skipped (a null QString) when level is
+// filtered out, since the message would be dropped.
 QString formatArgs(Logger::Level level, const char* fmt, va_list args) {
-    if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
-        return QString();
-    char buf[1024];
-    vsnprintf(buf, sizeof(buf), fmt, args);
-    return QString::fromUtf8(buf);
+	if (static_cast<int>(level) > g_maxLevel.load(std::memory_order_relaxed))
+		return QString();
+	return QString::fromStdString(Logger::vformat(fmt, args));
 }
 
 }
@@ -83,90 +81,96 @@ QString formatArgs(Logger::Level level, const char* fmt, va_list args) {
 namespace Logger {
 
 void init(Level maxLevel, const QString& filePath, const QString& appVersion) {
-    g_maxLevel.store(static_cast<int>(maxLevel));
-    QMutexLocker lock(&g_mutex);
-    if (g_fileHandle.load(std::memory_order_relaxed) != INVALID_HANDLE_VALUE)
-        return;
-    // Preserve the previous run's log instead of truncating it, so a crash
-    // followed by a manual relaunch doesn't erase the only record of it.
-    const QString oldPath = filePath + QStringLiteral(".old");
-    QFile::remove(oldPath);
-    QFile::rename(filePath, oldPath);
-    // OPEN_ALWAYS, not CREATE_ALWAYS: CREATE_ALWAYS truncates an existing file,
-    // which per CreateFile's documented access-right requirements needs
-    // GENERIC_WRITE/FILE_WRITE_DATA -- access this handle deliberately doesn't
-    // request (see the FILE_APPEND_DATA-only rationale above). If the rename
-    // above fails (e.g. .old locked by an AV scanner or a second app instance)
-    // filePath still exists, and CREATE_ALWAYS against it would fail with
-    // ERROR_ACCESS_DENIED, leaving logging silently disabled for the whole
-    // session. OPEN_ALWAYS has no such requirement: it creates the file if
-    // absent (the normal case, after a successful rename) or just opens it
-    // without truncating if present, so a failed rotate degrades to appending
-    // after the old content instead of losing all logging.
-    HANDLE h = CreateFileW(
-        reinterpret_cast<const wchar_t*>(filePath.utf16()),
-        FILE_APPEND_DATA,
-        FILE_SHARE_READ,
-        nullptr,
-        OPEN_ALWAYS,
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr);
-    if (h == INVALID_HANDLE_VALUE)
-        return;
-    g_fileHandle.store(h, std::memory_order_release);
-    QString header = QStringLiteral("==== MSFS Flight Data Recorder")
-        + (appVersion.isEmpty() ? QString() : QStringLiteral(" v%1").arg(appVersion))
-        + QStringLiteral(" started (PID %1) at %2 ====\n")
-              .arg(GetCurrentProcessId())
-              .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")));
-    writeLine(header);
+	g_maxLevel.store(static_cast<int>(maxLevel));
+	QMutexLocker lock(&g_mutex);
+	if (g_fileHandle.load(std::memory_order_relaxed) != INVALID_HANDLE_VALUE)
+		return;
+	// Preserve the previous run's log instead of truncating it, so a crash
+	// followed by a manual relaunch doesn't erase the only record of it.
+	const QString oldPath = filePath + QStringLiteral(".old");
+	QFile::remove(oldPath);
+	QFile::rename(filePath, oldPath);
+	// OPEN_ALWAYS, not CREATE_ALWAYS: CREATE_ALWAYS truncates an existing file,
+	// which per CreateFile's documented access-right requirements needs
+	// GENERIC_WRITE/FILE_WRITE_DATA -- access this handle deliberately doesn't
+	// request (see the FILE_APPEND_DATA-only rationale above). If the rename
+	// above fails (e.g. .old locked by an AV scanner or a second app instance)
+	// filePath still exists, and CREATE_ALWAYS against it would fail with
+	// ERROR_ACCESS_DENIED, leaving logging silently disabled for the whole
+	// session. OPEN_ALWAYS has no such requirement: it creates the file if
+	// absent (the normal case, after a successful rename) or just opens it
+	// without truncating if present, so a failed rotate degrades to appending
+	// after the old content instead of losing all logging.
+	HANDLE h = CreateFileW(
+		reinterpret_cast<const wchar_t*>(filePath.utf16()),
+		FILE_APPEND_DATA,
+		FILE_SHARE_READ,
+		nullptr,
+		OPEN_ALWAYS,
+		FILE_ATTRIBUTE_NORMAL,
+		nullptr);
+	if (h == INVALID_HANDLE_VALUE)
+		return;
+	g_fileHandle.store(h, std::memory_order_release);
+	QString header = QStringLiteral("==== MSFS Flight Data Recorder")
+		+ (appVersion.isEmpty() ? QString() : QStringLiteral(" v%1").arg(appVersion))
+		+ QStringLiteral(" started (PID %1) at %2 ====\n")
+			.arg(GetCurrentProcessId())
+			.arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")));
+	writeLine(header);
+}
+
+std::string vformat(const char* fmt, va_list args) {
+	char buf[1024];
+	vsnprintf(buf, sizeof(buf), fmt, args);
+	return buf;
 }
 
 Level levelFromString(const QString& s) {
-    const QString u = s.toUpper().trimmed();
-    if (u == QLatin1String("FATAL"))   return Fatal;
-    if (u == QLatin1String("WARNING")) return Warning;
-    if (u == QLatin1String("INFO"))    return Info;
-    if (u == QLatin1String("TRACE"))   return Trace;
-    if (u == QLatin1String("PROFILE")) return Profile;
-    return Info;
+	const QString u = s.toUpper().trimmed();
+	if (u == QLatin1String("FATAL"))   return Fatal;
+	if (u == QLatin1String("WARNING")) return Warning;
+	if (u == QLatin1String("INFO"))    return Info;
+	if (u == QLatin1String("TRACE"))   return Trace;
+	if (u == QLatin1String("PROFILE")) return Profile;
+	return Info;
 }
 
 void log(Level level, const char* module, const QString& msg) {
-    const QString line = formatLine(level, module, msg);
-    if (line.isNull())
-        return;
-    QMutexLocker lock(&g_mutex);
-    writeLine(line);
+	const QString line = formatLine(level, module, msg);
+	if (line.isNull())
+		return;
+	QMutexLocker lock(&g_mutex);
+	writeLine(line);
 }
 
 void logf(Level level, const char* module, const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    const QString msg = formatArgs(level, fmt, args);
-    va_end(args);
-    log(level, module, msg);
+	va_list args;
+	va_start(args, fmt);
+	const QString msg = formatArgs(level, fmt, args);
+	va_end(args);
+	log(level, module, msg);
 }
 
 void logCrash(Level level, const char* module, const QString& msg) {
-    const QString line = formatLine(level, module, msg);
-    if (line.isNull())
-        return;
-    // Deliberately skips g_mutex: g_fileHandle was opened with FILE_APPEND_DATA,
-    // so each WriteFile call atomically appends at EOF at the OS level -- safe
-    // to call concurrently with log()'s own writeLine() even if the thread that
-    // crashed died while holding g_mutex, which would otherwise deadlock the
-    // handler (waiting on a lock its own thread can never release) instead of
-    // recording the crash.
-    writeLine(line);
+	const QString line = formatLine(level, module, msg);
+	if (line.isNull())
+		return;
+	// Deliberately skips g_mutex: g_fileHandle was opened with FILE_APPEND_DATA,
+	// so each WriteFile call atomically appends at EOF at the OS level -- safe
+	// to call concurrently with log()'s own writeLine() even if the thread that
+	// crashed died while holding g_mutex, which would otherwise deadlock the
+	// handler (waiting on a lock its own thread can never release) instead of
+	// recording the crash.
+	writeLine(line);
 }
 
 void logCrashf(Level level, const char* module, const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    const QString msg = formatArgs(level, fmt, args);
-    va_end(args);
-    logCrash(level, module, msg);
+	va_list args;
+	va_start(args, fmt);
+	const QString msg = formatArgs(level, fmt, args);
+	va_end(args);
+	logCrash(level, module, msg);
 }
 
 }
@@ -174,15 +178,15 @@ void logCrashf(Level level, const char* module, const char* fmt, ...) {
 extern "C" {
 
 void log_c(int level, const char* module, const char* msg) {
-    Logger::log(static_cast<Logger::Level>(level), module, QString::fromUtf8(msg));
+	Logger::log(static_cast<Logger::Level>(level), module, QString::fromUtf8(msg));
 }
 
 void log_cf(int level, const char* module, const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    const QString msg = formatArgs(static_cast<Logger::Level>(level), fmt, args);
-    va_end(args);
-    Logger::log(static_cast<Logger::Level>(level), module, msg);
+	va_list args;
+	va_start(args, fmt);
+	const QString msg = formatArgs(static_cast<Logger::Level>(level), fmt, args);
+	va_end(args);
+	Logger::log(static_cast<Logger::Level>(level), module, msg);
 }
 
 }
