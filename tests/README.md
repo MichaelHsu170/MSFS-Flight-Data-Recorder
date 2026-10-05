@@ -164,8 +164,8 @@ verification machine.
 - **The real SimConnect**: the fake follows the SDK's documented behavior;
   its function signatures are checked against the real `SimConnect.h` only
   when building on Windows.
-- **`db.cpp` failure paths below a failing statement**: `db_bind()`'s,
-  `db_bind_engine_values()`'s and
+- **`db.cpp` failure paths below a failing statement**: `check_bind()`'s
+  (every `db_bind*()` helper's) and
   `sqlite3_reset()`/`COMMIT`/`BEGIN`'s error branches and the
   finalize-after-commit log in `db_insert_update_table()` (need SQLite to
   fail at that exact step, not at prepare); the "unknown exception"

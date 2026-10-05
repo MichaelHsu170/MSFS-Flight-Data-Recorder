@@ -178,28 +178,26 @@ static void db_error(const char* stmt_txt, int sql_ret, char** errmsg) {
 	throw db_exception(msg);
 }
 
-static void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, int value) {
-	int sql_ret = sqlite3_bind_int(stmt, index, value);
+// Reports a failed sqlite3_bind_*() result (with db_error(); throws).
+static void check_bind(const char* stmt_txt, int sql_ret) {
 	if (sql_ret)
 		db_error(stmt_txt, sql_ret, NULL);
+}
+
+static void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, int value) {
+	check_bind(stmt_txt, sqlite3_bind_int(stmt, index, value));
 }
 
 static void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, long long value) {
-	int sql_ret = sqlite3_bind_int64(stmt, index, value);
-	if (sql_ret)
-		db_error(stmt_txt, sql_ret, NULL);
+	check_bind(stmt_txt, sqlite3_bind_int64(stmt, index, value));
 }
 
 static void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, double value) {
-	int sql_ret = sqlite3_bind_double(stmt, index, value);
-	if (sql_ret)
-		db_error(stmt_txt, sql_ret, NULL);
+	check_bind(stmt_txt, sqlite3_bind_double(stmt, index, value));
 }
 
 static void db_bind(sqlite3_stmt* stmt, const char* stmt_txt, int index, const char* value) {
-	int sql_ret = sqlite3_bind_text(stmt, index, value, (int)strlen(value), SQLITE_TRANSIENT);
-	if (sql_ret)
-		db_error(stmt_txt, sql_ret, NULL);
+	check_bind(stmt_txt, sqlite3_bind_text(stmt, index, value, (int)strlen(value), SQLITE_TRANSIENT));
 }
 
 // value, or NULL if value is nullptr.
@@ -208,20 +206,16 @@ static void db_bind_text_or_null(sqlite3_stmt* stmt, const char* stmt_txt, int i
 		db_bind(stmt, stmt_txt, index, value);
 		return;
 	}
-	int sql_ret = sqlite3_bind_null(stmt, index);
-	if (sql_ret)
-		db_error(stmt_txt, sql_ret, NULL);
+	check_bind(stmt_txt, sqlite3_bind_null(stmt, index));
 }
 
 // The first count values as a trip_data.engine_speed/engine_load BLOB (see
 // packEngineValues()), or NULL if count is 0.
 static void db_bind_engine_values(sqlite3_stmt* stmt, const char* stmt_txt, int index, const std::array<float, MAX_ENGINES>& values, int count) {
 	const std::string_view blob = packEngineValues(values, count);
-	int sql_ret = blob.empty()
+	check_bind(stmt_txt, blob.empty()
 		? sqlite3_bind_null(stmt, index)
-		: sqlite3_bind_blob(stmt, index, blob.data(), (int)blob.size(), SQLITE_TRANSIENT);
-	if (sql_ret)
-		db_error(stmt_txt, sql_ret, NULL);
+		: sqlite3_bind_blob(stmt, index, blob.data(), (int)blob.size(), SQLITE_TRANSIENT));
 }
 
 // Binds the statement's parameters (with db_bind(); may throw).
