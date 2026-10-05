@@ -250,7 +250,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── map_bridge.h / .cpp       QWebChannel QObject bridging JS ↔ C++ for the map
 │   ├── chart_data.h / .cpp       Chart series, axis ranges and hover values, built from trip data
 │   ├── charts_panel.h / .cpp     QQuickWidget hosting charts_panel.qml (timeline charts with hover tooltip)
-│   ├── data_table_panel.h / .cpp Per-sample field/value table with hide-field dialog
+│   ├── data_table_panel.h / .cpp Per-sample field/value table with Visible Fields dialog
 │   └── resources/
 │       ├── app.qrc / app.rc / app_icon.ico  Application icon and Windows version resource
 │       ├── charts.qrc / map.qrc  Qt resource files bundling the QML and HTML below
