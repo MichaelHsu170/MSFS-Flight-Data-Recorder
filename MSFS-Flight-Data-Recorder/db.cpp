@@ -660,6 +660,12 @@ static std::vector<TableColumn>::const_iterator find_column(const std::vector<Ta
 	return std::find_if(columns.begin(), columns.end(), [&name](const TableColumn& c) { return c.name == name; });
 }
 
+// Runs stmt_txt (no results). False on failure; the caller logs
+// sqlite3_errmsg(sql).
+static bool exec_sql(sqlite3* sql, const char* stmt_txt) {
+	return sqlite3_exec(sql, stmt_txt, nullptr, nullptr, nullptr) == SQLITE_OK;
+}
+
 // For each column in fields_def (comma-separated column definitions) that is
 // absent from table_name, run ALTER TABLE ADD COLUMN. False if the table's
 // columns couldn't be read or one couldn't be added (logged): every write
@@ -697,16 +703,8 @@ static bool migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 					snprintf(alter_sql, sizeof(alter_sql),
 						"ALTER TABLE %s ADD COLUMN %s;", table_name, safe_def);
 
-					sqlite3_stmt* alter_stmt;
-					if (sqlite3_prepare_v2(sql, alter_sql, -1, &alter_stmt, nullptr) == SQLITE_OK) {
-						int step_ret = sqlite3_step(alter_stmt);
-						sqlite3_finalize(alter_stmt);
-						if (step_ret == SQLITE_DONE) {
-							log_cf(2, "DB", "Schema migration: %s — added column %s", table_name, col_name.c_str());
-						} else {
-							log_cf(0, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
-							ok = false;
-						}
+					if (exec_sql(sql, alter_sql)) {
+						log_cf(2, "DB", "Schema migration: %s — added column %s", table_name, col_name.c_str());
 					} else {
 						log_cf(0, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
 						ok = false;
@@ -891,24 +889,24 @@ static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, 
 		+ " FROM trip_data WHERE rowid >= ?1 ORDER BY rowid LIMIT ?2;";
 	bool stopped = false;
 	const auto keep_going = [&] { return !(stopped = cancelled && cancelled()); };
-	bool ok = sqlite3_exec(sql, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr) == SQLITE_OK
-		&& sqlite3_exec(sql, create.c_str(), nullptr, nullptr, nullptr) == SQLITE_OK
+	bool ok = exec_sql(sql, "BEGIN TRANSACTION;")
+		&& exec_sql(sql, create.c_str())
 		&& copy_rows_in_batches(sql, insert_select, [&](sqlite3_int64 copied, sqlite3_int64 total) {
 			progress.report(kRebuildCopy, (double)copied / total);
 			return keep_going();
 		})
-		&& sqlite3_exec(sql, "DROP TABLE trip_data;"
-			"ALTER TABLE trip_data_new RENAME TO trip_data;", nullptr, nullptr, nullptr) == SQLITE_OK;
+		&& exec_sql(sql, "DROP TABLE trip_data;"
+			"ALTER TABLE trip_data_new RENAME TO trip_data;");
 	if (ok) {
 		progress.report(kRebuildDrop);
-		ok = keep_going() && sqlite3_exec(sql, "COMMIT TRANSACTION;", nullptr, nullptr, nullptr) == SQLITE_OK;
+		ok = keep_going() && exec_sql(sql, "COMMIT TRANSACTION;");
 	}
 	if (!ok) {
 		if (stopped)
 			log_cf(2, "DB", "Schema migration cancelled; trip_data left unchanged");
 		else
 			log_cf(0, "DB", "Schema migration failed (%s); trip_data left unchanged", sqlite3_errmsg(sql));
-		sqlite3_exec(sql, "ROLLBACK TRANSACTION", nullptr, nullptr, nullptr);
+		exec_sql(sql, "ROLLBACK TRANSACTION");
 		return false;
 	}
 	progress.report(kRebuildCommit);
@@ -956,16 +954,9 @@ static void create_db_indexes(sqlite3* sql) {
 		// place.
 		"CREATE UNIQUE INDEX IF NOT EXISTS idx_trip_groups_name ON trip_groups(name COLLATE NOCASE);",
 	};
-	for (int i = 0; i < (int)(sizeof(index_stmts) / sizeof(char*)); i++) {
-		sqlite3_stmt* stmt = nullptr;
-		if (sqlite3_prepare_v2(sql, index_stmts[i], -1, &stmt, nullptr) == SQLITE_OK) {
-			if (sqlite3_step(stmt) != SQLITE_DONE)
-				log_cf(1, "DB", "Failed to create index \"%s\": %s", index_stmts[i], sqlite3_errmsg(sql));
-		} else {
-			log_cf(1, "DB", "Failed to prepare index \"%s\": %s", index_stmts[i], sqlite3_errmsg(sql));
-		}
-		sqlite3_finalize(stmt);
-	}
+	for (const char* stmt_txt : index_stmts)
+		if (!exec_sql(sql, stmt_txt))
+			log_cf(1, "DB", "Failed to create index \"%s\": %s", stmt_txt, sqlite3_errmsg(sql));
 }
 
 // Creates any missing table, adds columns missing from tables made by an
@@ -977,15 +968,10 @@ static bool create_schema(sqlite3* sql, const MigrationProgress& progress, const
 	bool ok = true;
 	for (const TableDef& table : database_tables()) {
 		const std::string stmt_txt = std::string("CREATE TABLE IF NOT EXISTS ") + table.name + " (" + table.fields + ");";
-		sqlite3_stmt* stmt = nullptr;
-		if (sqlite3_prepare_v2(sql, stmt_txt.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
-			log_cf(0, "DB", "Failed to prepare CREATE TABLE for %s: %s", table.name, sqlite3_errmsg(sql));
-			ok = false;
-		} else if (sqlite3_step(stmt) != SQLITE_DONE) {
+		if (!exec_sql(sql, stmt_txt.c_str())) {
 			log_cf(0, "DB", "Failed to create table %s: %s", table.name, sqlite3_errmsg(sql));
 			ok = false;
 		}
-		sqlite3_finalize(stmt);
 	}
 	for (const TableDef& table : database_tables())
 		if (!migrate_table_columns(sql, table.name, table.fields.c_str()))

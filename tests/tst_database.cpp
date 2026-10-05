@@ -124,6 +124,34 @@ private slots:
 				"idx_trip_liftoffs_trip", "idx_trip_touchdowns_trip", "idx_trips_group", "idx_trip_groups_name" }));
 	}
 
+	// A missing index only slows queries, so it's logged and the database is
+	// still used; the other indexes are still created.
+	void anIndexThatCantBeCreatedIsLoggedNotFatal() {
+		sqlite3* db = openDatabaseFile();
+		QVERIFY(db);
+		exec(db, "CREATE TABLE idx_trips_group (x);"); // takes the index's name
+		sqlite3_close(db);
+		QVERIFY(migrate_db());
+		QVERIFY(warningLogged(logPath_, { QStringLiteral("index"), QStringLiteral("idx_trips_group") }));
+		QCOMPARE(names("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"),
+			(std::set<QString>{ "idx_trip_data_trip", "idx_trip_events_trip", "idx_trip_events_event_seq",
+				"idx_trip_liftoffs_trip", "idx_trip_touchdowns_trip", "idx_trip_groups_name" }));
+	}
+
+	// Every write names the tables, so one that can't be created fails the
+	// migration; the others are still created.
+	void aTableThatCantBeCreatedFailsTheMigration() {
+		sqlite3* db = openDatabaseFile();
+		QVERIFY(db);
+		exec(db, "CREATE TABLE other (x);");
+		exec(db, "CREATE INDEX trips ON other(x);"); // takes the table's name
+		sqlite3_close(db);
+		QVERIFY(!migrate_db());
+		QVERIFY(lineLogged(logPath_, "FATAL", { QStringLiteral("create table trips") }));
+		QCOMPARE(names("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'trip_%'"),
+			(std::set<QString>{ "trip_data", "trip_events", "trip_liftoffs", "trip_touchdowns", "trip_groups" }));
+	}
+
 	void migrateIsRepeatable() {
 		migrate_db();
 		migrate_db();
