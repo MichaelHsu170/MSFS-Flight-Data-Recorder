@@ -73,6 +73,19 @@ private:
 				return r;
 		return -1;
 	}
+	// Makes tripId look like a trip whose last samples are still being written.
+	static void markSaving(FlightDriver& sim, int tripId) {
+		std::lock_guard<std::mutex> lock(sim.status().flushing_trip_ids_mutex);
+		sim.status().flushing_trip_ids.insert(tripId);
+	}
+	// Answers the next modal box, keeping its title. Closes whatever box it
+	// is, so a missed refusal fails the test instead of hanging it.
+	static void keepTitleOfNextModal(QString& title) {
+		onNextModal([&title](QWidget* box) {
+			title = box->windowTitle();
+			box->close();
+		});
+	}
 
 private slots:
 	void initTestCase() {
@@ -548,26 +561,18 @@ private slots:
 		FlightDriver sim;
 		addTrip(1, 0, kDep, kArr);
 		TripHistoryPanel panel(sim.bridge());
-		auto markSaving = [&sim] {
-			std::lock_guard<std::mutex> lock(sim.status().flushing_trip_ids_mutex);
-			sim.status().flushing_trip_ids.insert(1);
-		};
 		if (!startsSavingWhileConfirming)
-			markSaving();
+			markSaving(sim, 1);
 		QString refusal;
-		auto answerRefusal = [&refusal](QWidget* box) {
-			refusal = box->windowTitle();
-			box->close(); // whatever box it is, so a missed refusal fails instead of hanging
-		};
 		onNextModal([&](QWidget* menu) {
 			if (startsSavingWhileConfirming) {
 				onNextModal([&](QWidget* confirm) {
-					markSaving();
-					onNextModal(answerRefusal);
+					markSaving(sim, 1);
+					keepTitleOfNextModal(refusal);
 					clickDialogButton(confirm, "Yes");
 				});
 			} else {
-				onNextModal(answerRefusal);
+				keepTitleOfNextModal(refusal);
 			}
 			chooseMenuItem(menu, "Delete Trip");
 		});
@@ -575,6 +580,54 @@ private slots:
 		QCOMPARE(refusal, QStringLiteral("Trip Still Saving"));
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM trips").toInt(), 1);
 		QCOMPARE(view(panel)->model()->rowCount(), 1);
+	}
+
+	// Nor can it be opened, from the table or from the map: its track would
+	// be cut off. The trip already shown stays shown and highlighted.
+	void openingATripStillSavingIsRefused_data() {
+		QTest::addColumn<bool>("fromTheMap");
+		QTest::newRow("row click") << false;
+		QTest::newRow("map click") << true;
+	}
+
+	void openingATripStillSavingIsRefused() {
+		QFETCH(bool, fromTheMap);
+		FlightDriver sim;
+		addTrip(1, 0, kDep, kArr);
+		addTrip(2, 0, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		QSignalSpy ready(&panel, &TripHistoryPanel::tripDatasetReady);
+		panel.selectTripById(1);
+		QVERIFY(waitFor([&ready] { return ready.count() == 1; }));
+		panel.setLoadingFinished();
+
+		markSaving(sim, 2);
+		QString refusal;
+		keepTitleOfNextModal(refusal);
+		if (fromTheMap)
+			panel.selectTripById(2);
+		else
+			clickRow(view(panel), rowOfTrip(view(panel), 2));
+		QCOMPARE(refusal, QStringLiteral("Trip Still Saving"));
+		QTest::qWait(200);
+		QCOMPARE(ready.count(), 1);
+		QVERIFY(view(panel)->isEnabled());
+		QCOMPARE(view(panel)->selectionModel()->selectedRows().value(0).row(), rowOfTrip(view(panel), 1));
+	}
+
+	// Nor exported: the KML would be cut off.
+	void exportingATripStillSavingIsRefused() {
+		FlightDriver sim;
+		addTrip(1, 0, kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		markSaving(sim, 1);
+		QString refusal;
+		onNextModal([&refusal](QWidget* menu) {
+			keepTitleOfNextModal(refusal); // the save dialog, if not refused
+			chooseMenuItem(menu, "Export to KML");
+		});
+		openRowMenu(view(panel), 0);
+		QCOMPARE(refusal, QStringLiteral("Trip Still Saving"));
 	}
 
 	// Export to KML suggests "<departure>-<destination>_<departure time>.kml"

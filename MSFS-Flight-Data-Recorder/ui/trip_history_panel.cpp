@@ -560,14 +560,16 @@ void TripHistoryPanel::refreshTrips() {
 	// if a bridge signal (tripUpdated/tripEnded/recordingStateChanged) fires
 	// mid-load and calls refreshTrips(). Highlight whichever trip is relevant
 	// right now.
-	int highlightTripId = loading_ ? pendingTripId_ : selectedTripId_;
-	if (highlightTripId != -1) {
-		const auto& shown = model_->trips();
-		for (int i = 0; i < (int)shown.size(); ++i) {
-			if (shown[i].id == highlightTripId) {
-				table_->selectRow(i);
-				break;
-			}
+	highlightTrip(loading_ ? pendingTripId_ : selectedTripId_);
+}
+
+void TripHistoryPanel::highlightTrip(int tripId) {
+	table_->clearSelection();
+	const auto& shown = model_->trips();
+	for (int i = 0; i < (int)shown.size(); ++i) {
+		if (shown[i].id == tripId) {
+			table_->selectRow(i);
+			return;
 		}
 	}
 }
@@ -633,6 +635,14 @@ void TripHistoryPanel::onRowActivated(const QModelIndex& index) {
 	const TripSummary* trip = model_->tripAt(index.row());
 	if (trip == nullptr || trip->status == TripStatus::Live) {
 		Logger::log(Logger::Trace, "DB", QStringLiteral("onRowActivated: ignoring click on invalid row or Live trip (not yet loadable)"));
+		return;
+	}
+	// A trip that just stopped recording isn't Live any more, but its last
+	// samples may still be on their way to the database: loading it now would
+	// show a cut-off track. The click (or selectTripById()) has already moved
+	// the highlight, so put it back on the trip that's still shown.
+	if (refuseWhileFlushing(trip->id, "load trip")) {
+		highlightTrip(selectedTripId_);
 		return;
 	}
 
@@ -872,6 +882,9 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		setTripGroupFromUi(rightClickedTrip->id, groupActionIds.value(chosen));
 	} else if (chosen == exportKmlAction) {
 		const TripSummary& trip = *rightClickedTrip;
+		// Same reason as onRowActivated(): the KML would be cut off.
+		if (refuseWhileFlushing(trip.id, "export trip"))
+			return;
 		exportTripToKml(this,
 			appendDepartureTimestamp(airportPairName(trip.departureIcao, trip.destinationIcao, QStringLiteral("trip")), trip.departureZuluTime),
 			trip.id);

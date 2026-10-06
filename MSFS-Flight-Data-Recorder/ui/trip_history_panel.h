@@ -138,6 +138,8 @@ private:
 	// recording), tells the user to wait, logs "<action> <tripId> blocked" and
 	// returns true.
 	bool refuseWhileFlushing(int tripId, const char* action);
+	// Highlights tripId's row, or no row if tripId (e.g. -1) isn't shown.
+	void highlightTrip(int tripId);
 	// Rebuilds the group filter combo's items from trip_groups, preserving
 	// the current selection where possible (e.g. across a refresh after the
 	// Manage Groups dialog closes). Also refreshes groupRank_ from the same
