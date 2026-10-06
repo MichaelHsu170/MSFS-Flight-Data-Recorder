@@ -116,14 +116,21 @@ void add_client_events(HANDLE hSimConnect) {
 #undef NOTIFY_COCKPIT_EVENT
 }
 
-void decode_flight_sample(const SIMCONNECT_RECV_SIMOBJECT_DATA* data, FLIGHT_DATA_RECORD& sample) {
-	memset(&sample, 0, sizeof(struct FLIGHT_DATA_RECORD));
+DWORD flight_sample_packet_size(const SIMCONNECT_RECV_SIMOBJECT_DATA* data) {
 	// The wire payload covers every field except the last one:
 	// add_flight_definition() registers no ZULU counterpart of "TIME ZONE
 	// OFFSET", so time_zulu.timezone_offset is never sent.
 	static_assert(offsetof(DATETIME, timezone_offset) + sizeof(double) == sizeof(DATETIME)
 		&& offsetof(FLIGHT_DATA_RECORD, time_zulu) + sizeof(DATETIME) == sizeof(FLIGHT_DATA_RECORD),
 		"time_zulu.timezone_offset must be the last byte range of FLIGHT_DATA_RECORD");
+	const size_t header = reinterpret_cast<const char*>(&data->dwData) - reinterpret_cast<const char*>(data);
+	return static_cast<DWORD>(header + sizeof(struct FLIGHT_DATA_RECORD) - sizeof(double));
+}
+
+bool decode_flight_sample(const SIMCONNECT_RECV_SIMOBJECT_DATA* data, DWORD cbData, FLIGHT_DATA_RECORD& sample) {
+	if (cbData < flight_sample_packet_size(data))
+		return false;
+	memset(&sample, 0, sizeof(struct FLIGHT_DATA_RECORD));
 	memcpy(&sample, &data->dwData, sizeof(struct FLIGHT_DATA_RECORD) - sizeof(double));
 	// SimConnect returns pitch and bank inverted from aviation convention:
 	//   pitch: positive = nose down  → negate to positive = nose up
@@ -134,4 +141,5 @@ void decode_flight_sample(const SIMCONNECT_RECV_SIMOBJECT_DATA* data, FLIGHT_DAT
 	sample.plane_touchdown_pitch_degrees = -sample.plane_touchdown_pitch_degrees;
 	sample.plane_bank_degrees = -sample.plane_bank_degrees;
 	sample.plane_touchdown_bank_degrees = -sample.plane_touchdown_bank_degrees;
+	return true;
 }

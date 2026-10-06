@@ -771,5 +771,9 @@ struct STATUS {
 	// never blocks an occurrence from committing and needs no trip-boundary
 	// reset -- it just ages out once EVENT_NO_TRIP_LOG_COOLDOWN elapses.
 	std::unordered_map<std::string, std::chrono::steady_clock::time_point> no_trip_log_throttle;
+	// Whether this connection has already logged a dropped short flight-data
+	// packet (MyDispatchProc in recorder.cpp). Reset by
+	// RecorderBridge::tryConnect().
+	bool short_sample_logged = FALSE;
 	void* gui_context = nullptr;
 };

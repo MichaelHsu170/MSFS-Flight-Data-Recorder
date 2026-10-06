@@ -106,6 +106,8 @@ void RecorderBridge::tryConnect() {
 	status_.flight.departure_lookup_initiated = false;
 	status_.departure.clear();
 	status_.destination.clear();
+	// A new connection may be to a different simulator version.
+	status_.short_sample_logged = FALSE;
 
 	Logger::logf(Logger::Trace, "Recorder", "SimConnect connected: sample_interval_ms=%d",
 		status_.sample_interval_ms);

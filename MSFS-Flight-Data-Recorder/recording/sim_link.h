@@ -26,6 +26,12 @@ const char* event_name(DWORD id);
 // The SIMCONNECT_EXCEPTION_ name without its prefix, or "UNKNOWN".
 const char* simconnect_exception_name(DWORD exception);
 
-// Copies one REQUEST_FLIGHT packet into sample, flipping pitch and bank to
-// aviation sign convention (positive = nose up / right bank).
-void decode_flight_sample(const SIMCONNECT_RECV_SIMOBJECT_DATA* data, FLIGHT_DATA_RECORD& sample);
+// The size in bytes of a complete REQUEST_FLIGHT packet.
+DWORD flight_sample_packet_size(const SIMCONNECT_RECV_SIMOBJECT_DATA* data);
+
+// Copies one REQUEST_FLIGHT packet of cbData bytes into sample, flipping pitch
+// and bank to aviation sign convention (positive = nose up / right bank).
+// Returns false and leaves sample untouched when the packet is shorter than
+// flight_sample_packet_size(), e.g. because this simulator version rejected
+// one of the registered variables.
+bool decode_flight_sample(const SIMCONNECT_RECV_SIMOBJECT_DATA* data, DWORD cbData, FLIGHT_DATA_RECORD& sample);

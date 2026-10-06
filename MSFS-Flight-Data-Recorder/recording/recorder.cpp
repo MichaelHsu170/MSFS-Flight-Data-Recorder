@@ -78,7 +78,7 @@ void sim_disconnected(struct STATUS* status) {
 	status->quit = TRUE;
 }
 
-void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD /*cbData*/, void* pContext) {
+void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD cbData, void* pContext) {
 	struct STATUS* status = (struct STATUS*)pContext;
 	try {
 	switch (pData->dwID) {
@@ -134,8 +134,16 @@ void CALLBACK MyDispatchProc(SIMCONNECT_RECV* pData, DWORD /*cbData*/, void* pCo
 			// whose quiet period has elapsed, so no dedicated timer is needed.
 			status->event_filter.flush_stale(event_output(status));
 			struct FLIGHT_DATA_RECORD tmp;
-			decode_flight_sample(pObjData, tmp);
-			flight_on_sample(status, tmp);
+			if (decode_flight_sample(pObjData, cbData, tmp)) {
+				flight_on_sample(status, tmp);
+			} else if (!status->short_sample_logged) {
+				// Every packet of this connection will be short the same way,
+				// so one line is enough.
+				gui_log_printf(status, GUI_LOG_WARNING,
+					"Flight data dropped: SimConnect sent %lu bytes, expected %lu (a flight variable may be unknown to this simulator version)",
+					cbData, flight_sample_packet_size(pObjData));
+				status->short_sample_logged = TRUE;
+			}
 		}
 		break;
 		default:

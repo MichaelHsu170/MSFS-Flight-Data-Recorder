@@ -499,6 +499,42 @@ private slots:
 		QCOMPARE(tripCount(), 0);
 	}
 
+	// A simulator that doesn't know one of the registered variables sends
+	// shorter flight-data packets: each one is dropped rather than read past
+	// its end, with one warning per connection.
+	void shortFlightSampleIsDroppedWithOneWarningPerConnection() {
+		FlightDriver sim;
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		auto droppedWarnings = [&log] {
+			int count = 0;
+			for (const QList<QVariant>& args : log)
+				if (args.at(0).toString().contains(QStringLiteral("Flight data dropped")))
+					++count;
+			return count;
+		};
+		sim.setEngines(true);
+		std::vector<char> shortPacket = samplePacket(sim.record);
+		const size_t fullSize = shortPacket.size();
+		shortPacket.resize(fullSize - sizeof(double));
+		reinterpret_cast<SIMCONNECT_RECV*>(shortPacket.data())->dwSize = static_cast<DWORD>(shortPacket.size());
+
+		sim.send(shortPacket);
+		sim.send(shortPacket);
+		QCOMPARE(tripCount(), 0);
+		QCOMPARE(droppedWarnings(), 1);
+		QVERIFY(!lastLogWith(log, { QStringLiteral("Flight data dropped"),
+			QStringLiteral("sent %1 bytes, expected %2").arg(fullSize - sizeof(double)).arg(fullSize) }).isEmpty());
+
+		sim.tick(); // a full packet still records
+		QCOMPARE(tripCount(), 1);
+
+		sim.send(recvPacket(SIMCONNECT_RECV_ID_QUIT, sizeof(SIMCONNECT_RECV)));
+		sim.pump(); // sees quit -> shutdown()
+		QVERIFY(waitFor([] { return FakeSim::state().openCalls == 2; }, 5000));
+		sim.send(shortPacket);
+		QCOMPARE(droppedWarnings(), 2);
+	}
+
 	void unhandledRecvIdIsLogged() {
 		FlightDriver sim;
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
