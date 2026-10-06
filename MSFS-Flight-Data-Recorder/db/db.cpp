@@ -886,9 +886,10 @@ static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, 
 // with the UTC offset's sign reversed: UTC+2 was stored as "-02:00". This
 // flips that sign in every stored local time, once, in one transaction, then
 // sets user_version to 1 so it never runs again. "+00:00" and values not in
-// that format are left as they are. False on failure (logged, rolled back):
-// recording can't start, since rows written with the correct sign would be
-// flipped by the next start's retry.
+// that format are left as they are. Logs how many values it flipped (0 for a
+// brand-new database, which also runs it once). False on failure (logged,
+// rolled back): recording can't start, since rows written with the correct
+// sign would be flipped by the next start's retry.
 static bool migrate_local_time_offsets(sqlite3* sql) {
 	sqlite3_stmt* version = nullptr;
 	if (sqlite3_prepare_v2(sql, "PRAGMA user_version;", -1, &version, nullptr) != SQLITE_OK) {
@@ -912,6 +913,7 @@ static bool migrate_local_time_offsets(sqlite3* sql) {
 		{ contactTableName(CONTACT_TABLE::TOUCHDOWNS), "time_local" },
 	};
 	bool ok = exec_sql(sql, "BEGIN TRANSACTION;");
+	const int changes_before = sqlite3_total_changes(sql);
 	for (const auto& [table, column] : kLocalTimes) {
 		if (!ok)
 			break;
@@ -923,13 +925,14 @@ static bool migrate_local_time_offsets(sqlite3* sql) {
 			table, column, column, column, column, column, column);
 		ok = exec_sql(sql, stmt_txt);
 	}
+	const int corrected = sqlite3_total_changes(sql) - changes_before;
 	ok = ok && exec_sql(sql, "PRAGMA user_version = 1;") && exec_sql(sql, "COMMIT TRANSACTION;");
 	if (!ok) {
 		Logger::logf(Logger::Fatal, "DB", "Schema migration failed (%s); local times left unchanged", sqlite3_errmsg(sql));
 		exec_sql(sql, "ROLLBACK TRANSACTION");
 		return false;
 	}
-	Logger::logf(Logger::Info, "DB", "Schema migration: local time UTC offsets corrected");
+	Logger::logf(Logger::Info, "DB", "Schema migration: %d local time UTC offset(s) corrected", corrected);
 	return true;
 }
 
