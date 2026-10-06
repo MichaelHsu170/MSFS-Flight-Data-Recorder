@@ -1,7 +1,8 @@
 // Map widget (map_widget.cpp): the QWebEngineView wrapper around the
 // Leaflet/OSM trajectory map -- setDataset()/showOverview()/
 // resetZoom()/setEventsVisible() driving the real page, and the page's cursor
-// and range forwarded only for the current trajectory, the right-click menu
+// and range forwarded only for the current trajectory, the range the page
+// measures, AI analysis with fetch() stubbed, the right-click menu
 // and an overview route clicked with the mouse, and a page reload; not the
 // pure JS string-building math (already covered standalone in
 // tst_map_script.cpp).
@@ -102,7 +103,8 @@ class TstMapWidget : public QObject {
 	// Runs the page's AI analysis of a liftoff with fetch() stubbed: attempt n
 	// gets attempts[n] (the last one repeated), each delivered in the given
 	// pieces with HTTP status statuses[n] (the last one repeated; 200 if
-	// none); saving the report succeeds if saveOk. Returns what it did: calls
+	// none; 0 for a request that never reaches the service, as when offline);
+	// saving the report succeeds if saveOk. Returns what it did: calls
 	// (fetches made), saved (the report saved, null if none), text (the answer
 	// shown), thinkingShown.
 	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts, bool saveOk = true, const QList<int>& statuses = {}) {
@@ -118,7 +120,8 @@ class TstMapWidget : public QObject {
 			    var realFetch = window.fetch;
 			    window.fetch = function () {
 			        var n = window._ai.calls++;
-			        var status = statuses[Math.min(n, statuses.length - 1)] || 200;
+			        var status = statuses.length ? statuses[Math.min(n, statuses.length - 1)] : 200;
+			        if (status === 0) return Promise.reject(new TypeError('Failed to fetch'));
 			        var pieces = attempts[Math.min(n, attempts.length - 1)].slice();
 			        var reader = { read: function () {
 			            return Promise.resolve(pieces.length ? { done: false, value: new TextEncoder().encode(pieces.shift()) } : { done: true });
@@ -388,6 +391,35 @@ private slots:
 		QCOMPARE(forwarded.count(), 1);
 		QCOMPARE(forwarded.value(0).value(0).toInt(), 0);
 		QCOMPARE(forwarded.value(0).value(1).toInt(), 1);
+	}
+
+	// The page reports the part of the trip on screen as the samples in view
+	// plus one on each side (the line runs on to them off screen); the whole
+	// trip as (-1, -1); and, zoomed in between samples, the sample nearest
+	// the middle of the view plus one on each side.
+	void theVisibleRangeIsTheSamplesInViewPlusOneOnEachSide() {
+		MapBridge* bridge = widget_->findChild<MapBridge*>();
+		QVERIFY(bridge);
+		QSignalSpy pageRange(bridge, &MapBridge::visibleRangeChanged);
+		TripDataset dataset;
+		dataset.points = { samplePoint(10, 20), samplePoint(10.5, 20.5), samplePoint(11, 21),
+			samplePoint(11.5, 21.5), samplePoint(12, 22) };
+		loadTrip(dataset);
+		const auto lastRange = [&pageRange] {
+			return pageRange.isEmpty() ? QString()
+				: QStringLiteral("%1,%2").arg(pageRange.last().value(0).toInt()).arg(pageRange.last().value(1).toInt());
+		};
+		QTRY_COMPARE_WITH_TIMEOUT(lastRange(), QStringLiteral("-1,-1"), 5000);
+
+		// At zoom 9 the 400 x 300 view is about 1.1 x 0.8 degrees: only the
+		// sample at (11.5, 21.5) is in it.
+		evalPageJs(widget_, QStringLiteral("leafletMapInstance.setView([11.5, 21.5], 9, {animate: false})"));
+		QTRY_COMPARE_WITH_TIMEOUT(lastRange(), QStringLiteral("2,4"), 5000);
+
+		// At zoom 14 the view is about 0.03 degrees across: no sample is in
+		// it, and (11, 21) is the nearest to its middle.
+		evalPageJs(widget_, QStringLiteral("leafletMapInstance.setView([11.1, 21.1], 14, {animate: false})"));
+		QTRY_COMPARE_WITH_TIMEOUT(lastRange(), QStringLiteral("1,3"), 5000);
 	}
 
 	void aCursorIndexIsForwardedOnlyForTheCurrentTrajectory() {
@@ -846,6 +878,52 @@ private slots:
 		const QString text = r.value("text").toString();
 		QVERIFY2(text.startsWith(QStringLiteral("API error 400: API key not valid.")), qPrintable(text));
 		QVERIFY2(text.contains(QStringLiteral("gemini_api_key")), qPrintable(text));
+	}
+
+	// A service that can't be reached (offline) is tried three times, then
+	// the message says so and nothing is saved.
+	void anUnreachableServiceIsTriedThreeTimesThenSaysSo() {
+		const QVariantMap r = runAiAnalysisWith({ { QString() } }, true, { 0 });
+		QCOMPARE(r.value("calls").toInt(), 3);
+		QVERIFY(r.value("saved").isNull());
+		QCOMPARE(r.value("text").toString(), QStringLiteral(
+			"Couldn't reach the AI service after 3 attempts. Check your internet connection and try again."));
+		QCOMPARE(r.value("thinkingShown").toBool(), false);
+	}
+
+	// A touchdown analyzed before shows its saved report when its popup
+	// opens, with or without an API key: the answer, and the thinking behind
+	// a closed "Show thinking" panel only if the report has some.
+	void aSavedReportIsShownWhenThePopupOpens_data() {
+		QTest::addColumn<QString>("report");
+		QTest::addColumn<QString>("shown");
+		QTest::newRow("with thinking") << QStringLiteral("<thinking>Wind from the left.</thinking>\nGrade: B")
+			<< QStringLiteral("Grade: B|Wind from the left.|closed");
+		QTest::newRow("without thinking") << QStringLiteral("Grade: A") << QStringLiteral("Grade: A||none");
+	}
+	void aSavedReportIsShownWhenThePopupOpens() {
+		QFETCH(QString, report);
+		QFETCH(QString, shown);
+		TripDataset dataset = tripToSave();
+		dataset.touchdowns[0].analysisReport = report;
+		loadTrip(dataset);
+		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "touchdown-icon"), 1, 5000);
+		const QString popup = evalPageJs(widget_, QStringLiteral(R"JS(
+			(function () {
+			    var marker = null;
+			    leafletMapInstance.eachLayer(function (l) {
+			        if (l instanceof L.Marker && l.options.icon.options.className === 'touchdown-icon') marker = l;
+			    });
+			    marker.openPopup();
+			    var id = Object.keys(_touchdownStore)[0];
+			    var det = document.getElementById('td-th-det-' + id);
+			    var body = document.getElementById('td-th-body-' + id);
+			    var shown = [document.getElementById('td-th-final-' + id).textContent, body ? body.textContent : '',
+			                 det ? (det.open ? 'open' : 'closed') : 'none'].join('|');
+			    marker.closePopup();
+			    return shown;
+			})())JS")).toString();
+		QCOMPARE(popup, shown);
 	}
 
 	// The page's console goes to the debug log under MapJS: errors and
