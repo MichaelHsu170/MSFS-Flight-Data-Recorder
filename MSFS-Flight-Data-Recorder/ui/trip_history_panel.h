@@ -88,8 +88,10 @@ public:
 
 signals:
 	void tripDatasetReady(std::shared_ptr<TripDataset> dataset);
-	// Emitted when the user deselects the current trip; carries all trip
-	// summaries so the map can render the departure→destination overview.
+	// Emitted whenever the map should show the departure→destination overview
+	// instead of a trip: on a user deselect, at startup, and after a refresh
+	// while no trip is selected. Carries the trips currently shown in the
+	// table (group filter applied).
 	void tripDeselected(std::vector<TripSummary> trips);
 	void zoomResetRequested();
 
