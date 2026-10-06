@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <title>Trajectory Map</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        onerror="console.error('leaflet.js FAILED to load from unpkg.com CDN')"></script>
+<!-- Leaflet 1.9.4, built into the app from third_party/leaflet (map.qrc). -->
+<link rel="stylesheet" href="qrc:///map/leaflet/leaflet.css" />
+<script src="qrc:///map/leaflet/leaflet.js"
+        onerror="console.error('leaflet.js FAILED to load')"></script>
 <script src="qrc:///qtwebchannel/qwebchannel.js"
         onerror="console.error('qwebchannel.js FAILED to load')"></script>
 <style>

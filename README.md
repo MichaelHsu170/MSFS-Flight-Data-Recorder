@@ -19,7 +19,7 @@ A Qt desktop application for Microsoft Flight Simulator 2024 that records teleme
 
 Qt modules required: `Widgets`, `Graphs`, `Concurrent`, `Quick`, `QuickWidgets`, `QuickControls2`, `WebEngineWidgets`, `WebChannel`, `CoreTools`.
 
-SQLite3 is bundled under `third_party/sqlite3/` — no separate install needed.
+SQLite3 is bundled under `third_party/sqlite3/` — no separate install needed. The map's Leaflet 1.9.4 (BSD 2-Clause, its `LICENSE` alongside) is bundled under `third_party/leaflet/` and built into the app, so it isn't fetched at run time; the map tiles still come from the internet.
 
 ## Build with VS Code
 
