@@ -163,10 +163,8 @@
 // resetZoom().
 var currentProvider = null;
 var mapBridge = null;
-// The Leaflet map instance currentProvider's closures wrap, so it can be
-// torn down via map.remove() before initProvider() creates a new one --
-// clearing #map's innerHTML alone drops the DOM nodes but leaves Leaflet's
-// own window-level listeners (resize, etc.) and internal timers registered.
+// The Leaflet map instance currentProvider's closures wrap (tst_map_widget
+// reaches the map through it).
 var leafletMapInstance = null;
 
 // Keyed by the ID string assigned in liftoffPopupHtml/touchdownPopupHtml;
@@ -768,13 +766,9 @@ function reportVisibleRange(trajectoryLatLngs, origIndices, version, bounds) {
         mapBridge.rangeChanged(origIndices[minIdx], origIndices[maxIdx], version);
 }
 
+// Called once per page load (MapWidget::refreshProvider()), each into a fresh
+// JS context, so there's never an earlier map to tear down.
 function initProvider() {
-    if (leafletMapInstance) {
-        leafletMapInstance.remove();
-        leafletMapInstance = null;
-    }
-    document.getElementById('map').innerHTML = '';
-    currentProvider = null;
     initLeafletProvider();
 }
 
