@@ -432,12 +432,14 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
           +   '<div class="td-think-body" id="td-th-body-' + id + '"></div>'
           + '</details>'
           + '<div id="td-th-final-' + id + '"></div>';
-        thDet    = document.getElementById('td-th-det-'   + id);
-        thSum    = document.getElementById('td-th-sum-'   + id);
-        thArr    = document.getElementById('td-th-arr-'   + id);
-        thLbl    = document.getElementById('td-th-lbl-'   + id);
-        thBody   = document.getElementById('td-th-body-'  + id);
-        finalDiv = document.getElementById('td-th-final-' + id);
+        // Looked up in result, not the document: a popup closed mid-analysis
+        // is no longer in the document, but its attempts still run here.
+        thDet    = result.querySelector('#td-th-det-'   + id);
+        thSum    = result.querySelector('#td-th-sum-'   + id);
+        thArr    = result.querySelector('#td-th-arr-'   + id);
+        thLbl    = result.querySelector('#td-th-lbl-'   + id);
+        thBody   = result.querySelector('#td-th-body-'  + id);
+        finalDiv = result.querySelector('#td-th-final-' + id);
         sawThinking  = false;
         thinkingDone = false;
         thinkingText = '';

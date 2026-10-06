@@ -843,6 +843,65 @@ private slots:
 		QCOMPARE(done, QStringLiteral("1|1|false|Grade: A"));
 	}
 
+	// A popup closed while its analysis runs is gone from the page, but the
+	// analysis isn't: an answer cut off after its thinking is retried there,
+	// the next answer is saved, and the reopened popup shows it with its
+	// Analyze button enabled again.
+	void anAnalysisRetriedAfterItsPopupClosedIsSaved() {
+		evalPageJs(widget_, QStringLiteral("window._geminiApiKey = 'test-key'")); // the popups are built with it
+		TripDataset dataset = tripToSave();
+		dataset.liftoffPoints[0].rowId = 5;
+		loadTrip(dataset);
+		const QString streams = QString::fromUtf8(QJsonDocument(QJsonArray{
+			aiStream({ aiChunk({ { "Thought", true }, { "Grade: half", false } }) }),
+			aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) }).toJson(QJsonDocument::Compact));
+		evalPageJs(widget_, QStringLiteral(R"JS(
+			window._geminiApiKey = '';
+			var id = Object.keys(_liftoffStore)[0];
+			var marker = null;
+			leafletMapInstance.eachLayer(function (l) {
+			    if (l.getPopup && l.getPopup() && String(l.getPopup().getContent()).indexOf('td-btn-' + id + '\x22') >= 0) marker = l;
+			});
+			var streams = %1;
+			var realFetch = window.fetch, realSave = mapBridge.saveLiftoffAnalysisReport;
+			var ai = window._closed = { id: id, marker: marker, calls: 0, saved: null, release: null };
+			function response(stream) {
+			    return { ok: true, status: 200, body: { getReader: function () {
+			        var sent = false;
+			        return { read: function () {
+			            if (sent) return Promise.resolve({ done: true });
+			            sent = true;
+			            return Promise.resolve({ done: false, value: new TextEncoder().encode(stream) });
+			        } };
+			    } } };
+			}
+			window.fetch = function () {
+			    var stream = streams[ai.calls++];
+			    if (ai.calls > 1) return Promise.resolve(response(stream));
+			    return new Promise(function (resolve) { ai.release = function () { resolve(response(stream)); }; });
+			};
+			mapBridge.saveLiftoffAnalysisReport = function (rowId, report, onSaved) { ai.saved = report; onSaved(true); };
+			ai.restore = function () { window.fetch = realFetch; mapBridge.saveLiftoffAnalysisReport = realSave; };
+			marker.openPopup();
+			document.getElementById('td-btn-' + id).click();
+			marker.closePopup();
+		)JS").arg(streams));
+		// Leaflet fades a closed popup out before it removes it from the page.
+		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("!document.getElementById('td-result-' + window._closed.id)")).toBool());
+		evalPageJs(widget_, QStringLiteral("window._closed.release()"));
+		QTRY_VERIFY(!evalPageJs(widget_, QStringLiteral("_liftoffStore[window._closed.id].analyzing")).toBool());
+		const QString done = evalPageJs(widget_, QStringLiteral(R"JS(
+			var ai = window._closed;
+			ai.restore();
+			ai.marker.openPopup();
+			var shown = [ai.calls, ai.saved, document.getElementById('td-btn-' + ai.id).disabled,
+			             document.getElementById('td-result-' + ai.id).textContent].join('|');
+			ai.marker.closePopup();
+			shown
+		)JS")).toString();
+		QCOMPARE(done, QStringLiteral("2|Grade: A|false|Grade: A"));
+	}
+
 	// A server error or rate limit is often gone a moment later: the request
 	// is retried, and the answer that follows is saved.
 	void aServerErrorOrRateLimitIsRetried_data() {
