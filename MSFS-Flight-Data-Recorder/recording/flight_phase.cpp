@@ -242,7 +242,7 @@ const RESOLUTION_TEXT RESOLUTION_TEXTS[] = {
 	{ // LIFTOFF (touch-and-go marker)
 		"Liftoff (subsequent) from %s (%s) runway %s at %s",
 		"Liftoff (subsequent) from %s (%s) [%s, %s] at %s",
-		"Liftoff (subsequent) at %s, %s at %s",
+		"Liftoff (subsequent) from %s, %s at %s",
 		"Liftoff (subsequent) from %s (%s) runway %s: trip_liftoffs row was never inserted; dropping this resolution",
 		"Liftoff (subsequent) from %s (%s): trip_liftoffs row was never inserted; dropping this resolution",
 	},
