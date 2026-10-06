@@ -533,6 +533,7 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
             if (attempt === MAX_ATTEMPTS - 1) {
                 finalDiv.innerHTML = '<span style="color:#64748b">Couldn\'t reach the AI service after '
                     + MAX_ATTEMPTS + ' attempts. Check your internet connection and try again.</span>';
+                thDet.style.display = 'none';
             }
             continue;
         }

@@ -103,8 +103,8 @@ class TstMapWidget : public QObject {
 	// Runs the page's AI analysis of a liftoff with fetch() stubbed: attempt n
 	// gets attempts[n] (the last one repeated), each delivered in the given
 	// pieces with HTTP status statuses[n] (the last one repeated; 200 if
-	// none; 0 for a request that never reaches the service, as when offline);
-	// saving the report succeeds if saveOk. Returns what it did: calls
+	// none; 0 for a request that never reaches the service, as when offline;
+	// -1 for a 200 whose connection drops after its pieces); saving the report succeeds if saveOk. Returns what it did: calls
 	// (fetches made), saved (the report saved, null if none), text (the answer
 	// shown), thinkingShown.
 	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts, bool saveOk = true, const QList<int>& statuses = {}) {
@@ -122,9 +122,12 @@ class TstMapWidget : public QObject {
 			        var n = window._ai.calls++;
 			        var status = statuses.length ? statuses[Math.min(n, statuses.length - 1)] : 200;
 			        if (status === 0) return Promise.reject(new TypeError('Failed to fetch'));
+			        var drops = status === -1;
+			        if (drops) status = 200;
 			        var pieces = attempts[Math.min(n, attempts.length - 1)].slice();
 			        var reader = { read: function () {
-			            return Promise.resolve(pieces.length ? { done: false, value: new TextEncoder().encode(pieces.shift()) } : { done: true });
+			            if (pieces.length) return Promise.resolve({ done: false, value: new TextEncoder().encode(pieces.shift()) });
+			            return drops ? Promise.reject(new TypeError('network error')) : Promise.resolve({ done: true });
 			        } };
 			        return Promise.resolve({ ok: status < 300, status: status,
 			            text: function () { return Promise.resolve(pieces.join('')); },
@@ -884,6 +887,18 @@ private slots:
 	// the message says so and nothing is saved.
 	void anUnreachableServiceIsTriedThreeTimesThenSaysSo() {
 		const QVariantMap r = runAiAnalysisWith({ { QString() } }, true, { 0 });
+		QCOMPARE(r.value("calls").toInt(), 3);
+		QVERIFY(r.value("saved").isNull());
+		QCOMPARE(r.value("text").toString(), QStringLiteral(
+			"Couldn't reach the AI service after 3 attempts. Check your internet connection and try again."));
+		QCOMPARE(r.value("thinkingShown").toBool(), false);
+	}
+
+	// A connection that drops mid-answer, after thinking arrived, is retried
+	// the same way; after the third, the message replaces the thinking panel,
+	// whose "Thinking…" would otherwise never finish.
+	void aConnectionDroppedAfterThinkingHidesTheThinkingPanel() {
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Thought", true } }) }) } }, true, { -1 });
 		QCOMPARE(r.value("calls").toInt(), 3);
 		QVERIFY(r.value("saved").isNull());
 		QCOMPARE(r.value("text").toString(), QStringLiteral(
