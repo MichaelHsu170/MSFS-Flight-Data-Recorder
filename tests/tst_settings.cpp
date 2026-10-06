@@ -56,7 +56,18 @@ private slots:
 			QVERIFY2(text.contains(QLatin1String(block)), block);
 	}
 
+	// The check instance() runs at startup leaves a user's own file, however
+	// partial, exactly as it is.
+	void startupKeepsAnExistingFileAsItIs() {
+		const QString own = QStringLiteral("[ai]\ngemini_api_key=my-key\n; my note\n");
+		writeSettingsFile(own);
+		AppSettings::ensureFileExists();
+		QCOMPARE(readSettingsFile(), own);
+	}
+
 	void defaultFileReadsAsDefaults() {
+		removeSettings();
+		AppSettings::ensureFileExists();
 		AppSettings& s = AppSettings::instance();
 		QCOMPARE(s.dataTableHiddenFields(), QStringList());
 		QCOMPARE(s.dataTableFieldColumnWidth(), 140);

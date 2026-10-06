@@ -191,7 +191,7 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 		// the last line of the section, preserving everything that follows. A
 		// blank line separates it from the prior key, matching the grouping
 		// convention used between distinct settings elsewhere in this file
-		// (see ensureSettingsFileExists()) -- skipped if there's no comment to
+		// (see ensureFileExists()) -- skipped if there's no comment to
 		// separate (nothing to visually group) or the prior line is already blank.
 		QStringList toInsert;
 		if (!keyComment.isEmpty() && !lines[sectionLastLine].trimmed().isEmpty())
@@ -221,9 +221,9 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 	}
 }
 
-// Creates a fully-documented settings.ini on first launch. Only runs when the
-// file does not yet exist — never modifies an existing file, even a partial one.
-void ensureSettingsFileExists() {
+}
+
+void AppSettings::ensureFileExists() {
 	const QString path = settingsFilePath();
 	if (QFile::exists(path)) {
 		Logger::logf(Logger::Trace, "Settings", "Using existing settings.ini at %s", qUtf8Printable(path));
@@ -295,14 +295,12 @@ void ensureSettingsFileExists() {
 	Logger::logf(Logger::Trace, "Settings", "Default settings.ini created at %s", qUtf8Printable(path));
 }
 
-}
-
 QString AppSettings::filePath() {
 	return settingsFilePath();
 }
 
 AppSettings& AppSettings::instance() {
-	static bool _ = (ensureSettingsFileExists(), true);
+	static bool _ = (ensureFileExists(), true);
 	static AppSettings settings;
 	(void)_;
 	return settings;

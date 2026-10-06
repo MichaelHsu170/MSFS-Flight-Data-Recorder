@@ -19,6 +19,11 @@ public:
 	// the executable's directory in Release builds.
 	static QString filePath();
 
+	// Writes a fully-documented default settings.ini when there's none;
+	// never modifies an existing file, even a partial one. instance() calls
+	// it the first time it's used in a process.
+	static void ensureFileExists();
+
 	// [logging] verbose: the log level name (Logger::levelFromString()),
 	// "INFO" if unset. Static and read-only (never creates settings.ini), so
 	// main() can read it before QApplication exists and logging starts.
