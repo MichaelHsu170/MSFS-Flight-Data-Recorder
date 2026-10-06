@@ -33,10 +33,9 @@ public:
 	bool isRecording() const { return status_.recording; }
 	// User-facing gate on automatic recording start; see STATUS::recording_enabled.
 	bool isRecordingEnabled() const { return status_.recording_enabled; }
-	// No-op if a trip is currently recording (see isRecording()) -- callers
-	// (LiveStatusPanel's click handler) are expected to check that first, but
-	// this guards the underlying flag either way since toggling it mid-trip
-	// couldn't affect that trip regardless.
+	// No-op while a trip is recording (see isRecording()): toggling it
+	// mid-trip couldn't affect that trip. LiveStatusPanel also keeps its
+	// toggle locked until that trip is saved.
 	void setRecordingEnabled(bool enabled);
 	int currentTripId() const { return status_.id_trip; }
 	// True if tripId stopped recording but its tail samples may still be
