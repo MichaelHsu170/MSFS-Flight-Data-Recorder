@@ -407,6 +407,30 @@ private slots:
 		QVERIFY(tripRow(1)["group_id"].isNull());
 	}
 
+	// "Manage Groups…" under the row menu's Set Group opens the same dialog as
+	// the panel's button: a group deleted there is gone from the trip's row.
+	void manageGroupsFromTheRowMenu() {
+		FlightDriver sim;
+		addTrip(1, addGroup("Training"), kDep, kArr);
+		TripHistoryPanel panel(sim.bridge());
+		QCOMPARE(cell(view(panel), 0, TripHistoryModel::GroupColumn), QStringLiteral("Training"));
+		onNextModal([](QWidget* menu) {
+			onNextModal([](QWidget* submenu) {
+				onNextModal([](QWidget* dialog) {
+					dialog->findChild<QListWidget*>()->setCurrentRow(0);
+					onNextModal([](QWidget* confirm) { clickDialogButton(confirm, "Yes"); });
+					clickDialogButton(dialog, "Delete");
+					static_cast<QDialog*>(dialog)->reject();
+				});
+				chooseMenuItem(submenu, "Manage Groups…");
+			});
+			chooseMenuItem(menu, "Set Group");
+		});
+		openRowMenu(view(panel), 0);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_groups").toInt(), 0);
+		QCOMPARE(cell(view(panel), 0, TripHistoryModel::GroupColumn), QStringLiteral("-"));
+	}
+
 	// A group change the database refuses says so and leaves the trip as it was.
 	void failedSetGroupShowsAnErrorAndKeepsTheGroup() {
 		FlightDriver sim;
