@@ -104,9 +104,10 @@ class TstMapWidget : public QObject {
 	// gets attempts[n] (the last one repeated), each delivered in the given
 	// pieces with HTTP status statuses[n] (the last one repeated; 200 if
 	// none; 0 for a request that never reaches the service, as when offline;
-	// -1 for a 200 whose connection drops after its pieces); saving the report succeeds if saveOk. Returns what it did: calls
-	// (fetches made), saved (the report saved, null if none), text (the answer
-	// shown), thinkingShown.
+	// -1 for a 200 whose connection drops after its pieces); saving the
+	// report succeeds if saveOk. Returns what it did: calls (fetches made),
+	// saved (the report saved, null if none), text (the answer shown),
+	// thinkingShown.
 	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts, bool saveOk = true, const QList<int>& statuses = {}) {
 		QJsonArray json;
 		for (const QStringList& pieces : attempts)
@@ -149,7 +150,6 @@ class TstMapWidget : public QObject {
 			"   text: document.getElementById('td-th-final-ai').textContent,"
 			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none' })")).toMap();
 	}
-
 
 	QWebEngineView* mapView() { return widget_->findChild<QWebEngineView*>(); }
 	// The widget a user's mouse input reaches the page through.

@@ -458,7 +458,6 @@ private slots:
 		QCOMPARE(cell(view(panel), 0, TripHistoryModel::GroupColumn), QStringLiteral("-"));
 	}
 
-
 	void deselectAndResetZoomOnlyForTheSelectedTrip() {
 		FlightDriver sim;
 		addTrip(1, 0, kDep, kArr);
