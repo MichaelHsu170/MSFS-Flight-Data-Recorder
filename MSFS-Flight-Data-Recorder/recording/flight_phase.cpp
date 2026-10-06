@@ -120,25 +120,6 @@ static void free_contact_list(Record*& head, Record*& tail) {
 	tail = NULL;
 }
 
-// Clears a liftoff/touchdown lookup slot (liftoff_scratch/destination) once
-// its lookup has resolved. If another record is still waiting for its own
-// lookup, the slot's ICAO and region are kept: FACILITY_DATA_AIRPORT doesn't
-// carry them (only AIRPORT_LIST does), and that record's AIRPORT_LIST may
-// already have filled them in before its FACILITY_DATA_END arrives.
-static void clear_lookup_slot(AIRPORT* slot, bool another_waiting) {
-	char saved_icao[sizeof(slot->icao)];
-	char saved_region[sizeof(slot->region)];
-	if (another_waiting) {
-		memcpy(saved_icao, slot->icao, sizeof(saved_icao));
-		memcpy(saved_region, slot->region, sizeof(saved_region));
-	}
-	slot->clear();
-	if (another_waiting) {
-		memcpy(slot->icao, saved_icao, sizeof(slot->icao));
-		memcpy(slot->region, saved_region, sizeof(slot->region));
-	}
-}
-
 void stop_recording(struct STATUS* status) {
 	gui_log_printf(status, GUI_LOG_TRACE, "stop_recording: trip=%d, last_sample=%s",
 		status->id_trip, status->flight.last_sample != NULL ? "present" : "none");
@@ -365,12 +346,11 @@ void on_lookup_resolved(struct STATUS* status, AIRPORT* slot, LOOKUP_OUTCOME out
 			}
 			gui_notify_trip_updated(status);
 		}
-		if (with_runway && !departure) {
-			const bool another_waiting = target == LOOKUP_TARGET::LIFTOFF
-				? first_unresolved(status->flight.liftoff_data) != nullptr
-				: first_unresolved(status->flight.touchdown_data) != nullptr;
-			clear_lookup_slot(slot, another_waiting);
-		}
+		// Cleared even with another record waiting: its lookup starts only
+		// after this one ends, and writes the slot's ICAO and region before
+		// reading them (airport_lookup.cpp).
+		if (with_runway && !departure)
+			slot->clear();
 		break;
 	}
 	case LOOKUP_OUTCOME::NO_AIRPORT:
