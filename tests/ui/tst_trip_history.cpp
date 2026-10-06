@@ -147,9 +147,12 @@ private slots:
 		QCOMPARE(text(TripHistoryModel::DepartureTimeColumn), QString::fromLatin1(kDep));
 		QCOMPARE(text(TripHistoryModel::DestinationTimeColumn), QString::fromLatin1(kArr));
 		QCOMPARE(model.index(0, TripHistoryModel::DepartureColumn).data(Qt::ToolTipRole).toString(), QStringLiteral("AAAA (Alpha)"));
-		QCOMPARE(model.headerData(TripHistoryModel::TitleColumn, Qt::Horizontal, Qt::DisplayRole).toString(), QStringLiteral("Aircraft"));
-		QCOMPARE(model.headerData(TripHistoryModel::DurationColumn, Qt::Horizontal, Qt::DisplayRole).toString(), QStringLiteral("Duration"));
-		QCOMPARE(model.columnCount(), (int)TripHistoryModel::ColumnCount);
+		// The table's columns, left to right.
+		QStringList headers;
+		for (int c = 0; c < model.columnCount(); ++c)
+			headers << model.headerData(c, Qt::Horizontal, Qt::DisplayRole).toString();
+		QCOMPARE(headers, (QStringList{ "Aircraft", "Flight", "Group", "Region", "From", "Dep Rwy", "Region", "To", "Dest Rwy",
+			"Departed (Z)", "Arrived (Z)", "Duration" }));
 		// Out-of-enum section/column, wrong orientation: all fall through to the
 		// shared "nothing to show" return rather than a matching case.
 		QVERIFY(!model.headerData(TripHistoryModel::ColumnCount, Qt::Horizontal, Qt::DisplayRole).isValid());
