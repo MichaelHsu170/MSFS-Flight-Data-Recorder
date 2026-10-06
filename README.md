@@ -261,7 +261,7 @@ MSFS-Flight-Data-Recorder/
 │   │       ├── map_bridge.h / .cpp   QWebChannel QObject bridging JS ↔ C++ for the map
 │   │       ├── map_script.h / .cpp   The JavaScript calls sent to map.html, built from trip data
 │   │       ├── map.html          Leaflet map: trajectory polyline, liftoff/touchdown markers with AI analysis popup, event markers
-│   │       └── map.qrc           Qt resource file bundling map.html
+│   │       └── map.qrc           Qt resource file bundling map.html and the Leaflet library (third_party/leaflet/)
 │   └── export/                   KML export
 │       ├── kml_export.h / .cpp   Builds and writes a trip's KML file
 │       └── kml_export_dialog.h/.cpp  Export to KML for both menus: save dialog, background export, error box
