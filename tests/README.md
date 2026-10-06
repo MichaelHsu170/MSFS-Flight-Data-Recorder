@@ -209,10 +209,6 @@ make the other's map test time out.
 - **KML failed write or flush** (`kml_export.cpp`): a write or flush that
   fails partway through the temporary file needs a full or failing disk.
 - **Branches with no observable effect or no way in**:
-  - `airport_lookup.cpp`'s wrap of a 0° bearing to 360°. Every use of the
-    bearing in `runway_match.cpp` takes differences modulo 360, so only a
-    trace log line shows it. A due-north test passed with the wrap removed
-    and was dropped.
   - `lookup_on_facility_data()`'s stale-trip check: `lookup_on_facility_data_end()`
     makes the same check and drops the response, so removing only the first
     changes nothing a test can see (the second is covered).
@@ -245,11 +241,13 @@ make the other's map test time out.
     installed on the toggle.
   - `DataTablePanel::showPoint()`'s range check, `rawNum()`'s check that a
     number field's index is within the sample's `rawNums` (with the
-    resulting NaN checks of the GPS row and the number rows). Every sample
-    the app shows is loaded
-    by `queryTripData()`, which fills one value per number field, and those
-    columns are always in that field list, so none of these checks can fail.
-    `tst_data_table_panel` passed with each one removed.
+    resulting NaN checks of the GPS row and the number rows), and
+    `numFieldIndex()`'s -1 for a column that isn't a number field. Every
+    sample the app shows is loaded
+    by `queryTripData()`, which fills one value per number field, and the
+    columns looked up are always in that field list, so none of these checks
+    can fail.
+    `tst_data_table_panel` passed with each of the first two removed.
   - `tripFieldEngine()`'s lower bound on the last character (`< '1'`): field
     names are C identifiers, whose only character below `'1'` is `'0'`, and
     an engine "0" gives 0 either way.
