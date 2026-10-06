@@ -2,7 +2,10 @@
 
 Automated tests that pin the app's current behavior so refactoring can be
 checked without flying in MSFS. Each `tst_*.cpp` is a Qt Test executable run
-by CTest.
+by CTest. They sit in subfolders mirroring the app's source folders (e.g.
+`db/tst_database.cpp` tests `db/db.cpp`); the shared helpers
+(`fake_simconnect`, `test_support`, `local_time_zone.h`) and the test data
+(`data/`) stay at the top of `tests/`.
 
 ## Running
 

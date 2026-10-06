@@ -268,7 +268,7 @@ MSFS-Flight-Data-Recorder/
 ├── tests/                        Automated tests (Qt Test + CTest) -- see tests/README.md
 │   ├── fake_simconnect.h / .cpp  Stand-in for SimConnect.lib driven by made-up packets
 │   ├── test_support.h / .cpp     Packet builders, FlightDriver, fake airport world, DB/dialog/mouse helpers
-│   └── tst_*.cpp                 One test program per feature area
+│   └── <app source folder>/tst_*.cpp  One test program per feature area, in the folder (app/, db/, export/, recording/, ui/, ui/map/, ui/charts/) of the code it tests
 ├── third_party/sqlite3/          Bundled SQLite3 (sqlite3.h, sqlite3.lib, sqlite3.dll)
 ├── .github/
 │   ├── copilot-instructions.md   Code quality rules (single source of truth) and review entry point for Copilot
