@@ -742,8 +742,8 @@ function reportVisibleRange(trajectoryLatLngs, origIndices, version, bounds) {
     }
     if (minIdx === -1) {
         // No decimated point inside the viewport — the map may be showing only
-        // the interior of one long decimated segment. Find the segment whose
-        // midpoint is nearest to the viewport centre and include both endpoints.
+        // the interior of one long decimated segment. Find the decimated
+        // vertex nearest the viewport centre.
         var c = bounds.getCenter();
         var bestDist = Infinity, bestIdx = 0;
         for (var i = 0; i < n; i++) {
