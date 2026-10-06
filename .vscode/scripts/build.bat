@@ -39,15 +39,16 @@ set "BUILD_DIR=%ROOT%\build\%CONFIG%"
 
 REM --- Locate and source the MSVC x64 dev environment (needed by both cmake
 REM     configure's compiler checks and the MSBuild invocation that
-REM     `cmake --build` shells out to). ---
-set "PF86=%ProgramFiles(x86)%"
+REM     `cmake --build` shells out to): the one already set up in this
+REM     shell, else the newest Visual Studio 18 with the C++ x64 tools, of
+REM     any edition and wherever installed, as the Visual Studio Installer's
+REM     vswhere.exe reports it (the IDE editions install under Program Files,
+REM     Build Tools under Program Files (x86)). ---
 set "VSINSTALL="
 if defined VSINSTALLDIR set "VSINSTALL=%VSINSTALLDIR%"
 
-if not defined VSINSTALL if exist "!PF86!\Microsoft Visual Studio\18\BuildTools" set "VSINSTALL=!PF86!\Microsoft Visual Studio\18\BuildTools"
-if not defined VSINSTALL if exist "!PF86!\Microsoft Visual Studio\18\Community" set "VSINSTALL=!PF86!\Microsoft Visual Studio\18\Community"
-if not defined VSINSTALL if exist "!PF86!\Microsoft Visual Studio\18\Professional" set "VSINSTALL=!PF86!\Microsoft Visual Studio\18\Professional"
-if not defined VSINSTALL if exist "!PF86!\Microsoft Visual Studio\18\Enterprise" set "VSINSTALL=!PF86!\Microsoft Visual Studio\18\Enterprise"
+set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+if not defined VSINSTALL if exist "!VSWHERE!" for /f "usebackq delims=" %%V in (`"!VSWHERE!" -latest -products * -version [18.0^,19.0^) -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALL=%%V"
 
 if defined VSINSTALL (
   if exist "!VSINSTALL!\VC\Auxiliary\Build\vcvarsall.bat" (
