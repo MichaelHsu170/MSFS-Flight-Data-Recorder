@@ -12,19 +12,11 @@
 
 #include <Windows.h>
 #include <exception>
-#include <malloc.h>
 
 // Last-resort diagnostics: neither of these can recover the process, but they
 // give the log a chance to say why it died instead of leaving the last line
 // before a crash as the only clue.
 static LONG WINAPI crashHandler(EXCEPTION_POINTERS* info) {
-	if (info->ExceptionRecord->ExceptionCode == EXCEPTION_STACK_OVERFLOW) {
-		// Only a guard-page's worth of stack remains at this point -- Logger::logf's
-		// QString formatting and heap allocation would very likely re-fault before
-		// writing anything. _resetstkoflw() restores the guard page first so the
-		// rest of this handler has normal stack space to run in.
-		_resetstkoflw();
-	}
 	Logger::logCrashf(Logger::Fatal, "Crash",
 		"Unhandled exception 0x%08lX at address %p",
 		info->ExceptionRecord->ExceptionCode,
@@ -123,6 +115,12 @@ int main(int argc, char* argv[]) {
 	const QString logPath = QString::fromStdString(app_file_path("msfs_fdr_debug.log"));
 	Logger::init(Logger::levelFromString(AppSettings::logLevel()), logPath, QStringLiteral(APP_VERSION));
 	qInstallMessageHandler(logMessageHandler);
+	// A stack overflow leaves only a guard page's worth of stack, which the
+	// crash handler's formatting would overflow again before logging
+	// anything; this keeps 64 KB in reserve for it. It covers the main
+	// thread (where the UI runs) only: the guarantee is per thread.
+	ULONG stackGuarantee = 64 * 1024;
+	SetThreadStackGuarantee(&stackGuarantee);
 	SetUnhandledExceptionFilter(crashHandler);
 	std::set_terminate(terminateHandler);
 
