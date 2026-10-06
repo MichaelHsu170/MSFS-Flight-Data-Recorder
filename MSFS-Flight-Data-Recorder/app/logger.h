@@ -10,7 +10,10 @@
 // are written; messages above the configured level are silently dropped.
 //
 // Levels (ordered lowest → highest verbosity):
-//   Fatal   – unrecoverable errors that halt the app
+//   Fatal   – errors the app can't recover from: a crash, the database not
+//             opening when the simulator connects (the app exits), or a failed
+//             database update at startup (the window stays open, but recording
+//             and Trip History stay off until the next start)
 //   Warning – unexpected/unhandled conditions that don't stop execution
 //   Info    – user-visible events (connect, record, liftoff, touchdown, …)
 //   Trace   – fine-grained diagnostic detail (e.g. raw Qt debug output) that's
