@@ -578,7 +578,8 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
 // Renders a stored analysis report (loaded from the DB) into the result div.
 // Parses the stored format: '<thinking>TEXT</thinking>FINAL' for reports from
 // a thinking model, or plain text for non-thinking models.
-// Called from a Leaflet popupopen handler once the popup DOM is live.
+// Called from a Leaflet popupopen handler once the popup DOM is live, and by
+// runAiAnalysis() when the popup was reopened while its analysis ran.
 function renderStoredReport(id, report) {
     var result = document.getElementById('td-result-' + id);
     if (!result) return;
@@ -745,13 +746,7 @@ function reportVisibleRange(trajectoryLatLngs, origIndices, version, bounds) {
         // the interior of one long decimated segment. Find the decimated
         // vertex nearest the viewport centre.
         var c = bounds.getCenter();
-        var bestDist = Infinity, bestIdx = 0;
-        for (var i = 0; i < n; i++) {
-            var dLat = trajectoryLatLngs[i][0] - c.lat;
-            var dLng = trajectoryLatLngs[i][1] - c.lng;
-            var d = dLat * dLat + dLng * dLng;
-            if (d < bestDist) { bestDist = d; bestIdx = i; }
-        }
+        var bestIdx = nearestIndexIn(trajectoryLatLngs, c.lat, c.lng);
         // Include the full segment on each side of bestIdx so the chart covers
         // the trajectory visible on the map even when the viewport is smaller
         // than one decimated stride.
@@ -1153,8 +1148,8 @@ function initLeafletProvider() {
             removeMarkers(liftoffMarkers);
             // Every entry belonged to a marker/popup just removed above (and
             // analyzeLiftoff() already no-ops once its popup's DOM is gone,
-            // via the missing-btn check), so nothing still needs them --
-            // without this, _liftoffStore accumulates one entry per
+            // via runAiAnalysis()'s missing td-result check), so nothing
+            // still needs them -- without this, _liftoffStore accumulates one entry per
             // liftoff marker ever shown, for the lifetime of the page.
             _liftoffStore = {};
             liftoffMarkers = addContactMarkers(points, '\u{1F6EB}', 'liftoff-icon', liftoffPopupHtml,
