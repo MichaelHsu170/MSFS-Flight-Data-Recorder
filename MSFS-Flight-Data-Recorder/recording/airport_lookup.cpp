@@ -460,23 +460,6 @@ void lookup_on_facility_data_end(struct STATUS* status) {
 		if (resolve_as_known_airport_no_runway)
 			on_lookup_resolved(status, rep, LOOKUP_OUTCOME::AIRPORT);
 	}
-	// runways free + lookup.pending reset happen in cleanup_guard's
-	// destructor above, regardless of which branch was taken. status->flight.loc_dh
-	// is deliberately left untouched here -- it's reset by three things only:
-	// a fresh 50-100ft AGL crossing (overwrites with new data), climbing back
-	// above 100ft (clears to sentinel -- see flight_on_sample() in flight_phase.cpp),
-	// or trip start. This lets repeated touchdowns from the same low bounce/
-	// touch-and-go sequence (which never climbs above 100ft) keep reusing the
-	// one real approach ground track instead of falling back to heading-based.
-	// Safe to leave unreset here: a genuinely distinct later landing climbing
-	// above 100ft is a real-world flying assumption, not something this code
-	// enforces -- status->flight.airborne (set purely from sim_on_ground, with no
-	// altitude term) can't tell a low bounce apart from a full circuit. A
-	// genuine later landing either gets fresh data on the way back down, or
-	// -- if that descent doesn't happen to resample the 50-100ft band --
-	// finds loc_dh already cleared to the sentinel and falls back to
-	// heading-based bearing, so a stale cross-approach position can never
-	// reach a later touchdown either way.
 }
 
 void lookup_on_exception(struct STATUS* status, DWORD send_id) {
