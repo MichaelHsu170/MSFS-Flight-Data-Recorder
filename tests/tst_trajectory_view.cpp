@@ -1,8 +1,9 @@
 // Trajectory view (trajectory_view.cpp): the composite map+charts+data-table
 // widget -- setDataset()/clearAndShowOverview()'s fan-out to the three
 // sub-panels, the pendingRenders_ bookkeeping that turns two async subview
-// loads into one renderingFinished(), and the two splitter-width wires
-// (map/table and map+table/charts).
+// loads into one renderingFinished(), the map's cursor, visible range and
+// overview clicks passed on, and the two splitter-width wires (map/table and
+// map+table/charts).
 //
 // Needs a custom main() and no QT_QPA_PLATFORM=offscreen, exactly like
 // tst_map_widget.cpp: this widget owns a MapWidget (QWebEngineView)
@@ -15,6 +16,7 @@
 #include "app_settings.h"
 #include "charts_panel.h"
 #include "data_table_panel.h"
+#include "map_widget.h"
 #include "test_support.h"
 
 #include <QApplication>
@@ -134,9 +136,13 @@ private slots:
 		QVERIFY(fitted > 2);
 
 		// Zoom both out of their full view: the map directly on the page (its
-		// range report reaches the charts), then the charts to a slice.
+		// range report reaches the charts), then the charts to a slice once
+		// that report is in, so it can't land afterwards and undo the slice.
+		QSignalSpy rangeReported(view_->findChild<MapWidget*>(), &MapWidget::visibleRangeChanged);
 		evalPageJs(view_, QStringLiteral("leafletMapInstance.setZoom(2, {animate: false})"));
-		QTest::qWait(300);
+		// One report each for zoomend and moveend; they may already be in, as
+		// evalPageJs() runs the event loop.
+		QTRY_COMPARE_WITH_TIMEOUT(rangeReported.count(), 2, 5000);
 		ChartsPanel* charts = view_->findChild<ChartsPanel*>();
 		QQuickItem* chartsRoot = charts->findChild<QQuickWidget*>()->rootObject();
 		charts->setVisibleRange(0, 1);
@@ -145,6 +151,33 @@ private slots:
 		view_->resetZoom();
 		QCOMPARE(chartsRoot->property("isFullRangeVisible").toBool(), true);
 		QTRY_COMPARE_WITH_TIMEOUT(mapZoom(view_), fitted, 5000);
+	}
+
+	// Runs on the trip loaded just above. The map's cursor (a click on the
+	// line, or the marker dragged) moves the charts' cursor and the data
+	// table's sample; the map's visible range zooms the charts. Emitted
+	// straight from MapWidget: tst_map_widget covers the page producing them.
+	void theMapsCursorAndRangeReachTheChartsAndTheDataTable() {
+		MapWidget* map = view_->findChild<MapWidget*>();
+		QQuickItem* chartsRoot = view_->findChild<ChartsPanel*>()->findChild<QQuickWidget*>()->rootObject();
+
+		emit map->cursorIndexChanged(1);
+		QCOMPARE(zuluShown(*view_), QStringLiteral("2026-04-01T10:30:01.000+00:00_8"));
+		QCOMPARE(chartsRoot->property("cursorTime").toDouble(), 1775039401000.0); // 2026-04-01 10:30:01 UTC
+
+		emit map->visibleRangeChanged(0, 1);
+		QCOMPARE(chartsRoot->property("isFullRangeVisible").toBool(), false);
+		emit map->visibleRangeChanged(-1, -1);
+		QCOMPARE(chartsRoot->property("isFullRangeVisible").toBool(), true);
+	}
+
+	// A click on a trip's route on the overview map is passed on, for Trip
+	// History to open that trip (MainWindow connects the two).
+	void anOverviewRouteClickIsPassedOn() {
+		QSignalSpy clicked(view_, &TrajectoryView::overviewTripClicked);
+		emit view_->findChild<MapWidget*>()->overviewTripClicked(7);
+		QCOMPARE(clicked.count(), 1);
+		QCOMPARE(clicked.at(0).at(0).toInt(), 7);
 	}
 
 	void setRightPanelWidthResizesTheMapTableSplitter() {
