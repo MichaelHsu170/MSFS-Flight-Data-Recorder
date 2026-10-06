@@ -229,9 +229,8 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 	if (pageReady_) {
 		Logger::logf(Logger::Trace, "Map", "setDataset: page ready, pushing dataset v%d immediately (%zu pts, %zu touchdowns, %zu events)",
 		             datasetVersion_, trajCoords_.size(), touchdowns_.size(), events_.size());
-		// Inject the aircraft title before pushing liftoff points/touchdowns so
-		// liftoffPopupHtml()/touchdownPopupHtml() see the correct value when they
-		// run setLiftoffs/setTouchdowns.
+		// Inject this trip's aircraft title for buildLiftoffPrompt()/
+		// buildTouchdownPrompt(), which read it when an AI analysis runs.
 		runJs(mapSetStringJs(QStringLiteral("window._aircraftTitle"), aircraftTitle_));
 		pushTrip();
 	} else {

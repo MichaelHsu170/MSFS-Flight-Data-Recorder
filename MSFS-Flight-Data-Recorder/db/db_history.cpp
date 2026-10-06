@@ -14,7 +14,8 @@ namespace {
 
 // Shared prepare/bind(trip)/step/finalize skeleton for queryLiftoffs() and
 // queryTouchdowns() below, which differ only in table/column layout
-// (touchdowns adds a g_force column, shifting every later column index by 1)
+// (touchdowns append a g_force column after the shared ones, read at
+// CONTACT_POINT_COLUMN_COUNT)
 // and the target struct type. extractRow runs once per SQLITE_ROW to build
 // one T from the current row. callerName/itemsWord name the caller and its
 // rows in the log lines (e.g. "queryLiftoffs(trip %d): loading liftoffs" /
