@@ -14,7 +14,6 @@
 #include <QtGraphs/qdatetimeaxis.h>
 #include <QtGraphs/qvalueaxis.h>
 
-
 namespace {
 
 QValueAxis* findYAxis(QQuickItem* root, const char* objectName) {
