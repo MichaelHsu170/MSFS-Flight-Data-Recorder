@@ -193,7 +193,14 @@ class TstMapWidget : public QObject {
 	void loadTrip(const TripDataset& dataset) {
 		showTrip(dataset);
 		QTRY_COMPARE_WITH_TIMEOUT(mapTrajectoryPointCount(widget_), int(dataset.points.size()), 10000);
-		QTest::qWait(1500);
+		double south = 90, west = 180, north = -90, east = -180;
+		for (const TripSamplePoint& p : dataset.points) {
+			south = std::min(south, p.latitude);
+			north = std::max(north, p.latitude);
+			west = std::min(west, p.longitude);
+			east = std::max(east, p.longitude);
+		}
+		QTRY_VERIFY_WITH_TIMEOUT(mapFittedTo(widget_, south, west, north, east), 5000);
 	}
 
 	// The middle of the straight line from (lat1, lng1) to (lat2, lng2) as
@@ -462,7 +469,7 @@ private slots:
 		// Waits for this trip on the page, not for trajectoryLoaded: the
 		// previous slot's loads, never waited for, can still emit that late.
 		QTRY_COMPARE_WITH_TIMEOUT(mapTrajectoryPointCount(widget_), 2, 10000);
-		QTest::qWait(1500); // let the animated fit (0.75 s) settle
+		QTRY_VERIFY_WITH_TIMEOUT(mapFittedTo(widget_, 10, 20, 11, 21), 5000);
 		const int fitted = mapZoom(widget_);
 		QVERIFY(fitted > 2);
 
@@ -484,7 +491,7 @@ private slots:
 			"  setTrajectory({lats: [10, 11], lngs: [20, 21], idxs: [0, 1], version: 0});"
 			"});"
 			"setTrajectory({lats: [10, 12], lngs: [20, 22], idxs: [0, 1], version: 0});"));
-		QTest::qWait(1500); // let both fits settle
+		QTRY_VERIFY_WITH_TIMEOUT(mapFittedTo(widget_, 10, 20, 11, 21), 5000);
 		// 1 x 1 degree at 10 N in the 400 x 300 view less 20 px padding:
 		// ~182 px a side at zoom 8, ~364 px (too wide) at zoom 9.
 		QCOMPARE(mapZoom(widget_), 8);
@@ -981,7 +988,7 @@ private slots:
 		QSignalSpy clicked(widget_, &MapWidget::overviewTripClicked);
 		widget_->showOverview({ overviewTrip(7) });
 		QTRY_COMPARE_WITH_TIMEOUT(mapElementCount(widget_, "overview-endpoint"), 2, 5000);
-		QTest::qWait(1500); // let the animated fit settle
+		QTRY_VERIFY_WITH_TIMEOUT(mapFittedTo(widget_, 10, 20, 11, 21), 5000);
 		QTest::mouseClick(mapInput(), Qt::LeftButton, Qt::NoModifier, midpointOnScreen(10, 20, 11, 21));
 		QTRY_COMPARE_WITH_TIMEOUT(clicked.count(), 1, 5000);
 		QCOMPARE(clicked.value(0).value(0).toInt(), 7);

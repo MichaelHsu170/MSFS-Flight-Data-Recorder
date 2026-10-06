@@ -55,6 +55,11 @@ QVariant evalPageJs(QWidget* owner, const QString& js);
 // line, read back from the page itself.
 int mapZoom(QWidget* owner);
 int mapTrajectoryPointCount(QWidget* owner);
+// Whether the map page shows the box from (lat1, lng1) to (lat2, lng2) the
+// way its fit does once it has settled: centred, at the closest zoom that
+// fits it inside 20 px of padding. Polled with QTRY_VERIFY to wait out the
+// fit's animation.
+bool mapFittedTo(QWidget* owner, double lat1, double lng1, double lat2, double lng2);
 // How many elements with this CSS class (a marker's divIcon class) the map
 // page shows.
 int mapElementCount(QWidget* owner, const char* className);

@@ -131,7 +131,7 @@ private slots:
 		QSignalSpy spy(view_, &TrajectoryView::renderingFinished);
 		view_->setDataset(dataset);
 		QVERIFY(spy.wait(15000));
-		QTest::qWait(1500); // let the map's animated fit (0.75 s) settle
+		QTRY_VERIFY_WITH_TIMEOUT(mapFittedTo(view_, 10, 20, 11, 21), 5000);
 		const int fitted = mapZoom(view_);
 		QVERIFY(fitted > 2);
 

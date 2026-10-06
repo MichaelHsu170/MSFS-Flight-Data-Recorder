@@ -120,6 +120,17 @@ int mapTrajectoryPointCount(QWidget* owner) {
 	return v.isValid() ? v.toInt() : -1;
 }
 
+bool mapFittedTo(QWidget* owner, double lat1, double lng1, double lat2, double lng2) {
+	// Leaflet's own getBoundsZoom() gives the zoom; the box's centre is the
+	// midpoint of its corners on screen, within a pixel of the view's centre.
+	return evalPageJs(owner, QStringLiteral(
+		"(function(){var m=leafletMapInstance,b=L.latLngBounds([[%1,%2],[%3,%4]]);"
+		"var p=m.latLngToContainerPoint(b.getSouthWest()),q=m.latLngToContainerPoint(b.getNorthEast()),s=m.getSize();"
+		"return m.getZoom()===m.getBoundsZoom(b,false,L.point(40,40))"
+		"&&Math.abs((p.x+q.x)/2-s.x/2)<=1&&Math.abs((p.y+q.y)/2-s.y/2)<=1;})()")
+		.arg(lat1).arg(lng1).arg(lat2).arg(lng2)).toBool();
+}
+
 int mapElementCount(QWidget* owner, const char* className) {
 	return evalPageJs(owner, QStringLiteral("document.querySelectorAll('.%1').length")
 		.arg(QLatin1String(className))).toInt();
