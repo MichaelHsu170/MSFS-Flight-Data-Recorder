@@ -8,5 +8,6 @@
 // liftoff/touchdown/event placemarks into a KML document and writes it to
 // fileName, for exploring/annotating a recorded trip in Google Earth.
 // Returns true on success; on failure returns false and, if errorMessage is
-// non-null, fills it with a human-readable reason.
+// non-null, fills it with a human-readable reason. A failed export leaves any
+// existing file at fileName as it was.
 bool exportTripDatasetToKmlFile(const TripDataset& dataset, const QString& fileName, QString* errorMessage = nullptr);

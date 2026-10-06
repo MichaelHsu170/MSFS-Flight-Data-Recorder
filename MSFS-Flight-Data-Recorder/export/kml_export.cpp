@@ -3,7 +3,7 @@
 
 #include <QDateTime>
 #include <QElapsedTimer>
-#include <QFile>
+#include <QSaveFile>
 #include <QIODevice>
 #include <QtGlobal>
 
@@ -236,19 +236,17 @@ bool exportTripDatasetToKmlFile(const TripDataset& dataset, const QString& fileN
 	Logger::logf(Logger::Profile, "KML", "buildTripKml: %lld ms  (%zu pts, %zu liftoffs, %zu touchdowns, %zu events)",
 		t.nsecsElapsed() / 1000000, dataset.points.size(), dataset.liftoffPoints.size(), dataset.touchdowns.size(), dataset.events.size());
 
-	QFile file(fileName);
-	if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+	// Written to a temporary file that replaces fileName only once all of it
+	// is on disk, so a failed export leaves an earlier file there untouched.
+	QSaveFile file(fileName);
+	if (!file.open(QIODevice::WriteOnly)) {
 		if (errorMessage) *errorMessage = file.errorString();
 		return false;
 	}
-	const QByteArray bytes = kml.toUtf8();
-	const qint64 written = file.write(bytes);
-	// Flushed here, not left to close(), which ignores a failed flush: a
-	// file smaller than QFile's buffer is only written then.
-	if (written != bytes.size() || !file.flush()) {
-		if (errorMessage)
-			*errorMessage = written >= 0 && written < bytes.size()
-				? QStringLiteral("Disk full or write error (file may be incomplete).") : file.errorString();
+	file.write(kml.toUtf8());
+	// commit() fails on any earlier failed write and on a failed flush or rename.
+	if (!file.commit()) {
+		if (errorMessage) *errorMessage = file.errorString();
 		return false;
 	}
 	return true;

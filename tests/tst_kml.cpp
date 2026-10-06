@@ -1,6 +1,7 @@
 // KML export (kml_export.cpp): document structure, placemark contents,
-// escaping, event grouping, and write failures; and the error box both export
-// menus show (kml_export_dialog.cpp).
+// escaping, event grouping, and write failures; and from kml_export_dialog.cpp,
+// the error box both export menus show, a cancelled save dialog and a
+// database that can't be opened.
 #include "test_support.h"
 
 #include "kml_export.h"
@@ -97,7 +98,26 @@ private:
 		return QString::fromUtf8(f.readAll());
 	}
 
+	// Answers exportTripToKml()'s save dialog with answerDialog, then returns
+	// the text of the error box it shows ("" if none within timeoutMs).
+	static QString exportErrorShown(const std::function<void(QWidget*)>& answerDialog, int timeoutMs) {
+		QWidget parent;
+		QString error;
+		onNextModal(answerDialog);
+		exportTripToKml(&parent, QStringLiteral("trip"), 1);
+		onNextModal([&error](QWidget* box) {
+			error = static_cast<QMessageBox*>(box)->text();
+			clickDialogButton(box, "OK");
+		});
+		waitFor([&error] { return !error.isEmpty(); }, timeoutMs);
+		return error;
+	}
+
 private slots:
+	void initTestCase() {
+		isolateFiles();
+		QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs); // a test can't answer a native dialog
+	}
 	void cleanup() { cancelPendingModals(); } // no dialog action outlives its test
 	void documentHeaderAndName() {
 		const QString kml = exportToString(fullDataset());
@@ -210,6 +230,22 @@ private slots:
 		QVERIFY(!exportTripDatasetToKmlFile(fullDataset(), dir_.filePath("missing/dir/trip.kml")));
 	}
 
+	// An earlier export still open elsewhere (e.g. in Google Earth) can't be
+	// replaced: the export fails and that file keeps what it held.
+	void aFailedExportLeavesTheEarlierFileAsItWas() {
+		const QString path = dir_.filePath("earlier.kml");
+		QFile earlier(path);
+		QVERIFY(earlier.open(QIODevice::WriteOnly));
+		earlier.write("earlier export");
+		earlier.close();
+		QVERIFY(earlier.open(QIODevice::ReadOnly)); // held open while exporting
+
+		QString error;
+		QVERIFY(!exportTripDatasetToKmlFile(fullDataset(), path, &error));
+		QVERIFY(!error.isEmpty());
+		QCOMPARE(earlier.readAll(), QByteArray("earlier export"));
+	}
+
 	void failureBoxIsAnErrorNamingTheFileAndTheReason() {
 		QMessageBox::Icon icon = QMessageBox::NoIcon;
 		QString text;
@@ -224,6 +260,22 @@ private slots:
 		QCOMPARE(icon, QMessageBox::Critical);
 		QVERIFY(text.contains(QStringLiteral("C:/out/trip.kml")));
 		QVERIFY(text.contains(QStringLiteral("Access denied")));
+	}
+
+	// Cancelling the save dialog ends the export: no error box (there's no
+	// database here, which an export would report).
+	void cancellingTheSaveDialogExportsNothing() {
+		removeDatabase();
+		const QString error = exportErrorShown([](QWidget* dialog) { static_cast<QDialog*>(dialog)->reject(); }, 500);
+		QCOMPARE(error, QString());
+	}
+
+	void exportingWithNoDatabaseSaysSoAndWritesNothing() {
+		removeDatabase();
+		const QString path = dir_.filePath("no_database.kml");
+		const QString error = exportErrorShown([&path](QWidget* dialog) { saveFileDialogAs(dialog, path); }, 10000);
+		QCOMPARE(error, QStringLiteral("Failed to export KML to %1.\nCould not open the trip database.").arg(path));
+		QVERIFY(!QFile::exists(path));
 	}
 };
 

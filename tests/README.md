@@ -66,7 +66,7 @@ make the other's map test time out.
 | Engine power (`engine_power.cpp`) | `tst_engine_power` | speed/load SimVars and labels per engine type (piston, jet, helo turbine, turboprop), fixed vs data-sized axes, other engine types record nothing, an engine type no int holds (NaN, ±1e300) reads as unknown, engine count clamped to 0-4 (an unreadable one reads as 0), engine combustion counted only for the aircraft's engines, BLOB packing (byte order, count clamped, none = NULL) and round trip, BLOB unpacking (partial, oversized, NULL, empty; engines past the count cleared) |
 | Chart data (`chart_data.cpp`) | `tst_chart_data` | series table matches `charts_panel.qml` (series names, hover keys, count), sample fields to series (each recorded engine's speed/load), engine extents, the trip's engine (first point with power), engine labels by type, each zulu time as its UTC instant on the axis (hover time in UTC too, across a local DST change; every test runs in US Pacific time), malformed times, nice axis max / signed range, extents (whole trip and slices), one sample's values read back from the series, series build incl. malformed-time fill, one-sample and no-valid-time axes, thinning, nearest sample, hover values |
 | Map scripts (`map_script.cpp`) | `tst_map_script` | string globals escaped, trajectory whole (with its version) / thinned (indices, ends) / empty, liftoff and touchdown popup fields, events, empty lists, events toggle, overview segments and "Ungrouped" |
-| KML export | `tst_kml` | header/name, path and track in meters, liftoff/touchdown descriptions, no-airport and no-runway rows, event grouping, XML escaping of names, description values shown literally (escaped, so a "]]>" in one can't end the CDATA), empty trip, unparseable times, write failure, the export-failed error box names the file and the reason |
+| KML export | `tst_kml` | header/name, path and track in meters, liftoff/touchdown descriptions, no-airport and no-runway rows, event grouping, XML escaping of names, description values shown literally (escaped, so a "]]>" in one can't end the CDATA), empty trip, unparseable times, write failure, a failed export leaving the earlier file at that path as it was, the export-failed error box names the file and the reason, a cancelled save dialog exporting nothing, a database that can't be opened saying so and writing no file |
 | settings.ini | `tst_settings` | default file (app-written sections labeled "Auto-managed"), defaults for missing/invalid values, values from file, in-place edits keep comments and other sections, new key, new section under the default file's header, section header with a trailing comment, unreadable and read-only files left alone, hidden fields, column widths, recording toggle, log level |
 | Logging | `tst_logger` | `.old` rotation, header, level filter, line format, crash logging and its level filter, second init keeps the file but takes the new level, level names |
 | Data Table panel | `tst_data_table_panel` | rows for every field, value formatting (numbers, DMS, Yes/No, engine speed/load by engine type, fields of engines past the engine count left blank), which point is shown, cursor, clearing, hidden fields, Visible Fields dialog OK/Cancel, column width, right-click Copy on a value cell only |
@@ -200,9 +200,8 @@ make the other's map test time out.
 - **settings.ini default-file creation failure** (`app_settings.cpp`): the
   file is created when it is missing, and the test can't make the working
   directory unwritable while still letting the process run there.
-- **KML short write and failed flush** (`kml_export.cpp`): `QFile::write()`
-  returning fewer bytes than asked, or the flush of a file small enough to
-  sit in QFile's buffer failing, needs a full or failing disk.
+- **KML failed write or flush** (`kml_export.cpp`): a write or flush that
+  fails partway through the temporary file needs a full or failing disk.
 - **Branches with no observable effect or no way in**:
   - `airport_lookup.cpp`'s wrap of a 0° bearing to 360°. Every use of the
     bearing in `runway_match.cpp` takes differences modulo 360, so only a
