@@ -953,6 +953,35 @@ private slots:
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM trips").toInt(), 1);
 	}
 
+	// While another connection reads, a write gets as far as its COMMIT,
+	// which that reader's lock refuses: the write is reported with SQLite's
+	// message, not kept, and leaves no transaction open.
+	void writeRefusedAtCommitThrowsAndRollsBack() {
+		Writer w;
+		sqlite3_busy_timeout(w.status()->sql, 0); // refused at once, not after 5 s
+		sqlite3* reader = openDatabaseFile();
+		QVERIFY(reader);
+		exec(reader, "BEGIN;");
+		sqlite3_stmt* read = nullptr;
+		QCOMPARE(sqlite3_prepare_v2(reader, "SELECT name FROM sqlite_master;", -1, &read, nullptr), SQLITE_OK);
+		QCOMPARE(sqlite3_step(read), SQLITE_ROW); // the read lock lasts until the reader's COMMIT
+		bool threw = false;
+		try {
+			db_insert_trip(w.status(), makeRecord());
+		} catch (const db_exception& e) {
+			threw = true;
+			QVERIFY2(QString::fromStdString(e.message).endsWith(QStringLiteral("failed with error database is locked")), e.message.c_str());
+		}
+		sqlite3_finalize(read);
+		exec(reader, "COMMIT;");
+		sqlite3_close(reader);
+		QVERIFY(threw);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trips").toInt(), 0);
+		// The connection is usable again: no transaction was left open.
+		db_insert_trip(w.status(), makeRecord());
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trips").toInt(), 1);
+	}
+
 	// db_write_worker runs on its own thread (started by connect_db(), unlike
 	// Writer's synchronous status->sql above), so this needs a real
 	// FlightDriver to reach its catch block: a sample pushed to
