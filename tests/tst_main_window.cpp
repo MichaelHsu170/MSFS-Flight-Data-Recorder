@@ -6,20 +6,33 @@
 // one), the window not being recreated when Trip History arrives, and
 // closing it cancelling a rebuild still running (starting nothing when
 // closed just as the migration finishes, and closing fine once there's none).
+// Also the window's wiring: Live Status and the Data Table keeping one width
+// (when the window grows, and when either side is dragged, saved on release),
+// and Trip History and the trajectory view driving each other.
 //
 // Needs a custom main() and no QT_QPA_PLATFORM=offscreen, exactly like
 // tst_map_widget.cpp: the window's TrajectoryView owns a MapWidget
 // (QWebEngineView). See that file's header comment for why; for the same
 // reason, no test relies on the map page loading.
 #include "main_window.h"
+#include "app_settings.h"
+#include "charts_panel.h"
+#include "data_table_panel.h"
+#include "live_status_panel.h"
 #include "test_support.h"
+#include "trajectory_view.h"
 #include "trip_history_panel.h"
 
 #include <QApplication>
 #include <QFutureWatcher>
 #include <QLabel>
 #include <QPointer>
+#include <QQuickItem>
+#include <QQuickWidget>
 #include <QRegularExpression>
+#include <QSplitter>
+#include <QTableView>
+#include <QTableWidget>
 #include <QThreadPool>
 #include <QtTest>
 
@@ -58,6 +71,30 @@ DatabaseLock lockedLegacyDatabase() {
 // The migration's watcher, a direct child of the window until it finishes.
 QFutureWatcherBase* migrationWatcher(MainWindow& window) {
 	return window.findChild<QFutureWatcherBase*>(QString(), Qt::FindDirectChildrenOnly);
+}
+
+// Waits for the migration to finish and Trip History to take the notice's
+// place; nullptr if it never does.
+TripHistoryPanel* tripHistoryOnceReady(MainWindow& window) {
+	waitFor([&window] { return window.findChild<TripHistoryPanel*>() != nullptr; }, 10000);
+	return window.findChild<TripHistoryPanel*>();
+}
+
+// The top row (Trip History + Live Status) and TrajectoryView's map/table
+// row, each the splitter holding its right-hand panel.
+QSplitter* topRow(MainWindow& window) {
+	return qobject_cast<QSplitter*>(window.findChild<LiveStatusPanel*>()->parentWidget());
+}
+QSplitter* mapTableRow(MainWindow& window) {
+	return qobject_cast<QSplitter*>(window.findChild<DataTablePanel*>()->parentWidget());
+}
+
+QString zuluShown(MainWindow& window) {
+	QTableWidget* t = window.findChild<DataTablePanel*>()->findChild<QTableWidget*>();
+	for (int r = 0; r < t->rowCount(); ++r)
+		if (t->item(r, 0)->text() == QStringLiteral("Time (Zulu)"))
+			return t->item(r, 1)->text();
+	return QStringLiteral("<no Time (Zulu) row>");
 }
 
 }
@@ -177,6 +214,101 @@ private slots:
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data WHERE engine_speed IS NOT NULL").toInt(), 0);
 		QVERIFY(!window.findChild<TripHistoryPanel*>());
 		QCOMPARE(FakeSim::state().openCalls, 0);
+	}
+
+	// The two right-hand panels line up: growing the window widens only the
+	// left side of each row, so both keep the width the user chose.
+	void growingTheWindowKeepsBothRightPanelsAtTheChosenWidth() {
+		removeDatabase();
+		// Below their 260 maximum, so either could grow, and above Live
+		// Status's narrowest (239 px), so both can show it.
+		AppSettings::instance().setRightPanelWidth(250);
+		FakeSim::reset();
+		RecorderBridge bridge;
+		MainWindow window(bridge);
+		window.resize(1000, 800);
+		window.show();
+		QVERIFY(tripHistoryOnceReady(window));
+		QSplitter* top = topRow(window);
+		QTRY_COMPARE(top->sizes().last(), 250);
+		QTRY_COMPARE(mapTableRow(window)->sizes().last(), 250);
+
+		window.resize(1600, 800);
+		QTRY_VERIFY(top->width() > 1500);
+		QCOMPARE(top->sizes().last(), 250);
+		QCOMPARE(mapTableRow(window)->sizes().last(), 250);
+	}
+
+	void draggingEitherRightPanelResizesTheOtherAndSavesTheWidthOnRelease() {
+		removeDatabase();
+		AppSettings::instance().setRightPanelWidth(200);
+		FakeSim::reset();
+		RecorderBridge bridge;
+		MainWindow window(bridge);
+		window.resize(1000, 800);
+		window.show();
+		QVERIFY(tripHistoryOnceReady(window));
+		QSplitter* top = topRow(window);
+		QSplitter* mapTable = mapTableRow(window);
+
+		// Live Status's handle (splitterMoved is what a drag emits; see
+		// tst_trajectory_view for why it's emitted directly).
+		top->setSizes({ top->width() - 220, 220 });
+		const int dragged = top->sizes().last();
+		emit top->splitterMoved(dragged, 1);
+		QCOMPARE(mapTable->sizes().last(), dragged);
+		QCOMPARE(AppSettings::instance().rightPanelWidth(), 200); // not saved mid-drag
+		sendLeftButton(top->handle(1), QEvent::MouseButtonRelease, QPoint(0, 0));
+		QCOMPARE(AppSettings::instance().rightPanelWidth(), dragged);
+
+		// The Data Table's handle.
+		mapTable->setSizes({ mapTable->width() - 240, 240 });
+		const int draggedBelow = mapTable->sizes().last();
+		QVERIFY(draggedBelow != dragged);
+		emit mapTable->splitterMoved(draggedBelow, 1);
+		QCOMPARE(top->sizes().last(), draggedBelow);
+	}
+
+	// A trip clicked on the map is loaded by Trip History and shown by the
+	// trajectory view; its rendering finishing unlocks Trip History; Reset
+	// Zoom and Deselect from Trip History reach the view.
+	void tripHistoryAndTheTrajectoryViewDriveEachOther() {
+		removeDatabase();
+		FlightDriver sim;
+		const int tripId = sim.startTrip();
+		sim.ticks(3);
+		sim.endTrip();
+
+		MainWindow window(sim.bridge());
+		window.resize(1000, 800);
+		window.show();
+		TripHistoryPanel* tripHistory = tripHistoryOnceReady(window);
+		QVERIFY(tripHistory);
+		TrajectoryView* view = window.findChild<TrajectoryView*>();
+		ChartsPanel* charts = window.findChild<ChartsPanel*>();
+		QSignalSpy ready(tripHistory, &TripHistoryPanel::tripDatasetReady);
+		QSignalSpy chartsLoaded(charts, &ChartsPanel::seriesLoaded);
+
+		emit view->overviewTripClicked(tripId);
+		QVERIFY(waitFor([&ready] { return ready.count() == 1; }));
+		const auto dataset = ready.at(0).at(0).value<std::shared_ptr<TripDataset>>();
+		QCOMPARE(dataset->tripId, tripId);
+		QVERIFY(!dataset->points.empty());
+		// The data table's cursor starts on the trip's last sample.
+		QCOMPARE(zuluShown(window), dataset->points.back().zuluTime);
+
+		emit view->renderingFinished();
+		QVERIFY(tripHistory->findChild<QTableView*>()->isEnabled());
+
+		QVERIFY(waitFor([&chartsLoaded] { return chartsLoaded.count() >= 1; }));
+		QQuickItem* chartsRoot = charts->findChild<QQuickWidget*>()->rootObject();
+		charts->setVisibleRange(0, 1);
+		QCOMPARE(chartsRoot->property("isFullRangeVisible").toBool(), false);
+		emit tripHistory->zoomResetRequested();
+		QCOMPARE(chartsRoot->property("isFullRangeVisible").toBool(), true);
+
+		emit tripHistory->tripDeselected({});
+		QCOMPARE(zuluShown(window), QString());
 	}
 
 	void aFailedMigrationSaysSoAndLeavesTheSimulatorAlone() {

@@ -33,8 +33,10 @@ MainWindow::MainWindow(RecorderBridge& bridge, QWidget* parent)
 	topSplitter_ = new QSplitter(Qt::Horizontal, this);
 	topSplitter_->addWidget(notice);
 	topSplitter_->addWidget(liveStatusPanel);
-	topSplitter_->setStretchFactor(0, 4);
-	topSplitter_->setStretchFactor(1, 1);
+	// Like TrajectoryView's map/table row: a resize changes only the left
+	// side, so Live Status keeps the Data Table's width.
+	topSplitter_->setStretchFactor(0, 1);
+	topSplitter_->setStretchFactor(1, 0);
 	topSplitter_->setSizes({ 1000, AppSettings::instance().rightPanelWidth() });
 	// Default handle width (and each panel's own default QVBoxLayout margins)
 	// compounded into a wide gap between the trip table and Live Status --
@@ -125,7 +127,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 void MainWindow::addTripHistory(RecorderBridge& bridge) {
 	auto* tripHistoryPanel = new TripHistoryPanel(bridge, this);
 	delete topSplitter_->replaceWidget(0, tripHistoryPanel);
-	topSplitter_->setStretchFactor(0, 4);
+	topSplitter_->setStretchFactor(0, 1);
 
 	connect(tripHistoryPanel, &TripHistoryPanel::tripDatasetReady,  trajectoryView_, &TrajectoryView::setDataset);
 	connect(tripHistoryPanel, &TripHistoryPanel::tripDeselected,   trajectoryView_, &TrajectoryView::clearAndShowOverview);
