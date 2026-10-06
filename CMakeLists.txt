@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.22)
 # below, consumed by the C++ sources (the Live Status "ver." label, the debug
 # log header and the map's HTTP user agent) and app.rc (Windows exe
 # file-version metadata).
-project(MSFS-Flight-Data-Recorder VERSION 2.1.0 LANGUAGES CXX)
+project(MSFS-Flight-Data-Recorder VERSION 2.1.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
