@@ -27,6 +27,8 @@
 #include <QTableWidget>
 #include <QtTest>
 
+#include <cmath>
+
 using namespace TestSupport;
 
 namespace {
@@ -36,7 +38,10 @@ TripSamplePoint samplePoint(double lat, double lon, const QString& zulu) {
 	p.latitude = lat;
 	p.longitude = lon;
 	p.zuluTime = zulu;
-	p.engine = { 1, 1, { (float)lat } };
+	// A single jet with N1 of lat.
+	p.engineType = 1;
+	p.engineValues.assign(TRIP_ENGINE_FIELD_COUNT, std::nan(""));
+	p.engineValues[TRIP_ENGINE_turb_eng_n1] = lat;
 	return p;
 }
 

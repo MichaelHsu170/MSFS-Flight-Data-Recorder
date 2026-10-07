@@ -16,8 +16,11 @@
 #include <QtTest>
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <optional>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -29,11 +32,23 @@ QQuickItem* shownRoot(ChartsPanel& panel, QSize size = QSize(400, 300)) {
 	return QTest::qWaitFor([view]() { return view->rootObject() != nullptr; }, 5000) ? view->rootObject() : nullptr;
 }
 
+// Makes p an aircraft of engineType whose engine i records speedLoad[i-1]
+// as speed and load, its other engine values not recorded (NaN).
+void setPower(TripSamplePoint& p, int engineType, TripEngineField speed, TripEngineField load,
+	const std::vector<std::pair<double, double>>& speedLoad) {
+	p.engineType = engineType;
+	p.engineValues.assign(speedLoad.size() * TRIP_ENGINE_FIELD_COUNT, std::nan(""));
+	for (size_t i = 0; i < speedLoad.size(); ++i) {
+		p.engineValues[i * TRIP_ENGINE_FIELD_COUNT + speed] = speedLoad[i].first;
+		p.engineValues[i * TRIP_ENGINE_FIELD_COUNT + load] = speedLoad[i].second;
+	}
+}
+
+// A twin jet with N1 and N2 of base.
 TripSamplePoint samplePoint(double base, const QString& zulu) {
 	TripSamplePoint p;
 	p.zuluTime = zulu;
-	const float power = (float)base;
-	p.engine = { 1, 2, { power, power }, { power, power } };
+	setPower(p, 1, TRIP_ENGINE_turb_eng_n1, TRIP_ENGINE_turb_eng_n2, { { base, base }, { base, base } });
 	p.verticalSpeed = base; p.airspeed = base; p.groundSpeed = base; p.altitude = base;
 	p.fuelTotalQuantityWeight = base; p.pitchDegrees = base; p.bankDegrees = base;
 	return p;
@@ -425,8 +440,8 @@ private slots:
 		TripDataset piston;
 		piston.points = { samplePoint(1, QStringLiteral("2026-03-05T20:00:00.000+00:00_4")),
 			samplePoint(2, QStringLiteral("2026-03-05T20:00:01.000+00:00_4")) };
-		piston.points[0].engine = { 0, 0 };
-		piston.points[1].engine = { 0, 1, { 2400 }, { 24.5f } };
+		setPower(piston.points[0], 0, TRIP_ENGINE_general_eng_rpm, TRIP_ENGINE_recip_eng_manifold_pressure, {});
+		setPower(piston.points[1], 0, TRIP_ENGINE_general_eng_rpm, TRIP_ENGINE_recip_eng_manifold_pressure, { { 2400, 24.5 } });
 		panel.setDataset(piston);
 		QVERIFY(spy.wait(5000));
 		QVariantMap spec = root->property("engineSpec").toMap();
@@ -458,7 +473,7 @@ private slots:
 		// An N1 overspeed past the fixed 110 sizes that axis to the data
 		// (115 * 1.25 = 143.75, in steps of 50); N2 at exactly 110 still fits.
 		TripDataset overspeed = jet;
-		overspeed.points[0].engine = { 1, 2, { 115, 50 }, { 110, 50 } };
+		setPower(overspeed.points[0], 1, TRIP_ENGINE_turb_eng_n1, TRIP_ENGINE_turb_eng_n2, { { 115, 110 }, { 50, 50 } });
 		panel.setDataset(overspeed);
 		QVERIFY(spy.wait(5000));
 		QCOMPARE(speedAxis->max(), 150.0);
@@ -467,7 +482,8 @@ private slots:
 		// An old trip with no engine power recorded: the no-data message.
 		TripDataset none;
 		none.points = { samplePoint(1, QStringLiteral("2026-03-05T22:00:00.000+00:00_4")) };
-		none.points[0].engine = {};
+		none.points[0].engineType = -1;
+		none.points[0].engineValues.clear();
 		panel.setDataset(none);
 		QVERIFY(spy.wait(5000));
 		QCOMPARE(root->property("engineSpec").toMap(), (QVariantMap{ { "count", 0 } }));

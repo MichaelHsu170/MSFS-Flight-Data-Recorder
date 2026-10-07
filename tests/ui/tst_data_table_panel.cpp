@@ -13,6 +13,8 @@
 #include <QTableWidget>
 #include <QtTest>
 
+#include <cmath>
+
 using namespace TestSupport;
 
 namespace {
@@ -38,9 +40,19 @@ TripSamplePoint makePoint(double base, const char* zulu) {
 	p.rawNums[numIndex("gps_position_lat")] = 43.5;
 	p.rawNums[numIndex("gps_position_lon")] = -1.25;
 	p.boolGroups[1] = 0x1;        // autopilot_airspeed_hold only
-	p.boolGroups[2] = 1u << 30;   // general_eng_generator_switch_2 only
+	p.boolGroups[2] = 1u << 31;   // general_eng_master_alternator only
 	p.boolGroups[3] = 1u << 31;   // kohlsman_setting_std only
 	return p;
+}
+
+// p with engines 1..engines, every engine value not recorded (NaN).
+TripSamplePoint withEngines(TripSamplePoint p, int engines) {
+	p.engineValues.assign((size_t)engines * TRIP_ENGINE_FIELD_COUNT, std::nan(""));
+	return p;
+}
+
+void setEngineValue(TripSamplePoint& p, int engine, TripEngineField field, double value) {
+	p.engineValues[(size_t)(engine - 1) * TRIP_ENGINE_FIELD_COUNT + field] = value;
 }
 
 }
@@ -71,17 +83,26 @@ private slots:
 	void rowsCoverEveryField() {
 		DataTablePanel panel;
 		QTableWidget* t = table(panel);
-		// Zulu, Local, combined GPS row, the other 134 numeric fields, speed
-		// and load of 4 engines, 96 bools.
-		QCOMPARE(t->rowCount(), 3 + 134 + 8 + 96);
-		QCOMPARE(t->item(3 + 134, 0)->text(), QStringLiteral("Engine Speed 1"));
-		QCOMPARE(t->item(3 + 134 + 7, 0)->text(), QStringLiteral("Engine Load 4"));
+		// Zulu, Local, combined GPS row, the other 108 numeric fields, 70
+		// bools; no engine rows before a trip with engines loads.
+		QCOMPARE(t->rowCount(), 3 + 108 + 70);
 		QCOMPARE(t->item(0, 0)->text(), QStringLiteral("Time (Zulu)"));
 		QCOMPARE(t->item(1, 0)->text(), QStringLiteral("Time (Local)"));
 		QCOMPARE(t->item(2, 0)->text(), QStringLiteral("GPS Position"));
-		QCOMPARE(t->item(3, 0)->text(), QStringLiteral("Eng Exhaust Gas Temperature 1"));
+		QCOMPARE(t->item(3, 0)->text(), QStringLiteral("Ambient Temperature"));
 		QCOMPARE(t->item(t->rowCount() - 1, 0)->text(), QStringLiteral("Kohlsman Setting Std"));
 		QCOMPARE(row(t, "Gps Position Lat"), -1);
+
+		// Then the 32 engine values, each for engines 1..2.
+		TripDataset d;
+		d.points = { withEngines(makePoint(0, "t"), 2) };
+		panel.setDataset(&d);
+		QCOMPARE(t->rowCount(), 3 + 108 + 70 + 32 * 2);
+		QCOMPARE(t->item(3 + 108 + 70, 0)->text(), QStringLiteral("Turb Eng N1 1"));
+		QCOMPARE(t->item(3 + 108 + 70 + 1, 0)->text(), QStringLiteral("Turb Eng N1 2"));
+		QCOMPARE(t->item(3 + 108 + 70 + 2, 0)->text(), QStringLiteral("Turb Eng N2 1"));
+		QCOMPARE(t->item(t->rowCount() - 1, 0)->text(), QStringLiteral("Turb Eng Is Igniting 2"));
+		QCOMPARE(t->item(3 + 108 + 70 - 1, 0)->text(), QStringLiteral("Kohlsman Setting Std"));
 	}
 
 	void startsEmpty() {
@@ -99,7 +120,7 @@ private slots:
 		QTableWidget* t = table(panel);
 		QCOMPARE(value(t, "Time (Zulu)"), QStringLiteral("last"));
 		QCOMPARE(value(t, "Time (Local)"), QStringLiteral("local last"));
-		QCOMPARE(value(t, "Eng Exhaust Gas Temperature 1"), QStringLiteral("200"));
+		QCOMPARE(value(t, "Ambient Temperature"), QStringLiteral("200"));
 		QCOMPARE(t->item(row(t, "Time (Zulu)"), 1)->toolTip(), QStringLiteral("last"));
 	}
 
@@ -117,69 +138,51 @@ private slots:
 		QCOMPARE(value(t, "GPS Position"), QString::fromUtf8("43°30'00.0\"N 1°15'00.0\"W"));
 		QCOMPARE(value(t, "Autopilot Airspeed Hold"), QStringLiteral("Yes"));
 		QCOMPARE(value(t, "Autopilot Master"), QStringLiteral("No"));
-		QCOMPARE(value(t, "General Eng Generator Switch 2"), QStringLiteral("Yes"));
-		QCOMPARE(value(t, "General Eng Master Alternator"), QStringLiteral("No"));
+		QCOMPARE(value(t, "General Eng Master Alternator"), QStringLiteral("Yes"));
 		QCOMPARE(value(t, "Flap Damage By Speed"), QStringLiteral("No"));
 		QCOMPARE(value(t, "Kohlsman Setting Std"), QStringLiteral("Yes"));
 		QCOMPARE(value(t, "Sim On Ground"), QStringLiteral("No"));
 	}
 
-	void engineRowsShowTheRecordedEnginesByType() {
+	// One row per engine value of each engine the trip has: a number, Yes/No
+	// for an on/off value, blank for what wasn't recorded.
+	void engineRowsShowEachEnginesValues() {
 		DataTablePanel panel;
 		TripDataset d;
-		TripSamplePoint p = makePoint(0, "t");
-		p.engine = { 5, 2, { 1700, 1712.6f }, { 81.24f, 80 } };
-		d.points = { p };
+		TripSamplePoint twin = withEngines(makePoint(0, "twin"), 2);
+		setEngineValue(twin, 1, TRIP_ENGINE_turb_eng_n1, 85.5);
+		setEngineValue(twin, 2, TRIP_ENGINE_turb_eng_n1, 1234567.0);
+		setEngineValue(twin, 1, TRIP_ENGINE_eng_combustion, 1);
+		setEngineValue(twin, 2, TRIP_ENGINE_eng_combustion, 0);
+		TripSamplePoint triple = withEngines(makePoint(0, "triple"), 3);
+		setEngineValue(triple, 3, TRIP_ENGINE_prop_rpm, 2102);
+		d.points = { twin, triple };
 		panel.setDataset(&d);
 		QTableWidget* t = table(panel);
-		QCOMPARE(value(t, "Engine Speed 1"), QStringLiteral("Prop RPM: 1700 rpm"));
-		QCOMPARE(value(t, "Engine Speed 2"), QStringLiteral("Prop RPM: 1713 rpm"));
-		QCOMPARE(value(t, "Engine Load 1"), QStringLiteral("Torque: 81.2 %"));
-		QCOMPARE(value(t, "Engine Load 2"), QStringLiteral("Torque: 80.0 %"));
-		QCOMPARE(value(t, "Engine Speed 3"), QString());
-		QCOMPARE(value(t, "Engine Load 4"), QString());
-		// The rows after them stay aligned with their values.
-		QCOMPARE(value(t, "Autopilot Airspeed Hold"), QStringLiteral("Yes"));
-
-		// An engine type that isn't recorded shows nothing.
-		p.engine = { 2, 2, { 1700, 1700 }, { 80, 80 } };
-		d.points = { p };
-		panel.setDataset(&d);
-		QCOMPARE(value(t, "Engine Speed 1"), QString());
-		QCOMPARE(value(t, "Engine Load 1"), QString());
-	}
-
-	// SimConnect returns made-up values for an engine the aircraft doesn't
-	// have (-273.15 for its temperatures), so those fields stay blank.
-	void fieldsOfEnginesPastTheEngineCountAreBlank() {
-		DataTablePanel panel;
-		TripDataset d;
-		TripSamplePoint p = makePoint(0, "t");
-		p.rawNums[numIndex("number_of_engines")] = 1;
-		p.rawNums[numIndex("eng_exhaust_gas_temperature_1")] = 650;
-		p.rawNums[numIndex("eng_exhaust_gas_temperature_2")] = -273.15;
-		p.rawNums[numIndex("hydraulic_pressure_2")] = 3000;
-		p.boolGroups[2] |= (1u << 17) | (1u << 18); // eng_combustion_1, eng_combustion_2
-		d.points = { p };
-		panel.setDataset(&d);
-		QTableWidget* t = table(panel);
-		QCOMPARE(value(t, "Number Of Engines"), QStringLiteral("1"));
-		QCOMPARE(value(t, "Eng Exhaust Gas Temperature 1"), QStringLiteral("650"));
-		QCOMPARE(value(t, "Eng Combustion 1"), QStringLiteral("Yes"));
-		for (const char* label : { "Eng Exhaust Gas Temperature 2", "Eng Oil Temperature 2", "General Eng Elapsed Time 2",
-				"Turb Eng Vibration 2", "Turb Eng Ignition Switch Ex1 2", "Eng Combustion 2", "Bleed Air Engine 2",
-				"General Eng Generator Switch 2" })
-			QVERIFY2(value(t, label).isEmpty(), label);
-		// Not per-engine fields: shown whatever the engine count.
-		QCOMPARE(value(t, "Hydraulic Pressure 2"), QStringLiteral("3000"));
-		QCOMPARE(value(t, "General Eng Master Alternator"), QStringLiteral("No"));
-
-		// No engines (a glider): no engine's fields.
-		p.rawNums[numIndex("number_of_engines")] = 0;
-		d.points = { p };
-		panel.setDataset(&d);
-		QCOMPARE(value(t, "Eng Exhaust Gas Temperature 1"), QString());
+		// Rows for the trip's most engines, its last point shown.
+		QCOMPARE(value(t, "Prop Rpm 3"), QStringLiteral("2102"));
+		QCOMPARE(value(t, "Eng Oil Pressure 3"), QString());
+		QCOMPARE(value(t, "Turb Eng N1 1"), QString());
 		QCOMPARE(value(t, "Eng Combustion 1"), QString());
+
+		panel.setCursorIndex(0);
+		QCOMPARE(value(t, "Turb Eng N1 1"), QStringLiteral("85.5"));
+		QCOMPARE(value(t, "Turb Eng N1 2"), QStringLiteral("1.23457e+06"));
+		QCOMPARE(value(t, "Eng Combustion 1"), QStringLiteral("Yes"));
+		QCOMPARE(value(t, "Eng Combustion 2"), QStringLiteral("No"));
+		// An engine past the point's own engines is blank.
+		QCOMPARE(value(t, "Prop Rpm 3"), QString());
+		QCOMPARE(value(t, "Eng Combustion 3"), QString());
+		// The rows before them stay aligned with their values.
+		QCOMPARE(value(t, "Kohlsman Setting Std"), QStringLiteral("Yes"));
+
+		// A single's trip has no rows for engine 2.
+		TripDataset single;
+		single.points = { withEngines(makePoint(0, "single"), 1) };
+		panel.setDataset(&single);
+		QCOMPARE(row(t, "Turb Eng N1 2"), -1);
+		QCOMPARE(row(t, "Turb Eng Is Igniting 1"), t->rowCount() - 1);
+		QCOMPARE(value(t, "Time (Zulu)"), QStringLiteral("single"));
 	}
 
 	void dmsCarriesInsteadOfShowingSixtySeconds() {
@@ -221,12 +224,19 @@ private slots:
 	}
 
 	void hiddenFieldsFromSettingsAreHidden() {
-		AppSettings::instance().setDataTableHiddenFields({ "G Force", "Time (Local)" });
+		AppSettings::instance().setDataTableHiddenFields({ "G Force", "Time (Local)", "Eng Oil Pressure 3" });
 		DataTablePanel panel;
 		QTableWidget* t = table(panel);
 		QVERIFY(t->isRowHidden(row(t, "G Force")));
 		QVERIFY(t->isRowHidden(row(t, "Time (Local)")));
 		QVERIFY(!t->isRowHidden(row(t, "Time (Zulu)")));
+		// An engine row is hidden once a trip with that engine loads.
+		TripDataset d;
+		d.points = { withEngines(makePoint(0, "t"), 3) };
+		panel.setDataset(&d);
+		QVERIFY(t->isRowHidden(row(t, "Eng Oil Pressure 3")));
+		QVERIFY(!t->isRowHidden(row(t, "Eng Oil Pressure 2")));
+		QVERIFY(t->isRowHidden(row(t, "G Force")));
 	}
 
 	void fieldsDialogHidesAndPersists() {
@@ -241,6 +251,30 @@ private slots:
 		emit t->horizontalHeader()->sectionClicked(0);
 		QCOMPARE(AppSettings::instance().dataTableHiddenFields(), QStringList{ "G Force" });
 		QVERIFY(t->isRowHidden(row(t, "G Force")));
+	}
+
+	// A hidden engine row the loaded trip doesn't have (no engine 3) isn't in
+	// the dialog, and stays hidden.
+	void fieldsDialogKeepsHiddenRowsTheTripLacks() {
+		AppSettings::instance().setDataTableHiddenFields({ "Eng Oil Pressure 3" });
+		DataTablePanel panel;
+		TripDataset d;
+		d.points = { withEngines(makePoint(0, "t"), 2) };
+		panel.setDataset(&d);
+		QTableWidget* t = table(panel);
+		bool listed = false;
+		onNextModal([&listed](QWidget* dialog) {
+			for (QCheckBox* box : dialog->findChildren<QCheckBox*>()) {
+				listed |= box->text() == QLatin1String("Eng Oil Pressure 3");
+				if (box->text() == QLatin1String("Eng Oil Pressure 2"))
+					box->setChecked(false);
+			}
+			clickDialogButton(dialog, "OK");
+		});
+		emit t->horizontalHeader()->sectionClicked(0);
+		QVERIFY(!listed);
+		QCOMPARE(AppSettings::instance().dataTableHiddenFields(), (QStringList{ "Eng Oil Pressure 3", "Eng Oil Pressure 2" }));
+		QVERIFY(t->isRowHidden(row(t, "Eng Oil Pressure 2")));
 	}
 
 	void fieldsDialogCancelChangesNothing() {

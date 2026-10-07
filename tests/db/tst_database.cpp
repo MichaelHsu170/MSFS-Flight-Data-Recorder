@@ -13,6 +13,7 @@
 #include <QtTest>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -109,6 +110,17 @@ QString localTimes(const char* table, const char* column) {
 	return queryValue(QStringLiteral("SELECT group_concat(%2) FROM (SELECT %2 FROM %1 ORDER BY rowid)").arg(table, column)).toString();
 }
 
+// trip_engine_data's rows in sample, engine order, comma-separated, each as
+// "sample:engine" then ":" and every one of columns (NULL as "NULL", a REAL
+// with its ".0").
+QString engineRows(const QStringList& columns) {
+	QString row = QStringLiteral("sample || ':' || engine");
+	for (const QString& column : columns)
+		row += QStringLiteral(" || ':' || quote(%1)").arg(column);
+	return queryValue(QStringLiteral("SELECT group_concat(r) FROM (SELECT %1 AS r FROM trip_engine_data ORDER BY sample, engine)")
+		.arg(row)).toString();
+}
+
 TripSamplePoint point(const char* zulu, double lat) {
 	TripSamplePoint p;
 	p.zuluTime = QString::fromLatin1(zulu);
@@ -151,9 +163,9 @@ private slots:
 	void migrateCreatesAllTablesAndIndexes() {
 		QVERIFY(migrate_db());
 		QCOMPARE(names("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"),
-			(std::set<QString>{ "trips", "trip_data", "trip_events", "trip_liftoffs", "trip_touchdowns", "trip_groups" }));
+			(std::set<QString>{ "trips", "trip_data", "trip_engine_data", "trip_events", "trip_liftoffs", "trip_touchdowns", "trip_groups" }));
 		QCOMPARE(names("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"),
-			(std::set<QString>{ "idx_trip_data_trip", "idx_trip_events_trip", "idx_trip_events_event_seq",
+			(std::set<QString>{ "idx_trip_data_trip", "idx_trip_engine_data_trip", "idx_trip_events_trip", "idx_trip_events_event_seq",
 				"idx_trip_liftoffs_trip", "idx_trip_touchdowns_trip", "idx_trips_group", "idx_trip_groups_name" }));
 	}
 
@@ -167,7 +179,7 @@ private slots:
 		QVERIFY(migrate_db());
 		QVERIFY(warningLogged(logPath_, { QStringLiteral("index"), QStringLiteral("idx_trips_group") }));
 		QCOMPARE(names("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"),
-			(std::set<QString>{ "idx_trip_data_trip", "idx_trip_events_trip", "idx_trip_events_event_seq",
+			(std::set<QString>{ "idx_trip_data_trip", "idx_trip_engine_data_trip", "idx_trip_events_trip", "idx_trip_events_event_seq",
 				"idx_trip_liftoffs_trip", "idx_trip_touchdowns_trip", "idx_trip_groups_name" }));
 	}
 
@@ -182,7 +194,7 @@ private slots:
 		QVERIFY(!migrate_db());
 		QVERIFY(lineLogged(logPath_, "FATAL", { QStringLiteral("create table trips") }));
 		QCOMPARE(names("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'trip_%'"),
-			(std::set<QString>{ "trip_data", "trip_events", "trip_liftoffs", "trip_touchdowns", "trip_groups" }));
+			(std::set<QString>{ "trip_data", "trip_engine_data", "trip_events", "trip_liftoffs", "trip_touchdowns", "trip_groups" }));
 	}
 
 	void migrateIsRepeatable() {
@@ -206,27 +218,64 @@ private slots:
 		QVERIFY(row["group_id"].isNull());
 	}
 
-	void migrateMovesLegacyN1N2IntoTheEngineColumns() {
+	// The oldest layout: N1/N2 of engines 1-2 in their own columns. Each
+	// sample's engines 1..number_of_engines (only 1-2 were recorded) get a
+	// trip_engine_data row with them, keyed by the sample's rowid, now its id.
+	void migrateMovesLegacyN1N2IntoTheEngineTable() {
 		createLegacyTripData();
-		migrate_db();
-		// Little-endian float32: 85.5 = 42AB0000, 90.25 = 42B48000, 95 = 42BE0000, 96.5 = 42C10000.
-		const QList<QVariantMap> rows = queryRows("SELECT hex(engine_speed) AS speed, hex(engine_load) AS load FROM trip_data ORDER BY rowid");
-		QCOMPARE(rows.size(), 5);
-		QCOMPARE(rows[0]["speed"].toString(), QStringLiteral("0000AB420080B442"));
-		QCOMPARE(rows[0]["load"].toString(), QStringLiteral("0000BE420000C142"));
-		QCOMPARE(rows[1]["speed"].toString(), QStringLiteral("0000AB42"));
-		QCOMPARE(rows[1]["load"].toString(), QStringLiteral("0000BE42"));
-		QCOMPARE(rows[2]["speed"].toString(), QStringLiteral("0000AB420080B442"));
-		QCOMPARE(rows[3]["speed"].toString(), QString()); // hex(NULL) is ''
-		QCOMPARE(rows[4]["speed"].toString(), QString());
-		QCOMPARE(rows[4]["load"].toString(), QString());
+		QVERIFY(migrate_db());
+		QCOMPARE(engineRows({ "trip", "turb_eng_n1", "turb_eng_n2", "prop_rpm" }),
+			QStringLiteral("1:1:1:85.5:95.0:NULL,1:2:1:90.25:96.5:NULL,"  // twin
+				"2:1:1:85.5:95.0:NULL,"                                      // single
+				"3:1:1:85.5:95.0:NULL,3:2:1:90.25:96.5:NULL,"                // quad: engines 3-4 weren't recorded
+				"5:1:1:85.5:95.0:NULL"));                                    // piston (row 4 has no engines)
+		QCOMPARE(queryValue("SELECT group_concat(id) FROM (SELECT id FROM trip_data ORDER BY id)").toString(), QStringLiteral("1,2,3,4,5"));
 		const QVariantMap columns = queryRows("SELECT * FROM trip_data").value(0);
 		for (const char* old : { "turb_eng_n1_1", "turb_eng_n1_2", "turb_eng_n2_1", "turb_eng_n2_2" })
 			QVERIFY2(!columns.contains(old), old);
 
-		// The old columns are gone, so a rerun leaves the data alone.
-		migrate_db();
-		QCOMPARE(queryValue("SELECT hex(engine_speed) FROM trip_data ORDER BY rowid").toString(), QStringLiteral("0000AB420080B442"));
+		// trip_data has its id now, so a rerun leaves the data alone.
+		QVERIFY(migrate_db());
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_engine_data").toInt(), 6);
+	}
+
+	// The layout before trip_engine_data: engine power in BLOBs meaning what
+	// the row's engine type showed, other values of engines 1-2 in "_1"/"_2"
+	// columns and bool_group bits.
+	void migrateMovesBlobEraEngineValuesIntoTheEngineTable() {
+		createBlobTripData();
+		QVERIFY(migrate_db());
+		QCOMPARE(engineRows({ "turb_eng_n1", "turb_eng_n2", "general_eng_rpm", "prop_rpm", "recip_eng_manifold_pressure",
+				"turb_eng_max_torque_percent", "eng_oil_pressure", "eng_failed", "general_eng_starter" }),
+			QStringLiteral("1:1:85.5:95.0:NULL:NULL:NULL:NULL:60:0:1,"
+				"1:2:90.25:96.5:NULL:NULL:NULL:NULL:61:1:0,"
+				"2:1:NULL:NULL:NULL:2100.0:NULL:25.5:70:0:0,"
+				"2:2:NULL:NULL:NULL:2101.0:NULL:26.5:71:0:0,"
+				"2:3:NULL:NULL:NULL:2102.0:NULL:27.5:NULL:NULL:NULL,"
+				"2:4:NULL:NULL:NULL:2103.0:NULL:NULL:NULL:NULL:NULL,"  // past the shorter BLOB's end
+				"3:1:NULL:NULL:2400.0:NULL:24.5:NULL:80:0:0,"
+				"4:1:97.0:NULL:NULL:NULL:NULL:55.0:90:0:0,"
+				"5:1:NULL:NULL:NULL:NULL:NULL:NULL:50:0:0,"
+				"5:2:NULL:NULL:NULL:NULL:NULL:NULL:51:0:0"));  // no BLOB: engines 3-4 weren't recorded
+		// The engines' bits are cleared, the others kept.
+		QCOMPARE(queryValue("SELECT bool_group_2 || ',' || bool_group_3 FROM trip_data WHERE id = 1").toString(),
+			QStringLiteral("1,1073741824"));
+		const QVariantMap columns = queryRows("SELECT * FROM trip_data").value(0);
+		for (const char* old : { "engine_speed", "engine_load", "eng_oil_pressure_1", "eng_oil_pressure_2" })
+			QVERIFY2(!columns.contains(old), old);
+
+		// As the Data Table and charts read it: a value not recorded is NaN.
+		sqlite3* db = connect_db_readonly();
+		const TripDataset stored = queryTripData(db, 1);
+		sqlite3_close(db);
+		QCOMPARE(stored.points.size(), size_t(5));
+		const TripSamplePoint& turboprop = stored.points[1];
+		QCOMPARE(turboprop.engineType, 5);
+		QCOMPARE(turboprop.engineCount(), 4);
+		QCOMPARE(turboprop.engineValue(3, TRIP_ENGINE_prop_rpm), 2102.0);
+		QVERIFY(std::isnan(turboprop.engineValue(3, TRIP_ENGINE_eng_oil_pressure)));
+		QVERIFY(std::isnan(turboprop.engineValue(1, TRIP_ENGINE_turb_eng_n1)));
+		QCOMPARE(stored.points[4].engineCount(), 2);
 	}
 
 	void theLegacyEngineRebuildKeepsRowsAndReportsProgress() {
@@ -240,8 +289,8 @@ private slots:
 		// rounded down), then the drop (75%), the commit (90%) and the indexes
 		// (100%).
 		QCOMPARE(reported, (std::vector<int>{ 16, 32, 48, 65, 75, 90, 100 }));
-		// Same rowids, and the column the definitions don't name is kept.
-		QCOMPARE(queryValue("SELECT group_concat(rowid || ':' || retired_field || ':' || engine_type) FROM trip_data").toString(),
+		// The rowids as ids, and the column the definitions don't name is kept.
+		QCOMPARE(queryValue("SELECT group_concat(id || ':' || retired_field || ':' || engine_type) FROM trip_data").toString(),
 			QStringLiteral("1:10.0:1,3:30.0:1,4:40.0:1,5:50.0:0"));
 		// NOT NULL stays where the old table had it, not where it allowed NULL.
 		QCOMPARE(queryValue("SELECT \"notnull\" FROM pragma_table_info('trip_data') WHERE name='trip'").toInt(), 1);
@@ -275,8 +324,10 @@ private slots:
 			" VALUES (-9223372036854775807 - 1, 2, 1, 2, 85.5, 90.25, 95, 96.5), (9223372036854775807, 2, 1, 2, 85.5, 90.25, 95, 96.5);");
 
 		QVERIFY(migrate_db());
-		QCOMPARE(queryValue("SELECT group_concat(rowid) FROM (SELECT rowid FROM trip_data ORDER BY rowid)").toString(),
+		QCOMPARE(queryValue("SELECT group_concat(id) FROM (SELECT id FROM trip_data ORDER BY id)").toString(),
 			QStringLiteral("-9223372036854775808,1,2,3,4,5,9223372036854775807"));
+		QCOMPARE(queryValue("SELECT group_concat(sample) FROM (SELECT DISTINCT sample FROM trip_engine_data ORDER BY sample)").toString(),
+			QStringLiteral("-9223372036854775808,1,2,3,5,9223372036854775807"));
 	}
 
 	void aFailedLegacyEngineMigrationChangesNothingAndIsRedoneNextTime() {
@@ -287,7 +338,7 @@ private slots:
 
 		QVERIFY(!migrate_db());
 		QVERIFY(queryRows("SELECT * FROM trip_data").value(0).contains("turb_eng_n1_1"));
-		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data WHERE engine_speed IS NOT NULL").toInt(), 0);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_engine_data").toInt(), 0);
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM sqlite_master WHERE name='trip_data_new'").toInt(), 0);
 		// The rest of the schema update still happened.
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM sqlite_master WHERE name='idx_trip_data_trip'").toInt(), 1);
@@ -295,7 +346,7 @@ private slots:
 		exec("DROP VIEW blocks_rebuild;");
 		QVERIFY(migrate_db());
 		QVERIFY(!queryRows("SELECT * FROM trip_data").value(0).contains("turb_eng_n1_1"));
-		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data WHERE engine_speed IS NOT NULL").toInt(), 3);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_engine_data").toInt(), 6);
 	}
 
 	// Whether trip_data still has the legacy columns can't be told, so the
@@ -357,13 +408,14 @@ private slots:
 			QCOMPARE(asked, cancelAt);
 			QVERIFY(queryRows("SELECT * FROM trip_data").value(0).contains("turb_eng_n1_1"));
 			QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data").toInt(), 5);
+			QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_engine_data").toInt(), 0);
 			QCOMPARE(queryValue("SELECT COUNT(*) FROM sqlite_master WHERE name='trip_data_new'").toInt(), 0);
 		}
 
 		int asked = 0;
 		QVERIFY(migrate_db({}, [&asked] { ++asked; return false; }));
 		QCOMPARE(asked, 6);
-		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data WHERE engine_speed IS NOT NULL").toInt(), 3);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_engine_data").toInt(), 6);
 	}
 
 	// Older builds stored local times with the UTC offset's sign reversed
@@ -430,18 +482,18 @@ private slots:
 #define SET_BOOL(name, group, bit) sim.record.name = (boolIndex++ % 3 == 0) ? 1 : 0;
 		TRIP_DATA_BOOL_FIELDS(SET_BOOL)
 #undef SET_BOOL
+		// Every engine value of every engine index too: a 4-engine aircraft
+		// stores engines 1-4, not what MSFS sends for the indexes past them.
+		int engineIndex = 0;
+#define SET_ENGINE(name, sqlType, onOff) \
+		for (int e = 0; e < SIM_ENGINE_INDEXES; ++e, ++engineIndex) \
+			sim.record.name[e] = onOff ? (engineIndex % 3 == 0 ? 1 : 0) : (value += 1.0);
+		TRIP_ENGINE_FIELDS(SET_ENGINE)
+#undef SET_ENGINE
 		sim.record.sim_on_ground = 1;
-		sim.record.eng_combustion_1 = 1;
-		// A 3-engine turboprop: prop RPM and torque stored for engines 1..3,
-		// not the other types' values or the 4th engine.
-		sim.record.engine_type = 5;
-		sim.record.number_of_engines = 3;
-		for (int e = 0; e < MAX_ENGINES; ++e) {
-			sim.record.prop_rpm[e] = 2100 + e;
-			sim.record.turb_eng_max_torque_percent[e] = 25.5 + e;
-			sim.record.general_eng_rpm[e] = 99;
-			sim.record.turb_eng_n1[e] = 99;
-		}
+		sim.record.eng_combustion[0] = 1;
+		sim.record.engine_type = 1;
+		sim.record.number_of_engines = 4;
 		const FLIGHT_DATA_RECORD sent = sim.record;
 
 		sim.tick();
@@ -481,10 +533,14 @@ private slots:
 		QCOMPARE(p.airspeed, (int)expected.airspeed_indicated);
 		QCOMPARE(p.groundSpeed, (int)expected.ground_velocity);
 		QCOMPARE(p.verticalSpeed, (int)expected.vertical_speed);
-		QCOMPARE(p.engine.engineType, 5);
-		QCOMPARE(p.engine.count, 3);
-		QCOMPARE(p.engine.speed, (std::array<float, MAX_ENGINES>{ 2100, 2101, 2102, 0 }));
-		QCOMPARE(p.engine.load, (std::array<float, MAX_ENGINES>{ 25.5f, 26.5f, 27.5f, 0 }));
+		QCOMPARE(p.engineType, 1);
+		QCOMPARE(p.engineCount(), 4);
+#define CHECK_ENGINE(name, sqlType, onOff) \
+		for (int e = 1; e <= 4; ++e) \
+			QVERIFY2(p.engineValue(e, TRIP_ENGINE_##name) == expected.name[e - 1], #name);
+		TRIP_ENGINE_FIELDS(CHECK_ENGINE)
+#undef CHECK_ENGINE
+		QCOMPARE(queryValue(QStringLiteral("SELECT COUNT(*) FROM trip_engine_data WHERE trip = %1").arg(trip)).toInt(), 4);
 		QCOMPARE(p.gearHandlePosition, expected.gear_handle_position);
 		QCOMPARE(p.gearPosition[0], (int)expected.gear_position_0);
 		QCOMPARE(p.gearPosition[1], (int)expected.gear_position_1);
@@ -503,20 +559,90 @@ private slots:
 		QCOMPARE(p.localTime, QStringLiteral("2026-01-02T10:00:00.500+00:00_5"));
 	}
 
-	void aSampleWithNoEnginePowerStoresNull() {
-		// Engine type 2 (none) records no power, whatever its engine count:
-		// stored as NULL, not as an empty BLOB.
+	void aSampleStoresOneEngineRowPerEngineKeyedByItsId() {
+		// Whatever the engine type (2: none), one row per engine the aircraft
+		// has, with the trip and the sample's trip_data id.
 		FlightDriver sim;
 		sim.record.sim_on_ground = 1;
-		sim.record.eng_combustion_1 = 1;
+		sim.record.eng_combustion[0] = 1;
 		sim.record.engine_type = 2;
 		sim.record.number_of_engines = 2;
 		sim.tick();
 		const int trip = sim.status().id_trip;
 		QVERIFY(trip > 0);
 		sim.endTrip();
-		QCOMPARE(queryValue(QStringLiteral("SELECT typeof(engine_speed) || ',' || typeof(engine_load) FROM trip_data WHERE trip = %1").arg(trip)).toString(),
-			QStringLiteral("null,null"));
+		QCOMPARE(queryValue(QStringLiteral("SELECT group_concat(e.engine || ':' || e.trip) FROM trip_engine_data e"
+			" JOIN trip_data d ON d.id = e.sample WHERE d.trip = %1").arg(trip)).toString(),
+			QStringLiteral("1:%1,2:%1").arg(trip));
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_engine_data").toInt(), 2);
+	}
+
+	// A sample is written with its engine rows or not at all.
+	void aSampleWhoseEngineRowsCantBeWrittenIsRolledBack() {
+		FlightDriver sim;
+		const int tripId = sim.startTrip();
+		const QString count = QStringLiteral("SELECT COUNT(*) FROM trip_data WHERE trip = %1").arg(tripId);
+		QVERIFY(waitFor([&count] { return queryValue(count).toInt() == 1; }));
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		exec("DROP TABLE trip_engine_data");
+		sim.tick();
+		QVERIFY(waitFor([&log, tripId] {
+			return !lastLogWith(log, { QStringLiteral("db_write_worker"), QStringLiteral("trip %1").arg(tripId) }).isEmpty();
+		}));
+		sim.endTrip();
+		QCOMPARE(queryValue(count).toInt(), 1);
+	}
+
+	// trip_engine_data refers to samples by trip_data's id, which VACUUM
+	// keeps: a trip's engine values still load after an earlier trip is
+	// deleted and the database vacuumed.
+	void engineValuesStillLoadAfterVacuum() {
+		int first = 0, second = 0;
+		{
+			FlightDriver sim;
+			first = sim.startTrip();
+			sim.ticks(3);
+			sim.endTrip();
+		}
+		{
+			FlightDriver sim;
+			sim.record.prop_rpm[1] = 2345;
+			second = sim.startTrip();
+			sim.ticks(3);
+			sim.endTrip();
+		}
+		sqlite3* db = connect_db_readwrite();
+		QVERIFY(deleteTripData(db, first));
+		exec(db, "VACUUM;");
+		const TripDataset stored = queryTripData(db, second);
+		sqlite3_close(db);
+		QCOMPARE(stored.points.size(), size_t(4));
+		for (const TripSamplePoint& p : stored.points)
+			QCOMPARE(p.engineValue(2, TRIP_ENGINE_prop_rpm), 2345.0);
+	}
+
+	// Engine rows a hand-edited database could hold: an engine number MSFS
+	// doesn't report, or a sample that isn't in trip_data. Loading skips them.
+	void engineRowsOfNoEngineOrNoSampleAreSkipped() {
+		FlightDriver sim;
+		sim.record.prop_rpm[0] = 2345;
+		const int trip = sim.startTrip();
+		sim.ticks(2);
+		sim.endTrip();
+		const QString range = queryValue(QStringLiteral("SELECT MIN(id) || ',' || MAX(id) FROM trip_data WHERE trip = %1").arg(trip)).toString();
+		const qint64 firstId = range.section(',', 0, 0).toLongLong(), lastId = range.section(',', 1, 1).toLongLong();
+		exec(QStringLiteral("INSERT INTO trip_engine_data (sample, engine, trip, prop_rpm) VALUES"
+			" (%1, 0, %3, 9999), (%1, 17, %3, 9999), (%1 - 1, 3, %3, 9999), (%2 + 1, 1, %3, 9999);")
+			.arg(firstId).arg(lastId).arg(trip).toUtf8().constData());
+
+		sqlite3* db = connect_db_readonly();
+		const TripDataset stored = queryTripData(db, trip);
+		sqlite3_close(db);
+		QCOMPARE(stored.points.size(), size_t(3));
+		for (const TripSamplePoint& p : stored.points) {
+			QCOMPARE(p.engineCount(), 2);
+			QCOMPARE(p.engineValue(1, TRIP_ENGINE_prop_rpm), 2345.0);
+		}
 	}
 
 	void queryTripDataReturnsAnEmptyDatasetWhenTheTableIsMissing() {
@@ -745,10 +871,12 @@ private slots:
 			sim.endTrip();
 		}
 		QVERIFY(queryValue(QStringLiteral("SELECT COUNT(*) FROM trip_data WHERE trip=%1").arg(tripId)).toInt() > 0);
+		QVERIFY(queryValue(QStringLiteral("SELECT COUNT(*) FROM trip_engine_data WHERE trip=%1").arg(tripId)).toInt() > 0);
 		sqlite3* db = connect_db_readwrite();
 		QVERIFY(deleteTripData(db, tripId));
 		sqlite3_close(db);
 		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data").toInt(), 0);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_engine_data").toInt(), 0);
 	}
 
 	void deleteTripDataRollsBackWhenAChildTableIsMissing() {

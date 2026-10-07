@@ -5,7 +5,6 @@
 
 #include <array>
 #include <cstdint>
-#include <string_view>
 
 // Turns a trip_data column / FLIGHT_DATA_RECORD member name like
 // "plane_touchdown_latitude" into a display label like "Plane Touchdown
@@ -18,14 +17,13 @@ inline QString tripFieldLabel(const char* name) {
 }
 
 // Canonical list of every trip_data column that represents flight telemetry
-// (i.e. every column except the `trip` key column, `zulu_time`/`local_time`
-// (shown in their own DataTablePanel rows) and the `engine_speed`/
-// `engine_load` BLOBs (see engine_power.h)). Expanded via X-macros by every
-// consumer that must agree on the same field set and order: the trip_data
-// schema, INSERT and binds (db.cpp), db_history.cpp (fills
-// TripSamplePoint::rawNums from sqlite3_column_double), and
-// data_table_panel.cpp (formats rawNums/boolGroups to display strings in
-// showPoint, blanking other engines' fields by tripFieldEngine() below).
+// (i.e. every column except the `id` and `trip` key columns and
+// `zulu_time`/`local_time` (shown in their own DataTablePanel rows)), and of
+// every trip_engine_data value column. Expanded via X-macros by every
+// consumer that must agree on the same field set and order: the schemas,
+// INSERTs and binds (db.cpp), db_history.cpp (fills TripSamplePoint::rawNums
+// and engineValues), and data_table_panel.cpp (formats them to display
+// strings in showPoint).
 //
 // TRIP_DATA_NUM_FIELDS(X): X(dbColumn, recordMemberExpr, sqlType) -- a plain
 // numeric trip_data column. recordMemberExpr is the FLIGHT_DATA_RECORD
@@ -36,13 +34,17 @@ inline QString tripFieldLabel(const char* name) {
 // bit-packed into bool_group_<boolGroup> at bit <bitIndex> for storage (see
 // tripBoolGroups() below); `name` is both the FLIGHT_DATA_RECORD member name
 // and the storage bit's label (data_table_panel.cpp unpacks it from the
-// matching bool_group).
+// matching bool_group). Bits 13-30 of group 2 and 1-4 and 6-9 of group 3 are
+// free: they held engines 1-2's on/off values before trip_engine_data, and
+// the migration that moved those (db.cpp) clears them.
+//
+// TRIP_ENGINE_FIELDS(X): X(name, sqlType, onOff) -- one value per engine, a
+// column of trip_engine_data (one row per engine of each trip_data sample).
+// `name` is both the column and the FLIGHT_DATA_RECORD ENGINES member (an
+// array indexed by engine - 1); sqlType (INTEGER or REAL) is the column's
+// type; onOff marks an on/off state, stored as 0 or 1 and shown as No/Yes.
 
 #define TRIP_DATA_NUM_FIELDS(X) \
-	X(eng_exhaust_gas_temperature_1, eng_exhaust_gas_temperature_1, INTEGER) \
-	X(eng_exhaust_gas_temperature_2, eng_exhaust_gas_temperature_2, INTEGER) \
-	X(eng_oil_temperature_1, eng_oil_temperature_1, INTEGER) \
-	X(eng_oil_temperature_2, eng_oil_temperature_2, INTEGER) \
 	X(ambient_temperature, ambient_temperature, INTEGER) \
 	X(autopilot_heading_lock_dir, autopilot_heading_lock_dir, INTEGER) \
 	X(aileron_left_deflection, aileron_left_deflection, REAL) \
@@ -83,8 +85,6 @@ inline QString tripFieldLabel(const char* name) {
 	X(bleed_air_source_control_1, bleed_air_source_control_1, INTEGER) \
 	X(bleed_air_source_control_2, bleed_air_source_control_2, INTEGER) \
 	X(engine_type, engine_type, INTEGER) \
-	X(turb_eng_ignition_switch_ex1_1, turb_eng_ignition_switch_ex1_1, INTEGER) \
-	X(turb_eng_ignition_switch_ex1_2, turb_eng_ignition_switch_ex1_2, INTEGER) \
 	X(fuel_cross_feed_l, fuel_cross_feed_l, INTEGER) \
 	X(fuel_cross_feed_r, fuel_cross_feed_r, INTEGER) \
 	X(surface_condition, surface_condition, INTEGER) \
@@ -105,8 +105,6 @@ inline QString tripFieldLabel(const char* name) {
 	X(fuel_selected_quantity_r, fuel_selected_quantity_r, INTEGER) \
 	X(fuel_total_quantity, fuel_total_quantity, INTEGER) \
 	X(g_force, g_force, REAL) \
-	X(general_eng_elapsed_time_1, general_eng_elapsed_time_1, REAL) \
-	X(general_eng_elapsed_time_2, general_eng_elapsed_time_2, REAL) \
 	X(ambient_pressure, ambient_pressure, REAL) \
 	X(kohlsman_setting_hg, kohlsman_setting_hg, REAL) \
 	X(autopilot_airspeed_hold_var, autopilot_airspeed_hold_var, INTEGER) \
@@ -126,11 +124,7 @@ inline QString tripFieldLabel(const char* name) {
 	X(auto_brake_switch_cb, auto_brake_switch_cb, INTEGER) \
 	X(flaps_handle_index, flaps_handle_index, INTEGER) \
 	X(flaps_num_handle_positions, flaps_num_handle_positions, INTEGER) \
-	X(general_eng_throttle_managed_mode_1, general_eng_throttle_managed_mode_1, REAL) \
-	X(general_eng_throttle_managed_mode_2, general_eng_throttle_managed_mode_2, REAL) \
 	X(number_of_engines, number_of_engines, INTEGER) \
-	X(turb_eng_vibration_1, turb_eng_vibration_1, REAL) \
-	X(turb_eng_vibration_2, turb_eng_vibration_2, REAL) \
 	X(gear_handle_position, gear_handle_position, REAL) \
 	X(aileron_left_deflection_pct, aileron_left_deflection_pct, REAL) \
 	X(aileron_right_deflection_pct, aileron_right_deflection_pct, REAL) \
@@ -149,28 +143,14 @@ inline QString tripFieldLabel(const char* name) {
 	X(pitot_ice_pct, pitot_ice_pct, REAL) \
 	X(autopilot_throttle_max_thrust, autopilot_throttle_max_thrust, REAL) \
 	X(electrical_battery_estimated_capacity_pct, electrical_battery_estimated_capacity_pct, REAL) \
-	X(general_eng_damage_percent_1, general_eng_damage_percent_1, REAL) \
-	X(general_eng_damage_percent_2, general_eng_damage_percent_2, REAL) \
-	X(general_eng_throttle_lever_position_1, general_eng_throttle_lever_position_1, REAL) \
-	X(general_eng_throttle_lever_position_2, general_eng_throttle_lever_position_2, REAL) \
 	X(brake_indicator, brake_indicator, INTEGER) \
-	X(turb_eng_fuel_flow_pph_1, turb_eng_fuel_flow_pph_1, INTEGER) \
-	X(turb_eng_fuel_flow_pph_2, turb_eng_fuel_flow_pph_2, INTEGER) \
-	X(general_eng_fuel_used_since_start_1, general_eng_fuel_used_since_start_1, INTEGER) \
-	X(general_eng_fuel_used_since_start_2, general_eng_fuel_used_since_start_2, INTEGER) \
 	X(empty_weight, empty_weight, INTEGER) \
 	X(total_weight, total_weight, INTEGER) \
 	X(fuel_total_quantity_weight, fuel_total_quantity_weight, INTEGER) \
 	X(fuel_weight_per_gallon, fuel_weight_per_gallon, REAL) \
-	X(eng_hydraulic_pressure_1, eng_hydraulic_pressure_1, INTEGER) \
-	X(eng_hydraulic_pressure_2, eng_hydraulic_pressure_2, INTEGER) \
-	X(eng_oil_pressure_1, eng_oil_pressure_1, INTEGER) \
-	X(eng_oil_pressure_2, eng_oil_pressure_2, INTEGER) \
 	X(hydraulic_pressure_1, hydraulic_pressure_1, INTEGER) \
 	X(hydraulic_pressure_2, hydraulic_pressure_2, INTEGER) \
 	X(apu_bleed_pressure_received_by_engine, apu_bleed_pressure_received_by_engine, INTEGER) \
-	X(turb_eng_bleed_air_1, turb_eng_bleed_air_1, INTEGER) \
-	X(turb_eng_bleed_air_2, turb_eng_bleed_air_2, INTEGER) \
 	X(wheel_rpm_0, wheel_rpm_0, INTEGER) \
 	X(wheel_rpm_1, wheel_rpm_1, INTEGER) \
 	X(wheel_rpm_2, wheel_rpm_2, INTEGER) \
@@ -222,35 +202,9 @@ inline QString tripFieldLabel(const char* name) {
 	X(external_power_available, 2, 10) \
 	X(external_power_connection_on, 2, 11) \
 	X(external_power_on, 2, 12) \
-	X(bleed_air_engine_1, 2, 13) \
-	X(bleed_air_engine_2, 2, 14) \
-	X(eng_anti_ice_1, 2, 15) \
-	X(eng_anti_ice_2, 2, 16) \
-	X(eng_combustion_1, 2, 17) \
-	X(eng_combustion_2, 2, 18) \
-	X(eng_failed_1, 2, 19) \
-	X(eng_failed_2, 2, 20) \
-	X(eng_on_fire_1, 2, 21) \
-	X(eng_on_fire_2, 2, 22) \
-	X(general_eng_fire_detected_1, 2, 23) \
-	X(general_eng_fire_detected_2, 2, 24) \
-	X(general_eng_fuel_valve_1, 2, 25) \
-	X(general_eng_fuel_valve_2, 2, 26) \
-	X(general_eng_generator_active_1, 2, 27) \
-	X(general_eng_generator_active_2, 2, 28) \
-	X(general_eng_generator_switch_1, 2, 29) \
-	X(general_eng_generator_switch_2, 2, 30) \
 	X(general_eng_master_alternator, 2, 31) \
 	X(general_eng_reverse_thrust_engaged, 3, 0) \
-	X(general_eng_starter_1, 3, 1) \
-	X(general_eng_starter_2, 3, 2) \
-	X(general_eng_starter_active_1, 3, 3) \
-	X(general_eng_starter_active_2, 3, 4) \
 	X(master_ignition_switch, 3, 5) \
-	X(turb_eng_fuel_available_1, 3, 6) \
-	X(turb_eng_fuel_available_2, 3, 7) \
-	X(turb_eng_is_igniting_1, 3, 8) \
-	X(turb_eng_is_igniting_2, 3, 9) \
 	X(fuel_transfer_pump_on_l, 3, 10) \
 	X(fuel_transfer_pump_on_r, 3, 11) \
 	X(on_any_runway, 3, 12) \
@@ -274,23 +228,48 @@ inline QString tripFieldLabel(const char* name) {
 	X(sim_on_ground, 3, 30) \
 	X(kohlsman_setting_std, 3, 31)
 
-// The engine (1-based) a field above belongs to, from its name: a per-engine
-// SimVar's field starts with "eng_", "general_eng_", "turb_eng_" or
-// "bleed_air_engine_" and ends in "_<engine>". 0 for every other field
-// (including those prefixes without an engine suffix, e.g.
-// general_eng_master_alternator). Such a field of an engine past the
-// aircraft's NUMBER OF ENGINES holds whatever SimConnect returns for a missing
-// engine (e.g. -273.15 for its temperatures), not data.
-constexpr int tripFieldEngine(std::string_view name) {
-	constexpr std::string_view prefixes[] = { "eng_", "general_eng_", "turb_eng_", "bleed_air_engine_" };
-	bool engineField = false;
-	for (std::string_view prefix : prefixes)
-		engineField = engineField || name.substr(0, prefix.size()) == prefix;
-	const size_t n = name.size(); // >= 4 once a prefix matched
-	if (!engineField || name[n - 2] != '_' || name[n - 1] < '1' || name[n - 1] > '9')
-		return 0;
-	return name[n - 1] - '0';
-}
+#define TRIP_ENGINE_FIELDS(X) \
+	X(turb_eng_n1, REAL, false) \
+	X(turb_eng_n2, REAL, false) \
+	X(general_eng_rpm, REAL, false) \
+	X(prop_rpm, REAL, false) \
+	X(recip_eng_manifold_pressure, REAL, false) \
+	X(turb_eng_max_torque_percent, REAL, false) \
+	X(eng_exhaust_gas_temperature, INTEGER, false) \
+	X(eng_oil_temperature, INTEGER, false) \
+	X(turb_eng_ignition_switch_ex1, INTEGER, false) \
+	X(general_eng_elapsed_time, REAL, false) \
+	X(general_eng_throttle_managed_mode, REAL, false) \
+	X(turb_eng_vibration, REAL, false) \
+	X(general_eng_damage_percent, REAL, false) \
+	X(general_eng_throttle_lever_position, REAL, false) \
+	X(turb_eng_fuel_flow_pph, INTEGER, false) \
+	X(general_eng_fuel_used_since_start, INTEGER, false) \
+	X(eng_hydraulic_pressure, INTEGER, false) \
+	X(eng_oil_pressure, INTEGER, false) \
+	X(turb_eng_bleed_air, INTEGER, false) \
+	X(bleed_air_engine, INTEGER, true) \
+	X(eng_anti_ice, INTEGER, true) \
+	X(eng_combustion, INTEGER, true) \
+	X(eng_failed, INTEGER, true) \
+	X(eng_on_fire, INTEGER, true) \
+	X(general_eng_fire_detected, INTEGER, true) \
+	X(general_eng_fuel_valve, INTEGER, true) \
+	X(general_eng_generator_active, INTEGER, true) \
+	X(general_eng_generator_switch, INTEGER, true) \
+	X(general_eng_starter, INTEGER, true) \
+	X(general_eng_starter_active, INTEGER, true) \
+	X(turb_eng_fuel_available, INTEGER, true) \
+	X(turb_eng_is_igniting, INTEGER, true)
+
+// Each TRIP_ENGINE_FIELDS entry's index in that list, e.g.
+// TRIP_ENGINE_turb_eng_n1 (TripSamplePoint::engineValue()'s field).
+enum TripEngineField {
+#define TRIP_ENGINE_ENUM(name, sqlType, onOff) TRIP_ENGINE_##name,
+	TRIP_ENGINE_FIELDS(TRIP_ENGINE_ENUM)
+#undef TRIP_ENGINE_ENUM
+	TRIP_ENGINE_FIELD_COUNT
+};
 
 // The bool_group_<n> values for a FLIGHT_DATA_RECORD (indexed 1-3; [0] is
 // unused): each TRIP_DATA_BOOL_FIELDS member that is non-zero sets its bit.

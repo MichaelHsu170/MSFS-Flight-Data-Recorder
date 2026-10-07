@@ -125,8 +125,8 @@ enum DATA_REQUEST_ID {
 // one list declares the struct's fields and makes add_flight_definition()'s
 // registrations, so the two can't drift apart. Field kinds:
 //   NUM(member, SimVar, unit): a double.
-//   ENGINES(member, SimVar, unit): double[MAX_ENGINES], from "SimVar:1" to
-//     "SimVar:MAX_ENGINES".
+//   ENGINES(member, SimVar, unit): double[SIM_ENGINE_INDEXES], from
+//     "SimVar:1" to "SimVar:SIM_ENGINE_INDEXES".
 //   COORD(member, latitude SimVar, longitude SimVar): a COORDINATE, in
 //     degrees.
 //   STR(member, SimVar, size): char[size], as SIMCONNECT_DATATYPE_STRING<size>.
@@ -223,77 +223,47 @@ enum DATA_REQUEST_ID {
 	NUM(external_power_available, "EXTERNAL POWER AVAILABLE", "Bool") \
 	NUM(external_power_connection_on, "EXTERNAL POWER CONNECTION ON", "Bool") \
 	NUM(external_power_on, "EXTERNAL POWER ON", "Bool") \
-	NUM(bleed_air_engine_1, "BLEED AIR ENGINE:1", "Bool") \
-	NUM(bleed_air_engine_2, "BLEED AIR ENGINE:2", "Bool") \
 	NUM(bleed_air_source_control_1, "BLEED AIR SOURCE CONTROL:1", "Enum") \
 	NUM(bleed_air_source_control_2, "BLEED AIR SOURCE CONTROL:2", "Enum") \
 	NUM(engine_control_select, "ENGINE CONTROL SELECT", "Flags") \
 	NUM(engine_type, "ENGINE TYPE", "Enum") \
-	NUM(eng_anti_ice_1, "ENG ANTI ICE:1", "Bool") \
-	NUM(eng_anti_ice_2, "ENG ANTI ICE:2", "Bool") \
-	NUM(eng_combustion_1, "ENG COMBUSTION:1", "Bool") \
-	NUM(eng_combustion_2, "ENG COMBUSTION:2", "Bool") \
-	/* Read only to start/stop the trip (flight_phase.cpp); trip_data's \
-	   bool groups have no free bit to store them in. */ \
-	NUM(eng_combustion_3, "ENG COMBUSTION:3", "Bool") \
-	NUM(eng_combustion_4, "ENG COMBUSTION:4", "Bool") \
-	NUM(eng_exhaust_gas_temperature_1, "ENG EXHAUST GAS TEMPERATURE:1", "Celsius") \
-	NUM(eng_exhaust_gas_temperature_2, "ENG EXHAUST GAS TEMPERATURE:2", "Celsius") \
-	NUM(eng_failed_1, "ENG FAILED:1", "Bool") \
-	NUM(eng_failed_2, "ENG FAILED:2", "Bool") \
-	NUM(eng_hydraulic_pressure_1, "ENG HYDRAULIC PRESSURE:1", "psf") \
-	NUM(eng_hydraulic_pressure_2, "ENG HYDRAULIC PRESSURE:2", "psf") \
-	NUM(eng_oil_pressure_1, "ENG OIL PRESSURE:1", "psf") \
-	NUM(eng_oil_pressure_2, "ENG OIL PRESSURE:2", "psf") \
-	NUM(eng_oil_temperature_1, "ENG OIL TEMPERATURE:1", "Celsius") \
-	NUM(eng_oil_temperature_2, "ENG OIL TEMPERATURE:2", "Celsius") \
-	NUM(eng_on_fire_1, "ENG ON FIRE:1", "Bool") \
-	NUM(eng_on_fire_2, "ENG ON FIRE:2", "Bool") \
-	NUM(general_eng_damage_percent_1, "GENERAL ENG DAMAGE PERCENT:1", "Percent") \
-	NUM(general_eng_damage_percent_2, "GENERAL ENG DAMAGE PERCENT:2", "Percent") \
-	NUM(general_eng_elapsed_time_1, "GENERAL ENG ELAPSED TIME:1", "Hours") \
-	NUM(general_eng_elapsed_time_2, "GENERAL ENG ELAPSED TIME:2", "Hours") \
-	NUM(general_eng_fire_detected_1, "GENERAL ENG FIRE DETECTED:1", "Bool") \
-	NUM(general_eng_fire_detected_2, "GENERAL ENG FIRE DETECTED:2", "Bool") \
-	NUM(general_eng_fuel_used_since_start_1, "GENERAL ENG FUEL USED SINCE START:1", "Pounds") \
-	NUM(general_eng_fuel_used_since_start_2, "GENERAL ENG FUEL USED SINCE START:2", "Pounds") \
-	NUM(general_eng_fuel_valve_1, "GENERAL ENG FUEL VALVE:1", "Bool") \
-	NUM(general_eng_fuel_valve_2, "GENERAL ENG FUEL VALVE:2", "Bool") \
-	NUM(general_eng_generator_active_1, "GENERAL ENG GENERATOR ACTIVE:1", "Bool") \
-	NUM(general_eng_generator_active_2, "GENERAL ENG GENERATOR ACTIVE:2", "Bool") \
-	NUM(general_eng_generator_switch_1, "GENERAL ENG GENERATOR SWITCH:1", "Bool") \
-	NUM(general_eng_generator_switch_2, "GENERAL ENG GENERATOR SWITCH:2", "Bool") \
 	NUM(general_eng_master_alternator, "GENERAL ENG MASTER ALTERNATOR", "Bool") \
 	NUM(general_eng_reverse_thrust_engaged, "GENERAL ENG REVERSE THRUST ENGAGED", "Bool") \
-	NUM(general_eng_starter_1, "GENERAL ENG STARTER:1", "Bool") \
-	NUM(general_eng_starter_2, "GENERAL ENG STARTER:2", "Bool") \
-	NUM(general_eng_starter_active_1, "GENERAL ENG STARTER ACTIVE:1", "Bool") \
-	NUM(general_eng_starter_active_2, "GENERAL ENG STARTER ACTIVE:2", "Bool") \
-	NUM(general_eng_throttle_lever_position_1, "GENERAL ENG THROTTLE LEVER POSITION:1", "Percent") \
-	NUM(general_eng_throttle_lever_position_2, "GENERAL ENG THROTTLE LEVER POSITION:2", "Percent") \
-	NUM(general_eng_throttle_managed_mode_1, "GENERAL ENG THROTTLE MANAGED MODE:1", "Number") \
-	NUM(general_eng_throttle_managed_mode_2, "GENERAL ENG THROTTLE MANAGED MODE:2", "Number") \
 	NUM(master_ignition_switch, "MASTER IGNITION SWITCH", "Bool") \
 	NUM(number_of_engines, "NUMBER OF ENGINES", "Number") \
-	NUM(turb_eng_bleed_air_1, "TURB ENG BLEED AIR:1", "psi") \
-	NUM(turb_eng_bleed_air_2, "TURB ENG BLEED AIR:2", "psi") \
-	NUM(turb_eng_fuel_available_1, "TURB ENG FUEL AVAILABLE:1", "Bool") \
-	NUM(turb_eng_fuel_available_2, "TURB ENG FUEL AVAILABLE:2", "Bool") \
-	NUM(turb_eng_fuel_flow_pph_1, "TURB ENG FUEL FLOW PPH:1", "Pounds per hour") \
-	NUM(turb_eng_fuel_flow_pph_2, "TURB ENG FUEL FLOW PPH:2", "Pounds per hour") \
-	NUM(turb_eng_ignition_switch_ex1_1, "TURB ENG IGNITION SWITCH EX1:1", "Enum") \
-	NUM(turb_eng_ignition_switch_ex1_2, "TURB ENG IGNITION SWITCH EX1:2", "Enum") \
-	NUM(turb_eng_is_igniting_1, "TURB ENG IS IGNITING:1", "Bool") \
-	NUM(turb_eng_is_igniting_2, "TURB ENG IS IGNITING:2", "Bool") \
-	/* enginePowerFromRecord() picks which engines a sample records. */ \
+	/* Each one is a column of trip_engine_data (TRIP_ENGINE_FIELDS). */ \
+	ENGINES(bleed_air_engine, "BLEED AIR ENGINE", "Bool") \
+	ENGINES(eng_anti_ice, "ENG ANTI ICE", "Bool") \
+	ENGINES(eng_combustion, "ENG COMBUSTION", "Bool") \
+	ENGINES(eng_exhaust_gas_temperature, "ENG EXHAUST GAS TEMPERATURE", "Celsius") \
+	ENGINES(eng_failed, "ENG FAILED", "Bool") \
+	ENGINES(eng_hydraulic_pressure, "ENG HYDRAULIC PRESSURE", "psf") \
+	ENGINES(eng_oil_pressure, "ENG OIL PRESSURE", "psf") \
+	ENGINES(eng_oil_temperature, "ENG OIL TEMPERATURE", "Celsius") \
+	ENGINES(eng_on_fire, "ENG ON FIRE", "Bool") \
+	ENGINES(general_eng_damage_percent, "GENERAL ENG DAMAGE PERCENT", "Percent") \
+	ENGINES(general_eng_elapsed_time, "GENERAL ENG ELAPSED TIME", "Hours") \
+	ENGINES(general_eng_fire_detected, "GENERAL ENG FIRE DETECTED", "Bool") \
+	ENGINES(general_eng_fuel_used_since_start, "GENERAL ENG FUEL USED SINCE START", "Pounds") \
+	ENGINES(general_eng_fuel_valve, "GENERAL ENG FUEL VALVE", "Bool") \
+	ENGINES(general_eng_generator_active, "GENERAL ENG GENERATOR ACTIVE", "Bool") \
+	ENGINES(general_eng_generator_switch, "GENERAL ENG GENERATOR SWITCH", "Bool") \
+	ENGINES(general_eng_starter, "GENERAL ENG STARTER", "Bool") \
+	ENGINES(general_eng_starter_active, "GENERAL ENG STARTER ACTIVE", "Bool") \
+	ENGINES(general_eng_throttle_lever_position, "GENERAL ENG THROTTLE LEVER POSITION", "Percent") \
+	ENGINES(general_eng_throttle_managed_mode, "GENERAL ENG THROTTLE MANAGED MODE", "Number") \
+	ENGINES(turb_eng_bleed_air, "TURB ENG BLEED AIR", "psi") \
+	ENGINES(turb_eng_fuel_available, "TURB ENG FUEL AVAILABLE", "Bool") \
+	ENGINES(turb_eng_fuel_flow_pph, "TURB ENG FUEL FLOW PPH", "Pounds per hour") \
+	ENGINES(turb_eng_ignition_switch_ex1, "TURB ENG IGNITION SWITCH EX1", "Enum") \
+	ENGINES(turb_eng_is_igniting, "TURB ENG IS IGNITING", "Bool") \
 	ENGINES(general_eng_rpm, "GENERAL ENG RPM", "rpm") \
 	ENGINES(recip_eng_manifold_pressure, "RECIP ENG MANIFOLD PRESSURE", "inHg") \
 	ENGINES(turb_eng_n1, "TURB ENG N1", "Percent") \
 	ENGINES(turb_eng_n2, "TURB ENG N2", "Percent") \
 	ENGINES(turb_eng_max_torque_percent, "TURB ENG MAX TORQUE PERCENT", "Percent") \
 	ENGINES(prop_rpm, "PROP RPM", "rpm") \
-	NUM(turb_eng_vibration_1, "TURB ENG VIBRATION:1", "Number") \
-	NUM(turb_eng_vibration_2, "TURB ENG VIBRATION:2", "Number") \
+	ENGINES(turb_eng_vibration, "TURB ENG VIBRATION", "Number") \
 	NUM(g_force, "G FORCE", "GForce") \
 	NUM(empty_weight, "EMPTY WEIGHT", "Pounds") \
 	NUM(total_weight, "TOTAL WEIGHT", "Pounds") \
@@ -386,7 +356,7 @@ enum DATA_REQUEST_ID {
 
 struct FLIGHT_DATA_RECORD {
 #define FLIGHT_FIELD_NUM(member, simVar, unit) double member;
-#define FLIGHT_FIELD_ENGINES(member, simVar, unit) double member[MAX_ENGINES];
+#define FLIGHT_FIELD_ENGINES(member, simVar, unit) double member[SIM_ENGINE_INDEXES];
 #define FLIGHT_FIELD_COORD(member, latitude, longitude) COORDINATE member;
 #define FLIGHT_FIELD_STR(member, simVar, size) char member[size];
 #define FLIGHT_FIELD_TIME(member, prefix, offset) DATETIME member;

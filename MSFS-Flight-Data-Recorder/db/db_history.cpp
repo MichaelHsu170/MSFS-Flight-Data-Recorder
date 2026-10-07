@@ -8,6 +8,7 @@
 
 #include <QHash>
 #include <algorithm>
+#include <cmath>
 #include <functional>
 
 namespace {
@@ -38,6 +39,43 @@ std::vector<T> queryContactPoints(sqlite3* sql, int tripId, const char* stmtText
 	});
 	Logger::logf(Logger::Trace, "DB", "%s(trip %d): loaded %d %s", callerName, tripId, (int)items.size(), itemsWord);
 	return items;
+}
+
+// The trip_engine_data columns readEngineRows() reads, in this order: the
+// key, then every TRIP_ENGINE_FIELDS value.
+const char* const ENGINE_ROW_QUERY = "SELECT sample, engine"
+#define TRIP_ENGINE_SELECT(name, sqlType, onOff) ", " #name
+	TRIP_ENGINE_FIELDS(TRIP_ENGINE_SELECT)
+#undef TRIP_ENGINE_SELECT
+	" FROM trip_engine_data WHERE trip = ? ORDER BY sample, engine";
+
+// Fills each point's engineValues from tripId's trip_engine_data rows;
+// sampleIds[i] is points[i]'s trip_data id, ascending. A row of an engine
+// outside 1..SIM_ENGINE_INDEXES or of no loaded sample is skipped.
+void readEngineRows(sqlite3* sql, int tripId, const std::vector<sqlite3_int64>& sampleIds,
+	std::vector<TripSamplePoint>& points) {
+	const QString context = QStringLiteral("queryTripData(trip %1) engines").arg(tripId);
+	sqlite3_stmt* stmt = prepareStatement(sql, ENGINE_ROW_QUERY, context);
+	if (!stmt)
+		return;
+	sqlite3_bind_int(stmt, 1, tripId);
+	size_t point = 0;
+	forEachRow(sql, stmt, context, [&](sqlite3_stmt* row) {
+		const sqlite3_int64 sample = sqlite3_column_int64(row, 0);
+		const int engine = sqlite3_column_int(row, 1);
+		while (point < sampleIds.size() && sampleIds[point] < sample)
+			++point;
+		if (point == sampleIds.size() || sampleIds[point] != sample || engine < 1 || engine > SIM_ENGINE_INDEXES)
+			return true;
+		std::vector<double>& values = points[point].engineValues;
+		const size_t first = (size_t)(engine - 1) * TRIP_ENGINE_FIELD_COUNT;
+		if (values.size() < first + TRIP_ENGINE_FIELD_COUNT)
+			values.resize(first + TRIP_ENGINE_FIELD_COUNT, std::nan(""));
+		for (int field = 0; field < TRIP_ENGINE_FIELD_COUNT; ++field)
+			values[first + field] = sqlite3_column_type(row, 2 + field) == SQLITE_NULL
+				? std::nan("") : sqlite3_column_double(row, 2 + field);
+		return true;
+	});
 }
 
 }
@@ -105,7 +143,7 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	// to enumerate over a hundred columns by hand or care about their exact ordinal
 	// positions in the table.
 	const QString context = QStringLiteral("queryTripData(trip %1)").arg(tripId);
-	sqlite3_stmt* stmt = prepareStatement(sql, "SELECT * FROM trip_data WHERE trip = ? ORDER BY rowid", context);
+	sqlite3_stmt* stmt = prepareStatement(sql, "SELECT * FROM trip_data WHERE trip = ? ORDER BY id", context);
 	if (!stmt)
 		return dataset;
 	sqlite3_bind_int(stmt, 1, tripId);
@@ -135,9 +173,8 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	const int idxGroundSpeed = indexOf("ground_velocity");
 	const int idxAirspeed = indexOf("airspeed_indicated");
 	const int idxVerticalSpeed = indexOf("vertical_speed");
+	const int idxId = indexOf("id");
 	const int idxEngineType = indexOf("engine_type");
-	const int idxEngineSpeed = indexOf("engine_speed");
-	const int idxEngineLoad = indexOf("engine_load");
 	const int idxBrakeIndicator = indexOf("brake_indicator");
 	const int idxFlapsHandleIndex = indexOf("flaps_handle_index");
 	const int idxSpoilersHandlePosition = indexOf("spoilers_handle_position");
@@ -157,14 +194,8 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	auto colDouble = [&](int index) -> double { return index >= 0 ? sqlite3_column_double(stmt, index) : 0.0; };
 	auto colInt = [&](int index) -> int { return index >= 0 ? sqlite3_column_int(stmt, index) : 0; };
 	auto colText = [&](int index) -> QString { return index >= 0 ? columnText(stmt, index) : QString(); };
-	// Unpacks an engine_speed/engine_load BLOB into out; its engine count (0 for NULL).
-	auto colEngineValues = [&](int index, std::array<float, MAX_ENGINES>& out) -> int {
-		if (index < 0)
-			return 0;
-		const void* blob = sqlite3_column_blob(stmt, index); // before _bytes(), as SQLite documents
-		return unpackEngineValues(blob, sqlite3_column_bytes(stmt, index), out);
-	};
 
+	std::vector<sqlite3_int64> sampleIds;
 	forEachRow(sql, stmt, context, [&](sqlite3_stmt*) {
 		TripSamplePoint point;
 		point.boolGroups = { 0, (uint32_t)colInt(idxBoolGroup1),
@@ -182,9 +213,7 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 		point.groundSpeed = colInt(idxGroundSpeed);
 		point.airspeed = colInt(idxAirspeed);
 		point.verticalSpeed = colInt(idxVerticalSpeed);
-		point.engine.engineType = colInt(idxEngineType);
-		point.engine.count = qMin(colEngineValues(idxEngineSpeed, point.engine.speed),
-			colEngineValues(idxEngineLoad, point.engine.load));
+		point.engineType = colInt(idxEngineType);
 		point.brakeIndicator = colInt(idxBrakeIndicator);
 		point.flapsHandleIndex = colDouble(idxFlapsHandleIndex);
 		point.spoilersHandlePosition = colDouble(idxSpoilersHandlePosition);
@@ -198,9 +227,11 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 		for (int idx : numFieldIndices)
 			point.rawNums.push_back(colDouble(idx));
 
+		sampleIds.push_back(sqlite3_column_int64(stmt, idxId));
 		dataset.points.push_back(point);
 		return true;
 	});
+	readEngineRows(sql, tripId, sampleIds, dataset.points);
 	Logger::logf(Logger::Trace, "DB", "queryTripData(trip %d): loaded %d points", tripId, (int)dataset.points.size());
 
 	return dataset;
@@ -312,6 +343,7 @@ bool deleteTripData(sqlite3* sql, int tripId) {
 	// Child tables first (trip_data is largest), then the trip row itself.
 	const char* stmts[] = {
 		"DELETE FROM trip_data WHERE trip = ?",
+		"DELETE FROM trip_engine_data WHERE trip = ?",
 		"DELETE FROM trip_events WHERE trip = ?",
 		"DELETE FROM trip_liftoffs WHERE trip = ?",
 		"DELETE FROM trip_touchdowns WHERE trip = ?",

@@ -1,21 +1,22 @@
 #pragma once
 
-#include <array>
-#include <string_view>
+#include "trip_data_fields.h"
 
 struct FLIGHT_DATA_RECORD;
 
-// Engine power: one "speed" and one "load" value per engine, whose meaning
-// depends on the aircraft's ENGINE TYPE SimVar -- N1/N2 for a jet, RPM and
-// manifold pressure for a piston, and so on (see enginePowerSpec()). Recorded
-// to trip_data.engine_speed/engine_load and shown in the first chart and the
-// Data Table.
+// Engine power as the first chart shows it: one "speed" and one "load" value
+// per engine, whose meaning depends on the aircraft's ENGINE TYPE SimVar --
+// N1/N2 for a jet, RPM and manifold pressure for a piston, and so on (see
+// enginePowerSpec()). Each is one of the per-engine values every sample
+// records to trip_engine_data (TRIP_ENGINE_FIELDS).
 
-// The documented maximum of the NUMBER OF ENGINES SimVar. FLIGHT_DATA_RECORD
-// receives every engine SimVar used here for engines 1..MAX_ENGINES.
-constexpr int MAX_ENGINES = 4;
+// The engine indexes FLIGHT_DATA_RECORD receives every ENGINES SimVar for:
+// "SimVar:1" to "SimVar:16", the index range the MSFS SimVar documentation
+// gives. A sample records engines 1..engineCount() of them.
+constexpr int SIM_ENGINE_INDEXES = 16;
 
 struct EngineQuantity {
+	TripEngineField field;  // the trip_engine_data value it is
 	const char* label;      // "N1" -- shown as "N1 #2" per engine
 	const char* unit;       // "%"
 	int decimals;
@@ -29,39 +30,14 @@ struct EnginePowerSpec {
 };
 
 // What speed and load mean for an ENGINE TYPE value (0 piston, 1 jet,
-// 3 helo turbine, 5 turboprop); nullptr for a type that records neither
+// 3 helo turbine, 5 turboprop); nullptr for a type that shows neither
 // (2 none, 4 unsupported, 6 electric, or anything else).
 const EnginePowerSpec* enginePowerSpec(int engineType);
 
-struct EnginePower {
-	int engineType = -1;
-	// Engines with values in speed/load; 0 means not recorded (no spec for
-	// engineType, no engines, or a trip recorded before this existed).
-	int count = 0;
-	std::array<float, MAX_ENGINES> speed{};
-	std::array<float, MAX_ENGINES> load{};
-};
-
-// The aircraft's NUMBER OF ENGINES, clamped to 0..MAX_ENGINES; 0 for a
-// value no int holds (NaN, out of range).
+// The aircraft's NUMBER OF ENGINES, clamped to 0..SIM_ENGINE_INDEXES; 0 for
+// a value no int holds (NaN, out of range). The engines a sample records.
 int engineCount(const FLIGHT_DATA_RECORD& r);
 
 // Whether ENG COMBUSTION is set for any of engines 1..engineCount(r), which
 // is what keeps a trip recording (flight_phase.cpp).
 bool anyEngineCombusting(const FLIGHT_DATA_RECORD& r);
-
-// Picks the SimVars that enginePowerSpec(r.engine_type) names, for engines
-// 1..engineCount(r). An ENGINE TYPE that no int holds (NaN, out of range)
-// reads as -1.
-EnginePower enginePowerFromRecord(const FLIGHT_DATA_RECORD& r);
-
-// trip_data.engine_speed/engine_load store engines 1..count as consecutive
-// float32 values in native (x64: little-endian) byte order, i.e. the raw
-// bytes of EnginePower::speed/load; NULL = not recorded.
-//
-// Packs values' engines 1..count (clamped to 0..MAX_ENGINES) as such a blob:
-// a view of values' bytes, empty when count is 0, which is stored as NULL.
-std::string_view packEngineValues(const std::array<float, MAX_ENGINES>& values, int count);
-// Unpacks one into out (engines past its count set to 0) and returns its
-// engine count (bytes / 4, clamped to MAX_ENGINES); 0 for a NULL or empty blob.
-int unpackEngineValues(const void* blob, int bytes, std::array<float, MAX_ENGINES>& out);

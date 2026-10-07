@@ -315,6 +315,28 @@ void addLegacyJetRows(int count) {
 		" SELECT 2, 1, 2, 85.5, 90.25, 95, 96.5 FROM n;").constData());
 }
 
+void createBlobTripData() {
+	sqlite3* db = openDatabaseFile();
+	QVERIFY(db);
+	exec(db, "CREATE TABLE trip_data (trip INTEGER NOT NULL, engine_type INTEGER, number_of_engines INTEGER,"
+		" engine_speed BLOB, engine_load BLOB, eng_oil_pressure_1 INTEGER, eng_oil_pressure_2 INTEGER,"
+		" bool_group_2 INTEGER, bool_group_3 INTEGER);");
+	// Little-endian float32 per engine: 85.5 = 0000AB42, 90.25 = 0080B442,
+	// 95 = 0000BE42, 96.5 = 0000C142, 2100-2103 = 00400345-00700345,
+	// 25.5/26.5/27.5 = 0000CC41/0000D441/0000DC41, 2400 = 00001645,
+	// 24.5 = 0000C441, 97 = 0000C242, 55 = 00005C42.
+	// bool_group_2 bit 0 (flap_damage_by_speed) and bit 20 (engine 2's
+	// eng_failed); bool_group_3 bit 1 (engine 1's general_eng_starter) and
+	// bit 30 (sim_on_ground).
+	exec(db, "INSERT INTO trip_data VALUES"
+		" (1, 1, 2, X'0000AB420080B442', X'0000BE420000C142', 60, 61, 1048577, 1073741826),"  // twin jet: N1, N2
+		" (1, 5, 4, X'00400345005003450060034500700345', X'0000CC410000D4410000DC41', 70, 71, 0, 0),"  // quad turboprop: prop RPM, torque (none for engine 4)
+		" (1, 0, 1, X'00001645', X'0000C441', 80, NULL, 0, 0),"  // piston: RPM, MP
+		" (1, 3, 1, X'0000C242', X'00005C42', 90, NULL, 0, 0),"  // helicopter turbine: N1, torque
+		" (1, 2, 4, NULL, NULL, 50, 51, 0, 0);");                // no engine power recorded
+	sqlite3_close(db);
+}
+
 QVariant queryValue(const QString& sql) {
 	const QList<QVariantMap> rows = queryRows(sql);
 	if (rows.isEmpty() || rows.first().isEmpty())
@@ -541,8 +563,8 @@ void FlightDriver::setOnGround(bool onGround) {
 }
 
 void FlightDriver::setEngines(bool running) {
-	for (double* combustion : { &record.eng_combustion_1, &record.eng_combustion_2, &record.eng_combustion_3, &record.eng_combustion_4 })
-		*combustion = running ? 1 : 0;
+	for (double& combustion : record.eng_combustion)
+		combustion = running ? 1 : 0;
 }
 
 void FlightDriver::moveTo(const COORDINATE& position) {

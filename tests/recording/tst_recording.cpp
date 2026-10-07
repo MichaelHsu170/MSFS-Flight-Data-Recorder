@@ -69,48 +69,36 @@ private slots:
 	}
 
 	void engineSimVarsLandInTheirRecordArrays() {
-		// Engines 1-4 of each engine SimVar, registered right where
-		// FLIGHT_DATA_RECORD's arrays sit, so engine i of each lands in [i-1].
+		// Engine indexes 1-16 of each engine SimVar, each registered where
+		// engine i of its FLIGHT_DATA_RECORD array sits ([i-1]), and no more.
 		FlightDriver sim;
 		const std::vector<FakeSim::DataDefinition>& defs = FakeSim::state().dataDefinitions;
-		auto first = std::find_if(defs.begin(), defs.end(),
-			[](const FakeSim::DataDefinition& d) { return d.datumName == "GENERAL ENG RPM:1"; });
-		QVERIFY(first != defs.end());
-		size_t offset = 0;
-		for (auto it = defs.begin(); it != first; ++it)
-			offset += wireBytes(it->datumType);
-		QCOMPARE(offset, offsetof(FLIGHT_DATA_RECORD, general_eng_rpm));
-		const std::vector<std::pair<std::string, std::string>> expected = {
-			{ "GENERAL ENG RPM", "rpm" }, { "RECIP ENG MANIFOLD PRESSURE", "inHg" },
-			{ "TURB ENG N1", "Percent" }, { "TURB ENG N2", "Percent" },
-			{ "TURB ENG MAX TORQUE PERCENT", "Percent" }, { "PROP RPM", "rpm" },
+		const struct { std::string name; std::string unit; size_t field; } expected[] = {
+			{ "GENERAL ENG RPM", "rpm", offsetof(FLIGHT_DATA_RECORD, general_eng_rpm) },
+			{ "RECIP ENG MANIFOLD PRESSURE", "inHg", offsetof(FLIGHT_DATA_RECORD, recip_eng_manifold_pressure) },
+			{ "TURB ENG N1", "Percent", offsetof(FLIGHT_DATA_RECORD, turb_eng_n1) },
+			{ "TURB ENG N2", "Percent", offsetof(FLIGHT_DATA_RECORD, turb_eng_n2) },
+			{ "TURB ENG MAX TORQUE PERCENT", "Percent", offsetof(FLIGHT_DATA_RECORD, turb_eng_max_torque_percent) },
+			{ "PROP RPM", "rpm", offsetof(FLIGHT_DATA_RECORD, prop_rpm) },
+			{ "ENG COMBUSTION", "Bool", offsetof(FLIGHT_DATA_RECORD, eng_combustion) },
+			{ "ENG OIL PRESSURE", "psf", offsetof(FLIGHT_DATA_RECORD, eng_oil_pressure) },
+			{ "TURB ENG VIBRATION", "Number", offsetof(FLIGHT_DATA_RECORD, turb_eng_vibration) },
 		};
-		QVERIFY(defs.end() - first >= (ptrdiff_t)(expected.size() * MAX_ENGINES));
-		auto it = first;
-		for (const auto& [name, unit] : expected) {
-			for (int engine = 1; engine <= MAX_ENGINES; ++engine, ++it) {
-				QCOMPARE(it->datumName, name + ":" + std::to_string(engine));
+		for (const auto& [simVar, unit, field] : expected) {
+			for (int engine = 1; engine <= 17; ++engine) {
+				const std::string name = simVar + ":" + std::to_string(engine);
+				size_t offset = 0;
+				auto it = defs.begin();
+				for (; it != defs.end() && it->datumName != name; ++it)
+					offset += wireBytes(it->datumType);
+				if (engine == 17) {
+					QVERIFY2(it == defs.end(), name.c_str());
+					continue;
+				}
+				QVERIFY2(it != defs.end(), name.c_str());
 				QCOMPARE(it->unitsName, unit);
+				QCOMPARE(offset, field + (engine - 1) * sizeof(double));
 			}
-		}
-		QCOMPARE(offsetof(FLIGHT_DATA_RECORD, prop_rpm) + sizeof(FLIGHT_DATA_RECORD::prop_rpm),
-			offsetof(FLIGHT_DATA_RECORD, general_eng_rpm) + expected.size() * MAX_ENGINES * sizeof(double));
-	}
-
-	void engineCombustionSimVarsLandInTheirRecordFields() {
-		FlightDriver sim;
-		const std::vector<FakeSim::DataDefinition>& defs = FakeSim::state().dataDefinitions;
-		const size_t fields[] = { offsetof(FLIGHT_DATA_RECORD, eng_combustion_1), offsetof(FLIGHT_DATA_RECORD, eng_combustion_2),
-			offsetof(FLIGHT_DATA_RECORD, eng_combustion_3), offsetof(FLIGHT_DATA_RECORD, eng_combustion_4) };
-		for (int engine = 1; engine <= MAX_ENGINES; ++engine) {
-			const std::string name = "ENG COMBUSTION:" + std::to_string(engine);
-			size_t offset = 0;
-			auto it = defs.begin();
-			for (; it != defs.end() && it->datumName != name; ++it)
-				offset += wireBytes(it->datumType);
-			QVERIFY2(it != defs.end(), name.c_str());
-			QCOMPARE(it->unitsName, std::string("Bool"));
-			QCOMPARE(offset, fields[engine - 1]);
 		}
 	}
 
@@ -227,7 +215,7 @@ private slots:
 
 	void anyOfTheAircraftsEnginesStartsATrip_data() {
 		QTest::addColumn<double>("engines");
-		QTest::addColumn<int>("running"); // the one engine (1-4) with combustion
+		QTest::addColumn<int>("running"); // the one engine (1-16) with combustion
 		QTest::addColumn<int>("trips");
 		QTest::newRow("twin, engine 1") << 2.0 << 1 << 1;
 		QTest::newRow("twin, engine 2") << 2.0 << 2 << 1;
@@ -236,7 +224,9 @@ private slots:
 		QTest::newRow("twin, engine 3 is not one of its engines") << 2.0 << 3 << 0;
 		QTest::newRow("three engines, engine 4") << 3.0 << 4 << 0;
 		QTest::newRow("no engines") << 0.0 << 1 << 0;
-		QTest::newRow("more than four engines, engine 4") << 6.0 << 4 << 1;
+		QTest::newRow("six engines, engine 6") << 6.0 << 6 << 1;
+		QTest::newRow("sixteen engines, engine 16") << 16.0 << 16 << 1;
+		QTest::newRow("five engines, engine 6 is not one of its engines") << 5.0 << 6 << 0;
 	}
 	void anyOfTheAircraftsEnginesStartsATrip() {
 		QFETCH(double, engines);
@@ -244,9 +234,7 @@ private slots:
 		QFETCH(int, trips);
 		FlightDriver sim;
 		sim.record.number_of_engines = engines;
-		double* combustion[] = { &sim.record.eng_combustion_1, &sim.record.eng_combustion_2,
-			&sim.record.eng_combustion_3, &sim.record.eng_combustion_4 };
-		*combustion[running - 1] = 1;
+		sim.record.eng_combustion[running - 1] = 1;
 		sim.tick();
 		QCOMPARE(tripCount(), trips);
 	}
@@ -428,12 +416,12 @@ private slots:
 		FlightDriver sim;
 		sim.record.number_of_engines = 4;
 		sim.startTrip();
-		sim.record.eng_combustion_1 = 0;
-		sim.record.eng_combustion_2 = 0;
-		sim.record.eng_combustion_3 = 0;
+		sim.record.eng_combustion[0] = 0;
+		sim.record.eng_combustion[1] = 0;
+		sim.record.eng_combustion[2] = 0;
 		sim.tick();
 		QVERIFY(sim.bridge().isRecording());
-		sim.record.eng_combustion_4 = 0;
+		sim.record.eng_combustion[3] = 0;
 		sim.tick();
 		QVERIFY(!sim.bridge().isRecording());
 	}

@@ -75,8 +75,9 @@ using MigrationCancelled = std::function<bool()>;
 // startup (by MainWindow, on a worker thread, before anything else opens the
 // database) so read-only queries always see the current schema, even when
 // the simulator has never connected this session. progress, if set, is called
-// on the calling thread while trip_data is rebuilt to move legacy engine
-// columns (the one step that takes long), with the share of that rebuild
+// on the calling thread while a trip_data made before trip_engine_data is
+// rebuilt to move its per-engine values there (the one step that takes
+// long), with the share of that rebuild
 // done, ending at 100 once its indexes are recreated; not at all when nothing
 // needs rebuilding. cancelled, if set, is asked on the calling thread during
 // that rebuild (after each batch of rows copied, and before committing); once

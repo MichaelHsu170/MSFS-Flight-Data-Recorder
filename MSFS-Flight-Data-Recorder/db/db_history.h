@@ -19,8 +19,8 @@ inline const char* contactLabel(CONTACT_TABLE table) {
 	return table == CONTACT_TABLE::TOUCHDOWNS ? "touchdown" : "liftoff";
 }
 
-// Queries against the trip tables (trips, trip_data, trip_liftoffs,
-// trip_touchdowns, trip_events) -- all read-only except
+// Queries against the trip tables (trips, trip_data, trip_engine_data,
+// trip_liftoffs, trip_touchdowns, trip_events) -- all read-only except
 // deleteTripData() and saveAnalysisReport() below. Plain sqlite3 in, plain
 // structs out -- no Qt UI dependency, so this is reusable outside the Trip
 // History panel (e.g. from a test).
@@ -47,8 +47,8 @@ TripDataset tripSamples(sqlite3* sql, int tripId, const QString& aircraftTitle, 
 void completeTripDataset(TripDataset& dataset, std::vector<LiftoffPoint> liftoffPoints,
 	std::vector<TouchdownPoint> touchdowns, std::vector<TripEvent> events);
 
-// Deletes all rows in trip_data, trip_events, trip_liftoffs, trip_touchdowns,
-// and trips for the given trip id. Caller opens and closes the (readwrite) connection.
+// Deletes all rows in trip_data, trip_engine_data, trip_events,
+// trip_liftoffs, trip_touchdowns, and trips for the given trip id. Caller opens and closes the (readwrite) connection.
 // Returns true on success.
 bool deleteTripData(sqlite3* sql, int tripId);
 

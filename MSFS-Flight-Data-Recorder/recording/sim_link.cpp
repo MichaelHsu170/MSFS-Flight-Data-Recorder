@@ -22,9 +22,10 @@ void add_flight_datum(HANDLE hSimConnect, const char* simVar, const char* unit,
 	SimConnect_AddToDataDefinition(hSimConnect, DEFINITION_FLIGHT, simVar, unit, type);
 }
 
-// An ENGINES field of FLIGHT_DATA_FIELDS: "simVar:1" to "simVar:MAX_ENGINES".
+// An ENGINES field of FLIGHT_DATA_FIELDS: "simVar:1" to
+// "simVar:SIM_ENGINE_INDEXES".
 void add_engine_data(HANDLE hSimConnect, const char* simVar, const char* unit) {
-	for (int engine = 1; engine <= MAX_ENGINES; ++engine) {
+	for (int engine = 1; engine <= SIM_ENGINE_INDEXES; ++engine) {
 		const std::string name = std::string(simVar) + ":" + std::to_string(engine);
 		add_flight_datum(hSimConnect, name.c_str(), unit);
 	}

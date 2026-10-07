@@ -4,13 +4,15 @@
 #include <QString>
 #include <QtGlobal>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
-#include "engine_power.h"
+#include "trip_data_fields.h"
 
-// One row of trip_data as db_history::queryTripData() reads it, decoded into
-// engineering units/booleans.
+// One row of trip_data, with its engines' trip_engine_data rows, as
+// db_history::queryTripData() reads it, decoded into engineering
+// units/booleans.
 struct TripSamplePoint {
 	double latitude = 0;
 	double longitude = 0;
@@ -18,7 +20,7 @@ struct TripSamplePoint {
 	int airspeed = 0;
 	int groundSpeed = 0;
 	int verticalSpeed = 0;
-	EnginePower engine;
+	int engineType = -1;  // ENGINE TYPE (enginePowerSpec()); -1 if not recorded
 	double gearHandlePosition = 0;
 	int gearPosition[3] = { 0, 0, 0 };
 	bool gearOnGround[3] = { false, false, false };
@@ -38,6 +40,18 @@ struct TripSamplePoint {
 	// is currently displaying, avoiding ~7M QString constructions per load.
 	std::vector<double> rawNums;
 	std::array<uint32_t, 4> boolGroups{};
+	// The sample's trip_engine_data values: TRIP_ENGINE_FIELD_COUNT per
+	// engine, engine 1 first, through its highest recorded engine. NaN where
+	// nothing was recorded (a NULL, or an engine without a row).
+	std::vector<double> engineValues;
+
+	// Engines 1..engineCount() have room in engineValues.
+	int engineCount() const { return (int)(engineValues.size() / TRIP_ENGINE_FIELD_COUNT); }
+	// field of engine (1-based); NaN if not recorded.
+	double engineValue(int engine, TripEngineField field) const {
+		return engine >= 1 && engine <= engineCount()
+			? engineValues[(size_t)(engine - 1) * TRIP_ENGINE_FIELD_COUNT + field] : std::nan("");
+	}
 };
 
 // What a liftoff and a touchdown both record (trip_liftoffs/trip_touchdowns

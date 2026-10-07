@@ -1,6 +1,6 @@
 // Small shared helpers: trip_dataset.h (time parsing, file-name pieces,
-// decimation) and trip_data_fields.h (field labels, field lists, bool bit
-// packing).
+// decimation, a sample's engine values) and trip_data_fields.h (field labels,
+// field lists, bool bit packing).
 #include "simconnect_defs.h"
 #include "trip_data_fields.h"
 #include "trip_dataset.h"
@@ -8,6 +8,7 @@
 #include <QtTest>
 
 #include <algorithm>
+#include <cmath>
 
 class TstTripDataset : public QObject {
 	Q_OBJECT
@@ -58,16 +59,22 @@ private slots:
 		QCOMPARE(tripFieldLabel("g_force"), QStringLiteral("G Force"));
 	}
 
-	void fieldEngines() {
-		QCOMPARE(tripFieldEngine("eng_oil_temperature_2"), 2);
-		QCOMPARE(tripFieldEngine("general_eng_starter_active_1"), 1);
-		QCOMPARE(tripFieldEngine("turb_eng_ignition_switch_ex1_2"), 2);
-		QCOMPARE(tripFieldEngine("bleed_air_engine_2"), 2);
-		QCOMPARE(tripFieldEngine("general_eng_master_alternator"), 0);
-		QCOMPARE(tripFieldEngine("hydraulic_pressure_2"), 0);
-		QCOMPARE(tripFieldEngine("gear_position_1"), 0);
-		QCOMPARE(tripFieldEngine("eng_"), 0);
-		QCOMPARE(tripFieldEngine("turb_eng_ignition_switch_ex1"), 0);
+	void engineValuesAreReadPerEngineAndNaNWhenNotRecorded() {
+		TripSamplePoint p;
+		QCOMPARE(p.engineCount(), 0);
+		QVERIFY(std::isnan(p.engineValue(1, TRIP_ENGINE_turb_eng_n1)));
+		p.engineValues.assign(2 * TRIP_ENGINE_FIELD_COUNT, std::nan(""));
+		p.engineValues[TRIP_ENGINE_turb_eng_n1] = 85.5;                            // engine 1
+		p.engineValues[TRIP_ENGINE_FIELD_COUNT + TRIP_ENGINE_turb_eng_n1] = 90.25; // engine 2
+		p.engineValues[TRIP_ENGINE_FIELD_COUNT + TRIP_ENGINE_eng_failed] = 1;
+		QCOMPARE(p.engineCount(), 2);
+		QCOMPARE(p.engineValue(1, TRIP_ENGINE_turb_eng_n1), 85.5);
+		QCOMPARE(p.engineValue(2, TRIP_ENGINE_turb_eng_n1), 90.25);
+		QCOMPARE(p.engineValue(2, TRIP_ENGINE_eng_failed), 1.0);
+		QVERIFY(std::isnan(p.engineValue(1, TRIP_ENGINE_eng_failed)));
+		// Engines outside 1..engineCount() weren't recorded.
+		QVERIFY(std::isnan(p.engineValue(0, TRIP_ENGINE_turb_eng_n1)));
+		QVERIFY(std::isnan(p.engineValue(3, TRIP_ENGINE_turb_eng_n1)));
 	}
 
 	void fieldListsHaveNoDuplicates() {
@@ -80,7 +87,14 @@ private slots:
 		TRIP_DATA_BOOL_FIELDS(ADD_BOOL)
 #undef ADD_BOOL
 		QCOMPARE(names.size(), count);
-		QCOMPARE(count, 136 + 96);
+		QCOMPARE(count, 110 + 70);
+
+		QSet<QString> engineNames;
+#define ADD_ENGINE(name, sqlType, onOff) engineNames.insert(QStringLiteral(#name));
+		TRIP_ENGINE_FIELDS(ADD_ENGINE)
+#undef ADD_ENGINE
+		QCOMPARE(engineNames.size(), (int)TRIP_ENGINE_FIELD_COUNT);
+		QCOMPARE((int)TRIP_ENGINE_FIELD_COUNT, 32);
 	}
 
 	void boolFieldsUseEachBitOnce() {
@@ -103,14 +117,14 @@ private slots:
 		r.autopilot_master = 1;        // group 1, bit 18
 		r.aileron_trim_disabled = 1;   // group 1, bit 30
 		r.flap_damage_by_speed = 1;    // group 2, bit 0
-		r.eng_failed_2 = 1;            // group 2, bit 20
+		r.general_eng_master_alternator = 1; // group 2, bit 31
 		r.sim_on_ground = 1;           // group 3, bit 30
 		r.kohlsman_setting_std = 1;    // group 3, bit 31
 
 		const std::array<uint32_t, 4> groups = tripBoolGroups(r);
 		QCOMPARE(groups[0], 0u);
 		QCOMPARE(groups[1], 0x40040001u);
-		QCOMPARE(groups[2], 0x00100001u);
+		QCOMPARE(groups[2], 0x80000001u);
 		QCOMPARE(groups[3], 0xC0000000u);
 	}
 

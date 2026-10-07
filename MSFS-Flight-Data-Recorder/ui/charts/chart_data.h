@@ -12,14 +12,18 @@
 
 #include "trip_dataset.h"
 
+// The engines the first chart has series for; engines past it aren't
+// charted.
+constexpr int CHART_ENGINES = 4;
+
 // The data behind ChartsPanel's timeline charts, with no Qt Graphs or QML
 // objects involved: which series exist, their points and axis ranges, and
 // the hover readout. ChartsPanel only moves these into the QML series/axes.
 
 // Every chart series, in ChartSeriesId order -- the one list both the enum
 // and CHART_SERIES are built from: X(id, objectName, valueKey, isFlag), as
-// in ChartSeriesDef below. Engines 1..MAX_ENGINES' speed and load
-// (EnginePower in engine_power.h) come first.
+// in ChartSeriesDef below. Engines 1..CHART_ENGINES' speed and load
+// (enginePowerSpec() in engine_power.h) come first.
 #define CHART_SERIES_LIST(X) \
 	X(CHART_ENG_SPEED_1,      "engSpeed1Series",     "engSpeed1",  false) \
 	X(CHART_ENG_SPEED_2,      "engSpeed2Series",     "engSpeed2",  false) \
@@ -65,22 +69,31 @@ struct ChartSeriesDef {
 // Indexed by ChartSeriesId.
 extern const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES;
 
-static_assert(CHART_ENG_LOAD_1 - CHART_ENG_SPEED_1 == MAX_ENGINES && CHART_VERTICAL_SPEED - CHART_ENG_LOAD_1 == MAX_ENGINES,
+static_assert(CHART_ENG_LOAD_1 - CHART_ENG_SPEED_1 == CHART_ENGINES && CHART_VERTICAL_SPEED - CHART_ENG_LOAD_1 == CHART_ENGINES,
 	"one engine speed and one engine load series per engine");
 
-// One sample's value for every series, indexed by ChartSeriesId. An engine
-// past the sample's EnginePower::count is 0.
+// One sample's value for every series, indexed by ChartSeriesId. An engine's
+// speed and load are the values enginePowerSpec() names for the sample's
+// engine type; 0 for one not recorded (an engine past the sample's
+// engineCount(), a type without a spec, or a value an older build didn't
+// record).
 using ChartValues = std::array<double, CHART_SERIES_COUNT>;
 ChartValues chartValues(const TripSamplePoint& point);
 
-// The engine power the first chart is labeled by: that of the first point
-// that recorded any (count 0 if none did). A trip keeps one aircraft, so
-// later points have the same engine type.
-EnginePower chartEngine(const std::vector<TripSamplePoint>& points);
+// What the first chart is labeled by: an ENGINE TYPE and how many engines'
+// series it shows.
+struct ChartEngine {
+	int engineType = -1;
+	int count = 0;  // 0..CHART_ENGINES; 0 = no engine power recorded
+};
+// The first point's that recorded engine 1's speed for an engine type with a
+// spec (count 0 if none did), its count capped at CHART_ENGINES. A trip keeps
+// one aircraft, so later points have the same engine type.
+ChartEngine chartEngine(const std::vector<TripSamplePoint>& points);
 // charts_panel.qml's root engineSpec for engine: count, plus speed/load
 // Label, Unit, Decimals and AxisTitle (enginePowerSpec()) -- only count (0)
 // if engine recorded no power, which shows the no-data message.
-QVariantMap chartEngineSpec(const EnginePower& engine);
+QVariantMap chartEngineSpec(const ChartEngine& engine);
 
 // A zulu-time string (parseZuluTime() in trip_dataset.h) as chart X-axis
 // epoch ms: the real UTC instant, which charts_panel.qml's time axis labels in

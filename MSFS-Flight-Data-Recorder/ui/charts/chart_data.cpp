@@ -1,10 +1,12 @@
 #include "chart_data.h"
+#include "engine_power.h"
 #include "trip_dataset.h"
 
 #include <QTimeZone>
 #include <QtMath>
 
 #include <algorithm>
+#include <cmath>
 
 const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES = { {
 #define CHART_SERIES_DEF(id, objectName, valueKey, isFlag) { objectName, valueKey, isFlag },
@@ -14,9 +16,15 @@ const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES = { {
 
 ChartValues chartValues(const TripSamplePoint& p) {
 	ChartValues v{};
-	for (int i = 0; i < p.engine.count; ++i) {
-		v[CHART_ENG_SPEED_1 + i] = p.engine.speed[i];
-		v[CHART_ENG_LOAD_1 + i] = p.engine.load[i];
+	if (const EnginePowerSpec* spec = enginePowerSpec(p.engineType)) {
+		const auto value = [&p](int engine, const EngineQuantity& quantity) {
+			const double raw = p.engineValue(engine, quantity.field);
+			return std::isnan(raw) ? 0.0 : raw;
+		};
+		for (int i = 0; i < std::min(p.engineCount(), CHART_ENGINES); ++i) {
+			v[CHART_ENG_SPEED_1 + i] = value(i + 1, spec->speed);
+			v[CHART_ENG_LOAD_1 + i] = value(i + 1, spec->load);
+		}
 	}
 	v[CHART_VERTICAL_SPEED] = p.verticalSpeed;
 	v[CHART_AIRSPEED] = p.airspeed;
@@ -38,14 +46,16 @@ ChartValues chartValues(const TripSamplePoint& p) {
 	return v;
 }
 
-EnginePower chartEngine(const std::vector<TripSamplePoint>& points) {
-	for (const TripSamplePoint& p : points)
-		if (p.engine.count > 0)
-			return p.engine;
+ChartEngine chartEngine(const std::vector<TripSamplePoint>& points) {
+	for (const TripSamplePoint& p : points) {
+		const EnginePowerSpec* spec = enginePowerSpec(p.engineType);
+		if (spec && !std::isnan(p.engineValue(1, spec->speed.field)))
+			return { p.engineType, std::min(p.engineCount(), CHART_ENGINES) };
+	}
 	return {};
 }
 
-QVariantMap chartEngineSpec(const EnginePower& engine) {
+QVariantMap chartEngineSpec(const ChartEngine& engine) {
 	QVariantMap m;
 	const EnginePowerSpec* spec = enginePowerSpec(engine.engineType);
 	const int count = spec ? engine.count : 0;
@@ -126,7 +136,7 @@ void ChartExtents::add(const ChartValues& v) {
 	speedMax = qMax(speedMax, qMax(v[CHART_AIRSPEED], v[CHART_GROUND_SPEED]));
 	altMax = qMax(altMax, v[CHART_ALTITUDE]);
 	fuelMax = qMax(fuelMax, v[CHART_FUEL_WEIGHT]);
-	for (int i = 0; i < MAX_ENGINES; ++i) {
+	for (int i = 0; i < CHART_ENGINES; ++i) {
 		engSpeedMax = qMax(engSpeedMax, v[CHART_ENG_SPEED_1 + i]);
 		engLoadMax = qMax(engLoadMax, v[CHART_ENG_LOAD_1 + i]);
 	}

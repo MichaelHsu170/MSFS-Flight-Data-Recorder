@@ -178,7 +178,8 @@ private slots:
 		QCOMPARE(window.winId(), nativeWindow);
 		QCOMPARE(FakeSim::state().openCalls, 1);
 		QVERIFY(!queryRows("SELECT * FROM trip_data LIMIT 1").value(0).contains("turb_eng_n1_1"));
-		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data WHERE engine_speed IS NOT NULL").toInt(), 200003);
+		// The 5 legacy rows' 6 engines, and 2 engines per added jet row.
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_engine_data").toInt(), 6 + 2 * 200000);
 	}
 
 	// A small rebuild's steps all finish within Qt's progress throttling
@@ -209,9 +210,9 @@ private slots:
 		lock.reset();
 		QVERIFY(waitFor([&window] { return migrationWatcher(window) == nullptr; }, 10000));
 		const QVariantMap row = queryRows("SELECT * FROM trip_data LIMIT 1").value(0);
-		QVERIFY(row.contains("engine_speed"));  // the migration did run
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM sqlite_master WHERE name = 'trip_engine_data'").toInt(), 1);  // the migration did run
 		QVERIFY(row.contains("turb_eng_n1_1"));
-		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_data WHERE engine_speed IS NOT NULL").toInt(), 0);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_engine_data").toInt(), 0);
 		QVERIFY(!window.findChild<TripHistoryPanel*>());
 		QCOMPARE(FakeSim::state().openCalls, 0);
 	}

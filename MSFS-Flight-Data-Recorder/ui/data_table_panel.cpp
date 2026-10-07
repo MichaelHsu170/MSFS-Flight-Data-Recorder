@@ -18,6 +18,7 @@
 #include <QVBoxLayout>
 #include <QVector>
 
+#include <algorithm>
 #include <cmath>
 
 namespace {
@@ -34,10 +35,12 @@ bool isGpsPositionColumn(QLatin1String column) {
 // gps_position_lon. Every other trip_data column follows from row 3 in
 // TRIP_DATA_NUM_FIELDS then TRIP_DATA_BOOL_FIELDS order, matching the
 // rawNums/boolGroup layout in TripSamplePoint, so showPoint() fills the rows
-// by walking the same macros. Between the two come MAX_ENGINES
-// "Engine Speed N" rows then MAX_ENGINES "Engine Load N" rows
-// (TripSamplePoint::engine, see engine_power.h).
-QStringList buildFieldRowLabels() {
+// by walking the same macros. Last come the per-engine rows: for each
+// TRIP_ENGINE_FIELDS value in order, one row per engine 1..engines, labeled
+// like the "<value>_<engine>" trip_data columns that held engines 1-2 before
+// trip_engine_data ("Eng Oil Pressure 2"), so a field hidden then stays
+// hidden.
+QStringList buildFieldRowLabels(int engines) {
 	QStringList labels = { QStringLiteral("Time (Zulu)"), QStringLiteral("Time (Local)"), QStringLiteral("GPS Position") };
 
 #define TRIP_NUM_FIELD(dbColumn, memberExpr, sqlType) \
@@ -46,15 +49,26 @@ QStringList buildFieldRowLabels() {
 	TRIP_DATA_NUM_FIELDS(TRIP_NUM_FIELD)
 #undef TRIP_NUM_FIELD
 
-	for (const char* quantity : { "Speed", "Load" })
-		for (int i = 1; i <= MAX_ENGINES; ++i)
-			labels.append(QStringLiteral("Engine %1 %2").arg(QLatin1String(quantity)).arg(i));
-
 #define TRIP_BOOL_FIELD(name, group, bit) labels.append(tripFieldLabel(#name));
 	TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_FIELD)
 #undef TRIP_BOOL_FIELD
 
+#define TRIP_ENGINE_FIELD(name, sqlType, onOff) \
+	for (int engine = 1; engine <= engines; ++engine) \
+		labels.append(tripFieldLabel((QByteArray(#name "_") + QByteArray::number(engine)).constData()));
+	TRIP_ENGINE_FIELDS(TRIP_ENGINE_FIELD)
+#undef TRIP_ENGINE_FIELD
+
 	return labels;
+}
+
+// The most engines any of dataset's points has values for (0 without one).
+int datasetEngineCount(const TripDataset* dataset) {
+	int engines = 0;
+	if (dataset)
+		for (const TripSamplePoint& point : dataset->points)
+			engines = std::max(engines, point.engineCount());
+	return engines;
 }
 
 // The index of column in TRIP_DATA_NUM_FIELDS' order (== TripSamplePoint::
@@ -84,21 +98,10 @@ QString formatDMS(double lat, double lng) {
 		+ c.coordinate_decimal_to_dms(COORDINATE::LONGITUDE));
 }
 
-// An engine's speed or load as "<label>: <value> <unit>" (e.g. "N1: 85.5 %"),
-// or empty past the recorded engines or for an engine type not recorded.
-QString formatEngineValue(const EngineQuantity* quantity, const std::array<float, MAX_ENGINES>& values, int engine, int count) {
-	if (!quantity || engine >= count)
-		return QString();
-	return QStringLiteral("%1: %2 %3").arg(QString::fromUtf8(quantity->label),
-		QString::number(values[engine], 'f', quantity->decimals), QString::fromUtf8(quantity->unit));
-}
-
 }
 
 DataTablePanel::DataTablePanel(QWidget* parent) : QWidget(parent) {
-	rowLabels_ = buildFieldRowLabels();
-
-	table_ = new QTableWidget(rowLabels_.size(), 2, this);
+	table_ = new QTableWidget(0, 2, this);
 	// The filter lives in the header cell itself (a dropdown-style glyph;
 	// clicking anywhere on the "Field" header opens the checkbox dialog),
 	// mirroring how Excel puts column filters in the header instead of a
@@ -152,25 +155,37 @@ DataTablePanel::DataTablePanel(QWidget* parent) : QWidget(parent) {
 	table_->setWordWrap(true);
 	table_->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
 
-	for (int row = 0; row < rowLabels_.size(); ++row) {
-		auto* label = new QTableWidgetItem(rowLabels_[row]);
+	auto* layout = new QVBoxLayout(this);
+	layout->setContentsMargins(0, 0, 0, 0);
+	layout->addWidget(table_);
+
+	setEngineRows(0);
+	showEmpty();
+}
+
+void DataTablePanel::setEngineRows(int engines) {
+	if (engines == engineRows_ && !rowLabels_.isEmpty())
+		return;
+	engineRows_ = engines;
+	rowLabels_ = buildFieldRowLabels(engines);
+	const int oldRows = table_->rowCount();
+	table_->setRowCount(rowLabels_.size());
+	for (int row = oldRows; row < rowLabels_.size(); ++row) {
+		auto* label = new QTableWidgetItem();
 		label->setFlags(label->flags() & ~Qt::ItemIsEditable);
 		table_->setItem(row, 0, label);
 		auto* value = new QTableWidgetItem();
 		value->setFlags(value->flags() & ~Qt::ItemIsEditable);
 		table_->setItem(row, 1, value);
 	}
-
-	auto* layout = new QVBoxLayout(this);
-	layout->setContentsMargins(0, 0, 0, 0);
-	layout->addWidget(table_);
-
+	for (int row = 0; row < rowLabels_.size(); ++row)
+		table_->item(row, 0)->setText(rowLabels_[row]);
 	applyHiddenFields();
-	showEmpty();
 }
 
 void DataTablePanel::setDataset(const TripDataset* dataset) {
 	dataset_ = dataset;
+	setEngineRows(datasetEngineCount(dataset));
 	if (dataset_ && !dataset_->points.empty()) {
 		Logger::logf(Logger::Trace, "DataTbl", "Dataset selected: %zu point(s); showing last sample", dataset_->points.size());
 		showPoint(dataset_->points.back());
@@ -229,7 +244,11 @@ void DataTablePanel::openFieldsDialog() {
 		return;
 	}
 
+	// Hidden fields this trip has no row for (an engine it lacks) stay hidden.
 	QStringList newHidden;
+	for (const QString& field : hidden)
+		if (!rowLabels_.contains(field))
+			newHidden.append(field);
 	for (int row = 0; row < rowLabels_.size(); ++row) {
 		if (!boxes[row]->isChecked())
 			newHidden.append(rowLabels_[row]);
@@ -257,17 +276,8 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 	{
 		static const int gpsLatIdx = numFieldIndex(QLatin1String("gps_position_lat"));
 		static const int gpsLonIdx = numFieldIndex(QLatin1String("gps_position_lon"));
-		static const int engineCountIdx = numFieldIndex(QLatin1String("number_of_engines"));
 		const double lat = rawNum(point, gpsLatIdx), lon = rawNum(point, gpsLonIdx);
 		setValue(2, std::isnan(lat) || std::isnan(lon) ? QString() : formatDMS(lat, lon));
-
-		// A field of an engine the aircraft doesn't have (tripFieldEngine())
-		// is left blank, like the engine speed/load rows past the engine
-		// count.
-		const double engineCount = rawNum(point, engineCountIdx);
-		const auto engineShown = [engineCount](const char* name) {
-			return tripFieldEngine(name) <= engineCount;
-		};
 
 		// The rows were built from the same macros (buildFieldRowLabels()), so
 		// row stays within the table.
@@ -275,22 +285,26 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 #define TRIP_NUM_DISP(dbColumn, memberExpr, sqlType) \
 		if (!isGpsPositionColumn(QLatin1String(#dbColumn))) { \
 			const double v = rawNum(point, ni); \
-			setValue(row++, !std::isnan(v) && engineShown(#dbColumn) ? QString::number(v, 'g', 6) : QString()); \
+			setValue(row++, !std::isnan(v) ? QString::number(v, 'g', 6) : QString()); \
 		} \
 		++ni;
 		TRIP_DATA_NUM_FIELDS(TRIP_NUM_DISP)
 #undef TRIP_NUM_DISP
-		const EnginePowerSpec* spec = enginePowerSpec(point.engine.engineType);
-		for (const auto& [quantity, values] : { std::pair{ spec ? &spec->speed : nullptr, &point.engine.speed },
-		                                        std::pair{ spec ? &spec->load : nullptr, &point.engine.load } }) {
-			for (int i = 0; i < MAX_ENGINES; ++i)
-				setValue(row++, formatEngineValue(quantity, *values, i, point.engine.count));
-		}
 #define TRIP_BOOL_DISP(name, group, bit) \
-		setValue(row++, !engineShown(#name) ? QString() \
-			: TripBoolBit{ group, bit }.isSet(point.boolGroups) ? QStringLiteral("Yes") : QStringLiteral("No"));
+		setValue(row++, TripBoolBit{ group, bit }.isSet(point.boolGroups) ? QStringLiteral("Yes") : QStringLiteral("No"));
 		TRIP_DATA_BOOL_FIELDS(TRIP_BOOL_DISP)
 #undef TRIP_BOOL_DISP
+		// An engine value not recorded (NaN: an engine past this sample's
+		// rows, or a value an older build didn't record) is left blank.
+#define TRIP_ENGINE_DISP(name, sqlType, onOff) \
+		for (int engine = 1; engine <= engineRows_; ++engine) { \
+			const double v = point.engineValue(engine, TRIP_ENGINE_##name); \
+			setValue(row++, std::isnan(v) ? QString() \
+				: onOff ? (v != 0 ? QStringLiteral("Yes") : QStringLiteral("No")) \
+				: QString::number(v, 'g', 6)); \
+		}
+		TRIP_ENGINE_FIELDS(TRIP_ENGINE_DISP)
+#undef TRIP_ENGINE_DISP
 	}
 
 	vh->setSectionResizeMode(QHeaderView::ResizeToContents);

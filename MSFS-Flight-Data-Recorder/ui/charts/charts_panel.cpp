@@ -8,6 +8,7 @@
 #include <QFutureWatcher>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QElapsedTimer>
+#include "engine_power.h"
 #include "logger.h"
 
 #include <QtGraphs/qlineseries.h>
@@ -97,7 +98,7 @@ void ChartsPanel::setYAxes(const ChartExtents& extents) {
 	setAxisRange(cache_.bankYAxis, niceSignedAxisRange(extents.bankMin, extents.bankMax));
 }
 
-void ChartsPanel::setEngine(const EnginePower& engine) {
+void ChartsPanel::setEngine(const ChartEngine& engine) {
 	engine_ = engine;
 	if (QQuickItem* root = view_->rootObject())
 		root->setProperty("engineSpec", chartEngineSpec(engine));
@@ -171,7 +172,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	for (const TripSamplePoint& p : dataset.points)
 		samples.push_back({ p.zuluTime, chartValues(p) });
 	Logger::logf(Logger::Profile, "Charts", "copy: %lld ms  (%zu pts)", copyTimer.nsecsElapsed() / 1000000, samples.size());
-	const EnginePower engine = chartEngine(dataset.points);
+	const ChartEngine engine = chartEngine(dataset.points);
 
 	int ver = datasetVersion_;
 	auto* watcher = new QFutureWatcher<ChartSeriesData>(this);

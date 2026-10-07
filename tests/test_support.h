@@ -124,6 +124,11 @@ int addGroup(const char* name);
 void createLegacyTripData();
 // Adds count twin-jet rows of trip 2 to createLegacyTripData()'s table.
 void addLegacyJetRows(int count);
+// Creates flight_data.db with only a trip_data from before trip_engine_data,
+// 5 rows of trip 1: engine power in the engine_speed/engine_load BLOBs,
+// eng_oil_pressure of engines 1-2 in their own columns, and eng_failed and
+// general_eng_starter of engines 1-2 as bool_group bits (row 1 only).
+void createBlobTripData();
 
 // A sample with every field zeroed except what the recorder needs to treat
 // the aircraft as sitting in a loaded flight: on the ground at the test
@@ -197,7 +202,7 @@ public:
 	void ticks(int count, double seconds = 0.5);
 
 	void setOnGround(bool onGround);
-	// Sets ENG COMBUSTION of all MAX_ENGINES engines.
+	// Sets ENG COMBUSTION of all SIM_ENGINE_INDEXES engines.
 	void setEngines(bool running);
 	void moveTo(const COORDINATE& position);
 	void setHeading(double magneticDegrees);

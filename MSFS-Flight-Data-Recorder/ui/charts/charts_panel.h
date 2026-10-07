@@ -83,7 +83,7 @@ private:
 	void setYAxes(const ChartExtents& extents);
 	// Labels the engine power chart for engine (chartEngineSpec()): its
 	// series, axis titles and, for no recorded power, the no-data message.
-	void setEngine(const EnginePower& engine);
+	void setEngine(const ChartEngine& engine);
 	// Loads samples lo..hi of full_, thinned to at most kDisplayPoints plus
 	// sample hi, into every series.
 	void loadFullSlice(int lo, int hi);
@@ -124,7 +124,7 @@ private:
 	QDateTime fullAxisLo_;
 	QDateTime fullAxisHi_;
 	// What the engine power chart is labeled by (setEngine()).
-	EnginePower engine_;
+	ChartEngine engine_;
 
 	// Full-resolution points of every series, parallel to pointTimesMs_: both
 	// are replaced together once a load's lines are in, and cleared together

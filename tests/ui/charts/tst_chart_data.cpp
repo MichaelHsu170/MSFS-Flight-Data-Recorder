@@ -8,6 +8,7 @@
 #include <QTimeZone>
 #include <QtTest>
 
+#include <cmath>
 #include <set>
 
 namespace {
@@ -22,6 +23,20 @@ QString zulu(int hour, int minute, int second, int ms = 0) {
 double utcMs(int hour, int minute, int second, int ms = 0) {
 	return (double)QDateTime(QDate(2026, 3, 4), QTime(hour, minute, second, ms), QTimeZone::UTC).toMSecsSinceEpoch();
 }
+
+// A sample of an aircraft of engineType with engines 1..engines, every
+// engine value not recorded (NaN) until set().
+struct EnginePoint {
+	TripSamplePoint p;
+	EnginePoint(int engineType, int engines) {
+		p.engineType = engineType;
+		p.engineValues.assign((size_t)engines * TRIP_ENGINE_FIELD_COUNT, std::nan(""));
+	}
+	EnginePoint& set(int engine, TripEngineField field, double value) {
+		p.engineValues[(size_t)(engine - 1) * TRIP_ENGINE_FIELD_COUNT + field] = value;
+		return *this;
+	}
+};
 
 ChartValues valuesWith(double vs, double ias, double gs, double alt, double fuel, double pitch, double bank) {
 	ChartValues v{};
@@ -80,9 +95,13 @@ private slots:
 	}
 
 	void valuesComeFromTheirSampleFields() {
-		TripSamplePoint p;
-		// 3 engines: the 4th's series stay 0.
-		p.engine = { 1, 3, { 1, 2, 3, 99 }, { 4, 5, 6, 99 } };
+		// A 5-engine jet: N1/N2 of engines 1-4 (5 has no series), 0 for engine
+		// 3's N2, which wasn't recorded. Prop RPM is a turboprop's, not shown.
+		EnginePoint jet(1, 5);
+		for (int e = 1; e <= 5; ++e)
+			jet.set(e, TRIP_ENGINE_turb_eng_n1, e).set(e, TRIP_ENGINE_turb_eng_n2, 4 + e).set(e, TRIP_ENGINE_prop_rpm, 99);
+		jet.set(3, TRIP_ENGINE_turb_eng_n2, std::nan(""));
+		TripSamplePoint& p = jet.p;
 		p.verticalSpeed = -5; p.airspeed = 6; p.groundSpeed = 7; p.altitude = 8;
 		p.gearHandlePosition = 9;
 		p.gearPosition[0] = 10; p.gearPosition[1] = 11; p.gearPosition[2] = 12;
@@ -90,9 +109,27 @@ private slots:
 		p.brakeIndicator = 13; p.flapsHandleIndex = 14; p.spoilersHandlePosition = 15;
 		p.fuelTotalQuantityWeight = 16; p.pitchDegrees = -17.5; p.bankDegrees = 18.25;
 		const ChartValues v = chartValues(p);
-		const ChartValues expected = { 1, 2, 3, 0, 4, 5, 6, 0, -5, 6, 7, 8, 9, 10, 11, 12, 1, 0, 1, 13, 14, 15, 16, -17.5, 18.25 };
+		const ChartValues expected = { 1, 2, 3, 4, 5, 6, 0, 8, -5, 6, 7, 8, 9, 10, 11, 12, 1, 0, 1, 13, 14, 15, 16, -17.5, 18.25 };
 		for (int s = 0; s < CHART_SERIES_COUNT; ++s)
 			QCOMPARE(v[s], expected[s]);
+	}
+
+	void engineValuesAreTheOnesTheEngineTypeShows() {
+		// A turboprop shows prop RPM and torque; an engine past the sample's
+		// own engines is 0.
+		EnginePoint turboprop(5, 1);
+		turboprop.set(1, TRIP_ENGINE_prop_rpm, 2100).set(1, TRIP_ENGINE_turb_eng_max_torque_percent, 25.5)
+			.set(1, TRIP_ENGINE_turb_eng_n1, 99);
+		ChartValues v = chartValues(turboprop.p);
+		QCOMPARE(v[CHART_ENG_SPEED_1], 2100.0);
+		QCOMPARE(v[CHART_ENG_LOAD_1], 25.5);
+		QCOMPARE(v[CHART_ENG_SPEED_2], 0.0);
+		// An engine type that shows no power: every engine series is 0.
+		EnginePoint none(2, 2);
+		none.set(1, TRIP_ENGINE_turb_eng_n1, 50).set(1, TRIP_ENGINE_general_eng_rpm, 50);
+		v = chartValues(none.p);
+		for (int s = CHART_ENG_SPEED_1; s < CHART_VERTICAL_SPEED; ++s)
+			QCOMPARE(v[s], 0.0);
 	}
 
 	void chartTimeIsTheUtcInstant() {
@@ -172,16 +209,22 @@ private slots:
 	}
 
 	void chartEngineIsTheFirstPointWithPower() {
-		TripSamplePoint none, piston, jet;
-		none.engine = { 1, 0 };
-		piston.engine = { 0, 2, { 2400, 2300 } };
-		jet.engine = { 1, 1 };
+		// No engines; an engine type that shows no power; engine 1's speed
+		// not recorded (a migrated trip's other quantity) -- none count.
+		const TripSamplePoint noEngines = EnginePoint(1, 0).p;
+		const TripSamplePoint noPower = EnginePoint(2, 2).set(1, TRIP_ENGINE_turb_eng_n1, 50).p;
+		const TripSamplePoint notRecorded = EnginePoint(1, 2).set(1, TRIP_ENGINE_turb_eng_n2, 50).p;
 		QCOMPARE(chartEngine({}).count, 0);
-		QCOMPARE(chartEngine({ none }).count, 0);
-		const EnginePower e = chartEngine({ none, piston, jet });
+		QCOMPARE(chartEngine({ noEngines, noPower, notRecorded }).count, 0);
+		const TripSamplePoint piston = EnginePoint(0, 2).set(1, TRIP_ENGINE_general_eng_rpm, 2400).p;
+		const TripSamplePoint jet = EnginePoint(1, 1).set(1, TRIP_ENGINE_turb_eng_n1, 50).p;
+		ChartEngine e = chartEngine({ noEngines, notRecorded, piston, jet });
 		QCOMPARE(e.engineType, 0);
 		QCOMPARE(e.count, 2);
-		QCOMPARE(e.speed[1], 2300.0f);
+		// More engines than the chart has series for: capped.
+		e = chartEngine({ EnginePoint(1, 6).set(1, TRIP_ENGINE_turb_eng_n1, 50).p });
+		QCOMPARE(e.engineType, 1);
+		QCOMPARE(e.count, CHART_ENGINES);
 	}
 
 	void chartEngineSpecLabelsByEngineType() {
