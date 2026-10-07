@@ -169,7 +169,7 @@ inline std::vector<int> decimatedIndices(int lo, int hi, int maxPoints) {
 
 struct TripDataset {
 	int tripId = -1;
-	QString aircraftTitle;  // trips.title — human-readable name like "Airbus A320neo FlyByWire"
+	QString aircraftTitle;  // trips.title -- human-readable name like "Airbus A320neo FlyByWire"
 	// trips.departure_zulu_time -- set at trip creation, so unlike
 	// liftoffPoints.front().zuluTime it's available even when the trip has no
 	// detected liftoff. The authoritative source for the Save Image and KML

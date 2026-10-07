@@ -230,12 +230,12 @@ function startAnalysisPrompt(intro, dataTitle, t, aircraft) {
     var lines = [];
 
     lines.push(intro);
-    lines.push('Respond using exactly this structure — no preamble, no extra sections:');
-    lines.push('Plain text only — no markdown and no LaTeX (e.g. write "Vref", not "**Vref**" or "$V_{ref}$").');
+    lines.push('Respond using exactly this structure, with no preamble and no extra sections:');
+    lines.push('Plain text only: no markdown and no LaTeX (e.g. write "Vref", not "**Vref**" or "$V_{ref}$").');
     lines.push('');
-    lines.push('Grade: [A+/A/A−/B+/B/B−/C+/C/C−/D/F]');
+    lines.push('Grade: [A+/A/A-/B+/B/B-/C+/C/C-/D/F]');
     lines.push('');
-    lines.push('Summary: [1–2 sentences overall]');
+    lines.push('Summary: [1-2 sentences overall]');
     lines.push('');
     lines.push('Strengths:');
     lines.push('• [one brief point per bullet]');
@@ -412,7 +412,7 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
     var key = window._geminiApiKey || '';
     var MAX_ATTEMPTS = 3;
 
-    // Per-attempt DOM refs and state — function-scoped so onChunk can close
+    // Per-attempt DOM refs and state -- function-scoped so onChunk can close
     // over them; initAttempt() reassigns them before each attempt.
     var thDet, thSum, thArr, thLbl, thBody, finalDiv;
     var sawThinking, thinkingDone;
@@ -531,7 +531,7 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
             buf += decoder.decode();
             processStreamBuffer(buf, onChunk, onFinish);
         } catch (e) {
-            // Network error — retry unless this was the last attempt.
+            // Network error -- retry unless this was the last attempt.
             if (attempt === MAX_ATTEMPTS - 1) {
                 finalDiv.innerHTML = '<span style="color:#64748b">Couldn\'t reach the AI service after '
                     + MAX_ATTEMPTS + ' attempts. Check your internet connection and try again.</span>';
@@ -557,10 +557,10 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
             break;
         }
 
-        // Incomplete — retry silently; on last attempt show message.
+        // Incomplete -- retry silently; on last attempt show message.
         if (attempt === MAX_ATTEMPTS - 1) {
             finalDiv.innerHTML = '<span style="color:#64748b">The AI didn\'t return a complete analysis. '
-                + 'This can happen occasionally - click <b>' + retryLabel + '</b> to try again.</span>';
+                + 'This can happen occasionally. Click <b>' + retryLabel + '</b> to try again.</span>';
             thDet.style.display = 'none';
         }
     }
@@ -743,7 +743,7 @@ function reportVisibleRange(trajectoryLatLngs, origIndices, version, bounds) {
         }
     }
     if (minIdx === -1) {
-        // No decimated point inside the viewport — the map may be showing only
+        // No decimated point inside the viewport -- the map may be showing only
         // the interior of one long decimated segment. Find the decimated
         // vertex nearest the viewport centre.
         var c = bounds.getCenter();

@@ -41,9 +41,9 @@ private slots:
 		exec("INSERT INTO trip_touchdowns (id,trip,airspeed_indicated,vertical_speed,g_force,plane_pitch_degrees,plane_bank_degrees,heading_indicator,"
 			"plane_latitude,plane_longitude,time_zulu,time_local) VALUES (6,1,0,0,0,0,0,0,0,0,'z','l');");
 		MapBridge bridge;
-		QVERIFY(bridge.saveLiftoffAnalysisReport(5, QString::fromUtf8("Grade: A\nSmooth rotation — well done")));
+		QVERIFY(bridge.saveLiftoffAnalysisReport(5, QString::fromUtf8("Grade: A\nSmooth rotation to 8°, well done")));
 		QVERIFY(bridge.saveTouchdownAnalysisReport(6, "Grade: B"));
-		QCOMPARE(queryValue("SELECT analysis_report FROM trip_liftoffs WHERE id=5").toString(), QString::fromUtf8("Grade: A\nSmooth rotation — well done"));
+		QCOMPARE(queryValue("SELECT analysis_report FROM trip_liftoffs WHERE id=5").toString(), QString::fromUtf8("Grade: A\nSmooth rotation to 8°, well done"));
 		QCOMPARE(queryValue("SELECT analysis_report FROM trip_touchdowns WHERE id=6").toString(), QStringLiteral("Grade: B"));
 		// A save that saveAnalysisReport() refuses (an invalid row id) is
 		// reported too.

@@ -361,7 +361,7 @@ struct TOUCHDOWN_DATA : CONTACT_RECORD {
 	struct TOUCHDOWN_DATA* next = NULL;
 };
 
-// Forward declaration — full definition in simconnect_defs.h
+// Forward declaration -- full definition in simconnect_defs.h
 struct FLIGHT_DATA_RECORD;
 
 // Thread-safe FIFO feeding one persistent worker thread: producers push, the

@@ -100,7 +100,7 @@ QString rightPanelWidthComment() {
 }
 
 // Writes a single key=value in the named INI section, touching only that one
-// line. Every other line — comments, blank lines, other keys, other sections —
+// line. Every other line -- comments, blank lines, other keys, other sections --
 // is preserved exactly.
 //
 // Comments are written only when new content is appended to the file:
@@ -123,7 +123,7 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 		// one key, discarding every other saved setting.
 		if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
 			Logger::logf(Logger::Warning, "Settings",
-				"Failed to read %s (section [%s], key %s) - change was not saved",
+				"Failed to read %s (section [%s], key %s); change was not saved",
 				qUtf8Printable(path), qUtf8Printable(section), qUtf8Printable(key));
 			return;
 		}
@@ -184,10 +184,10 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 	const QString entry = key + '=' + value;
 
 	if (keyLine >= 0) {
-		// Key already present — patch value only, leave comment untouched.
+		// Key already present -- patch value only, leave comment untouched.
 		lines[keyLine] = entry;
 	} else if (sectionLastLine >= 0) {
-		// Section exists but key is missing — insert key (with comment) after
+		// Section exists but key is missing -- insert key (with comment) after
 		// the last line of the section, preserving everything that follows. A
 		// blank line separates it from the prior key, matching the grouping
 		// convention used between distinct settings elsewhere in this file
@@ -201,7 +201,7 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 		for (int j = toInsert.size() - 1; j >= 0; --j)
 			lines.insert(sectionLastLine + 1, toInsert[j]);
 	} else {
-		// Section not present — append section header and key at end of file.
+		// Section not present -- append section header and key at end of file.
 		if (!lines.isEmpty() && !lines.last().trimmed().isEmpty())
 			lines.append(QString());
 		lines << sectionHeaderLines(section);
@@ -216,7 +216,7 @@ void writeIniValue(const QString& section, const QString& key, const QString& va
 			out << line << '\n';
 	} else {
 		Logger::logf(Logger::Warning, "Settings",
-			"Failed to write %s (section [%s], key %s) - change was not saved",
+			"Failed to write %s (section [%s], key %s); change was not saved",
 			qUtf8Printable(path), qUtf8Printable(section), qUtf8Printable(key));
 	}
 }
@@ -242,7 +242,7 @@ void AppSettings::ensureFileExists() {
 	QTextStream out(&file);
 	out.setEncoding(QStringConverter::Utf8);
 	out <<
-		"; MSFS Flight Data Recorder — settings\n"
+		"; MSFS Flight Data Recorder -- settings\n"
 		"; Edit while the app is not running. All values are human-readable.\n"
 		"\n"
 		<< header("ai") << "\n"
@@ -256,7 +256,7 @@ void AppSettings::ensureFileExists() {
 		"; Maximum time between telemetry samples written to trip_data, in milliseconds.\n"
 		"; Lower values produce finer trajectory and chart resolution at the cost of\n"
 		"; a larger database and slower trip load times. Must be a positive integer.\n"
-		"; Default: 500  (0.5 s — adequate for all aircraft types including fast jets\n"
+		"; Default: 500  (0.5 s -- adequate for all aircraft types including fast jets\n"
 		"; at subsonic speeds; go lower only for supersonic recording needs).\n"
 		"sample_interval_ms=" << kDefaultSampleIntervalMs << "\n"
 		"\n"
@@ -265,12 +265,12 @@ void AppSettings::ensureFileExists() {
 		"\n"
 		<< header("logging") << "\n"
 		"; Maximum log level written to msfs_fdr_debug.log.\n"
-		"; Levels (inclusive — each includes all levels above it):\n"
-		";   FATAL    — unrecoverable errors only\n"
-		";   WARNING  — unexpected conditions that don't abort the app\n"
-		";   INFO     — operational events (connect, recording start/stop, liftoff, touchdown)\n"
-		";   TRACE    — fine-grained diagnostic detail, e.g. raw Qt debug output (high-volume)\n"
-		";   PROFILE  — performance timing for all subsystems (highest volume; for profiling only)\n"
+		"; Levels (inclusive -- each includes all levels above it):\n"
+		";   FATAL    -- unrecoverable errors only\n"
+		";   WARNING  -- unexpected conditions that don't abort the app\n"
+		";   INFO     -- operational events (connect, recording start/stop, liftoff, touchdown)\n"
+		";   TRACE    -- fine-grained diagnostic detail, e.g. raw Qt debug output (high-volume)\n"
+		";   PROFILE  -- performance timing for all subsystems (highest volume; for profiling only)\n"
 		"; Default: INFO\n"
 		"verbose=INFO\n"
 		"\n"

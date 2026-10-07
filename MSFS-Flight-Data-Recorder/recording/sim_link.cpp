@@ -135,8 +135,8 @@ bool decode_flight_sample(const SIMCONNECT_RECV_SIMOBJECT_DATA* data, DWORD cbDa
 	// SimConnect returns pitch and bank inverted from aviation convention:
 	//   pitch: positive = nose down  → negate to positive = nose up
 	//   bank:  positive = left wing down → negate to positive = right bank
-	// Negate here so all downstream code — DB, charts, data table, touchdown
-	// records — uses the standard aviation sign convention.
+	// Negate here so all downstream code -- DB, charts, data table, touchdown
+	// records -- uses the standard aviation sign convention.
 	sample.plane_pitch_degrees = -sample.plane_pitch_degrees;
 	sample.plane_touchdown_pitch_degrees = -sample.plane_touchdown_pitch_degrees;
 	sample.plane_bank_degrees = -sample.plane_bank_degrees;

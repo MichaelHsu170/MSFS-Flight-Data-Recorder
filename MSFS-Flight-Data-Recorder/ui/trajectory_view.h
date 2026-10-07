@@ -24,7 +24,7 @@ public:
 
 signals:
 	// Emitted when BOTH the chart series and the map trajectory have been
-	// rendered — i.e. both async workers finished. TripHistoryPanel listens to
+	// rendered -- i.e. both async workers finished. TripHistoryPanel listens to
 	// this to re-enable the table and hide the loading bar.
 	void renderingFinished();
 	// Emitted when the user drags the data-table splitter, so MainWindow can

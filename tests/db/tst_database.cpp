@@ -1029,7 +1029,7 @@ private slots:
 		const int trip = db_insert_trip(w.status(), makeRecord());
 		const int lo = db_insert_contact(w.status(), CONTACT_TABLE::LIFTOFFS, trip, contactData());
 		const int td = db_insert_contact(w.status(), CONTACT_TABLE::TOUCHDOWNS, trip, contactData());
-		const QString text = QString::fromUtf8("Grade: A\nSmooth — \"good\"");
+		const QString text = QString::fromUtf8("Grade: A\nSmooth 3° flare, \"good\"");
 		QVERIFY(saveAnalysisReport(w.status()->sql, CONTACT_TABLE::LIFTOFFS, lo, text));
 		QVERIFY(saveAnalysisReport(w.status()->sql, CONTACT_TABLE::TOUCHDOWNS, td, "first"));
 		QVERIFY(saveAnalysisReport(w.status()->sql, CONTACT_TABLE::TOUCHDOWNS, td, "second"));

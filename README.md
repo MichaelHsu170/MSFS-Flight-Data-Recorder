@@ -2,9 +2,9 @@
 
 A Qt desktop application for Microsoft Flight Simulator 2024 that records telemetry, cockpit events, and liftoff/landing data to a local SQLite database and visualises them on an interactive map with synchronised timeline charts. When no trip is selected the map shows all recorded routes as departure-to-destination line segments colored by trip group, and each chart is blank with a "No trip selected" message ("No data recorded" for a trip with no data, such as one just starting to record). Hovering over any chart shows a tooltip with the values of all curves in that chart at the cursor's time position.
 
-![Overview map — recorded routes across Europe and Asia shown as color-coded departure-to-destination line segments, grouped by trip group (GlobalTravel, FlightTraining) with a legend, on a zoomed-out world map when no trip is selected](imgs/Screenshot%202026-08-22%20155717.png)
+![Overview map: recorded routes across Europe and Asia shown as color-coded departure-to-destination line segments, grouped by trip group (GlobalTravel, FlightTraining) with a legend, on a zoomed-out world map when no trip is selected](imgs/Screenshot%202026-08-22%20155717.png)
 
-![Trajectory view — Fenix A320 circuit around Toulouse (LFBO) with the full-flight engine power (N1/N2 for this jet) and vertical-speed charts below and a hover tooltip showing engine values at the cursor position](imgs/Screenshot%202026-07-05%20195501.png)
+![Trajectory view: Fenix A320 circuit around Toulouse (LFBO) with the full-flight engine power (N1/N2 for this jet) and vertical-speed charts below and a hover tooltip showing engine values at the cursor position](imgs/Screenshot%202026-07-05%20195501.png)
 
 ![Touchdown AI analysis](imgs/Screen%20Recording%202026-07-04%20094211.gif)
 
@@ -19,16 +19,16 @@ A Qt desktop application for Microsoft Flight Simulator 2024 that records teleme
 
 Qt modules required: `Widgets`, `Graphs`, `Concurrent`, `Quick`, `QuickWidgets`, `QuickControls2`, `WebEngineWidgets`, `WebChannel`, `CoreTools`.
 
-SQLite3 is bundled under `third_party/sqlite3/` — no separate install needed. The map's Leaflet 1.9.4 (BSD 2-Clause, its `LICENSE` alongside) is bundled under `third_party/leaflet/` and built into the app, so it isn't fetched at run time; the map tiles still come from the internet.
+SQLite3 is bundled under `third_party/sqlite3/`, so no separate install is needed. The map's Leaflet 1.9.4 (BSD 2-Clause, its `LICENSE` alongside) is bundled under `third_party/leaflet/` and built into the app, so it isn't fetched at run time; the map tiles still come from the internet.
 
 ## Build with VS Code
 
-Press **Ctrl+Shift+B** and pick **Debug**, **Release**, **Test**, **Coverage**, or **Clean** from the menu. This works whether or not the CMake Tools extension is installed — the menu is plain VS Code tasks driving `cmake` directly, not the extension.
+Press **Ctrl+Shift+B** and pick **Debug**, **Release**, **Test**, **Coverage**, or **Clean** from the menu. This works whether or not the CMake Tools extension is installed: the menu is plain VS Code tasks driving `cmake` directly, not the extension.
 
-- **Debug** / **Release** — configure (first time only) and build into `build/Debug` or `build/Release`. On repeat builds, configure is skipped and only `cmake --build` runs, which keeps the lead time low; CMake's own `ZERO_CHECK` step still reconfigures automatically if `CMakeLists.txt` changes.
-- **Test** — builds Debug, then runs the automated tests (see [Tests](#tests)).
-- **Coverage** — runs the tests of an up-to-date Debug build under OpenCppCoverage and writes `coverage_report/index.html` and `coverage.xml` (not committed).
-- **Clean** — removes `build/Debug`, `build/Release`, and the `build/` folder itself.
+- **Debug** / **Release**: configure (first time only) and build into `build/Debug` or `build/Release`. On repeat builds, configure is skipped and only `cmake --build` runs, which keeps the lead time low; CMake's own `ZERO_CHECK` step still reconfigures automatically if `CMakeLists.txt` changes.
+- **Test**: builds Debug, then runs the automated tests (see [Tests](#tests)).
+- **Coverage**: runs the tests of an up-to-date Debug build under OpenCppCoverage and writes `coverage_report/index.html` and `coverage.xml` (not committed).
+- **Clean**: removes `build/Debug`, `build/Release`, and the `build/` folder itself.
 
 Each build automatically:
 1. Runs CMake configure the first time (generates a Visual Studio solution under `build/Debug` or `build/Release`)
@@ -84,9 +84,9 @@ All runtime files follow the same rule: **Debug** builds use the **current worki
 
 | File | Purpose |
 |---|---|
-| `flight_data.db` | SQLite database — created on first run, grows as flights are recorded |
-| `settings.ini` | User preferences (panel sizes, table column widths, hidden data-table fields, log level, sample interval, automatic-recording toggle, Gemini API key) — created on first launch |
-| `msfs_fdr_debug.log` | Unified log — started fresh on each launch, with the previous run's log kept as `msfs_fdr_debug.log.old`; level-filtered output from all modules (Qt, SimConnect, DB, map, charts) |
+| `flight_data.db` | SQLite database; created on first run, grows as flights are recorded |
+| `settings.ini` | User preferences (panel sizes, table column widths, hidden data-table fields, log level, sample interval, automatic-recording toggle, Gemini API key); created on first launch |
+| `msfs_fdr_debug.log` | Unified log, started fresh on each launch, with the previous run's log kept as `msfs_fdr_debug.log.old`; level-filtered output from all modules (Qt, SimConnect, DB, map, charts) |
 
 ## settings.ini Reference
 
@@ -104,7 +104,7 @@ gemini_api_key=
 ; Maximum time between telemetry samples written to trip_data, in milliseconds.
 ; Lower values produce finer trajectory and chart resolution at the cost of
 ; a larger database and slower trip load times. Must be a positive integer.
-; Default: 500  (0.5 s — adequate for all aircraft types including fast jets
+; Default: 500  (0.5 s -- adequate for all aircraft types including fast jets
 ; at subsonic speeds; go lower only for supersonic recording needs).
 sample_interval_ms=500
 
@@ -116,12 +116,12 @@ enabled=true
 
 [logging]
 ; Maximum log level written to msfs_fdr_debug.log.
-; Levels (inclusive — each includes all levels above it):
-;   FATAL    — unrecoverable errors only
-;   WARNING  — unexpected conditions that don't abort the app
-;   INFO     — operational events (connect, recording start/stop, liftoff, touchdown)
-;   TRACE    — fine-grained diagnostic detail, e.g. raw Qt debug output (high-volume)
-;   PROFILE  — performance timing for all subsystems (highest volume; for profiling only)
+; Levels (inclusive -- each includes all levels above it):
+;   FATAL    -- unrecoverable errors only
+;   WARNING  -- unexpected conditions that don't abort the app
+;   INFO     -- operational events (connect, recording start/stop, liftoff, touchdown)
+;   TRACE    -- fine-grained diagnostic detail, e.g. raw Qt debug output (high-volume)
+;   PROFILE  -- performance timing for all subsystems (highest volume; for profiling only)
 ; Default: INFO
 verbose=INFO
 
@@ -163,10 +163,10 @@ trip_history_column_widths=
 | Table | Contents |
 |---|---|
 | `trips` | One row per flight session: departure/destination airport ICAO, runway, times, ATC callsign |
-| `trip_data` | Telemetry sampled at a configurable interval (default 0.5 s) while recording: 136 numeric variables (position, altitude, airspeed, gear/flaps/spoilers, fuel, …), engine power for up to 4 engines in `engine_speed`/`engine_load` (by engine type: piston RPM / manifold pressure, jet N1 / N2, turboprop prop RPM / torque, helicopter turbine N1 / torque; see `engine_power.h`), plus 96 on/off states (autopilot modes, switches, warnings, …) bit-packed into three `bool_group_*` columns — the full list is in `trip_data_fields.h` |
+| `trip_data` | Telemetry sampled at a configurable interval (default 0.5 s) while recording: 136 numeric variables (position, altitude, airspeed, gear/flaps/spoilers, fuel, …), engine power for up to 4 engines in `engine_speed`/`engine_load` (by engine type: piston RPM / manifold pressure, jet N1 / N2, turboprop prop RPM / torque, helicopter turbine N1 / torque; see `engine_power.h`), plus 96 on/off states (autopilot modes, switches, warnings, …) bit-packed into three `bool_group_*` columns; the full list is in `trip_data_fields.h` |
 | `trip_events` | Discrete cockpit events (gear up/down, flaps, spoilers, parking brake, anti-ice, etc.) with zulu and local timestamps |
-| `trip_liftoffs` | One row per liftoff (the trip's departure, plus any touch-and-go): airport, runway (plus its real facility heading — usually a few degrees off the runway number), airspeed, vertical speed, pitch/bank/heading, wind direction/speed, lateral/longitudinal distance from the runway threshold and centreline, and the stored AI analysis report |
-| `trip_touchdowns` | One row per touchdown: airport, runway (plus its real facility heading — usually a few degrees off the runway number), airspeed, vertical speed, g-force, pitch/bank/heading, wind direction/speed, lateral/longitudinal distance from the runway threshold and centreline, and the stored AI analysis report |
+| `trip_liftoffs` | One row per liftoff (the trip's departure, plus any touch-and-go): airport, runway (plus its real facility heading, usually a few degrees off the runway number), airspeed, vertical speed, pitch/bank/heading, wind direction/speed, lateral/longitudinal distance from the runway threshold and centreline, and the stored AI analysis report |
+| `trip_touchdowns` | One row per touchdown: airport, runway (plus its real facility heading, usually a few degrees off the runway number), airspeed, vertical speed, g-force, pitch/bank/heading, wind direction/speed, lateral/longitudinal distance from the runway threshold and centreline, and the stored AI analysis report |
 | `trip_groups` | User-defined trip groups: name and list order (`trips.group_id` references a row here; NULL = ungrouped) |
 
 Recording starts automatically when any of the aircraft's engines (up to its first four) is running on the ground (unless automatic recording is disabled via the **Recording** indicator in the Live Status panel) and stops when all of them are shut down on the ground or the simulator leaves the flight. A trip that ends abnormally (simulator crash or process kill before engine shutdown) is marked as **Open** in the UI.
@@ -181,14 +181,14 @@ Both Debug and Release link dynamically against `SimConnect.dll`. The DLL is cop
 
 Clicking a liftoff or touchdown marker on the map opens a popup with two panels:
 
-- **Left** — raw telemetry for that liftoff or landing: airport (ICAO code, with its name in parentheses), runway (with its real facility heading in parentheses, when known), coordinate, airspeed, vertical speed, G-force (landings only), pitch/bank, heading, threshold distance and centreline offset (when a runway was matched), wind, and Zulu/local time. The KML export's placemark descriptions list the same fields, without the coordinate.
-- **Right** — an **Analyze Liftoff** / **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API). The prompt includes the runway's real heading (not just its two-digit number, which can be off by up to ~10°) so the model can calculate an accurate crosswind component.
+- **Left**: raw telemetry for that liftoff or landing: airport (ICAO code, with its name in parentheses), runway (with its real facility heading in parentheses, when known), coordinate, airspeed, vertical speed, G-force (landings only), pitch/bank, heading, threshold distance and centreline offset (when a runway was matched), wind, and Zulu/local time. The KML export's placemark descriptions list the same fields, without the coordinate.
+- **Right**: an **Analyze Liftoff** / **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API). The prompt includes the runway's real heading (not just its two-digit number, which can be off by up to ~10°) so the model can calculate an accurate crosswind component.
 
 The analysis is returned in a fixed structure:
 
 ```
 Grade: A+ … F
-Summary: 1–2 sentence overall impression
+Summary: 1-2 sentence overall impression
 Strengths:  • …
 Areas to improve:  • …
 ```
@@ -200,7 +200,7 @@ While the model is reasoning the toggle label reads **Thinking…** and is non-i
 1. Get a free API key at [aistudio.google.com](https://aistudio.google.com).
 2. Open `settings.ini` in a text editor while the app is not running.
 3. Set `gemini_api_key=YOUR_KEY` under `[ai]`.
-4. Restart the app — the button becomes active on the next liftoff or touchdown popup.
+4. Restart the app. The button becomes active on the next liftoff or touchdown popup.
 
 ## Trip Groups
 
@@ -208,8 +208,8 @@ Trips can be sorted into user-defined groups. **Manage Groups…** (above the tr
 
 ## Export and Images
 
-- **Export to KML** — available from a trip row's right-click menu and from the map's right-click menu while a trip is shown. The KML file contains the 3D flight path, a time-animated track, and liftoff, touchdown and event placemarks, for viewing in Google Earth.
-- **Save Image** / **Copy Image** — the map's right-click menu saves or copies the whole visible map (trajectory, markers and tiles) as one image.
+- **Export to KML**: available from a trip row's right-click menu and from the map's right-click menu while a trip is shown. The KML file contains the 3D flight path, a time-animated track, and liftoff, touchdown and event placemarks, for viewing in Google Earth.
+- **Save Image** / **Copy Image**: the map's right-click menu saves or copies the whole visible map (trajectory, markers and tiles) as one image.
 
 ## Project Structure
 

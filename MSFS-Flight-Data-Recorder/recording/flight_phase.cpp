@@ -125,7 +125,7 @@ void stop_recording(struct STATUS* status) {
 		status->id_trip, status->flight.last_sample != NULL ? "present" : "none");
 	status->recording = FALSE;
 	// Destination lat/lon was written at each touchdown; only the arrival time
-	// (engine shutdown) is set here — consistent with departure time being engine start.
+	// (engine shutdown) is set here -- consistent with departure time being engine start.
 	// last_sample is NULL if the trip ended before a single sample was ever
 	// recorded (e.g. engine start immediately followed by engine cutoff, within
 	// one sample interval) -- there's no flight data to source a destination

@@ -26,7 +26,7 @@ public:
 	// Clears the trajectory and draws departure→destination line segments for
 	// every trip (the default overview shown when no trip is selected).
 	void showOverview(const std::vector<TripSummary>& trips);
-	// Refits the map to the current trajectory bounds — same view as right
+	// Refits the map to the current trajectory bounds -- same view as right
 	// after a trip was loaded.
 	void resetZoom();
 	// Shows/hides the cockpit-event markers pushed by setDataset() -- the

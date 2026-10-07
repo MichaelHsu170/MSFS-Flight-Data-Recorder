@@ -10,18 +10,18 @@
 // are written; messages above the configured level are silently dropped.
 //
 // Levels (ordered lowest → highest verbosity):
-//   Fatal   – errors the app can't recover from: a crash, the database not
-//             opening when the simulator connects (the app exits), or a failed
-//             database update at startup (the window stays open, but recording
-//             and Trip History stay off until the next start)
-//   Warning – unexpected/unhandled conditions that don't stop execution
-//   Info    – user-visible events (connect, record, liftoff, touchdown, …)
-//   Trace   – fine-grained diagnostic detail (e.g. raw Qt debug output) that's
-//             too noisy for Info but isn't a timing measurement.
-//   Profile – elapsed-time/performance measurements ONLY (ms/µs durations).
-//             Non-timing diagnostic detail belongs at Info, Warning, or Trace
-//             instead. Profile is the highest (most verbose) level, so it
-//             still includes every other level's output alongside timings.
+//   Fatal   -- errors the app can't recover from: a crash, the database not
+//              opening when the simulator connects (the app exits), or a failed
+//              database update at startup (the window stays open, but recording
+//              and Trip History stay off until the next start)
+//   Warning -- unexpected/unhandled conditions that don't stop execution
+//   Info    -- user-visible events (connect, record, liftoff, touchdown, …)
+//   Trace   -- fine-grained diagnostic detail (e.g. raw Qt debug output) that's
+//              too noisy for Info but isn't a timing measurement.
+//   Profile -- elapsed-time/performance measurements ONLY (ms/µs durations).
+//              Non-timing diagnostic detail belongs at Info, Warning, or Trace
+//              instead. Profile is the highest (most verbose) level, so it
+//              still includes every other level's output alongside timings.
 //
 // Example: verbose=INFO writes Fatal + Warning + Info but not Trace or Profile.
 // Thread-safe: log() and logf() may be called from any thread after init().

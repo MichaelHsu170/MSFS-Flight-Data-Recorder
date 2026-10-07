@@ -178,7 +178,7 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 	connect(watcher, &QFutureWatcher<ChartSeriesData>::finished, this, [this, watcher, ver, engine]() {
 		Logger::logf(Logger::Profile, "Charts", "finished lambda: ver=%d cur=%d", ver, datasetVersion_);
 		watcher->deleteLater();
-		// A newer setDataset call superseded this one — discard stale results
+		// A newer setDataset call superseded this one -- discard stale results
 		// rather than writing old trip data into series that were already cleared.
 		if (ver != datasetVersion_) {
 			Logger::logf(Logger::Trace, "Charts", "setDataset: dataset superseded (ver=%d cur=%d); discarding stale computed series", ver, datasetVersion_);

@@ -577,7 +577,7 @@ sqlite3* connect_db_readonly() {
 
 // Remove constraint keywords that SQLite disallows in ALTER TABLE ADD COLUMN:
 // NOT NULL (requires a DEFAULT when rows exist), PRIMARY KEY, UNIQUE, AUTOINCREMENT.
-// The added column defaults to NULL for any existing rows, which is fine — the
+// The added column defaults to NULL for any existing rows, which is fine -- the
 // app reads integer/real columns as 0 and text columns as empty when NULL.
 template <size_t N>
 static void strip_alter_column_constraints(const char* src, char (&dst)[N]) {
@@ -671,7 +671,7 @@ static bool migrate_table_columns(sqlite3* sql, const char* table_name, const ch
 						"ALTER TABLE %s ADD COLUMN %s;", table_name, safe_def);
 
 					if (exec_sql(sql, alter_sql)) {
-						Logger::logf(Logger::Info, "DB", "Schema migration: %s — added column %s", table_name, col_name.c_str());
+						Logger::logf(Logger::Info, "DB", "Schema migration: added column %s to %s", col_name.c_str(), table_name);
 					} else {
 						Logger::logf(Logger::Fatal, "DB", "Schema migration failed (%s): %s", sqlite3_errmsg(sql), alter_sql);
 						ok = false;
@@ -818,7 +818,7 @@ static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, 
 		return false; // can't be read (logged), so it may still have the old columns
 	if (find_column(old_columns, kLegacyColumns[0]) == old_columns.end())
 		return true;
-	Logger::logf(Logger::Info, "DB", "Schema migration: trip_data -- moving N1/N2 into engine_speed/engine_load");
+	Logger::logf(Logger::Info, "DB", "Schema migration: moving trip_data N1/N2 into engine_speed/engine_load");
 	if (sqlite3_create_function_v2(sql, "engine_pack", 3, SQLITE_UTF8 | SQLITE_DETERMINISTIC,
 			nullptr, sql_engine_pack, nullptr, nullptr, nullptr) != SQLITE_OK) {
 		Logger::logf(Logger::Fatal, "DB", "Schema migration failed to register engine_pack: %s", sqlite3_errmsg(sql));
@@ -878,7 +878,7 @@ static bool migrate_legacy_engine_columns(sqlite3* sql, StepProgress& progress, 
 	}
 	progress.report(kRebuildCommit);
 	rebuilt = true;
-	Logger::logf(Logger::Info, "DB", "Schema migration: trip_data -- N1/N2 moved, old columns dropped");
+	Logger::logf(Logger::Info, "DB", "Schema migration: trip_data N1/N2 moved, old columns dropped");
 	return true;
 }
 

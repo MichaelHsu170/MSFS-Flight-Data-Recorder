@@ -18,7 +18,7 @@ endif()
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-# Qt (MSVC kit). Compiler/linker is still cl.exe/link.exe from VS Build Tools —
+# Qt (MSVC kit). Compiler/linker is still cl.exe/link.exe from VS Build Tools --
 # Qt's MSVC kit doesn't replace that toolchain, it just supplies Qt's libraries
 # built against it. Point CMAKE_PREFIX_PATH at the Qt MSVC install, e.g.:
 #   -DCMAKE_PREFIX_PATH=C:/Qt/6.11.1/msvc2022_64
@@ -222,37 +222,37 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 # this is safe to re-run on incremental builds.
 #
 # Top-level DLLs:
-#   Qt6Lottie / Qt6LottieVectorImageGenerator  — Lottie animation engine
-#   Qt6Pdf                                     — PDF rendering
-#   Qt6SerialPort                              — serial port (SimConnect uses SDK)
-#   Qt6VirtualKeyboard                         — touch-screen virtual keyboard
-#   Qt6QuickVectorImageGenerator               — SVG/Lottie vector rendering
-#   QuickControls2 extra styles                — only Windows (default) + Basic
-#                                                (fallback) are needed; the rest
-#                                                are selectable themes we don't use
-# Note: Qt6Positioning and Qt6PrintSupport are kept — Qt6WebEngineCore.dll loads
+#   Qt6Lottie / Qt6LottieVectorImageGenerator  -- Lottie animation engine
+#   Qt6Pdf                                     -- PDF rendering
+#   Qt6SerialPort                              -- serial port (SimConnect uses SDK)
+#   Qt6VirtualKeyboard                         -- touch-screen virtual keyboard
+#   Qt6QuickVectorImageGenerator               -- SVG/Lottie vector rendering
+#   QuickControls2 extra styles                -- only Windows (default) + Basic
+#                                                 (fallback) are needed; the rest
+#                                                 are selectable themes we don't use
+# Note: Qt6Positioning and Qt6PrintSupport are kept -- Qt6WebEngineCore.dll loads
 # them at startup as hard runtime dependencies even though the app never calls
 # their C++ APIs directly.
 #
 # Plugin subdirectories:
-#   position/             — Qt Positioning runtime plugins
-#   vectorimageformats/   — SVG/Lottie/PDF image-format plugins
+#   position/             -- Qt Positioning runtime plugins
+#   vectorimageformats/   -- SVG/Lottie/PDF image-format plugins
 #
 # QML module subdirectories (unused features deployed by windeployqt's QML scan):
-#   QtQuick.Controls extra styles  — same as above, mirror in qml/ tree
-#   QtQuick.Dialogs                — file/color/font dialogs (app uses C++ QDialog)
-#   QtQuick.LocalStorage           — QML SQL local storage API
-#   QtQuick.Particles              — particle-effects system
-#   QtQuick.Pdf                    — PDF viewer QML component
-#   QtQuick.Timeline               — animation timeline (design tool)
-#   QtQuick.VectorImage            — SVG/Lottie vector image QML type
-#   QtQuick.VirtualKeyboard        — on-screen virtual keyboard
-#   QtQml.StateMachine             — QML state-machine API
-#   QtQml.XmlListModel             — XPath/XQuery list model
-#   QtQuick3D add-ons              — 3D engine extras not used by QtGraphs 2D charts:
-#                                    AssetUtils, Effects, Helpers, MaterialEditor,
-#                                    ParticleEffects, Particles3D, Physics,
-#                                    SpatialAudio, Xr, lightmapviewer
+#   QtQuick.Controls extra styles  -- same as above, mirror in qml/ tree
+#   QtQuick.Dialogs                -- file/color/font dialogs (app uses C++ QDialog)
+#   QtQuick.LocalStorage           -- QML SQL local storage API
+#   QtQuick.Particles              -- particle-effects system
+#   QtQuick.Pdf                    -- PDF viewer QML component
+#   QtQuick.Timeline               -- animation timeline (design tool)
+#   QtQuick.VectorImage            -- SVG/Lottie vector image QML type
+#   QtQuick.VirtualKeyboard        -- on-screen virtual keyboard
+#   QtQml.StateMachine             -- QML state-machine API
+#   QtQml.XmlListModel             -- XPath/XQuery list model
+#   QtQuick3D add-ons              -- 3D engine extras not used by QtGraphs 2D charts:
+#                                     AssetUtils, Effects, Helpers, MaterialEditor,
+#                                     ParticleEffects, Particles3D, Physics,
+#                                     SpatialAudio, Xr, lightmapviewer
 set(D "$<TARGET_FILE_DIR:${PROJECT_NAME}>")
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E rm -f

@@ -799,13 +799,13 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	// Declare before menu: local variables are destroyed in reverse order, so
 	// menu is destroyed first and never holds a dangling style pointer.
 	// Pass the style name string (not a pointer) so QProxyStyle creates its own
-	// internal base style — passing a pointer would transfer ownership and delete
+	// internal base style -- passing a pointer would transfer ownership and delete
 	// the app-wide QStyle when redStyle goes out of scope.
 	RedDeleteStyle redStyle(this->style()->name());
 	QMenu menu(this);
 	menu.setStyle(&redStyle);
 
-	// Identify the right-clicked row up front — used by both action groups below.
+	// Identify the right-clicked row up front -- used by both action groups below.
 	// Copied, not pointed at: menu.exec() runs a nested event loop, and a
 	// tripUpdated/recordingStateChanged signal delivered while the menu is open
 	// can reallocate the model's backing vector.
@@ -813,7 +813,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 	const TripSummary* rowTrip = index.isValid() ? model_->tripAt(index.row()) : nullptr;
 	const std::optional<TripSummary> rightClickedTrip = rowTrip ? std::optional<TripSummary>(*rowTrip) : std::nullopt;
 
-	// Deselect / Reset Zoom — only when right-clicking the currently selected row.
+	// Deselect / Reset Zoom -- only when right-clicking the currently selected row.
 	QAction* deselectAction = nullptr;
 	QAction* resetZoomAction = nullptr;
 	if (selectedTripId_ != -1 && rightClickedTrip && rightClickedTrip->id == selectedTripId_) {
@@ -821,7 +821,7 @@ void TripHistoryPanel::onTableContextMenu(const QPoint& pos) {
 		resetZoomAction = menu.addAction(QStringLiteral("Reset Zoom"));
 	}
 
-	// "Export to KML" / row-specific "Delete Trip" at the bottom — only for the
+	// "Export to KML" / row-specific "Delete Trip" at the bottom -- only for the
 	// right-clicked, non-Live row (can't export/delete a still-recording trip).
 	QAction* exportKmlAction = nullptr;
 	QAction* deleteAction = nullptr;
