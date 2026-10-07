@@ -60,8 +60,9 @@ void db_insert_event(STATUS* status, int trip_id, const char* event, const char*
 // happens to share the same event name or timestamp string (time_zulu/
 // time_local are read from a periodically-refreshed snapshot, not captured
 // per-event, so two distinct occurrences can share an identical timestamp).
-// No-op if seqs is empty. Called only from event_write_worker, same threading
-// contract as db_insert_event above.
+// It matches every trip: connect_db() starts each run's seqs after the stored
+// ones, so a seq names one row. No-op if seqs is empty. Called only from
+// event_write_worker, same threading contract as db_insert_event above.
 void db_delete_events(STATUS* status, const std::vector<unsigned long long>& seqs);
 
 // Called with the percentage done (1-100, rising) during a long migration.
@@ -92,6 +93,8 @@ bool migrate_db(const MigrationProgress& progress = {}, const MigrationCancelled
 std::string db_file_path();
 
 // Opens (creating if needed) the recorder's own write connection,
-// status->sql, and starts the two DB-writer threads. The UI's connections
-// are in db_connection.h.
+// status->sql, moves the flood filter's event seqs past the ones trip_events
+// already holds (see db_delete_events()), and starts the two DB-writer
+// threads. Exits if the schema can't be brought up to date or the stored seqs
+// can't be read. The UI's connections are in db_connection.h.
 void connect_db(struct STATUS* status);

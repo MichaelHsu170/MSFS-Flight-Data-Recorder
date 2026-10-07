@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <chrono>
 #include <deque>
 #include <functional>
@@ -57,6 +58,10 @@ public:
 	// flush_stale() again. Deliberately doesn't log "flood ended" for floods
 	// still being suppressed: they may still be arriving.
 	void flush_all(const Output& out);
+	// Makes every later seq greater than seq, so this run's seqs can't repeat
+	// ones an earlier run stored (trip_events.event_seq, see connect_db()).
+	// Never lowers the next seq.
+	void continue_after(unsigned long long seq) { next_seq_ = std::max<unsigned long long>(next_seq_, seq); }
 
 	// Replaces the clock (std::chrono::steady_clock::now by default), so
 	// tests can move time forward instead of waiting.
@@ -98,6 +103,7 @@ private:
 	std::unordered_map<std::string, Tier2State> tier2_;
 	// Only ever incremented -- including across reconnects -- so a seq never
 	// identifies two occurrences. Needed because timestamps come from the
-	// latest sample and two occurrences can share one.
+	// latest sample and two occurrences can share one. continue_after() moves
+	// it past the seqs earlier runs stored.
 	unsigned long long next_seq_ = 0;
 };

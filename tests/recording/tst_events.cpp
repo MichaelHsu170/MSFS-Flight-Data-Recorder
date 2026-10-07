@@ -141,6 +141,34 @@ private slots:
 		QVERIFY(waitFor([tripId] { return eventRows(tripId, "AP_HDG_HOLD") == 1; }));
 	}
 
+	// A new run's seqs start at 1 again unless connect_db() moves them past
+	// the stored ones; the retraction would then delete the earlier run's
+	// rows that share them.
+	void slowFloodKeepsAnEarlierRunsEvents() {
+		int earlierTrip = 0;
+		{
+			FlightDriver sim;
+			earlierTrip = sim.startTrip();
+			for (int i = 0; i < 3; ++i)
+				sim.simEvent(EVENT_FLAPS_INCR);
+		}
+		QCOMPARE(eventRows(earlierTrip, "FLAPS_INCR"), 3);
+		FlightDriver sim;
+		const int tripId = sim.startTrip();
+		QSignalSpy retracted(&sim.bridge(), &RecorderBridge::eventsRetracted);
+		for (int i = 0; i < 3; ++i) {
+			sim.simEvent(EVENT_AP_HDG_HOLD);
+			quiet(sim, 600);
+		}
+		QCOMPARE(retracted.count(), 1);
+		// Flaps commit at once, and the one event writer works in order: once
+		// this row is in, the retraction queued before it has run.
+		sim.simEvent(EVENT_FLAPS_DECR);
+		QVERIFY(waitFor([tripId] { return eventRows(tripId, "FLAPS_DECR") == 1; }));
+		QCOMPARE(eventRows(tripId, "AP_HDG_HOLD"), 0);
+		QCOMPARE(eventRows(earlierTrip, "FLAPS_INCR"), 3);
+	}
+
 	void eventResolvedAfterTripEndsBelongsToThatTrip() {
 		FlightDriver sim;
 		const int tripId = sim.startTrip();

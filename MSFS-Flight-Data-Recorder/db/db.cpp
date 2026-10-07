@@ -1256,6 +1256,19 @@ void connect_db(struct STATUS* status) {
 	if (!create_schema(status->sql, {}, {}))
 		exit(2);
 
+	// A slow-flood retraction (db_delete_events()) deletes by event_seq in
+	// every trip, so this run's seqs must start after every stored one, or it
+	// would delete an earlier run's events that share a seq.
+	sqlite3_stmt* max_seq = nullptr;
+	if (sqlite3_prepare_v2(status->sql, "SELECT max(event_seq) FROM trip_events;", -1, &max_seq, nullptr) != SQLITE_OK
+			|| sqlite3_step(max_seq) != SQLITE_ROW) {
+		Logger::logf(Logger::Fatal, "DB", "Cannot read the last event_seq: %s", sqlite3_errmsg(status->sql));
+		sqlite3_finalize(max_seq);
+		exit(2);
+	}
+	status->event_filter.continue_after((unsigned long long)sqlite3_column_int64(max_seq, 0));
+	sqlite3_finalize(max_seq);
+
 	// Start the single persistent DB-write worker for this connection. Reset
 	// clears any stop() left over from a previous connection's shutdown, so
 	// the freshly-started thread's pop() loop doesn't exit immediately.

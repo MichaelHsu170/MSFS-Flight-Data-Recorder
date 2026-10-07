@@ -268,6 +268,17 @@ private slots:
 		for (size_t i = 0; i < h.commits.size(); ++i)
 			QCOMPARE(h.commits[i].seq, (unsigned long long)(i + 1));
 	}
+
+	void continueAfterStartsSeqsAfterItButNeverLowersThem() {
+		Harness h;
+		h.filter.continue_after(41);
+		h.record("FLAPS_INCR");
+		h.filter.continue_after(10);
+		h.record("FLAPS_INCR");
+		QCOMPARE(h.commits.size(), size_t(2));
+		QCOMPARE(h.commits[0].seq, 42ULL);
+		QCOMPARE(h.commits[1].seq, 43ULL);
+	}
 };
 
 QTEST_GUILESS_MAIN(TstEventFilter)
