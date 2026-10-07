@@ -482,11 +482,13 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
         initAttempt();
 
         try {
+            // The key goes in a header, not the URL: the browser's console
+            // messages (copied into the log) can quote a failed request's URL.
             var res = await fetch(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:streamGenerateContent?key=' + encodeURIComponent(key),
+                'https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:streamGenerateContent',
                 {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
                     body: JSON.stringify({
                         contents: [{ role: 'user', parts: [{ text: buildPrompt(t) }] }]
                     })

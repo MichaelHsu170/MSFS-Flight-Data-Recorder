@@ -107,7 +107,8 @@ class TstMapWidget : public QObject {
 	// -1 for a 200 whose connection drops after its pieces); saving the
 	// report succeeds if saveOk. Returns what it did: calls (fetches made),
 	// saved (the report saved, null if none), text (the answer shown),
-	// thinkingShown.
+	// thinkingShown, and the last request's url and apiKey (its
+	// x-goog-api-key header).
 	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts, bool saveOk = true, const QList<int>& statuses = {}) {
 		QJsonArray json;
 		for (const QStringList& pieces : attempts)
@@ -119,7 +120,9 @@ class TstMapWidget : public QObject {
 			(function (attempts, statuses) {
 			    window._ai = { calls: 0, saved: null, done: false };
 			    var realFetch = window.fetch;
-			    window.fetch = function () {
+			    window.fetch = function (url, init) {
+			        window._ai.url = url;
+			        window._ai.apiKey = init.headers['x-goog-api-key'];
 			        var n = window._ai.calls++;
 			        var status = statuses.length ? statuses[Math.min(n, statuses.length - 1)] : 200;
 			        if (status === 0) return Promise.reject(new TypeError('Failed to fetch'));
@@ -146,7 +149,7 @@ class TstMapWidget : public QObject {
 		if (!QTest::qWaitFor([this] { return evalPageJs(widget_, QStringLiteral("window._ai.done")).toBool(); }, 5000))
 			return {};
 		return evalPageJs(widget_, QStringLiteral(
-			"({ calls: window._ai.calls, saved: window._ai.saved,"
+			"({ calls: window._ai.calls, saved: window._ai.saved, url: window._ai.url, apiKey: window._ai.apiKey,"
 			"   text: document.getElementById('td-th-final-ai').textContent,"
 			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none' })")).toMap();
 	}
@@ -692,6 +695,17 @@ private slots:
 		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A\nGood."));
 		QCOMPARE(r.value("text").toString(), QStringLiteral("Grade: AGood."));
 		QCOMPARE(r.value("thinkingShown").toBool(), false);
+	}
+
+	// The API key travels in the x-goog-api-key header, never in the URL,
+	// which the browser's console messages (copied into the log) can quote.
+	void aiRequestSendsTheKeyInAHeaderNotTheUrl() {
+		evalPageJs(widget_, QStringLiteral("window._geminiApiKey = 'secret-key'"));
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } });
+		evalPageJs(widget_, QStringLiteral("window._geminiApiKey = ''"));
+		QCOMPARE(r.value("apiKey").toString(), QStringLiteral("secret-key"));
+		QCOMPARE(r.value("url").toString(),
+			QStringLiteral("https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:streamGenerateContent"));
 	}
 
 	// Thinking, then the answer, split across reads mid-object: saved with
