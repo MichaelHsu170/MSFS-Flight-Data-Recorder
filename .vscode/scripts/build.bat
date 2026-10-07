@@ -49,6 +49,9 @@ if defined VSINSTALLDIR set "VSINSTALL=%VSINSTALLDIR%"
 
 set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
 if not defined VSINSTALL if exist "!VSWHERE!" for /f "usebackq delims=" %%V in (`"!VSWHERE!" -latest -products * -version [18.0^,19.0^) -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALL=%%V"
+REM VsDevCmd.bat (which vcvarsall.bat calls) runs vswhere.exe by bare name
+REM and prints "'vswhere.exe' is not recognized" unless its folder is on PATH.
+if exist "!VSWHERE!" set "PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;!PATH!"
 
 if defined VSINSTALL (
   if exist "!VSINSTALL!\VC\Auxiliary\Build\vcvarsall.bat" (
