@@ -22,6 +22,8 @@ Read [`.github/diff-review.md`](../../../.github/diff-review.md) at the reposito
 
 This skill runs in a forked subagent (`context: fork` above) that starts without the conversation it was invoked from, which is how it meets that file's "review from zero known context" rule: the reviewer can't lean on design rationale or earlier "this part is fine" conclusions from the chat, even when the same session wrote the code.
 
+Run the build-and-test command in the foreground with a 600000 ms timeout, never in the background: this review runs in a forked subagent, and a background build is killed as soon as the subagent ends its turn.
+
 Arguments: $ARGUMENTS
 
 If a ref (commit/tag/branch) was given in the arguments above, that's the ref referred to in that file's scope-determination step; if none was given, follow its no-ref path (uncommitted changes only).
