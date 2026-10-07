@@ -978,7 +978,7 @@ function initLeafletProvider() {
     // points exists, so without this the map stays blank (zero tile
     // requests, not a network/auth failure) whenever nothing is selected yet.
     map.setView([0, 0], 2);
-    var tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    var tileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors',
         maxZoom: 19
     }).addTo(map);
