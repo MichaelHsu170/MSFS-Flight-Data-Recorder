@@ -17,8 +17,8 @@ class QLineSeries;
 class QDateTimeAxis;
 class QValueAxis;
 
-// Stacked timeline charts (engine power -- N1/N2, RPM/manifold pressure etc.
-// by engine type, see setEngine() -- vertical speed, speed, altitude, gear,
+// Stacked timeline charts (engine power -- N1/N2 per engine, or RPM/prop RPM
+// for a piston, see setEngine() -- vertical speed, speed, altitude, gear,
 // brake/flaps/spoiler, fuel weight, pitch, bank) sharing one X axis of real Zulu
 // timestamps (matching the database's zulu_time column), each with titled axes.
 //
@@ -82,10 +82,12 @@ private:
 	// an empty trip never gets here.
 	void setYAxes(const ChartExtents& extents);
 	// Labels the engine power chart for engine (chartEngineSpec()): its
-	// series, axis titles and, for no recorded power, the no-data message.
+	// series, which of them are shown, its axis title and, for no recorded
+	// power, the no-data message.
 	void setEngine(const ChartEngine& engine);
 	// Loads samples lo..hi of full_, thinned to at most kDisplayPoints plus
-	// sample hi, into every series.
+	// sample hi, into every series; empties the series full_ has no points
+	// for.
 	void loadFullSlice(int lo, int hi);
 
 	QQuickWidget* view_;
@@ -107,8 +109,7 @@ private:
 		// Driver axis -- the range the QML cursor line and hover readout map
 		// against; setAllXAxisRange() sets it along with every per-chart axis.
 		QDateTimeAxis* xAxis = nullptr;
-		QValueAxis* engSpeedYAxis = nullptr;
-		QValueAxis* engLoadYAxis  = nullptr;
+		QValueAxis* engineYAxis = nullptr;
 		QValueAxis* vsYAxis    = nullptr;
 		QValueAxis* speedYAxis = nullptr;
 		QValueAxis* altYAxis   = nullptr;

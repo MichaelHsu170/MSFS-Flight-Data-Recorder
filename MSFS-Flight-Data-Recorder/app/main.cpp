@@ -70,14 +70,7 @@ static void logMessageHandler(QtMsgType type, const QMessageLogContext& ctx, con
 		|| msg.contains(QLatin1String("qt.qpa."))
 		|| msg.contains(QLatin1String("QStandardPaths:"))
 		|| msg.startsWith(QLatin1String("libpng warning"))
-		|| msg.contains(QLatin1String("is not installed"))
-		// Qt Graphs warns each time a series re-adds an axis to the graph it
-		// already belongs to, so engine load series 2-4, sharing series 1's
-		// right-hand axis (charts_panel.qml), log it once each; harmless.
-		// tst_charts_panel matches the same text and fails on any more of
-		// them, which would be a real axis wiring mistake that this filter
-		// would otherwise hide.
-		|| msg.contains(QLatin1String("axis already associated with")))
+		|| msg.contains(QLatin1String("is not installed")))
 		return;
 
 	Logger::Level level = Logger::Trace;

@@ -10,29 +10,17 @@
 #include <utility>
 #include <vector>
 
+#include "engine_power.h"
 #include "trip_dataset.h"
-
-// The engines the first chart has series for; engines past it aren't
-// charted.
-constexpr int CHART_ENGINES = 4;
 
 // The data behind ChartsPanel's timeline charts, with no Qt Graphs or QML
 // objects involved: which series exist, their points and axis ranges, and
 // the hover readout. ChartsPanel only moves these into the QML series/axes.
 
-// Every chart series, in ChartSeriesId order -- the one list both the enum
-// and CHART_SERIES are built from: X(id, objectName, valueKey, isFlag), as
-// in ChartSeriesDef below. Engines 1..CHART_ENGINES' speed and load
-// (enginePowerSpec() in engine_power.h) come first.
+// The chart series after the engine ones, in ChartSeriesId order -- the one
+// list both the enum and CHART_SERIES are built from: X(id, objectName,
+// valueKey, isFlag), as in ChartSeriesDef below.
 #define CHART_SERIES_LIST(X) \
-	X(CHART_ENG_SPEED_1,      "engSpeed1Series",     "engSpeed1",  false) \
-	X(CHART_ENG_SPEED_2,      "engSpeed2Series",     "engSpeed2",  false) \
-	X(CHART_ENG_SPEED_3,      "engSpeed3Series",     "engSpeed3",  false) \
-	X(CHART_ENG_SPEED_4,      "engSpeed4Series",     "engSpeed4",  false) \
-	X(CHART_ENG_LOAD_1,       "engLoad1Series",      "engLoad1",   false) \
-	X(CHART_ENG_LOAD_2,       "engLoad2Series",      "engLoad2",   false) \
-	X(CHART_ENG_LOAD_3,       "engLoad3Series",      "engLoad3",   false) \
-	X(CHART_ENG_LOAD_4,       "engLoad4Series",      "engLoad4",   false) \
 	X(CHART_VERTICAL_SPEED,   "verticalSpeedSeries", "vs",         false) \
 	X(CHART_AIRSPEED,         "airspeedSeries",      "ias",        false) \
 	X(CHART_GROUND_SPEED,     "groundSpeedSeries",   "gs",         false) \
@@ -51,7 +39,13 @@ constexpr int CHART_ENGINES = 4;
 	X(CHART_PITCH,            "pitchSeries",         "pitch",      false) \
 	X(CHART_BANK,             "bankSeries",          "bank",       false)
 
+// Every chart series: first engine e's N1 at CHART_ENG_N1_1 + e - 1 and its
+// N2 at CHART_ENG_N2_1 + e - 1 (enginePowerSpec() in engine_power.h), for
+// every engine index MSFS reports, then CHART_SERIES_LIST.
 enum ChartSeriesId {
+	CHART_ENG_N1_1,
+	CHART_ENG_N2_1 = CHART_ENG_N1_1 + SIM_ENGINE_INDEXES,
+	CHART_ENG_N2_LAST = CHART_ENG_N2_1 + SIM_ENGINE_INDEXES - 1,
 #define CHART_SERIES_ID(id, objectName, valueKey, isFlag) id,
 	CHART_SERIES_LIST(CHART_SERIES_ID)
 #undef CHART_SERIES_ID
@@ -59,40 +53,44 @@ enum ChartSeriesId {
 };
 
 struct ChartSeriesDef {
-	// The LineSeries' objectName in ui/charts/charts_panel.qml.
-	const char* objectName;
-	// Its key in chartValueMap(), read by charts_panel.qml's hover readout.
-	const char* valueKey;
+	// The LineSeries' objectName in ui/charts/charts_panel.qml: engine e's
+	// are "engN1_<e>Series" and "engN2_<e>Series".
+	QString objectName;
+	// Its key in chartValueMap(), read by charts_panel.qml's hover readout:
+	// engine e's are "engN1_<e>" and "engN2_<e>".
+	QString valueKey;
 	// A 0/1 series, reported as a bool in chartValueMap().
 	bool isFlag;
 };
 // Indexed by ChartSeriesId.
 extern const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES;
 
-static_assert(CHART_ENG_LOAD_1 - CHART_ENG_SPEED_1 == CHART_ENGINES && CHART_VERTICAL_SPEED - CHART_ENG_LOAD_1 == CHART_ENGINES,
-	"one engine speed and one engine load series per engine");
-
 // One sample's value for every series, indexed by ChartSeriesId. An engine's
-// speed and load are the values enginePowerSpec() names for the sample's
-// engine type; 0 for one not recorded (an engine past the sample's
-// engineCount(), a type without a spec, or a value an older build didn't
-// record).
+// N1 and N2 are the values enginePowerSpec() names for the sample's engine
+// type; 0 for one not recorded (an engine past the sample's engineCount(), a
+// type without a spec, or a value an older build didn't record).
 using ChartValues = std::array<double, CHART_SERIES_COUNT>;
 ChartValues chartValues(const TripSamplePoint& point);
 
-// What the first chart is labeled by: an ENGINE TYPE and how many engines'
-// series it shows.
+// What the first chart is labeled by: an ENGINE TYPE, how many engines'
+// series it shows, and which of their N1/N2 lines were recorded.
 struct ChartEngine {
 	int engineType = -1;
-	int count = 0;  // 0..CHART_ENGINES; 0 = no engine power recorded
+	int count = 0;  // 0..SIM_ENGINE_INDEXES; 0 = no engine power recorded
+	bool n1Recorded = false;
+	bool n2Recorded = false;
 };
-// The first point's that recorded engine 1's speed for an engine type with a
-// spec (count 0 if none did), its count capped at CHART_ENGINES. A trip keeps
-// one aircraft, so later points have the same engine type.
+// The first point's that recorded engine 1's N1 or N2 for an engine type
+// with a spec (count 0 if none did), and which of the two it recorded. A
+// trip keeps one aircraft, so later points have the same engine type and
+// record the same values. A trip migrated from the old layout may have only
+// one of them, or neither (an old turboprop trip recorded prop RPM and
+// torque).
 ChartEngine chartEngine(const std::vector<TripSamplePoint>& points);
-// charts_panel.qml's root engineSpec for engine: count, plus speed/load
-// Label, Unit, Decimals and AxisTitle (enginePowerSpec()) -- only count (0)
-// if engine recorded no power, which shows the no-data message.
+// charts_panel.qml's root engineSpec for engine: count, n1Recorded,
+// n2Recorded, n1Label, n2Label, unit, decimals and axisTitle
+// (enginePowerSpec()) -- only count (0) if engine recorded no power, which
+// shows the no-data message.
 QVariantMap chartEngineSpec(const ChartEngine& engine);
 
 // A zulu-time string (parseZuluTime() in trip_dataset.h) as chart X-axis
@@ -113,13 +111,13 @@ std::pair<double, double> niceSignedAxisRange(double minVal, double maxVal);
 
 // What the Y axes are sized from: min/max of vertical speed, pitch and bank
 // (the signed axes), max of speed (airspeed or ground speed), altitude, fuel
-// weight and engine speed/load (any engine) (the axes starting at 0; their
-// max starts at 0 too).
+// weight and engine N1/N2 (any engine) (the axes starting at 0; their max
+// starts at 0 too).
 struct ChartExtents {
 	bool valid = false; // false until the first add()
 	double vsMin = 0, vsMax = 0;
 	double speedMax = 0, altMax = 0, fuelMax = 0;
-	double engSpeedMax = 0, engLoadMax = 0;
+	double engineMax = 0;
 	double pitchMin = 0, pitchMax = 0;
 	double bankMin = 0, bankMax = 0;
 	// Widens the extents to include values.
@@ -127,9 +125,11 @@ struct ChartExtents {
 };
 
 // Every series' points: X = chartTimeMs(), Y = the value. Indexed by
-// ChartSeriesId; every list has one point per sample.
+// ChartSeriesId; a list has one point per sample, or none for an engine the
+// trip doesn't chart (see buildChartSeries()).
 using ChartSeriesLists = std::array<QList<QPointF>, CHART_SERIES_COUNT>;
-// Sample index's values, read back from series.
+// Sample index's values, read back from series; 0 for a series with no
+// points.
 ChartValues chartValuesAt(const ChartSeriesLists& series, int index);
 // Extents of samples lo..hi of series.
 ChartExtents chartExtents(const ChartSeriesLists& series, int lo, int hi);
@@ -155,9 +155,11 @@ struct ChartSeriesData {
 	ChartExtents extents;
 	ChartSeriesLists series;
 };
-// Everything ChartsPanel::setDataset() shows for a historical trip. Pure, so
-// it runs on a worker thread.
-ChartSeriesData buildChartSeries(const std::vector<ChartSample>& samples);
+// Everything ChartsPanel::setDataset() shows for a historical trip, with
+// engine series for engines 1..engineCount (ChartEngine::count) only, so a
+// 2-engine trip holds no lists for the 14 engine indexes it doesn't have.
+// Pure, so it runs on a worker thread.
+ChartSeriesData buildChartSeries(const std::vector<ChartSample>& samples, int engineCount);
 
 // Samples lo..hi of full, thinned to at most maxPoints plus sample hi (see
 // decimatedIndices() in trip_dataset.h). Empty if lo..hi isn't inside full.

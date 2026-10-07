@@ -8,6 +8,7 @@
 #include <QDateTimeAxis>
 #include <QJSValue>
 #include <QLineSeries>
+#include <QQmlListReference>
 #include <QQuickWidget>
 #include <QQuickItem>
 #include <QSignalSpy>
@@ -19,6 +20,7 @@
 #include <cmath>
 #include <functional>
 #include <optional>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -32,15 +34,15 @@ QQuickItem* shownRoot(ChartsPanel& panel, QSize size = QSize(400, 300)) {
 	return QTest::qWaitFor([view]() { return view->rootObject() != nullptr; }, 5000) ? view->rootObject() : nullptr;
 }
 
-// Makes p an aircraft of engineType whose engine i records speedLoad[i-1]
-// as speed and load, its other engine values not recorded (NaN).
-void setPower(TripSamplePoint& p, int engineType, TripEngineField speed, TripEngineField load,
-	const std::vector<std::pair<double, double>>& speedLoad) {
+// Makes p an aircraft of engineType whose engine i records values[i-1] as
+// fieldA and fieldB, its other engine values not recorded (NaN).
+void setPower(TripSamplePoint& p, int engineType, TripEngineField fieldA, TripEngineField fieldB,
+	const std::vector<std::pair<double, double>>& values) {
 	p.engineType = engineType;
-	p.engineValues.assign(speedLoad.size() * TRIP_ENGINE_FIELD_COUNT, std::nan(""));
-	for (size_t i = 0; i < speedLoad.size(); ++i) {
-		p.engineValues[i * TRIP_ENGINE_FIELD_COUNT + speed] = speedLoad[i].first;
-		p.engineValues[i * TRIP_ENGINE_FIELD_COUNT + load] = speedLoad[i].second;
+	p.engineValues.assign(values.size() * TRIP_ENGINE_FIELD_COUNT, std::nan(""));
+	for (size_t i = 0; i < values.size(); ++i) {
+		p.engineValues[i * TRIP_ENGINE_FIELD_COUNT + fieldA] = values[i].first;
+		p.engineValues[i * TRIP_ENGINE_FIELD_COUNT + fieldB] = values[i].second;
 	}
 }
 
@@ -72,12 +74,22 @@ TripDataset tripAt(int hour, int count = 10) {
 	return dataset;
 }
 
-// The engine power chart's lines that are drawn, e.g. { "engSpeed1", "engLoad1" }.
+// A one-sample trip at hour:00:00 of a jet with count engines, each at N1
+// and N2 of 50.
+TripDataset jetTrip(int hour, int count) {
+	TripDataset dataset;
+	dataset.points = { samplePoint(50, zuluAt(hour, 0)) };
+	setPower(dataset.points[0], 1, TRIP_ENGINE_turb_eng_n1, TRIP_ENGINE_turb_eng_n2,
+		std::vector<std::pair<double, double>>(count, { 50, 50 }));
+	return dataset;
+}
+
+// The engine power chart's lines that are drawn, e.g. { "engN1_1", "engN2_1" }.
 QStringList visibleEngineLines(QObject* root) {
 	QStringList names;
-	for (const QString& quantity : { QStringLiteral("engSpeed"), QStringLiteral("engLoad") })
-		for (int i = 1; i <= 4; ++i) {
-			const QString name = quantity + QString::number(i);
+	for (const QString& prefix : { QStringLiteral("engN1_"), QStringLiteral("engN2_") })
+		for (int i = 1; i <= SIM_ENGINE_INDEXES; ++i) {
+			const QString name = prefix + QString::number(i);
 			QLineSeries* line = root->findChild<QLineSeries*>(name + QStringLiteral("Series"));
 			if (line && line->isVisible())
 				names << name;
@@ -221,16 +233,33 @@ private slots:
 		QCOMPARE(timeAxisLabels(panel, root->findChild<QValueAxis*>(QStringLiteral("vsYAxis"))), zulu);
 	}
 
-	// Engine load series 2-4 re-add series 1's right-hand axis, and Qt Graphs
-	// warns once for each (main.cpp filters these from the log). Any further
-	// one would be an axis wired to a second chart by mistake.
+	// Qt Graphs warns when a series re-adds an axis to a chart it already
+	// belongs to: an axis wired to a second chart by mistake.
 	void constructsAndLoadsAQmlRoot() {
-		const QRegularExpression sharedAxis(QStringLiteral("axis already associated with"));
-		for (int series = 2; series <= 4; ++series)
-			QTest::ignoreMessage(QtWarningMsg, sharedAxis);
-		QTest::failOnWarning(sharedAxis);
+		QTest::failOnWarning(QRegularExpression(QStringLiteral("axis already associated with")));
 		ChartsPanel panel;
 		QVERIFY(shownRoot(panel));
+	}
+
+	// Every series ChartsPanel drives is a line in the loaded QML, and the
+	// engine power chart's lines are in the order its legend lists them
+	// (engineSeries() in charts_panel.qml): all N1 lines by engine, then N2.
+	void everyChartSeriesIsALineInTheQml() {
+		ChartsPanel panel;
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
+		for (const ChartSeriesDef& def : CHART_SERIES)
+			QVERIFY2(root->findChild<QLineSeries*>(def.objectName), qPrintable(def.objectName));
+		QQmlListReference lines(root->findChild<QObject*>(QStringLiteral("engineBlock")), "lineSeries");
+		QVERIFY(lines.isValid());
+		QStringList names;
+		for (qsizetype i = 0; i < lines.count(); ++i)
+			names << lines.at(i)->objectName();
+		QStringList expected;
+		for (const char* line : { "engN1_", "engN2_" })
+			for (int i = 1; i <= SIM_ENGINE_INDEXES; ++i)
+				expected << QLatin1String(line) + QString::number(i) + QStringLiteral("Series");
+		QCOMPARE(names, expected);
 	}
 
 	void setDatasetEmitsSeriesLoaded() {
@@ -270,11 +299,12 @@ private slots:
 		QCOMPARE(shownAxes(root), 0);
 		QVERIFY(spy.wait(5000));
 		QCOMPARE(chartMessages(root), QStringList(9, QString()));
-		QCOMPARE(shownAxes(root), 19);  // each chart's X and Y, and engine load
+		QCOMPARE(shownAxes(root), 18);  // each chart's X and Y
 		QCOMPARE(shownLegends(root), 9);
 		QVERIFY(root->findChild<QQuickItem*>(QStringLiteral("endOfTrajectoryLine"))->isVisible());
-		// Both points in each of the 25 lines, hidden engines' lines included.
-		QCOMPARE(pointsInLines(root), 2 * 25);
+		// Both points in each of the 21 lines: the twin's 4 engine lines and
+		// the 17 others; the other engines' lines are empty.
+		QCOMPARE(pointsInLines(root), 2 * 21);
 
 		// The deselect finishes before setDataset() returns.
 		panel.setDataset(TripDataset());
@@ -329,11 +359,11 @@ private slots:
 		panel.setDataset(second);
 		QVERIFY(spy.wait(5000));
 		const qint64 secondMs = QDateTime(QDate(2026, 3, 5), QTime(12, 0, 0), QTimeZone::UTC).toMSecsSinceEpoch();
-		QCOMPARE(pointsInLines(root), 25);
+		QCOMPARE(pointsInLines(root), 21);
 		// A one-sample trip still gets a 1 s wide axis (chart_data.h).
 		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), secondMs);
 		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), secondMs + 1000);
-		QCOMPARE(panel.valueAt(secondMs)[QStringLiteral("engSpeed1")].toDouble(), 2.0);
+		QCOMPARE(panel.valueAt(secondMs)[QStringLiteral("engN1_1")].toDouble(), 2.0);
 	}
 
 	void aSupersededDatasetLoadIsDiscardedWithoutEmittingSeriesLoaded() {
@@ -431,55 +461,67 @@ private slots:
 		ChartsPanel panel;
 		QQuickItem* root = shownRoot(panel);
 		QVERIFY(root);
-		QValueAxis* speedAxis = root->findChild<QValueAxis*>(QStringLiteral("engSpeedYAxis"));
-		QValueAxis* loadAxis = root->findChild<QValueAxis*>(QStringLiteral("engLoadYAxis"));
-		QVERIFY(speedAxis && loadAxis);
+		QValueAxis* axis = root->findChild<QValueAxis*>(QStringLiteral("engineYAxis"));
+		QVERIFY(axis);
 		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
 
-		// The first point recorded no power; the chart uses the second's.
+		// The first point recorded no power; the chart uses the second's. A
+		// piston's N1/N2 equivalents: crankshaft RPM and prop RPM.
 		TripDataset piston;
 		piston.points = { samplePoint(1, QStringLiteral("2026-03-05T20:00:00.000+00:00_4")),
 			samplePoint(2, QStringLiteral("2026-03-05T20:00:01.000+00:00_4")) };
-		setPower(piston.points[0], 0, TRIP_ENGINE_general_eng_rpm, TRIP_ENGINE_recip_eng_manifold_pressure, {});
-		setPower(piston.points[1], 0, TRIP_ENGINE_general_eng_rpm, TRIP_ENGINE_recip_eng_manifold_pressure, { { 2400, 24.5 } });
+		setPower(piston.points[0], 0, TRIP_ENGINE_general_eng_rpm, TRIP_ENGINE_prop_rpm, {});
+		setPower(piston.points[1], 0, TRIP_ENGINE_general_eng_rpm, TRIP_ENGINE_prop_rpm, { { 2400, 2350 } });
 		panel.setDataset(piston);
 		QVERIFY(spy.wait(5000));
-		QVariantMap spec = root->property("engineSpec").toMap();
-		QCOMPARE(spec.value("count").toInt(), 1);
-		QCOMPARE(spec.value("speedAxisTitle").toString(), QStringLiteral("RPM"));
+		QCOMPARE(root->property("engineSpec").toMap().value("count").toInt(), 1);
 		// Sized to the data (niceAxisMax()), unlike a jet's fixed 110 %.
-		QCOMPARE(speedAxis->max(), 3000.0);
-		QCOMPARE(loadAxis->max(), 40.0);
-		// The QML chart: one engine's lines, legend and both axis titles.
-		QCOMPARE(visibleEngineLines(root), (QStringList{ "engSpeed1", "engLoad1" }));
-		QCOMPARE(engineLegend(root), (QStringList{ "RPM #1", "MP #1" }));
-		QCOMPARE(speedAxis->titleText(), QStringLiteral("RPM"));
-		QVERIFY(loadAxis->isVisible());
-		QCOMPARE(loadAxis->titleText(), QStringLiteral("Manifold Pressure (inHg)"));
+		QCOMPARE(axis->max(), 3000.0);
+		QCOMPARE(visibleEngineLines(root), (QStringList{ "engN1_1", "engN2_1" }));
+		QCOMPARE(engineLegend(root), (QStringList{ "RPM #1", "Prop RPM #1" }));
+		QCOMPARE(axis->titleText(), QStringLiteral("RPM"));
 		QCOMPARE(engineEmptyText(root), QString());
+		QCOMPARE(panel.valueAt(chartTimeMs(piston.points[1].zuluTime))[QStringLiteral("engN2_1")].toDouble(), 2350.0);
 
-		TripDataset jet;
-		jet.points = { samplePoint(50, QStringLiteral("2026-03-05T21:00:00.000+00:00_4")) };
+		// A piston trip from before prop RPM was recorded: its RPM line only.
+		TripDataset oldPiston = piston;
+		oldPiston.points[1].engineValues[TRIP_ENGINE_prop_rpm] = std::nan("");
+		panel.setDataset(oldPiston);
+		QVERIFY(spy.wait(5000));
+		QCOMPARE(visibleEngineLines(root), QStringList{ "engN1_1" });
+		QCOMPARE(engineLegend(root), QStringList{ "RPM #1" });
+
+		const TripDataset jet = jetTrip(21, 2);
 		panel.setDataset(jet);
 		QVERIFY(spy.wait(5000));
-		QCOMPARE(root->property("engineSpec").toMap().value("speedLabel").toString(), QStringLiteral("N1"));
-		QCOMPARE(speedAxis->max(), 110.0);
-		QCOMPARE(loadAxis->max(), 110.0);
-		QCOMPARE(visibleEngineLines(root), (QStringList{ "engSpeed1", "engSpeed2", "engLoad1", "engLoad2" }));
+		QCOMPARE(axis->max(), 110.0);
+		QCOMPARE(visibleEngineLines(root), (QStringList{ "engN1_1", "engN1_2", "engN2_1", "engN2_2" }));
 		QCOMPARE(engineLegend(root), (QStringList{ "N1 #1", "N1 #2", "N2 #1", "N2 #2" }));
-		QCOMPARE(speedAxis->titleText(), QStringLiteral("N1 (%)"));
-		QCOMPARE(loadAxis->titleText(), QStringLiteral("N2 (%)"));
+		QCOMPARE(axis->titleText(), QStringLiteral("N1 / N2 (%)"));
 
-		// An N1 overspeed past the fixed 110 sizes that axis to the data
-		// (115 * 1.25 = 143.75, in steps of 50); N2 at exactly 110 still fits.
-		TripDataset overspeed = jet;
-		setPower(overspeed.points[0], 1, TRIP_ENGINE_turb_eng_n1, TRIP_ENGINE_turb_eng_n2, { { 115, 110 }, { 50, 50 } });
-		panel.setDataset(overspeed);
+		// An overspeed past the fixed 110, of N1 or of N2 (one shared axis),
+		// sizes the axis to the data (115 * 1.25 = 143.75, in steps of 50); at
+		// exactly 110 it still fits.
+		for (const auto& [n1, n2, max] : { std::tuple{ 115.0, 50.0, 150.0 }, std::tuple{ 50.0, 115.0, 150.0 },
+				std::tuple{ 110.0, 110.0, 110.0 } }) {
+			TripDataset overspeed = jet;
+			setPower(overspeed.points[0], 1, TRIP_ENGINE_turb_eng_n1, TRIP_ENGINE_turb_eng_n2, { { 50, 50 }, { n1, n2 } });
+			panel.setDataset(overspeed);
+			QVERIFY(spy.wait(5000));
+			QCOMPARE(axis->max(), max);
+		}
+
+		// An old turboprop trip recorded prop RPM and torque only, neither of
+		// them an N1/N2: the no-data message.
+		TripDataset oldTurboprop;
+		oldTurboprop.points = { samplePoint(1, QStringLiteral("2026-03-05T21:30:00.000+00:00_4")) };
+		setPower(oldTurboprop.points[0], 5, TRIP_ENGINE_prop_rpm, TRIP_ENGINE_turb_eng_max_torque_percent, { { 1700, 80 } });
+		panel.setDataset(oldTurboprop);
 		QVERIFY(spy.wait(5000));
-		QCOMPARE(speedAxis->max(), 150.0);
-		QCOMPARE(loadAxis->max(), 110.0);
+		QCOMPARE(root->property("engineSpec").toMap(), (QVariantMap{ { "count", 0 } }));
+		QCOMPARE(engineEmptyText(root), QStringLiteral("No engine power data recorded"));
 
-		// An old trip with no engine power recorded: the no-data message.
+		// No engine type recorded: the no-data message too.
 		TripDataset none;
 		none.points = { samplePoint(1, QStringLiteral("2026-03-05T22:00:00.000+00:00_4")) };
 		none.points[0].engineType = -1;
@@ -490,10 +532,9 @@ private slots:
 		QCOMPARE(engineEmptyText(root), QStringLiteral("No engine power data recorded"));
 		QCOMPARE(visibleEngineLines(root), QStringList());
 		QCOMPARE(engineLegend(root), QStringList());
-		QCOMPARE(speedAxis->titleText(), QStringLiteral("Engine Power"));
-		QVERIFY(!loadAxis->isVisible());
+		QCOMPARE(axis->titleText(), QStringLiteral("Engine Power"));
 		// Not the jet's 110 left over: niceAxisMax(0) like any empty axis.
-		QCOMPARE(speedAxis->max(), 1.0);
+		QCOMPARE(axis->max(), 1.0);
 
 		// Deselect after a jet: no trip, so no engine lines or labels, and the
 		// no-trip message instead of the no-power one.
@@ -504,7 +545,44 @@ private slots:
 		QCOMPARE(engineEmptyText(root), QStringLiteral("No trip selected"));
 		QCOMPARE(visibleEngineLines(root), QStringList());
 		QCOMPARE(engineLegend(root), QStringList());
-		QVERIFY(!loadAxis->isVisible());
+	}
+
+	// Every engine the trip has gets its N1 and N2 lines, up to the 16 engine
+	// indexes MSFS reports.
+	void theEnginePowerChartShowsEveryEngine() {
+		ChartsPanel panel;
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
+		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
+		for (int count : { 6, SIM_ENGINE_INDEXES }) {
+			panel.setDataset(jetTrip(22, count));
+			QVERIFY(spy.wait(5000));
+			QStringList lines, legend;
+			for (const char* line : { "N1", "N2" })
+				for (int i = 1; i <= count; ++i) {
+					lines << QStringLiteral("eng%1_%2").arg(QLatin1String(line)).arg(i);
+					legend << QStringLiteral("%1 #%2").arg(QLatin1String(line)).arg(i);
+				}
+			QCOMPARE(visibleEngineLines(root), lines);
+			QCOMPARE(engineLegend(root), legend);
+			QCOMPARE(panel.valueAt(chartTimeMs(zuluAt(22, 0)))[QStringLiteral("engN2_%1").arg(count)].toDouble(), 50.0);
+		}
+	}
+
+	// A trip with fewer engines than the last one leaves none of the extra
+	// engines' points behind.
+	void aTripWithFewerEnginesClearsTheExtraEnginesLines() {
+		ChartsPanel panel;
+		QQuickItem* root = shownRoot(panel);
+		QVERIFY(root);
+		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
+		panel.setDataset(jetTrip(23, 4));
+		QVERIFY(spy.wait(5000));
+		QCOMPARE(pointsInLines(root), 8 + 17);
+		panel.setDataset(jetTrip(23, 2));
+		QVERIFY(spy.wait(5000));
+		QCOMPARE(pointsInLines(root), 4 + 17);
+		QCOMPARE(root->findChild<QLineSeries*>(QStringLiteral("engN1_3Series"))->count(), 0);
 	}
 
 	// The "%.0f" axes label a short range (a level or empty trip) once per
@@ -535,14 +613,13 @@ private slots:
 			for (const char* name : { "vsYAxis", "pitchYAxis", "bankYAxis" })
 				QCOMPARE(leftAxisLabels(panel, root->findChild<QValueAxis*>(QLatin1String(name))), c.vs);
 		}
-		// The engine axes go through the same rule: samplePoint's jet has a
+		// The engine axis goes through the same rule: samplePoint's jet has a
 		// fixed 0-110 % scale, which keeps its automatic ticks.
-		QCOMPARE(leftAxisLabels(panel, root->findChild<QValueAxis*>(QStringLiteral("engSpeedYAxis"))),
+		QCOMPARE(leftAxisLabels(panel, root->findChild<QValueAxis*>(QStringLiteral("engineYAxis"))),
 			QStringList({ "100", "80", "60", "40", "20", "0" }));
 	}
 
-	// The engine power chart's right-hand axis narrows its plot; the other
-	// charts match it so one time lines up across all of them.
+	// One time lines up across all the charts.
 	void everyChartsPlotEndsAtTheSameX() {
 		ChartsPanel panel;
 		QQuickItem* root = shownRoot(panel, QSize(800, 600));
@@ -565,7 +642,6 @@ private slots:
 		QVERIFY(QTest::qWaitFor([&]() {
 			return std::all_of(views.begin(), views.end(), [&](QQuickItem* v) { return qFuzzyCompare(plotRight(v), plotRight(views.first())); });
 		}, 2000));
-		QVERIFY(plotRight(views.first()) < root->width() - 40); // the right-hand axis is there
 	}
 
 	void valueAtUsesTheFullResolutionDataAfterADatasetLoad() {
@@ -581,7 +657,7 @@ private slots:
 		QVERIFY(spy.wait(5000));
 
 		QVariantMap v = panel.valueAt(chartTimeMs(t1));
-		QCOMPARE(v[QStringLiteral("engSpeed1")].toDouble(), 9.0);
+		QCOMPARE(v[QStringLiteral("engN1_1")].toDouble(), 9.0);
 	}
 
 	// The hover readout while a second trip loads: the first trip's lines are
@@ -639,11 +715,11 @@ private slots:
 		const double fullAltMax = altAxis->max();
 
 		panel.setVisibleRange(2, 5);
-		QCOMPARE(pointsInLines(root), 4 * 25);
+		QCOMPARE(pointsInLines(root), 4 * 21);
 		panel.setVisibleRange(-1, -1); // zoomed all the way out: the whole trip again
 		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(18, 0));
 		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(18, 9));
-		QCOMPARE(pointsInLines(root), 10 * 25);
+		QCOMPARE(pointsInLines(root), 10 * 21);
 		QCOMPARE(altAxis->max(), fullAltMax);
 		QVERIFY(root->property("isFullRangeVisible").toBool());
 	}
@@ -683,13 +759,13 @@ private slots:
 
 		// Zoomed slice: samples 2..5 only, with the Y axes fitted to them
 		// (altitude 5 at most instead of 9).
-		QLineSeries* line = root->findChildren<QLineSeries*>().value(0);
+		QLineSeries* line = root->findChild<QLineSeries*>(QStringLiteral("altitudeSeries"));
 		QVERIFY(line);
 		QSignalSpy replaced(line, &QXYSeries::pointsReplaced);
 		panel.setVisibleRange(2, 5);
 		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(19, 2));
 		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(19, 5));
-		QCOMPARE(pointsInLines(root), 4 * 25);
+		QCOMPARE(pointsInLines(root), 4 * 21);
 		QVERIFY(altAxis->max() < fullAltMax);
 		QVERIFY(!root->property("isFullRangeVisible").toBool());
 		QCOMPARE(replaced.count(), 1);
@@ -701,7 +777,7 @@ private slots:
 		panel.setVisibleRange(3, 3);
 		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(19, 3));
 		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(19, 4));
-		QCOMPARE(pointsInLines(root), 25);
+		QCOMPARE(pointsInLines(root), 21);
 	}
 
 	// While a trip loads, the old trip's lines stay: a range (which indexes
@@ -712,8 +788,8 @@ private slots:
 		QQuickItem* root = shownRoot(panel);
 		QVERIFY(root);
 		QDateTimeAxis* timeAxis = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
-		QValueAxis* speedAxis = root->findChild<QValueAxis*>(QStringLiteral("engSpeedYAxis"));
-		QVERIFY(timeAxis && speedAxis);
+		QValueAxis* engineAxis = root->findChild<QValueAxis*>(QStringLiteral("engineYAxis"));
+		QVERIFY(timeAxis && engineAxis);
 
 		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
 		panel.setDataset(tripAt(20));
@@ -721,14 +797,14 @@ private slots:
 		panel.setVisibleRange(2, 5);
 		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(20, 2));
 		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(20, 5));
-		QCOMPARE(speedAxis->max(), 110.0);  // the jet's fixed N1 axis
+		QCOMPARE(engineAxis->max(), 110.0);  // the jet's fixed N1/N2 axis
 
 		panel.setDataset(tripAt(21));
 		panel.setVisibleRange(-1, -1);
 		panel.setVisibleRange(3, 4);
 		QCOMPARE(timeAxis->min().toMSecsSinceEpoch(), utcMsAt(20, 2));
 		QCOMPARE(timeAxis->max().toMSecsSinceEpoch(), utcMsAt(20, 5));
-		QCOMPARE(speedAxis->max(), 110.0);
+		QCOMPARE(engineAxis->max(), 110.0);
 
 		QVERIFY(spy.wait(5000));
 		// The last range sent while loading.
@@ -745,7 +821,7 @@ private slots:
 
 		// The full range, sent while loading or after (Leaflet's second
 		// event), is what loads: not drawn again.
-		QLineSeries* line = root->findChildren<QLineSeries*>().value(0);
+		QLineSeries* line = root->findChild<QLineSeries*>(QStringLiteral("altitudeSeries"));
 		QVERIFY(line);
 		QSignalSpy replaced(line, &QXYSeries::pointsReplaced);
 		panel.setDataset(tripAt(19));

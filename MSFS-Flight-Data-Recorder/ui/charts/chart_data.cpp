@@ -1,5 +1,4 @@
 #include "chart_data.h"
-#include "engine_power.h"
 #include "trip_dataset.h"
 
 #include <QTimeZone>
@@ -8,22 +7,36 @@
 #include <algorithm>
 #include <cmath>
 
-const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES = { {
-#define CHART_SERIES_DEF(id, objectName, valueKey, isFlag) { objectName, valueKey, isFlag },
+namespace {
+
+std::array<ChartSeriesDef, CHART_SERIES_COUNT> makeChartSeries() {
+	std::array<ChartSeriesDef, CHART_SERIES_COUNT> series;
+	for (int i = 0; i < SIM_ENGINE_INDEXES; ++i) {
+		for (const auto& [first, prefix] : { std::pair{ CHART_ENG_N1_1, "engN1_" }, std::pair{ CHART_ENG_N2_1, "engN2_" } }) {
+			const QString key = QString::fromLatin1(prefix) + QString::number(i + 1);
+			series[first + i] = { key + QStringLiteral("Series"), key, false };
+		}
+	}
+#define CHART_SERIES_DEF(id, objectName, valueKey, isFlag) series[id] = { QStringLiteral(objectName), QStringLiteral(valueKey), isFlag };
 	CHART_SERIES_LIST(CHART_SERIES_DEF)
 #undef CHART_SERIES_DEF
-} };
+	return series;
+}
+
+}
+
+const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES = makeChartSeries();
 
 ChartValues chartValues(const TripSamplePoint& p) {
 	ChartValues v{};
 	if (const EnginePowerSpec* spec = enginePowerSpec(p.engineType)) {
-		const auto value = [&p](int engine, const EngineQuantity& quantity) {
-			const double raw = p.engineValue(engine, quantity.field);
+		const auto value = [&p](int engine, TripEngineField field) {
+			const double raw = p.engineValue(engine, field);
 			return std::isnan(raw) ? 0.0 : raw;
 		};
-		for (int i = 0; i < std::min(p.engineCount(), CHART_ENGINES); ++i) {
-			v[CHART_ENG_SPEED_1 + i] = value(i + 1, spec->speed);
-			v[CHART_ENG_LOAD_1 + i] = value(i + 1, spec->load);
+		for (int i = 0; i < std::min(p.engineCount(), SIM_ENGINE_INDEXES); ++i) {
+			v[CHART_ENG_N1_1 + i] = value(i + 1, spec->n1Field);
+			v[CHART_ENG_N2_1 + i] = value(i + 1, spec->n2Field);
 		}
 	}
 	v[CHART_VERTICAL_SPEED] = p.verticalSpeed;
@@ -49,8 +62,12 @@ ChartValues chartValues(const TripSamplePoint& p) {
 ChartEngine chartEngine(const std::vector<TripSamplePoint>& points) {
 	for (const TripSamplePoint& p : points) {
 		const EnginePowerSpec* spec = enginePowerSpec(p.engineType);
-		if (spec && !std::isnan(p.engineValue(1, spec->speed.field)))
-			return { p.engineType, std::min(p.engineCount(), CHART_ENGINES) };
+		if (!spec)
+			continue;
+		const bool n1 = !std::isnan(p.engineValue(1, spec->n1Field));
+		const bool n2 = !std::isnan(p.engineValue(1, spec->n2Field));
+		if (n1 || n2)
+			return { p.engineType, std::min(p.engineCount(), SIM_ENGINE_INDEXES), n1, n2 };
 	}
 	return {};
 }
@@ -62,13 +79,13 @@ QVariantMap chartEngineSpec(const ChartEngine& engine) {
 	m[QStringLiteral("count")] = count;
 	if (count == 0)
 		return m;
-	for (const auto& [prefix, quantity] : { std::pair{ "speed", &spec->speed }, std::pair{ "load", &spec->load } }) {
-		const QString key = QString::fromLatin1(prefix);
-		m[key + QStringLiteral("Label")] = QString::fromUtf8(quantity->label);
-		m[key + QStringLiteral("Unit")] = QString::fromUtf8(quantity->unit);
-		m[key + QStringLiteral("Decimals")] = quantity->decimals;
-		m[key + QStringLiteral("AxisTitle")] = QString::fromUtf8(quantity->axisTitle);
-	}
+	m[QStringLiteral("n1Recorded")] = engine.n1Recorded;
+	m[QStringLiteral("n2Recorded")] = engine.n2Recorded;
+	m[QStringLiteral("n1Label")] = QString::fromUtf8(spec->n1Label);
+	m[QStringLiteral("n2Label")] = QString::fromUtf8(spec->n2Label);
+	m[QStringLiteral("unit")] = QString::fromUtf8(spec->unit);
+	m[QStringLiteral("decimals")] = spec->decimals;
+	m[QStringLiteral("axisTitle")] = QString::fromUtf8(spec->axisTitle);
 	return m;
 }
 
@@ -136,16 +153,16 @@ void ChartExtents::add(const ChartValues& v) {
 	speedMax = qMax(speedMax, qMax(v[CHART_AIRSPEED], v[CHART_GROUND_SPEED]));
 	altMax = qMax(altMax, v[CHART_ALTITUDE]);
 	fuelMax = qMax(fuelMax, v[CHART_FUEL_WEIGHT]);
-	for (int i = 0; i < CHART_ENGINES; ++i) {
-		engSpeedMax = qMax(engSpeedMax, v[CHART_ENG_SPEED_1 + i]);
-		engLoadMax = qMax(engLoadMax, v[CHART_ENG_LOAD_1 + i]);
-	}
+	for (int s = CHART_ENG_N1_1; s <= CHART_ENG_N2_LAST; ++s)
+		engineMax = qMax(engineMax, v[s]);
 }
 
 ChartValues chartValuesAt(const ChartSeriesLists& series, int index) {
 	ChartValues v{};
-	for (int s = 0; s < CHART_SERIES_COUNT; ++s)
-		v[s] = series[s][index].y();
+	for (int s = 0; s < CHART_SERIES_COUNT; ++s) {
+		if (!series[s].isEmpty())
+			v[s] = series[s][index].y();
+	}
 	return v;
 }
 
@@ -156,7 +173,7 @@ ChartExtents chartExtents(const ChartSeriesLists& series, int lo, int hi) {
 	return extents;
 }
 
-ChartSeriesData buildChartSeries(const std::vector<ChartSample>& samples) {
+ChartSeriesData buildChartSeries(const std::vector<ChartSample>& samples, int engineCount) {
 	ChartSeriesData data;
 	data.pointTimesMs.reserve(samples.size());
 	for (const ChartSample& s : samples)
@@ -184,10 +201,16 @@ ChartSeriesData buildChartSeries(const std::vector<ChartSample>& samples) {
 			lastGood = ms;
 	}
 
-	for (QList<QPointF>& list : data.series)
-		list.reserve((int)samples.size());
+	std::vector<int> charted;
+	for (int s = 0; s < CHART_SERIES_COUNT; ++s) {
+		const int engine = s <= CHART_ENG_N2_LAST ? (s - CHART_ENG_N1_1) % SIM_ENGINE_INDEXES + 1 : 0;
+		if (engine <= engineCount)
+			charted.push_back(s);
+	}
+	for (int s : charted)
+		data.series[s].reserve((int)samples.size());
 	for (size_t i = 0; i < samples.size(); ++i) {
-		for (int s = 0; s < CHART_SERIES_COUNT; ++s)
+		for (int s : charted)
 			data.series[s].append(QPointF(data.pointTimesMs[i], samples[i].values[s]));
 	}
 	data.extents = chartExtents(data.series, 0, (int)samples.size() - 1);
@@ -221,7 +244,7 @@ QVariantMap chartValueMap(double sampleTimeMs, const ChartValues& values) {
 	m[QStringLiteral("timeStr")] = QDateTime::fromMSecsSinceEpoch((qint64)sampleTimeMs, QTimeZone::UTC)
 		.toString(QStringLiteral("HH:mm:ss.zzz")) + QStringLiteral(" UTC");
 	for (int s = 0; s < CHART_SERIES_COUNT; ++s) {
-		const QString key = QString::fromLatin1(CHART_SERIES[s].valueKey);
+		const QString& key = CHART_SERIES[s].valueKey;
 		if (CHART_SERIES[s].isFlag)
 			m[key] = values[s] > 0.5;
 		else

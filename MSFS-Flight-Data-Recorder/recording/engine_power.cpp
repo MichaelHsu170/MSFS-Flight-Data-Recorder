@@ -6,21 +6,20 @@
 
 namespace {
 
-// Each ENGINE TYPE that shows engine power: what its speed/load are.
+const EnginePowerSpec PISTON = { TRIP_ENGINE_general_eng_rpm, TRIP_ENGINE_prop_rpm, "RPM", "Prop RPM", "rpm", 0, "RPM", 0 };
+const EnginePowerSpec TURBINE = { TRIP_ENGINE_turb_eng_n1, TRIP_ENGINE_turb_eng_n2, "N1", "N2", "%", 1, "N1 / N2 (%)", 110 };
+
+// Each ENGINE TYPE that shows engine power: its N1/N2 lines.
 struct EngineTypeEntry {
 	int engineType;
-	EnginePowerSpec spec;
+	const EnginePowerSpec* spec;
 };
 
 const EngineTypeEntry ENGINE_TYPES[] = {
-	{ 0, { { TRIP_ENGINE_general_eng_rpm, "RPM", "rpm", 0, "RPM", 0 },
-	       { TRIP_ENGINE_recip_eng_manifold_pressure, "MP", "inHg", 1, "Manifold Pressure (inHg)", 0 } } },
-	{ 1, { { TRIP_ENGINE_turb_eng_n1, "N1", "%", 1, "N1 (%)", 110 },
-	       { TRIP_ENGINE_turb_eng_n2, "N2", "%", 1, "N2 (%)", 110 } } },
-	{ 3, { { TRIP_ENGINE_turb_eng_n1, "N1", "%", 1, "N1 (%)", 110 },
-	       { TRIP_ENGINE_turb_eng_max_torque_percent, "Torque", "%", 1, "Torque (%)", 0 } } },
-	{ 5, { { TRIP_ENGINE_prop_rpm, "Prop RPM", "rpm", 0, "Prop RPM", 0 },
-	       { TRIP_ENGINE_turb_eng_max_torque_percent, "Torque", "%", 1, "Torque (%)", 0 } } },
+	{ 0, &PISTON },
+	{ 1, &TURBINE },  // jet
+	{ 3, &TURBINE },  // helo turbine
+	{ 5, &TURBINE },  // turboprop
 };
 
 // A SimVar as an int, or fallback for one no int holds (NaN, out of range),
@@ -42,6 +41,6 @@ bool anyEngineCombusting(const FLIGHT_DATA_RECORD& r) {
 const EnginePowerSpec* enginePowerSpec(int engineType) {
 	for (const EngineTypeEntry& entry : ENGINE_TYPES)
 		if (entry.engineType == engineType)
-			return &entry.spec;
+			return entry.spec;
 	return nullptr;
 }

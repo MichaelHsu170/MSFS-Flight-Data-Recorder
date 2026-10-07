@@ -44,6 +44,8 @@ ChartsPanel::ChartsPanel(QWidget* parent) : QWidget(parent) {
 	view_ = new QQuickWidget(this);
 	view_->setResizeMode(QQuickWidget::SizeRootObjectToView);
 	view_->rootContext()->setContextProperty(QStringLiteral("chartsBridge"), this);
+	// How many engines' N1/N2 LineSeries the QML creates (ChartSeriesId).
+	view_->rootContext()->setContextProperty(QStringLiteral("simEngineIndexes"), SIM_ENGINE_INDEXES);
 	view_->setSource(QUrl(QStringLiteral("qrc:/charts/charts_panel.qml")));
 
 	auto* layout = new QVBoxLayout(this);
@@ -67,17 +69,16 @@ void ChartsPanel::buildSeriesCache() {
 	if (!root)
 		return;
 	for (int s = 0; s < CHART_SERIES_COUNT; ++s)
-		cache_.series[s] = root->findChild<QLineSeries*>(QString::fromLatin1(CHART_SERIES[s].objectName));
+		cache_.series[s] = root->findChild<QLineSeries*>(CHART_SERIES[s].objectName);
 	cache_.xAxis      = root->findChild<QDateTimeAxis*>(QStringLiteral("sharedXAxis"));
-	cache_.engSpeedYAxis = findYAxis(root, "engSpeedYAxis");
-	cache_.engLoadYAxis  = findYAxis(root, "engLoadYAxis");
+	cache_.engineYAxis = findYAxis(root, "engineYAxis");
 	cache_.vsYAxis    = findYAxis(root, "vsYAxis");
 	cache_.speedYAxis = findYAxis(root, "speedYAxis");
 	cache_.altYAxis   = findYAxis(root, "altYAxis");
 	cache_.fuelYAxis  = findYAxis(root, "fuelYAxis");
 	cache_.pitchYAxis = findYAxis(root, "pitchYAxis");
 	cache_.bankYAxis  = findYAxis(root, "bankYAxis");
-	cache_.valid      = (cache_.series[CHART_ENG_SPEED_1] != nullptr);
+	cache_.valid      = (cache_.series[CHART_ENG_N1_1] != nullptr);
 }
 
 void ChartsPanel::setYAxes(const ChartExtents& extents) {
@@ -88,8 +89,7 @@ void ChartsPanel::setYAxes(const ChartExtents& extents) {
 	const auto engineAxisMax = [](double fixedMax, double dataMax) {
 		return fixedMax > 0 && dataMax <= fixedMax ? fixedMax : niceAxisMax(dataMax);
 	};
-	setAxisRange(cache_.engSpeedYAxis, { 0, engineAxisMax(spec ? spec->speed.axisMax : 0, extents.engSpeedMax) });
-	setAxisRange(cache_.engLoadYAxis, { 0, engineAxisMax(spec ? spec->load.axisMax : 0, extents.engLoadMax) });
+	setAxisRange(cache_.engineYAxis, { 0, engineAxisMax(spec ? spec->axisMax : 0, extents.engineMax) });
 	setAxisRange(cache_.speedYAxis, { 0, niceAxisMax(extents.speedMax) });
 	setAxisRange(cache_.altYAxis, { 0, niceAxisMax(extents.altMax) });
 	setAxisRange(cache_.fuelYAxis, { 0, niceAxisMax(extents.fuelMax) });
@@ -106,13 +106,14 @@ void ChartsPanel::setEngine(const ChartEngine& engine) {
 
 void ChartsPanel::loadFullSlice(int lo, int hi) {
 	// replace() swaps all points in one scene-graph notification; clear() +
-	// append() would send two.
+	// append() would send two. An engine the trip doesn't chart has no points
+	// in full_: its line is emptied of the previous trip's.
 	for (int s = 0; s < CHART_SERIES_COUNT; ++s) {
 		QLineSeries* series = cache_.series[s];
 		if (!series)
 			continue;
 		const QList<QPointF> points = decimateSeries(full_[s], lo, hi, kDisplayPoints);
-		if (!points.isEmpty())
+		if (!points.isEmpty() || full_[s].isEmpty())
 			series->replace(points);
 	}
 }
@@ -223,9 +224,9 @@ void ChartsPanel::setDataset(const TripDataset& dataset) {
 		emit seriesLoaded();
 	});
 
-	watcher->setFuture(QtConcurrent::run([samples = std::move(samples)]() {
+	watcher->setFuture(QtConcurrent::run([samples = std::move(samples), engineCount = engine.count]() {
 		QElapsedTimer computeTimer; computeTimer.start();
-		ChartSeriesData data = buildChartSeries(samples);
+		ChartSeriesData data = buildChartSeries(samples, engineCount);
 		Logger::logf(Logger::Profile, "Charts", "compute (bg): %lld ms", computeTimer.nsecsElapsed() / 1000000);
 		return data;
 	}));

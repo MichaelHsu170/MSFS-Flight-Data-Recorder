@@ -74,32 +74,51 @@ private slots:
 		QFile qml(QStringLiteral(CHARTS_QML));
 		QVERIFY(qml.open(QIODevice::ReadOnly));
 		const QString text = QString::fromUtf8(qml.readAll());
-		std::set<std::string> names, keys;
+		// The QML declares the series after the engine ones; it creates the
+		// engine ones at run time (checked against the loaded QML in
+		// tst_charts_panel).
+		for (int s = CHART_ENG_N2_LAST + 1; s < CHART_SERIES_COUNT; ++s) {
+			const ChartSeriesDef& def = CHART_SERIES[s];
+			QVERIFY2(text.contains(QStringLiteral("objectName: \"%1\"").arg(def.objectName)), qPrintable(def.objectName));
+			// A series entry's key -- not just the quoted name anywhere in the file.
+			const QRegularExpression keyed(QStringLiteral("key:\\s*\"%1\"").arg(QRegularExpression::escape(def.valueKey)));
+			QVERIFY2(text.contains(keyed), qPrintable(def.valueKey));
+		}
+		// ...and no LineSeries in the QML is missing from the table: one per
+		// declared series, plus the engine series' template.
+		QCOMPARE((int)text.count(QRegularExpression(QStringLiteral("LineSeries\\s*\\{"))), CHART_SERIES_COUNT - CHART_VERTICAL_SPEED + 1);
+		std::set<QString> names, keys;
 		for (const ChartSeriesDef& def : CHART_SERIES) {
-			QVERIFY2(text.contains(QStringLiteral("objectName: \"%1\"").arg(def.objectName)), def.objectName);
-			// A series entry's key, or an element of engineSeries()' speed/load
-			// key arrays -- not just the quoted name anywhere in the file.
-			const QString key = QRegularExpression::escape(QString::fromLatin1(def.valueKey));
-			const QRegularExpression keyed(QStringLiteral("key:\\s*\"%1\"|(speed|load):\\s*\\[[^\\]]*\"%1\"").arg(key));
-			QVERIFY2(text.contains(keyed), def.valueKey);
 			names.insert(def.objectName);
 			keys.insert(def.valueKey);
 		}
 		QCOMPARE(names.size(), size_t(CHART_SERIES_COUNT));
 		QCOMPARE(keys.size(), size_t(CHART_SERIES_COUNT));
-		// ...and no LineSeries in the QML is missing from the table.
-		QCOMPARE((int)text.count(QRegularExpression(QStringLiteral("LineSeries\\s*\\{"))), (int)CHART_SERIES_COUNT);
 		// Only the on-ground series are flags.
 		for (int s = 0; s < CHART_SERIES_COUNT; ++s)
 			QCOMPARE(CHART_SERIES[s].isFlag, s >= CHART_GEAR_ON_GROUND_0 && s <= CHART_GEAR_ON_GROUND_2);
 	}
 
+	void engineSeriesAreNamedByEngine() {
+		// N1 then N2 of engines 1-16, before the other series.
+		QCOMPARE((int)CHART_ENG_N2_1, 16);
+		QCOMPARE((int)CHART_VERTICAL_SPEED, 32);
+		QCOMPARE(CHART_SERIES[CHART_ENG_N1_1].objectName, QStringLiteral("engN1_1Series"));
+		QCOMPARE(CHART_SERIES[CHART_ENG_N1_1].valueKey, QStringLiteral("engN1_1"));
+		QCOMPARE(CHART_SERIES[CHART_ENG_N1_1 + 15].valueKey, QStringLiteral("engN1_16"));
+		QCOMPARE(CHART_SERIES[CHART_ENG_N2_1].objectName, QStringLiteral("engN2_1Series"));
+		QCOMPARE(CHART_SERIES[CHART_ENG_N2_LAST].objectName, QStringLiteral("engN2_16Series"));
+		QCOMPARE(CHART_SERIES[CHART_ENG_N2_LAST].valueKey, QStringLiteral("engN2_16"));
+		QCOMPARE(CHART_SERIES[CHART_VERTICAL_SPEED].valueKey, QStringLiteral("vs"));
+	}
+
 	void valuesComeFromTheirSampleFields() {
-		// A 5-engine jet: N1/N2 of engines 1-4 (5 has no series), 0 for engine
-		// 3's N2, which wasn't recorded. Prop RPM is a turboprop's, not shown.
+		// A 5-engine jet: N1/N2 of engines 1-5, 0 for engine 3's N2, which
+		// wasn't recorded, and for engines 6-16. Prop RPM is a piston's N2,
+		// not shown.
 		EnginePoint jet(1, 5);
 		for (int e = 1; e <= 5; ++e)
-			jet.set(e, TRIP_ENGINE_turb_eng_n1, e).set(e, TRIP_ENGINE_turb_eng_n2, 4 + e).set(e, TRIP_ENGINE_prop_rpm, 99);
+			jet.set(e, TRIP_ENGINE_turb_eng_n1, e).set(e, TRIP_ENGINE_turb_eng_n2, 10 + e).set(e, TRIP_ENGINE_prop_rpm, 99);
 		jet.set(3, TRIP_ENGINE_turb_eng_n2, std::nan(""));
 		TripSamplePoint& p = jet.p;
 		p.verticalSpeed = -5; p.airspeed = 6; p.groundSpeed = 7; p.altitude = 8;
@@ -109,27 +128,49 @@ private slots:
 		p.brakeIndicator = 13; p.flapsHandleIndex = 14; p.spoilersHandlePosition = 15;
 		p.fuelTotalQuantityWeight = 16; p.pitchDegrees = -17.5; p.bankDegrees = 18.25;
 		const ChartValues v = chartValues(p);
-		const ChartValues expected = { 1, 2, 3, 4, 5, 6, 0, 8, -5, 6, 7, 8, 9, 10, 11, 12, 1, 0, 1, 13, 14, 15, 16, -17.5, 18.25 };
-		for (int s = 0; s < CHART_SERIES_COUNT; ++s)
-			QCOMPARE(v[s], expected[s]);
+		const double n1[SIM_ENGINE_INDEXES] = { 1, 2, 3, 4, 5 };
+		const double n2[SIM_ENGINE_INDEXES] = { 11, 12, 0, 14, 15 };
+		for (int i = 0; i < SIM_ENGINE_INDEXES; ++i) {
+			QCOMPARE(v[CHART_ENG_N1_1 + i], n1[i]);
+			QCOMPARE(v[CHART_ENG_N2_1 + i], n2[i]);
+		}
+		const double rest[] = { -5, 6, 7, 8, 9, 10, 11, 12, 1, 0, 1, 13, 14, 15, 16, -17.5, 18.25 };
+		QCOMPARE((int)std::size(rest), CHART_SERIES_COUNT - CHART_VERTICAL_SPEED);
+		for (int s = CHART_VERTICAL_SPEED; s < CHART_SERIES_COUNT; ++s)
+			QCOMPARE(v[s], rest[s - CHART_VERTICAL_SPEED]);
 	}
 
 	void engineValuesAreTheOnesTheEngineTypeShows() {
-		// A turboprop shows prop RPM and torque; an engine past the sample's
-		// own engines is 0.
+		// A turboprop shows N1 and N2, not its prop RPM or torque; an engine
+		// past the sample's own engines is 0.
 		EnginePoint turboprop(5, 1);
 		turboprop.set(1, TRIP_ENGINE_prop_rpm, 2100).set(1, TRIP_ENGINE_turb_eng_max_torque_percent, 25.5)
-			.set(1, TRIP_ENGINE_turb_eng_n1, 99);
+			.set(1, TRIP_ENGINE_turb_eng_n1, 91.5).set(1, TRIP_ENGINE_turb_eng_n2, 97);
 		ChartValues v = chartValues(turboprop.p);
-		QCOMPARE(v[CHART_ENG_SPEED_1], 2100.0);
-		QCOMPARE(v[CHART_ENG_LOAD_1], 25.5);
-		QCOMPARE(v[CHART_ENG_SPEED_2], 0.0);
+		QCOMPARE(v[CHART_ENG_N1_1], 91.5);
+		QCOMPARE(v[CHART_ENG_N2_1], 97.0);
+		QCOMPARE(v[CHART_ENG_N1_1 + 1], 0.0);
+		// A piston shows engine RPM and prop RPM, not manifold pressure.
+		EnginePoint piston(0, 1);
+		piston.set(1, TRIP_ENGINE_general_eng_rpm, 2400).set(1, TRIP_ENGINE_prop_rpm, 2350)
+			.set(1, TRIP_ENGINE_recip_eng_manifold_pressure, 24).set(1, TRIP_ENGINE_turb_eng_n1, 5);
+		v = chartValues(piston.p);
+		QCOMPARE(v[CHART_ENG_N1_1], 2400.0);
+		QCOMPARE(v[CHART_ENG_N2_1], 2350.0);
 		// An engine type that shows no power: every engine series is 0.
 		EnginePoint none(2, 2);
 		none.set(1, TRIP_ENGINE_turb_eng_n1, 50).set(1, TRIP_ENGINE_general_eng_rpm, 50);
 		v = chartValues(none.p);
-		for (int s = CHART_ENG_SPEED_1; s < CHART_VERTICAL_SPEED; ++s)
+		for (int s = CHART_ENG_N1_1; s <= CHART_ENG_N2_LAST; ++s)
 			QCOMPARE(v[s], 0.0);
+	}
+
+	void the16thEngineIsCharted() {
+		EnginePoint jet(1, 16);
+		jet.set(16, TRIP_ENGINE_turb_eng_n1, 61).set(16, TRIP_ENGINE_turb_eng_n2, 71);
+		const ChartValues v = chartValues(jet.p);
+		QCOMPARE(v[CHART_ENG_N1_1 + 15], 61.0);
+		QCOMPARE(v[CHART_ENG_N2_LAST], 71.0);
 	}
 
 	void chartTimeIsTheUtcInstant() {
@@ -192,58 +233,73 @@ private slots:
 		QCOMPARE(e.speedMax, 130.0);
 	}
 
-	void engineExtentsAreTheMaxOfAnyEngine() {
+	void engineExtentsAreTheMaxOfAnyEngineN1OrN2() {
 		ChartExtents e;
 		ChartValues v{};
-		v[CHART_ENG_SPEED_1] = 50; v[CHART_ENG_SPEED_4] = 80;
-		v[CHART_ENG_LOAD_2] = 30; v[CHART_ENG_LOAD_3] = 20;
+		v[CHART_ENG_N1_1] = 50; v[CHART_ENG_N1_1 + 3] = 80;
+		v[CHART_ENG_N2_1 + 1] = 30;
 		e.add(v);
-		QCOMPARE(e.engSpeedMax, 80.0);
-		QCOMPARE(e.engLoadMax, 30.0);
-		v[CHART_ENG_LOAD_4] = 40;
+		QCOMPARE(e.engineMax, 80.0);
+		v[CHART_ENG_N2_1 + 2] = 85;
 		e.add(v);
-		QCOMPARE(e.engLoadMax, 40.0);
-		v[CHART_ENG_SPEED_2] = 90;
+		QCOMPARE(e.engineMax, 85.0);
+		// The last engine's lines count too.
+		v[CHART_ENG_N1_1 + 15] = 90;
 		e.add(v);
-		QCOMPARE(e.engSpeedMax, 90.0);
+		QCOMPARE(e.engineMax, 90.0);
+		v[CHART_ENG_N2_LAST] = 95;
+		e.add(v);
+		QCOMPARE(e.engineMax, 95.0);
+		// A lower value keeps the max.
+		e.add(ChartValues{});
+		QCOMPARE(e.engineMax, 95.0);
 	}
 
 	void chartEngineIsTheFirstPointWithPower() {
-		// No engines; an engine type that shows no power; engine 1's speed
-		// not recorded (a migrated trip's other quantity) -- none count.
+		// No engines; an engine type that shows no power; neither N1 nor N2
+		// of engine 1 recorded (an old turboprop trip's prop RPM) -- none count.
 		const TripSamplePoint noEngines = EnginePoint(1, 0).p;
 		const TripSamplePoint noPower = EnginePoint(2, 2).set(1, TRIP_ENGINE_turb_eng_n1, 50).p;
-		const TripSamplePoint notRecorded = EnginePoint(1, 2).set(1, TRIP_ENGINE_turb_eng_n2, 50).p;
+		const TripSamplePoint notRecorded = EnginePoint(5, 2).set(1, TRIP_ENGINE_prop_rpm, 1200).set(2, TRIP_ENGINE_turb_eng_n1, 50).p;
 		QCOMPARE(chartEngine({}).count, 0);
 		QCOMPARE(chartEngine({ noEngines, noPower, notRecorded }).count, 0);
+		// An old piston trip: only its RPM was recorded.
 		const TripSamplePoint piston = EnginePoint(0, 2).set(1, TRIP_ENGINE_general_eng_rpm, 2400).p;
-		const TripSamplePoint jet = EnginePoint(1, 1).set(1, TRIP_ENGINE_turb_eng_n1, 50).p;
+		const TripSamplePoint jet = EnginePoint(1, 1).set(1, TRIP_ENGINE_turb_eng_n1, 50).set(1, TRIP_ENGINE_turb_eng_n2, 60).p;
 		ChartEngine e = chartEngine({ noEngines, notRecorded, piston, jet });
 		QCOMPARE(e.engineType, 0);
 		QCOMPARE(e.count, 2);
-		// More engines than the chart has series for: capped.
-		e = chartEngine({ EnginePoint(1, 6).set(1, TRIP_ENGINE_turb_eng_n1, 50).p });
+		QVERIFY(e.n1Recorded);
+		QVERIFY(!e.n2Recorded);
+		// Only N2 recorded counts too.
+		e = chartEngine({ EnginePoint(1, 2).set(1, TRIP_ENGINE_turb_eng_n2, 50).p });
+		QCOMPARE(e.count, 2);
+		QVERIFY(!e.n1Recorded);
+		QVERIFY(e.n2Recorded);
+		// Every engine MSFS reports is charted.
+		e = chartEngine({ EnginePoint(1, 16).set(1, TRIP_ENGINE_turb_eng_n1, 50).set(1, TRIP_ENGINE_turb_eng_n2, 60).p });
 		QCOMPARE(e.engineType, 1);
-		QCOMPARE(e.count, CHART_ENGINES);
+		QCOMPARE(e.count, 16);
+		QVERIFY(e.n1Recorded);
+		QVERIFY(e.n2Recorded);
 	}
 
 	void chartEngineSpecLabelsByEngineType() {
-		const QVariantMap jet = chartEngineSpec({ 1, 2 });
-		QCOMPARE(jet.value("count").toInt(), 2);
-		QCOMPARE(jet.value("speedLabel").toString(), QStringLiteral("N1"));
-		QCOMPARE(jet.value("loadLabel").toString(), QStringLiteral("N2"));
-		QCOMPARE(jet.value("speedUnit").toString(), QStringLiteral("%"));
-		QCOMPARE(jet.value("speedDecimals").toInt(), 1);
-		QCOMPARE(jet.value("loadAxisTitle").toString(), QStringLiteral("N2 (%)"));
+		const QVariantMap jet = chartEngineSpec({ 1, 2, true, false });
+		QCOMPARE(jet, (QVariantMap{ { "count", 2 }, { "n1Recorded", true }, { "n2Recorded", false },
+			{ "n1Label", "N1" }, { "n2Label", "N2" }, { "unit", "%" }, { "decimals", 1 }, { "axisTitle", "N1 / N2 (%)" } }));
 
-		const QVariantMap piston = chartEngineSpec({ 0, 1 });
-		QCOMPARE(piston.value("speedAxisTitle").toString(), QStringLiteral("RPM"));
-		QCOMPARE(piston.value("loadUnit").toString(), QStringLiteral("inHg"));
-		QCOMPARE(piston.value("loadDecimals").toInt(), 1);
+		const QVariantMap piston = chartEngineSpec({ 0, 1, true, true });
+		QCOMPARE(piston.value("n1Label").toString(), QStringLiteral("RPM"));
+		QCOMPARE(piston.value("n2Label").toString(), QStringLiteral("Prop RPM"));
+		QCOMPARE(piston.value("unit").toString(), QStringLiteral("rpm"));
+		QCOMPARE(piston.value("decimals").toInt(), 0);
+		QCOMPARE(piston.value("axisTitle").toString(), QStringLiteral("RPM"));
+		QCOMPARE(piston.value("n2Recorded").toBool(), true);
 
 		// No power recorded, or an engine type that isn't recorded: count 0 only.
-		QCOMPARE(chartEngineSpec({ 1, 0 }), (QVariantMap{ { "count", 0 } }));
-		QCOMPARE(chartEngineSpec({ 2, 2 }), (QVariantMap{ { "count", 0 } }));
+		QCOMPARE(chartEngineSpec({ 1, 0, true, true }), (QVariantMap{ { "count", 0 } }));
+		QCOMPARE(chartEngineSpec({ 2, 2, true, true }), (QVariantMap{ { "count", 0 } }));
 		QCOMPARE(chartEngineSpec({}), (QVariantMap{ { "count", 0 } }));
 	}
 
@@ -259,7 +315,7 @@ private slots:
 		const std::vector<ChartSample> samples = {
 			sample(zulu(10, 0, 0), 0), sample(zulu(10, 0, 1), 1), sample(zulu(10, 0, 2), 2),
 		};
-		const ChartSeriesData data = buildChartSeries(samples);
+		const ChartSeriesData data = buildChartSeries(samples, SIM_ENGINE_INDEXES);
 		QCOMPARE(data.pointTimesMs, (std::vector<double>{ utcMs(10, 0, 0), utcMs(10, 0, 1), utcMs(10, 0, 2) }));
 		QCOMPARE(data.axisLo.toMSecsSinceEpoch(), (qint64)utcMs(10, 0, 0));
 		QCOMPARE(data.axisHi.toMSecsSinceEpoch(), (qint64)utcMs(10, 0, 2));
@@ -279,7 +335,7 @@ private slots:
 			sample(QStringLiteral("bad"), 0), sample(zulu(10, 0, 5), 1),
 			sample(QString(), 2), sample(zulu(10, 0, 9), 3), sample(QStringLiteral("x"), 4),
 		};
-		const ChartSeriesData data = buildChartSeries(samples);
+		const ChartSeriesData data = buildChartSeries(samples, SIM_ENGINE_INDEXES);
 		// Nothing dropped (indices are shared with the map and data table).
 		QCOMPARE(data.pointTimesMs.size(), size_t(5));
 		QCOMPARE(data.series[CHART_ALTITUDE].size(), 5);
@@ -291,13 +347,13 @@ private slots:
 	}
 
 	void singleSampleGetsAOneSecondAxis() {
-		const ChartSeriesData data = buildChartSeries({ sample(zulu(8, 0, 0), 0) });
+		const ChartSeriesData data = buildChartSeries({ sample(zulu(8, 0, 0), 0) }, SIM_ENGINE_INDEXES);
 		QCOMPARE(data.axisHi.toMSecsSinceEpoch() - data.axisLo.toMSecsSinceEpoch(), qint64(1000));
 	}
 
 	void noValidTimeUsesTheCurrentTime() {
 		const qint64 before = QDateTime::currentMSecsSinceEpoch();
-		const ChartSeriesData data = buildChartSeries({ sample(QStringLiteral("bad"), 0), sample(QString(), 1) });
+		const ChartSeriesData data = buildChartSeries({ sample(QStringLiteral("bad"), 0), sample(QString(), 1) }, SIM_ENGINE_INDEXES);
 		const qint64 after = QDateTime::currentMSecsSinceEpoch();
 		QVERIFY(data.axisLo.toMSecsSinceEpoch() >= before && data.axisLo.toMSecsSinceEpoch() <= after);
 		QCOMPARE(data.axisHi.toMSecsSinceEpoch() - data.axisLo.toMSecsSinceEpoch(), qint64(1000));
@@ -309,7 +365,7 @@ private slots:
 		std::vector<ChartSample> samples;
 		for (int i = 0; i < 6; ++i)
 			samples.push_back(sample(zulu(9, 0, i), i));
-		const ChartSeriesData data = buildChartSeries(samples);
+		const ChartSeriesData data = buildChartSeries(samples, SIM_ENGINE_INDEXES);
 		const ChartExtents e = chartExtents(data.series, 2, 3);
 		QCOMPARE(e.vsMin, 20.0 + CHART_VERTICAL_SPEED);
 		QCOMPARE(e.vsMax, 30.0 + CHART_VERTICAL_SPEED);
@@ -319,10 +375,33 @@ private slots:
 
 	void valuesAtReadsBackOneSample() {
 		const ChartSeriesData data = buildChartSeries({
-			sample(zulu(9, 0, 0), 0), sample(zulu(9, 0, 1), 1), sample(zulu(9, 0, 2), 2) });
+			sample(zulu(9, 0, 0), 0), sample(zulu(9, 0, 1), 1), sample(zulu(9, 0, 2), 2) }, SIM_ENGINE_INDEXES);
 		const ChartValues v = chartValuesAt(data.series, 1);
 		for (int s = 0; s < CHART_SERIES_COUNT; ++s)
 			QCOMPARE(v[s], 10.0 + s);
+	}
+
+	void onlyTheTripsEnginesGetSeries() {
+		const ChartSeriesData data = buildChartSeries({ sample(zulu(9, 0, 0), 0), sample(zulu(9, 0, 1), 1) }, 2);
+		for (int i = 0; i < SIM_ENGINE_INDEXES; ++i) {
+			QCOMPARE(data.series[CHART_ENG_N1_1 + i].size(), i < 2 ? 2 : 0);
+			QCOMPARE(data.series[CHART_ENG_N2_1 + i].size(), i < 2 ? 2 : 0);
+		}
+		QCOMPARE(data.series[CHART_ENG_N2_1 + 1][1], QPointF(utcMs(9, 0, 1), 10.0 + CHART_ENG_N2_1 + 1));
+		QCOMPARE(data.series[CHART_ALTITUDE].size(), 2);
+		QCOMPARE(data.series[CHART_BANK].size(), 2);
+		// An engine with no series reads back as 0, and isn't in the extents.
+		const ChartValues v = chartValuesAt(data.series, 1);
+		QCOMPARE(v[CHART_ENG_N1_1 + 1], 10.0 + CHART_ENG_N1_1 + 1);
+		QCOMPARE(v[CHART_ENG_N1_1 + 2], 0.0);
+		QCOMPARE(v[CHART_ENG_N2_LAST], 0.0);
+		QCOMPARE(v[CHART_ALTITUDE], 10.0 + CHART_ALTITUDE);
+		QCOMPARE(data.extents.engineMax, 10.0 + CHART_ENG_N2_1 + 1);
+		// No engine power: no engine series at all.
+		const ChartSeriesData none = buildChartSeries({ sample(zulu(9, 0, 0), 0) }, 0);
+		for (int s = CHART_ENG_N1_1; s <= CHART_ENG_N2_LAST; ++s)
+			QVERIFY(none.series[s].isEmpty());
+		QCOMPARE(none.series[CHART_VERTICAL_SPEED].size(), 1);
 	}
 
 	void decimateSeriesKeepsFirstAndLast() {

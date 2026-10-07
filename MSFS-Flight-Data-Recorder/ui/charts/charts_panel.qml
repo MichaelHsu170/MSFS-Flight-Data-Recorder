@@ -29,8 +29,8 @@ Item {
     }
 
     // Set by ChartsPanel::setEngine() (chartEngineSpec() in chart_data.h):
-    // { count, speed/load Label, Unit, Decimals, AxisTitle }; undefined with no
-    // data loaded.
+    // { count, n1Recorded, n2Recorded, n1Label, n2Label, unit, decimals,
+    // axisTitle }; undefined with no data loaded.
     property var engineSpec: undefined
     // With no data, every chart hides its axes and grid and says why.
     readonly property bool hasData: engineSpec !== undefined
@@ -39,53 +39,40 @@ Item {
     // point.
     property string noDataText: "No trip selected"
 
-    // The engine power chart's series descriptors, in its LineSeries order
-    // (engine 1..4 speed, then engine 1..4 load); engines past
-    // engineSpec.count aren't shown.
+    // The engine power chart's lines, N1 then N2 ("engN1_<e>", "engN2_<e>"),
+    // each for engines 1..simEngineIndexes (set by ChartsPanel): the order
+    // engineBlock creates its LineSeries in. Shown: engines up to
+    // engineSpec.count, and only the lines the trip recorded.
+    readonly property var engineLines: [
+        { prefix: "engN1_", label: "n1Label", recorded: "n1Recorded", shade: 0 },
+        { prefix: "engN2_", label: "n2Label", recorded: "n2Recorded", shade: 1 }
+    ]
+    // tab20: a hue per engine (repeating after 10), dark for N1, light for N2.
+    readonly property var engineColors: [
+        "#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78", "#2ca02c", "#98df8a", "#d62728", "#ff9896", "#9467bd", "#c5b0d5",
+        "#8c564b", "#c49c94", "#e377c2", "#f7b6d2", "#7f7f7f", "#c7c7c7", "#bcbd22", "#dbdb8d", "#17becf", "#9edae5"
+    ]
     function engineSeries() {
         var spec = root.engineSpec
         var count = spec ? spec.count : 0
-        var keys = {
-            speed: ["engSpeed1", "engSpeed2", "engSpeed3", "engSpeed4"],
-            load:  ["engLoad1", "engLoad2", "engLoad3", "engLoad4"]
-        }
-        var colors = {
-            speed: ["#1f77b4", "#ff7f0e", "#9467bd", "#8c564b"],
-            load:  ["#2ca02c", "#d62728", "#e377c2", "#17becf"]
-        }
         var list = []
-        var quantities = ["speed", "load"]
-        for (var q = 0; q < quantities.length; q++) {
-            var name = quantities[q]
-            for (var i = 0; i < 4; i++) {
+        for (var q = 0; q < engineLines.length; q++) {
+            var line = engineLines[q]
+            for (var i = 0; i < simEngineIndexes; i++) {
                 list.push({
-                    key: keys[name][i],
-                    label: count > 0 ? spec[name + "Label"] + " #" + (i + 1) : "",
-                    color: colors[name][i],
-                    unit: count > 0 ? spec[name + "Unit"] : "",
-                    decimals: count > 0 ? spec[name + "Decimals"] : 0,
+                    key: line.prefix + (i + 1),
+                    label: count > 0 ? spec[line.label] + " #" + (i + 1) : "",
+                    color: engineColors[(i % 10) * 2 + line.shade],
+                    unit: count > 0 ? spec.unit : "",
+                    decimals: count > 0 ? spec.decimals : 0,
                     signed: false, isBool: false,
-                    shown: i < count
+                    shown: i < count && spec[line.recorded]
                 })
             }
         }
         return list
     }
-
-    // The engine power chart's right-hand axis, for its load series.
-    ValueAxis {
-        id: engLoadAxis
-        objectName: "engLoadYAxis"
-        alignment: Qt.AlignRight
-        visible: root.engineSpec !== undefined && root.engineSpec.count > 0
-        // Hidden with no data like every chart's axes (see ChartBlock).
-        lineVisible: root.hasData
-        gridVisible: root.hasData
-        subGridVisible: root.hasData
-        labelFormat: "%.0f"
-        titleText: visible ? root.engineSpec.loadAxisTitle : ""
-        titleVisible: root.hasData
-    }
+    Component { id: engineLineSeries; LineSeries {} }
 
     SyncedXAxis {
         id: driverXAxis
@@ -193,6 +180,12 @@ Item {
                 view.seriesList[i].visible = series[i].shown !== false
             }
         }
+        // Adds a LineSeries after the declared ones, for a chart whose series
+        // are created at run time.
+        function addLineSeries(lineSeries) {
+            view.addSeries(lineSeries)
+            applySeries()
+        }
         onSeriesChanged: applySeries()
         Component.onCompleted: applySeries()
 
@@ -228,20 +221,11 @@ Item {
             }
         }
 
-        // Space right of the plot. The engine power chart's right-hand axis
-        // takes space even while hidden, so every other chart matches its
-        // inset to keep the time axes lined up.
-        readonly property real plotRightInset: view.width - view.plotArea.x - view.plotArea.width
-
         GraphsView {
             id: view
             anchors.fill: parent
             axisX: SyncedXAxis {}
             theme: chartTheme
-            Binding on marginRight {
-                when: block !== engineBlock
-                value: engineBlock.plotRightInset
-            }
         }
         // No data: no axis, title, labels, grid or legend -- they'd only
         // describe a made-up range.
@@ -314,19 +298,19 @@ Item {
                 series: root.engineSeries()
                 emptyText: root.engineSpec !== undefined && root.engineSpec.count === 0 ? "No engine power data recorded" : ""
                 axisY: ValueAxis {
-                    objectName: "engSpeedYAxis"
+                    objectName: "engineYAxis"
                     labelFormat: "%.0f"
-                    titleText: root.engineSpec !== undefined && root.engineSpec.count > 0 ? root.engineSpec.speedAxisTitle : "Engine Power"
+                    titleText: root.engineSpec !== undefined && root.engineSpec.count > 0 ? root.engineSpec.axisTitle : "Engine Power"
                     titleVisible: true
                 }
-                LineSeries { objectName: "engSpeed1Series" }
-                LineSeries { objectName: "engSpeed2Series" }
-                LineSeries { objectName: "engSpeed3Series" }
-                LineSeries { objectName: "engSpeed4Series" }
-                LineSeries { objectName: "engLoad1Series"; axisY: engLoadAxis }
-                LineSeries { objectName: "engLoad2Series"; axisY: engLoadAxis }
-                LineSeries { objectName: "engLoad3Series"; axisY: engLoadAxis }
-                LineSeries { objectName: "engLoad4Series"; axisY: engLoadAxis }
+                // One LineSeries per engineSeries() entry, named by its key
+                // (CHART_SERIES in chart_data.cpp).
+                Component.onCompleted: {
+                    for (var q = 0; q < root.engineLines.length; q++) {
+                        for (var i = 1; i <= simEngineIndexes; i++)
+                            addLineSeries(engineLineSeries.createObject(engineBlock, { objectName: root.engineLines[q].prefix + i + "Series" }))
+                    }
+                }
             }
 
             ChartBlock {

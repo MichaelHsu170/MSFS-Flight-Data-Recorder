@@ -1,5 +1,5 @@
-// Engine power (engine_power.cpp): which recorded value each engine type
-// shows as its speed/load, the engine count, and which engines' combustion
+// Engine power (engine_power.cpp): which recorded values each engine type
+// shows as its N1/N2, the engine count, and which engines' combustion
 // counts.
 #include "engine_power.h"
 #include "simconnect_defs.h"
@@ -25,38 +25,42 @@ class TstEnginePower : public QObject {
 	Q_OBJECT
 
 private slots:
-	void eachEngineTypeShowsItsOwnValues_data() {
+	void eachEngineTypeShowsItsN1AndN2Equivalents_data() {
 		QTest::addColumn<int>("engineType");
-		QTest::addColumn<int>("speedField");
-		QTest::addColumn<int>("loadField");
-		QTest::addColumn<QString>("speedLabel");
-		QTest::addColumn<QString>("loadUnit");
-		QTest::newRow("piston") << 0 << (int)TRIP_ENGINE_general_eng_rpm << (int)TRIP_ENGINE_recip_eng_manifold_pressure << "RPM" << "inHg";
-		QTest::newRow("jet") << 1 << (int)TRIP_ENGINE_turb_eng_n1 << (int)TRIP_ENGINE_turb_eng_n2 << "N1" << "%";
-		QTest::newRow("helo turbine") << 3 << (int)TRIP_ENGINE_turb_eng_n1 << (int)TRIP_ENGINE_turb_eng_max_torque_percent << "N1" << "%";
-		QTest::newRow("turboprop") << 5 << (int)TRIP_ENGINE_prop_rpm << (int)TRIP_ENGINE_turb_eng_max_torque_percent << "Prop RPM" << "%";
+		QTest::addColumn<int>("n1Field");
+		QTest::addColumn<int>("n2Field");
+		QTest::addColumn<QString>("n1Label");
+		QTest::addColumn<QString>("n2Label");
+		QTest::addColumn<QString>("unit");
+		QTest::addColumn<int>("decimals");
+		QTest::addColumn<QString>("axisTitle");
+		QTest::addColumn<double>("axisMax");
+		QTest::newRow("piston") << 0 << (int)TRIP_ENGINE_general_eng_rpm << (int)TRIP_ENGINE_prop_rpm
+			<< "RPM" << "Prop RPM" << "rpm" << 0 << "RPM" << 0.0;
+		for (const auto& [name, type] : { std::pair{ "jet", 1 }, std::pair{ "helo turbine", 3 }, std::pair{ "turboprop", 5 } })
+			QTest::newRow(name) << type << (int)TRIP_ENGINE_turb_eng_n1 << (int)TRIP_ENGINE_turb_eng_n2
+				<< "N1" << "N2" << "%" << 1 << "N1 / N2 (%)" << 110.0;
 	}
-	void eachEngineTypeShowsItsOwnValues() {
+	void eachEngineTypeShowsItsN1AndN2Equivalents() {
 		QFETCH(int, engineType);
-		QFETCH(int, speedField);
-		QFETCH(int, loadField);
-		QFETCH(QString, speedLabel);
-		QFETCH(QString, loadUnit);
+		QFETCH(int, n1Field);
+		QFETCH(int, n2Field);
+		QFETCH(QString, n1Label);
+		QFETCH(QString, n2Label);
+		QFETCH(QString, unit);
+		QFETCH(int, decimals);
+		QFETCH(QString, axisTitle);
+		QFETCH(double, axisMax);
 		const EnginePowerSpec* spec = enginePowerSpec(engineType);
 		QVERIFY(spec);
-		QCOMPARE((int)spec->speed.field, speedField);
-		QCOMPARE((int)spec->load.field, loadField);
-		QCOMPARE(QString::fromUtf8(spec->speed.label), speedLabel);
-		QCOMPARE(QString::fromUtf8(spec->load.unit), loadUnit);
-	}
-
-	void onlyJetN1AndN2HaveAFixedAxis() {
-		QCOMPARE(enginePowerSpec(1)->speed.axisMax, 110.0);
-		QCOMPARE(enginePowerSpec(1)->load.axisMax, 110.0);
-		QCOMPARE(enginePowerSpec(3)->speed.axisMax, 110.0);
-		QCOMPARE(enginePowerSpec(3)->load.axisMax, 0.0);
-		QCOMPARE(enginePowerSpec(0)->speed.axisMax, 0.0);
-		QCOMPARE(enginePowerSpec(5)->load.axisMax, 0.0);
+		QCOMPARE((int)spec->n1Field, n1Field);
+		QCOMPARE((int)spec->n2Field, n2Field);
+		QCOMPARE(QString::fromUtf8(spec->n1Label), n1Label);
+		QCOMPARE(QString::fromUtf8(spec->n2Label), n2Label);
+		QCOMPARE(QString::fromUtf8(spec->unit), unit);
+		QCOMPARE(spec->decimals, decimals);
+		QCOMPARE(QString::fromUtf8(spec->axisTitle), axisTitle);
+		QCOMPARE(spec->axisMax, axisMax);
 	}
 
 	void otherEngineTypesShowNothing() {

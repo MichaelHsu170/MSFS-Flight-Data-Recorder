@@ -233,7 +233,7 @@ MSFS-Flight-Data-Recorder/
 │   │   ├── airport_lookup.h / .cpp  Which airport a departure/liftoff/touchdown was at: SimConnect facility requests, nearest candidates, fallbacks
 │   │   ├── runway_match.h / .cpp Which runway a liftoff/touchdown point is on, and its threshold/centerline distances
 │   │   ├── event_filter.h / .cpp Flood protection for cockpit events (fast bursts, slow repeats)
-│   │   ├── engine_power.h / .cpp Engine count, combustion, and each engine type's charted speed/load values, labels and units
+│   │   ├── engine_power.h / .cpp Engine count, combustion, and each engine type's charted N1/N2 equivalents, labels and units
 │   │   ├── trip_data_fields.h    X-macro list of all trip_data columns (keeps the schema, writes, reads and data table in sync)
 │   │   ├── recorder_bridge.h / .cpp  Qt wrapper: QTimer-driven dispatch, connection retry, Qt signals
 │   │   └── gui_notify.h          Free functions called by recorder.cpp, flight_phase.cpp, airport_lookup.cpp and db.cpp to report state changes
