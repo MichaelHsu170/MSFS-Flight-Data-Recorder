@@ -250,18 +250,3 @@ make the other's map test time out.
     `catch`, after `current_exception_message()`'s `return e.message`, and
     after `TripHistoryModel::data()`'s column `switch`, whose every case
     returns.
-
-## Open questions (check with real sim data)
-
-Left as they are until a recorded trip shows whether they matter.
-
-1. **Negative torque on the engine chart.** For turboprops and helicopter
-   turbines, the engine chart's load axis plots TURB ENG MAX TORQUE PERCENT.
-   Like the speed, altitude and fuel axes, it only sets a maximum, so its
-   minimum stays 0 (`ChartsPanel::setYAxes()`). If MSFS reports negative
-   torque (e.g. a windmilling propeller in a descent), that part of the
-   line is clipped at 0; the Data Table still shows the value. Check a
-   turboprop trip's `trip_engine_data.turb_eng_max_torque_percent` for
-   negative values; if there are any,
-   track the lowest load in `ChartExtents` and use `niceSignedAxisRange()`
-   as the vertical speed axis does, with a negative-torque test.
