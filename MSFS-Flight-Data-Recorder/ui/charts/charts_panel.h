@@ -86,8 +86,8 @@ private:
 	// power, the no-data message.
 	void setEngine(const ChartEngine& engine);
 	// Loads samples lo..hi of full_, thinned to at most kDisplayPoints plus
-	// sample hi, into every series; empties the series full_ has no points
-	// for.
+	// sample hi, into every series; a series full_ has no points for (an
+	// engine the trip doesn't chart) gets one point at sample lo, never none.
 	void loadFullSlice(int lo, int hi);
 
 	QQuickWidget* view_;

@@ -77,6 +77,13 @@ target_compile_definitions(tst_chart_data PRIVATE CHARTS_QML="${SRC_DIR}/ui/char
 fdr_add_test(ui/map tst_map_script)
 fdr_add_test(ui tst_splitter_utils)
 fdr_add_test(ui/charts tst_charts_panel)
+# QQuickPath::path(), to read which lines Qt Graphs draws. Its Qt-version
+# coupling is accepted for this one test, so Qt's "private module" warning is
+# turned off for this lookup.
+set(QT_NO_PRIVATE_MODULE_WARNING ON)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS QuickPrivate)
+unset(QT_NO_PRIVATE_MODULE_WARNING)
+target_link_libraries(tst_charts_panel PRIVATE Qt${QT_VERSION_MAJOR}::QuickPrivate)
 fdr_add_webengine_test(ui/map tst_map_widget)
 # A real streamed AI response, recorded once from the service.
 target_compile_definitions(tst_map_widget PRIVATE AI_STREAM_RESPONSE="${CMAKE_CURRENT_SOURCE_DIR}/data/ai_stream_response.json")

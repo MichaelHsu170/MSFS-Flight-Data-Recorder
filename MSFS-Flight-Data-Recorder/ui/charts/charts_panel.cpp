@@ -107,13 +107,20 @@ void ChartsPanel::setEngine(const ChartEngine& engine) {
 void ChartsPanel::loadFullSlice(int lo, int hi) {
 	// replace() swaps all points in one scene-graph notification; clear() +
 	// append() would send two. An engine the trip doesn't chart has no points
-	// in full_: its line is emptied of the previous trip's.
+	// in full_, and its (hidden) line gets one point at the slice's start
+	// rather than none: Qt Graphs 6.11 (PointRenderer::handlePolish) hands
+	// out a chart's drawn paths in series order, skipping an empty series, so
+	// emptying a line before shown ones would shift every later line onto
+	// another path and leave the last path still drawing an earlier trip's
+	// line. Its values are never read from the series: the axes and hover
+	// use full_.
 	for (int s = 0; s < CHART_SERIES_COUNT; ++s) {
 		QLineSeries* series = cache_.series[s];
 		if (!series)
 			continue;
-		const QList<QPointF> points = decimateSeries(full_[s], lo, hi, kDisplayPoints);
-		if (!points.isEmpty() || full_[s].isEmpty())
+		if (full_[s].isEmpty())
+			series->replace({ QPointF(pointTimesMs_[lo], 0) });
+		else if (const QList<QPointF> points = decimateSeries(full_[s], lo, hi, kDisplayPoints); !points.isEmpty())
 			series->replace(points);
 	}
 }

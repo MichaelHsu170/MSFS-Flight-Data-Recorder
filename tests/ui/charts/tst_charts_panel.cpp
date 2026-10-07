@@ -14,6 +14,7 @@
 #include <QSignalSpy>
 #include <QTimeZone>
 #include <QValueAxis>
+#include <QtQuick/private/qquickpath_p.h>
 #include <QtTest>
 
 #include <algorithm>
@@ -190,12 +191,35 @@ int shownLegends(QObject* root) {
 	return shown;
 }
 
-// How many points all the chart lines hold together.
+// How many points the shown chart lines hold together.
 int pointsInLines(QObject* root) {
 	int points = 0;
 	for (QLineSeries* line : root->findChildren<QLineSeries*>())
-		points += line->count();
+		if (line->isVisible())
+			points += line->count();
 	return points;
+}
+
+// The colors of the lines the engine power chart draws, sorted: one per Qt
+// Graphs shape path holding a drawing, whichever series it was drawn for.
+// Renders a frame first, since Qt Graphs builds the paths when it draws.
+QStringList drawnEngineLineColors(ChartsPanel& panel) {
+	panel.findChild<QQuickWidget*>()->grabFramebuffer();
+	QObject* block = panel.findChild<QQuickWidget*>()->rootObject()->findChild<QObject*>(QStringLiteral("engineBlock"));
+	QStringList colors;
+	std::function<void(QQuickItem*)> walk = [&](QQuickItem* item) {
+		if (item->inherits("QQuickShape"))
+			for (QQuickPath* path : item->findChildren<QQuickPath*>(Qt::FindDirectChildrenOnly))
+				if (!path->path().isEmpty())
+					colors << path->property("strokeColor").value<QColor>().name();
+		for (QQuickItem* child : item->childItems())
+			walk(child);
+	};
+	for (QQuickItem* view : block->findChildren<QQuickItem*>())
+		if (view->property("plotArea").isValid())
+			walk(view);
+	colors.sort();
+	return colors;
 }
 
 }
@@ -302,8 +326,8 @@ private slots:
 		QCOMPARE(shownAxes(root), 18);  // each chart's X and Y
 		QCOMPARE(shownLegends(root), 9);
 		QVERIFY(root->findChild<QQuickItem*>(QStringLiteral("endOfTrajectoryLine"))->isVisible());
-		// Both points in each of the 21 lines: the twin's 4 engine lines and
-		// the 17 others; the other engines' lines are empty.
+		// Both points in each of the 21 shown lines: the twin's 4 engine lines
+		// and the 17 others.
 		QCOMPARE(pointsInLines(root), 2 * 21);
 
 		// The deselect finishes before setDataset() returns.
@@ -570,19 +594,33 @@ private slots:
 	}
 
 	// A trip with fewer engines than the last one leaves none of the extra
-	// engines' points behind.
-	void aTripWithFewerEnginesClearsTheExtraEnginesLines() {
+	// engines' lines behind: none shown, and none still drawn -- each drawn
+	// line is a shown engine's, in its tab20 color.
+	void aTripWithFewerEnginesDrawsNoneOfTheExtraEnginesLines() {
 		ChartsPanel panel;
 		QQuickItem* root = shownRoot(panel);
 		QVERIFY(root);
 		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
-		panel.setDataset(jetTrip(23, 4));
+		// Two samples, so each line draws a segment.
+		const auto twoSampleJetTrip = [](int count) {
+			TripDataset trip = jetTrip(23, count);
+			trip.points.push_back(trip.points[0]);
+			trip.points[1].zuluTime = zuluAt(23, 1);
+			return trip;
+		};
+		panel.setDataset(twoSampleJetTrip(4));
 		QVERIFY(spy.wait(5000));
-		QCOMPARE(pointsInLines(root), 8 + 17);
-		panel.setDataset(jetTrip(23, 2));
-		QVERIFY(spy.wait(5000));
-		QCOMPARE(pointsInLines(root), 4 + 17);
-		QCOMPARE(root->findChild<QLineSeries*>(QStringLiteral("engN1_3Series"))->count(), 0);
+		QCOMPARE(pointsInLines(root), 2 * (8 + 17));
+		QCOMPARE(drawnEngineLineColors(panel), (QStringList{ "#1f77b4", "#2ca02c", "#98df8a", "#aec7e8",
+			"#d62728", "#ff7f0e", "#ff9896", "#ffbb78" }));
+		for (int count : { 2, 1 }) {
+			panel.setDataset(twoSampleJetTrip(count));
+			QVERIFY(spy.wait(5000));
+			QCOMPARE(pointsInLines(root), 2 * (2 * count + 17));
+			QCOMPARE(drawnEngineLineColors(panel), count == 2
+				? (QStringList{ "#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78" })
+				: (QStringList{ "#1f77b4", "#aec7e8" }));
+		}
 	}
 
 	// The "%.0f" axes label a short range (a level or empty trip) once per
