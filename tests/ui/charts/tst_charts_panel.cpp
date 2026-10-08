@@ -200,12 +200,11 @@ int pointsInLines(QObject* root) {
 	return points;
 }
 
-// The colors of the lines the engine power chart draws, sorted: one per Qt
+// The colors of the lines the charts under `charts` draw, sorted: one per Qt
 // Graphs shape path holding a drawing, whichever series it was drawn for.
 // Renders a frame first, since Qt Graphs builds the paths when it draws.
-QStringList drawnEngineLineColors(ChartsPanel& panel) {
+QStringList drawnLineColors(ChartsPanel& panel, QObject* charts) {
 	panel.findChild<QQuickWidget*>()->grabFramebuffer();
-	QObject* block = panel.findChild<QQuickWidget*>()->rootObject()->findChild<QObject*>(QStringLiteral("engineBlock"));
 	QStringList colors;
 	std::function<void(QQuickItem*)> walk = [&](QQuickItem* item) {
 		if (item->inherits("QQuickShape"))
@@ -215,7 +214,7 @@ QStringList drawnEngineLineColors(ChartsPanel& panel) {
 		for (QQuickItem* child : item->childItems())
 			walk(child);
 	};
-	for (QQuickItem* view : block->findChildren<QQuickItem*>())
+	for (QQuickItem* view : charts->findChildren<QQuickItem*>())
 		if (view->property("plotArea").isValid())
 			walk(view);
 	colors.sort();
@@ -329,11 +328,15 @@ private slots:
 		// Both points in each of the 21 shown lines: the twin's 4 engine lines
 		// and the 17 others.
 		QCOMPARE(pointsInLines(root), 2 * 21);
+		QCOMPARE(drawnLineColors(panel, root).size(), 21);
 
-		// The deselect finishes before setDataset() returns.
+		// The deselect finishes before setDataset() returns. Every line is
+		// emptied, hidden or not, and none is still drawn.
 		panel.setDataset(TripDataset());
 		QCOMPARE(spy.count(), 2);
-		QCOMPARE(pointsInLines(root), 0);
+		for (QLineSeries* line : root->findChildren<QLineSeries*>())
+			QCOMPARE(line->count(), 0);
+		QCOMPARE(drawnLineColors(panel, root), QStringList());
 		QCOMPARE(chartMessages(root), noTrip);
 		QCOMPARE(shownAxes(root), 0);
 		QCOMPARE(shownLegends(root), 0);
@@ -600,6 +603,7 @@ private slots:
 		ChartsPanel panel;
 		QQuickItem* root = shownRoot(panel);
 		QVERIFY(root);
+		QObject* engineBlock = root->findChild<QObject*>(QStringLiteral("engineBlock"));
 		QSignalSpy spy(&panel, &ChartsPanel::seriesLoaded);
 		// Two samples, so each line draws a segment.
 		const auto twoSampleJetTrip = [](int count) {
@@ -611,13 +615,13 @@ private slots:
 		panel.setDataset(twoSampleJetTrip(4));
 		QVERIFY(spy.wait(5000));
 		QCOMPARE(pointsInLines(root), 2 * (8 + 17));
-		QCOMPARE(drawnEngineLineColors(panel), (QStringList{ "#1f77b4", "#2ca02c", "#98df8a", "#aec7e8",
+		QCOMPARE(drawnLineColors(panel, engineBlock), (QStringList{ "#1f77b4", "#2ca02c", "#98df8a", "#aec7e8",
 			"#d62728", "#ff7f0e", "#ff9896", "#ffbb78" }));
 		for (int count : { 2, 1 }) {
 			panel.setDataset(twoSampleJetTrip(count));
 			QVERIFY(spy.wait(5000));
 			QCOMPARE(pointsInLines(root), 2 * (2 * count + 17));
-			QCOMPARE(drawnEngineLineColors(panel), count == 2
+			QCOMPARE(drawnLineColors(panel, engineBlock), count == 2
 				? (QStringList{ "#1f77b4", "#aec7e8", "#ff7f0e", "#ffbb78" })
 				: (QStringList{ "#1f77b4", "#aec7e8" }));
 		}
