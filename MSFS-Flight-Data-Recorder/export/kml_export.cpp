@@ -114,17 +114,20 @@ std::vector<EventGroup> groupNearbyEvents(const std::vector<TripEvent>& events) 
 	return groups;
 }
 
-// Appends one Point <Placemark> -- name/styleUrl, an optional <TimeStamp>
-// (skipped if zuluTime doesn't parse), a CDATA <description>, and a
-// clampToGround <Point>. Shared by the Liftoffs/Touchdowns/Events folder
+// Appends one Point <Placemark> -- name, a CDATA <description>, an optional
+// <TimeStamp> (skipped if zuluTime doesn't parse), styleUrl, and a
+// clampToGround <Point>, in the child order the KML 2.2 schema requires
+// (Feature: name, description, TimePrimitive, styleUrl, then the geometry).
+// Shared by the Liftoffs/Touchdowns/Events folder
 // loops below, which differ only in the per-point values passed in here.
 void appendPointPlacemark(QString& kml, const QString& name, const QString& styleUrl,
 	const QString& zuluTime, const QString& descriptionHtml, double longitude, double latitude) {
-	kml += QStringLiteral("<Placemark><name>%1</name><styleUrl>%2</styleUrl>").arg(xmlEscape(name), styleUrl);
+	kml += QStringLiteral("<Placemark><name>%1</name>").arg(xmlEscape(name));
+	kml += QStringLiteral("<description><![CDATA[%1]]></description>").arg(descriptionHtml);
 	const QString when = whenFromZulu(zuluTime);
 	if (!when.isEmpty())
 		kml += QStringLiteral("<TimeStamp><when>%1</when></TimeStamp>").arg(when);
-	kml += QStringLiteral("<description><![CDATA[%1]]></description>").arg(descriptionHtml);
+	kml += QStringLiteral("<styleUrl>%1</styleUrl>").arg(styleUrl);
 	kml += QStringLiteral("<Point><altitudeMode>clampToGround</altitudeMode><coordinates>%1</coordinates></Point>")
 		.arg(formatCoordinate(longitude, latitude, 0.0));
 	kml += QStringLiteral("</Placemark>\n");
