@@ -280,6 +280,25 @@ private slots:
 		sim.startTrip();
 		QVERIFY(labelWithText(panel, QString::fromUtf8("Alt 1234 ft | Hdg 90° | Spd 140 kt | V/S -700 ft/min")));
 	}
+
+	void snapshotResetsWhenTheTripEnds() {
+		FlightDriver sim;
+		LiveStatusPanel panel(sim.bridge());
+		sim.record.plane_altitude = 1234;
+		sim.startTrip();
+		QVERIFY(labelWithText(panel, QString::fromUtf8("Alt 1234 ft | Hdg 90° | Spd 0 kt | V/S 0 ft/min")));
+		sim.endTrip();
+		QVERIFY(waitFor([&panel] { return labelWithText(panel, "Alt - ft | Hdg -° | Spd - kt | V/S - ft/min"); }));
+	}
+
+	void staleTripEndedKeepsTheSnapshot() {
+		FlightDriver sim;
+		LiveStatusPanel panel(sim.bridge());
+		sim.record.plane_altitude = 1234;
+		const int tripId = sim.startTrip();
+		emit sim.bridge().tripEnded(tripId + 1);
+		QVERIFY(labelWithText(panel, QString::fromUtf8("Alt 1234 ft | Hdg 90° | Spd 0 kt | V/S 0 ft/min")));
+	}
 };
 
 QTEST_MAIN(TstLiveStatusPanel)

@@ -61,6 +61,11 @@ QString snapshotText(const QString& altitude, const QString& heading, const QStr
 		.arg(altitude, heading, speed, verticalSpeed);
 }
 
+// The snapshot line while no trip is recording (no samples arrive then).
+QString noSnapshotText() {
+	return snapshotText("-", "-", "-", "-");
+}
+
 }
 
 LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
@@ -90,7 +95,7 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 	// V/S ..." line with real values filled in -- without this, Qt would wrap
 	// it onto a second line and grow the row height instead of just clipping.
 	snapshotLabel_->setWordWrap(false);
-	snapshotLabel_->setText(snapshotText("-", "-", "-", "-"));
+	snapshotLabel_->setText(noSnapshotText());
 
 	historyList_ = new QListWidget(this);
 	historyList_->setAlternatingRowColors(true);
@@ -246,6 +251,7 @@ void LiveStatusPanel::onTripEnded(int tripId) {
 	recordingTripId_ = -1;
 	Logger::logf(Logger::Trace, "LiveStat", "Recording indicator -> not recording (trip #%d ended)", tripId);
 	updateRecordingIndicator();
+	snapshotLabel_->setText(noSnapshotText());
 }
 
 void LiveStatusPanel::updateRecordingIndicator() {

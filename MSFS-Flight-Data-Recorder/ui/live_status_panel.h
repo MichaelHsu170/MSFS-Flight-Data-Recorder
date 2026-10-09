@@ -11,7 +11,8 @@ class QListWidgetItem;
 class RecorderBridge;
 
 // Shows connection state, recording start/stop, liftoff/touchdown/crash
-// messages, and a live flight-data snapshot.
+// messages, and a live flight-data snapshot (reset to "-" values when the
+// recording trip ends, see onTripEnded()).
 // Connection/recording are shown as small painted dots (green/red, grey for
 // Recording's disabled state -- painted rather than drawn from a Unicode
 // glyph, since glyphs like the power/record symbols get rendered by Windows'
