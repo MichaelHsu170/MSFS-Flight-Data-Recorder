@@ -186,6 +186,19 @@ private slots:
 		QCOMPARE(value(table(panel), "GPS Position"), QString::fromUtf8("11°00'00.0\"N 0°00'00.0\"E"));
 	}
 
+	// A latitude or longitude not recorded leaves the GPS row blank.
+	void gpsRowIsBlankWithoutAPosition() {
+		for (TripNumField missing : { TRIP_NUM_gps_position_lat, TRIP_NUM_gps_position_lon }) {
+			DataTablePanel panel;
+			TripDataset d;
+			TripSamplePoint p = makePoint(0, "t");
+			p.rawNums[missing] = std::nan("");
+			d.points = { p };
+			panel.setDataset(&d);
+			QCOMPARE(value(table(panel), "GPS Position"), QString());
+		}
+	}
+
 	void cursorPicksAPointAndClearingFallsBackToLast() {
 		DataTablePanel panel;
 		TripDataset d;

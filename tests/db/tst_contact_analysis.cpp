@@ -281,9 +281,11 @@ private slots:
 	}
 
 	// A touchdown's approach starts at the previous contact (a touch-and-go's
-	// liftoff), so the circuit before it doesn't count.
+	// liftoff), so the circuit before it doesn't count, its terrain neither.
 	void touchdownWindowStartsAtThePreviousContact() {
 		TripDataset dataset = touchdownAfter({ 600, 0, 300, 100, 40, 0 });
+		dataset.points[0].rawNums[TRIP_NUM_plane_alt_above_ground] = 100;  // ground +500 ft, before the liftoff
+		dataset.points[2].rawNums[TRIP_NUM_plane_alt_above_ground] = 200;  // ground +100 ft, after it
 		dataset.liftoffPoints = { contactAt<LiftoffPoint>(-4) };
 		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(profile);
@@ -291,6 +293,7 @@ private slots:
 		QCOMPARE(gateNames(*profile), QStringList({ "300 ft", "200 ft", "100 ft", "50 ft" }));
 		QCOMPARE(profile->series.front().seconds, -4.0);
 		QCOMPARE(profile->series.back().seconds, 0.0);
+		QCOMPARE(profile->highestTerrainFt, 100.0);
 	}
 
 	// A liftoff's gates are each height's first crossing after it, measured
@@ -342,12 +345,14 @@ private slots:
 	}
 
 	// A liftoff's climb-out ends at the next contact in time, though the trip
-	// lists its liftoffs before its touchdowns.
+	// lists its liftoffs before its touchdowns; so does its terrain.
 	void liftoffWindowEndsAtTheNextContact() {
 		TripDataset dataset;
 		const double heights[] = { 0, 60, 0, 150, 0 };
 		for (int i = 0; i < 5; ++i)
 			dataset.points.push_back(sample(i, heights[i], heights[i]));
+		dataset.points[1].rawNums[TRIP_NUM_plane_alt_above_ground] = 40;  // ground +20 ft, before the touchdown
+		dataset.points[3].rawNums[TRIP_NUM_plane_alt_above_ground] = 50;  // ground +100 ft, after it
 		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.5), contactAt<LiftoffPoint>(2.5) };
 		dataset.touchdowns = { contactAt<TouchdownPoint>(2), contactAt<TouchdownPoint>(4) };
 		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
@@ -355,6 +360,7 @@ private slots:
 
 		QCOMPARE(gateNames(*profile), QStringList({ "35 ft" }));
 		QCOMPARE(profile->series.back().seconds, 0.5);
+		QCOMPARE(profile->highestTerrainFt, 20.0);
 	}
 
 	// A touch-and-go's liftoff series starts at its touchdown, though that
@@ -702,6 +708,7 @@ private slots:
 		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(profile);
 		QVERIFY(std::isnan(profile->highestTerrainFt));
+		QVERIFY(std::isnan(profile->highestTerrainNm));
 		// Without the runway's stored end, no point is placed on it.
 		const ProfilePoint& at = profile->series.at(0);
 		QVERIFY(std::isnan(at.thresholdFt));
