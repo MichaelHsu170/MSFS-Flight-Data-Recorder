@@ -23,7 +23,8 @@ inline QString tripFieldLabel(const char* name) {
 // consumer that must agree on the same field set and order: the schemas,
 // INSERTs and binds (db.cpp), db_history.cpp (fills TripSamplePoint::rawNums
 // and engineValues), and data_table_panel.cpp (formats them to display
-// strings in showPoint).
+// strings in showPoint). Code that reads one value names it by its
+// TripNumField/TripEngineField below.
 //
 // TRIP_DATA_NUM_FIELDS(X): X(dbColumn, recordMemberExpr, sqlType) -- a plain
 // numeric trip_data column. recordMemberExpr is the FLIGHT_DATA_RECORD
@@ -261,6 +262,15 @@ inline QString tripFieldLabel(const char* name) {
 	X(general_eng_starter_active, INTEGER, true) \
 	X(turb_eng_fuel_available, INTEGER, true) \
 	X(turb_eng_is_igniting, INTEGER, true)
+
+// Each TRIP_DATA_NUM_FIELDS entry's index in that list, e.g.
+// TRIP_NUM_plane_altitude (TripSamplePoint::rawNum()'s field).
+enum TripNumField {
+#define TRIP_NUM_ENUM(dbColumn, memberExpr, sqlType) TRIP_NUM_##dbColumn,
+	TRIP_DATA_NUM_FIELDS(TRIP_NUM_ENUM)
+#undef TRIP_NUM_ENUM
+	TRIP_NUM_FIELD_COUNT
+};
 
 // Each TRIP_ENGINE_FIELDS entry's index in that list, e.g.
 // TRIP_ENGINE_turb_eng_n1 (TripSamplePoint::engineValue()'s field).

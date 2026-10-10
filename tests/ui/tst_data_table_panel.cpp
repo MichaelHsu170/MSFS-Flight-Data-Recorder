@@ -19,26 +19,14 @@ using namespace TestSupport;
 
 namespace {
 
-int numIndex(const char* column) {
-	int i = 0, found = -1;
-#define FIND(dbColumn, memberExpr, sqlType) if (QLatin1String(#dbColumn) == QLatin1String(column)) found = i; ++i;
-	TRIP_DATA_NUM_FIELDS(FIND)
-#undef FIND
-	return found;
-}
-
 TripSamplePoint makePoint(double base, const char* zulu) {
 	TripSamplePoint p;
 	p.zuluTime = QString::fromLatin1(zulu);
 	p.localTime = QStringLiteral("local ") + QString::fromLatin1(zulu);
-	int n = 0;
-#define COUNT(dbColumn, memberExpr, sqlType) ++n;
-	TRIP_DATA_NUM_FIELDS(COUNT)
-#undef COUNT
-	for (int i = 0; i < n; ++i)
+	for (int i = 0; i < TRIP_NUM_FIELD_COUNT; ++i)
 		p.rawNums.push_back(base + i);
-	p.rawNums[numIndex("gps_position_lat")] = 43.5;
-	p.rawNums[numIndex("gps_position_lon")] = -1.25;
+	p.rawNums[TRIP_NUM_gps_position_lat] = 43.5;
+	p.rawNums[TRIP_NUM_gps_position_lon] = -1.25;
 	p.boolGroups[1] = 0x1;        // autopilot_airspeed_hold only
 	p.boolGroups[2] = 1u << 31;   // general_eng_master_alternator only
 	p.boolGroups[3] = 1u << 31;   // kohlsman_setting_std only
@@ -128,13 +116,15 @@ private slots:
 		DataTablePanel panel;
 		TripDataset d;
 		TripSamplePoint p = makePoint(0, "t");
-		p.rawNums[numIndex("g_force")] = 1.23456789;
-		p.rawNums[numIndex("plane_altitude")] = 1234567.0;
+		p.rawNums[TRIP_NUM_g_force] = 1.23456789;
+		p.rawNums[TRIP_NUM_plane_altitude] = 1234567.0;
+		p.rawNums[TRIP_NUM_surface_type] = std::nan("");  // not recorded
 		d.points = { p };
 		panel.setDataset(&d);
 		QTableWidget* t = table(panel);
 		QCOMPARE(value(t, "G Force"), QStringLiteral("1.23457"));
 		QCOMPARE(value(t, "Plane Altitude"), QStringLiteral("1.23457e+06"));
+		QCOMPARE(value(t, "Surface Type"), QString());
 		QCOMPARE(value(t, "GPS Position"), QString::fromUtf8("43°30'00.0\"N 1°15'00.0\"W"));
 		QCOMPARE(value(t, "Autopilot Airspeed Hold"), QStringLiteral("Yes"));
 		QCOMPARE(value(t, "Autopilot Master"), QStringLiteral("No"));
@@ -189,8 +179,8 @@ private slots:
 		DataTablePanel panel;
 		TripDataset d;
 		TripSamplePoint p = makePoint(0, "t");
-		p.rawNums[numIndex("gps_position_lat")] = 10.99999999;
-		p.rawNums[numIndex("gps_position_lon")] = 0;
+		p.rawNums[TRIP_NUM_gps_position_lat] = 10.99999999;
+		p.rawNums[TRIP_NUM_gps_position_lon] = 0;
 		d.points = { p };
 		panel.setDataset(&d);
 		QCOMPARE(value(table(panel), "GPS Position"), QString::fromUtf8("11°00'00.0\"N 0°00'00.0\"E"));

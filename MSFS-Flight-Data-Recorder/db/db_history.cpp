@@ -1,4 +1,5 @@
 #include "db_history.h"
+#include "contact_analysis.h"
 #include "trip_data_fields.h"
 #include "engine_power.h"
 #include "db_query.h"
@@ -225,7 +226,8 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 
 		point.rawNums.reserve(numFieldIndices.size());
 		for (int idx : numFieldIndices)
-			point.rawNums.push_back(colDouble(idx));
+			point.rawNums.push_back(idx >= 0 && sqlite3_column_type(stmt, idx) != SQLITE_NULL
+				? sqlite3_column_double(stmt, idx) : std::nan(""));
 
 		sampleIds.push_back(sqlite3_column_int64(stmt, idxId));
 		dataset.points.push_back(point);
@@ -311,14 +313,11 @@ std::vector<TouchdownPoint> queryTouchdowns(sqlite3* sql, int tripId) {
 
 void resolveEventPositions(TripDataset& dataset) {
 	for (TripEvent& event : dataset.events) {
-		auto it = std::lower_bound(dataset.points.begin(), dataset.points.end(), event.zuluTime,
-			[](const TripSamplePoint& point, const QString& time) { return point.zuluTime < time; });
-		if (it == dataset.points.end() && !dataset.points.empty())
-			--it;
-		if (it != dataset.points.end()) {
-			event.latitude = it->latitude;
-			event.longitude = it->longitude;
-			event.sampleIndex = (int)(it - dataset.points.begin());
+		const int index = sampleAtOrAfter(dataset.points, event.zuluTime);
+		if (index >= 0) {
+			event.latitude = dataset.points[index].latitude;
+			event.longitude = dataset.points[index].longitude;
+			event.sampleIndex = index;
 		}
 	}
 }
@@ -337,6 +336,7 @@ void completeTripDataset(TripDataset& dataset, std::vector<LiftoffPoint> liftoff
 	dataset.touchdowns = std::move(touchdowns);
 	dataset.events = std::move(events);
 	resolveEventPositions(dataset);
+	analyzeContacts(dataset);
 }
 
 bool deleteTripData(sqlite3* sql, int tripId) {

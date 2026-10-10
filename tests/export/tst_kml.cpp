@@ -139,9 +139,9 @@ private slots:
 		QVERIFY(kml.contains("<Folder><name>Liftoffs</name>"));
 		QVERIFY(kml.contains("<Placemark><name>Liftoff</name><description>"));
 		QVERIFY(kml.contains("<TimeStamp><when>2026-01-02T10:00:00.000Z</when></TimeStamp><styleUrl>#liftoffStyle</styleUrl><Point>"));
-		for (const char* row : { "<b>Airport:</b> TEST (Test Field)<br/>", "<b>Runway:</b> 09 (91°)<br/>", "<b>Airspeed:</b> 150 kt<br/>",
-				"<b>V/S:</b> 500 ft/min<br/>", "<b>Pitch:</b> 8.5°<br/>", "<b>Bank:</b> -1.5°<br/>", "<b>Heading:</b> 92°<br/>",
-				"<b>Threshold:</b> 5906 ft (60%)<br/>", "<b>Centerline:</b> 10 ft R (14%)<br/>", "<b>Wind:</b> 270° / 12 kt<br/>",
+		for (const char* row : { "<b>Airport:</b> TEST (Test Field)<br/>", "<b>Runway:</b> 09 (91° T)<br/>", "<b>Airspeed:</b> 150 kt<br/>",
+				"<b>V/S:</b> 500 ft/min<br/>", "<b>Pitch:</b> 8.5°<br/>", "<b>Bank:</b> -1.5°<br/>", "<b>Heading:</b> 92° M<br/>",
+				"<b>Threshold:</b> 5906 ft (60%)<br/>", "<b>Centerline:</b> 10 ft R (14%)<br/>", "<b>Wind:</b> 270° T / 12 kt<br/>",
 				"<b>Zulu:</b> 2026-01-02T10:00:00.000+00:00_5<br/>", "<b>Local:</b> 2026-01-02T11:00:00.000+01:00_5<br/>" })
 			QVERIFY2(kml.contains(QString::fromUtf8(row)), row);
 		QVERIFY(!kml.contains("<b>G-Force:</b> 0"));

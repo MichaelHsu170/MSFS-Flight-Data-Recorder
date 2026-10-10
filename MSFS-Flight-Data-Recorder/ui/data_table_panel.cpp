@@ -71,24 +71,6 @@ int datasetEngineCount(const TripDataset* dataset) {
 	return engines;
 }
 
-// The index of column in TRIP_DATA_NUM_FIELDS' order (== TripSamplePoint::
-// rawNums index), from the X-macro itself so it stays right when fields are
-// added or reordered; -1 if it isn't one.
-int numFieldIndex(QLatin1String column) {
-	int idx = 0;
-#define TRIP_NUM_INDEX(dbColumn, memberExpr, sqlType) \
-	if (QLatin1String(#dbColumn) == column) return idx; \
-	++idx;
-	TRIP_DATA_NUM_FIELDS(TRIP_NUM_INDEX)
-#undef TRIP_NUM_INDEX
-	return -1;
-}
-
-// point's rawNums[index] (numFieldIndex()), or NaN if it has none.
-double rawNum(const TripSamplePoint& point, int index) {
-	return index >= 0 && index < (int)point.rawNums.size() ? point.rawNums[index] : std::nan("");
-}
-
 // Decimal degrees -> "lat lng" in DMS (COORDINATE::coordinate_decimal_to_dms()).
 QString formatDMS(double lat, double lng) {
 	COORDINATE c;
@@ -274,20 +256,17 @@ void DataTablePanel::showPoint(const TripSamplePoint& point) {
 	setValue(0, point.zuluTime);
 	setValue(1, point.localTime);
 	{
-		static const int gpsLatIdx = numFieldIndex(QLatin1String("gps_position_lat"));
-		static const int gpsLonIdx = numFieldIndex(QLatin1String("gps_position_lon"));
-		const double lat = rawNum(point, gpsLatIdx), lon = rawNum(point, gpsLonIdx);
+		const double lat = point.rawNum(TRIP_NUM_gps_position_lat), lon = point.rawNum(TRIP_NUM_gps_position_lon);
 		setValue(2, std::isnan(lat) || std::isnan(lon) ? QString() : formatDMS(lat, lon));
 
 		// The rows were built from the same macros (buildFieldRowLabels()), so
 		// row stays within the table.
-		int ni = 0, row = 3;
+		int row = 3;
 #define TRIP_NUM_DISP(dbColumn, memberExpr, sqlType) \
 		if (!isGpsPositionColumn(QLatin1String(#dbColumn))) { \
-			const double v = rawNum(point, ni); \
+			const double v = point.rawNum(TRIP_NUM_##dbColumn); \
 			setValue(row++, !std::isnan(v) ? QString::number(v, 'g', 6) : QString()); \
-		} \
-		++ni;
+		}
 		TRIP_DATA_NUM_FIELDS(TRIP_NUM_DISP)
 #undef TRIP_NUM_DISP
 #define TRIP_BOOL_DISP(name, group, bit) \

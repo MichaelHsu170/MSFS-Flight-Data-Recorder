@@ -32,10 +32,9 @@ std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId);
 
 // trip_events only stores a timestamp, not a position -- resolves each
 // event's position (and sampleIndex) to the first sample in dataset.points
-// at or after the event's zuluTime (the last sample for an event after the
-// final one; unchanged if there are no samples), comparing zuluTime strings
-// lexicographically (every row shares the same "%04d-%02d-%02dT..." format
-// and timezone). Call after populating dataset.points and dataset.events.
+// at or after the event's zuluTime (sampleAtOrAfter() in trip_dataset.h; the
+// last sample for an event after the final one; unchanged if there are no
+// samples). Call after populating dataset.points and dataset.events.
 void resolveEventPositions(TripDataset& dataset);
 
 // A trip's dataset is put together the same way whether Trip History loads it
@@ -43,7 +42,9 @@ void resolveEventPositions(TripDataset& dataset);
 // tripSamples() first, then completeTripDataset() with the rest.
 // The trip's samples (none without a connection), named after the trip.
 TripDataset tripSamples(sqlite3* sql, int tripId, const QString& aircraftTitle, const QString& departureZuluTime);
-// Adds the liftoffs, touchdowns and events, placing each event on the trajectory.
+// Adds the liftoffs, touchdowns and events, placing each event on the trajectory
+// and deriving each liftoff's/touchdown's conditions and final trajectory
+// from the samples (analyzeContacts() in contact_analysis.h).
 void completeTripDataset(TripDataset& dataset, std::vector<LiftoffPoint> liftoffPoints,
 	std::vector<TouchdownPoint> touchdowns, std::vector<TripEvent> events);
 

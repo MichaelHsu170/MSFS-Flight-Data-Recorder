@@ -182,8 +182,21 @@ Both Debug and Release link dynamically against `SimConnect.dll`. The DLL is cop
 
 Clicking a liftoff or touchdown marker on the map opens a popup with two panels:
 
-- **Left**: raw telemetry for that liftoff or landing: airport (ICAO code, with its name in parentheses), runway (with its real facility heading in parentheses, when known), coordinate, airspeed, vertical speed, G-force (landings only), pitch/bank, heading, threshold distance and centreline offset (when a runway was matched), wind, and Zulu/local time. The KML export's placemark descriptions list the same fields, without the coordinate.
-- **Right**: an **Analyze Liftoff** / **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API). The prompt includes the runway's real heading (not just its two-digit number, which can be off by up to ~10°) so the model can calculate an accurate crosswind component.
+- **Left**: raw telemetry for that liftoff or landing: airport (ICAO code, with its name in parentheses), runway (with its real facility heading in parentheses, when known), coordinate, airspeed, vertical speed, G-force (landings only), pitch/bank, heading, crab angle, threshold distance and centreline offset (when a runway was matched), wind, and Zulu/local time. The KML export's placemark descriptions list the same fields, without the coordinate.
+  - Every heading is marked true (**T**) or magnetic (**M**). The runway and wind headings are true. The aircraft's heading is shown in true too, from the trip's sample at that moment, with the recorded magnetic heading in parentheses (e.g. "338° T (334° M)"), so it compares directly with the runway's. The difference that remains is the **crab** angle: heading minus ground track, "2° R" when the nose points right of the track. A liftoff or touchdown without a matching sample shows only the magnetic heading and no crab.
+- **Right**: an **Analyze Liftoff** / **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API).
+
+The prompt sends the popup's values, every heading in true, including the runway's real heading (not just its two-digit number, which can be off by up to ~10°), so the model can calculate an accurate crosswind component. It also sends what the trip's samples show around the liftoff or touchdown, derived when the trip loads (`db/contact_analysis.cpp`), so trips recorded before this feature get it too:
+
+- **Conditions**: time, the sun's elevation and the light (day, civil/nautical/astronomical twilight, night; computed from the position and time, since at high latitude the same clock time can be midnight sun or polar night), position and magnetic variation, ground elevation, outside air temperature, altimeter setting and station pressure, pressure and density altitude, visibility, the wind's range over the 30 s before, and the surface type and condition.
+- **Final trajectory**:
+  - **Gates**: the last crossing before a touchdown of 1000, 500, 300, 200, 100 and 50 ft and of 3, 2 and 1 nm, each distance gate with its path angle; or the first crossing after a liftoff of 35, 100, 200, 500 and 1000 ft. A gate that wasn't crossed is left out.
+  - **Samples**: every sample of the last 15 s before a touchdown, or from 10 s before to 10 s after a liftoff, at most 60.
+  - **Highest terrain** under the 5 nm before the touchdown or after the liftoff.
+  - **Heights are measured from the touchdown or liftoff point, not radio height.** Radio height follows the terrain under the aircraft (a valley, cliff or the sea before the runway), so each point also gives the terrain below it.
+  - The window stops at the trip's previous or next liftoff/touchdown, so a touch-and-go's circuit isn't counted twice.
+
+A value that wasn't recorded is left out, never sent as 0. The model is also told to describe the airport's terrain, procedures and hazards from its general knowledge, labeled as such. It must check each one against the runway end used and the recorded trajectory before applying it, and say when it doesn't know the airport. The prompt is bounded by construction: under 32,000 characters with every value present.
 
 The analysis is returned in a fixed structure:
 
@@ -192,7 +205,11 @@ Grade: A+ … F
 Summary: 1-2 sentence overall impression
 Strengths:  • …
 Areas to improve:  • …
+Final segment:  • stability at the gates and the flare/decrab (landing), or the rotation and initial climb (liftoff)
+Environment:  • how the conditions, airport, runway and terrain affected it
 ```
+
+Reports saved before this change keep their old format; analyzing again gives the new one.
 
 While the model is reasoning the toggle label reads **Thinking…** and is non-interactive. When the reasoning phase ends it collapses into a **Show thinking** / **Hide thinking** toggle so the final report is always the first thing visible. A model that answers without reasoning shows just the report, with no toggle. A response counts as complete when the model says it finished and the report isn't empty; if it's cut off or empty, the AI service can't be reached, or it reports a server error or rate limit, the request is made up to three times in all before a plain-language error message is shown. A rejected request (e.g. an invalid API key) is not retried.
 
@@ -242,6 +259,7 @@ MSFS-Flight-Data-Recorder/
 │   │   ├── db_connection.h / .cpp  Read-only/read-write connections for the UI and background queries
 │   │   ├── db_query.h / .cpp     Statement helpers shared by the UI-side queries: row loop, single statements, transactions
 │   │   ├── db_history.h / .cpp   Read-only queries: trip list, telemetry, events, liftoff points, touchdowns; trip deletion, AI reports
+│   │   ├── contact_analysis.h / .cpp  Each liftoff's/touchdown's conditions and final trajectory, derived from the trip's samples on load
 │   │   ├── db_groups.h / .cpp    Trip-group queries: list, add, rename, delete, reorder, assign a trip
 │   │   └── trip_dataset.h        Shared data structs (TripSamplePoint, TripEvent, TripDataset, etc.) and helpers
 │   ├── ui/                       The main window and its panels

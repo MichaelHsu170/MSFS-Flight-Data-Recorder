@@ -71,6 +71,7 @@ set(CORE_SOURCES
     ${SRC_DIR}/db/db_connection.cpp
     ${SRC_DIR}/db/db_query.cpp
     ${SRC_DIR}/db/db_history.cpp
+    ${SRC_DIR}/db/contact_analysis.cpp
     ${SRC_DIR}/db/db_groups.cpp
     ${SRC_DIR}/ui/trip_history_panel.cpp
     ${SRC_DIR}/ui/manage_groups_dialog.cpp

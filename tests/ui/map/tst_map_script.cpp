@@ -146,6 +146,47 @@ private slots:
 		QCOMPARE(o.size(), 22);
 	}
 
+	// A contact with a sample also carries its conditions and final
+	// trajectory, each value only when known (no NaN reaches the page).
+	void contactsWithASampleCarryConditionsAndProfile() {
+		TouchdownPoint td;
+		fillRunwayContact(td);
+		td.conditions.fromSample = true;
+		td.conditions.headingTrue = 268.5;
+		td.conditions.crabAngle = -2.5;
+		td.conditions.surfaceType = QStringLiteral("asphalt");
+		ProfilePoint gate;
+		gate.gate = QStringLiteral("500 ft");
+		gate.seconds = -30;
+		gate.heightFt = 510;
+		ProfilePoint last;  // at the contact: seconds 0 is still sent
+		last.heightFt = 0;
+		td.profile.gates = { gate };
+		td.profile.series = { last };
+		td.profile.highestTerrainFt = 420;
+		const QJsonObject o = argumentOf(mapSetTouchdownsJs({ td }), QStringLiteral("setTouchdowns")).array().at(0).toObject();
+		QCOMPARE(o.size(), 24);
+
+		const QJsonObject c = o["conditions"].toObject();
+		QCOMPARE(c.keys(), QStringList({ "crabAngle", "headingTrue", "surfaceType" }));
+		QCOMPARE(c["headingTrue"].toDouble(), 268.5);
+		QCOMPARE(c["crabAngle"].toDouble(), -2.5);
+		QCOMPARE(c["surfaceType"].toString(), QStringLiteral("asphalt"));
+
+		const QJsonObject profile = o["profile"].toObject();
+		QCOMPARE(profile.keys(), QStringList({ "gates", "highestTerrainFt", "series" }));
+		QCOMPARE(profile["highestTerrainFt"].toDouble(), 420.0);
+		const QJsonObject g = profile["gates"].toArray().at(0).toObject();
+		QCOMPARE(g.keys(), QStringList({ "gate", "heightFt", "seconds" }));
+		QCOMPARE(g["gate"].toString(), QStringLiteral("500 ft"));
+		QCOMPARE(g["seconds"].toDouble(), -30.0);
+		QCOMPARE(g["heightFt"].toDouble(), 510.0);
+		const QJsonArray series = profile["series"].toArray();
+		QCOMPARE(series.size(), 1);
+		QCOMPARE(series.at(0).toObject().keys(), QStringList({ "heightFt", "seconds" }));
+		QCOMPARE(series.at(0).toObject()["seconds"].toDouble(), 0.0);
+	}
+
 	void emptyMarkerListsAreStillCalls() {
 		QCOMPARE(mapSetLiftoffsJs({}), QStringLiteral("setLiftoffs([]);"));
 		QCOMPARE(mapSetTouchdownsJs({}), QStringLiteral("setTouchdowns([]);"));

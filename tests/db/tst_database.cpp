@@ -645,6 +645,28 @@ private slots:
 		}
 	}
 
+	// A column added after a row was written (by migrate_table_columns(),
+	// without NOT NULL) holds NULL there, which reads back as not recorded,
+	// not as 0; the row's other values are unaffected.
+	void aNullTripDataValueReadsBackAsNotRecorded() {
+		FlightDriver sim;
+		sim.record.surface_type = 4;
+		sim.record.ambient_temperature = 12;
+		const int trip = sim.startTrip();
+		sim.tick();
+		sim.endTrip();
+		exec("ALTER TABLE trip_data DROP COLUMN surface_type; ALTER TABLE trip_data ADD COLUMN surface_type INTEGER;");
+
+		sqlite3* db = connect_db_readonly();
+		const TripDataset stored = queryTripData(db, trip);
+		sqlite3_close(db);
+		QVERIFY(!stored.points.empty());
+		for (const TripSamplePoint& p : stored.points) {
+			QVERIFY(std::isnan(p.rawNum(TRIP_NUM_surface_type)));
+			QCOMPARE(p.rawNum(TRIP_NUM_ambient_temperature), 12.0);
+		}
+	}
+
 	void queryTripDataReturnsAnEmptyDatasetWhenTheTableIsMissing() {
 		sqlite3* db = freshDatabase();
 		exec(db, "DROP TABLE trip_data");
@@ -829,6 +851,7 @@ private slots:
 		liftoff.icao = "AAAA";
 		TouchdownPoint touchdown;
 		touchdown.icao = "BBBB";
+		touchdown.zuluTime = "2026-01-01T10:00:01.000";
 		TripEvent event;
 		event.zuluTime = "2026-01-01T10:00:00.500";
 		completeTripDataset(dataset, { liftoff }, { touchdown }, { event });
@@ -836,6 +859,9 @@ private slots:
 		QCOMPARE(dataset.liftoffPoints[0].icao, QStringLiteral("AAAA"));
 		QCOMPARE(dataset.touchdowns.size(), size_t(1));
 		QCOMPARE(dataset.touchdowns[0].icao, QStringLiteral("BBBB"));
+		// Its conditions and final trajectory come from its sample.
+		QVERIFY(dataset.touchdowns[0].conditions.fromSample);
+		QCOMPARE(dataset.touchdowns[0].profile.series.size(), size_t(2));
 		QCOMPARE(dataset.events.size(), size_t(1));
 		QCOMPARE(dataset.events[0].sampleIndex, 1);
 		QCOMPARE(dataset.events[0].latitude, 2.0);

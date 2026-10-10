@@ -89,6 +89,26 @@ QString aiStream(const QStringList& chunks) {
 	return QLatin1Char('[') + chunks.join(QStringLiteral(",\r\n")) + QLatin1Char(']');
 }
 
+// A touchdown's fields as map_script.cpp sends them, with every derived
+// condition and a short trajectory, as a JavaScript object literal.
+QString fullContactJs() {
+	return QStringLiteral(R"js({icao: 'OEMA', airportName: 'Prince Mohammad bin Abdulaziz', runway: '34C', runwayHeading: 340,
+		lat: 24.5528, lng: 39.7051, airspeed: 135, verticalSpeed: -180, pitchDegrees: 3.2, bankDegrees: -1.4,
+		headingDegrees: 334, distanceLength: 1250, distanceWidth: -5.6, distanceLengthPercent: 0.11, distanceWidthPercent: -0.12,
+		windDirection: 299, windVelocity: 12, gForce: 1.21,
+		zuluTime: '2026-06-21T00:00:00.000+00:00_1', localTime: '2026-06-21T03:00:00.000+03:00_1',
+		conditions: {headingTrue: 338.4, headingMagnetic: 334, trackTrue: 340.6, magneticVariation: 4.4, crabAngle: -2.2,
+			sunElevation: -3.21, temperatureC: 31.5, stationPressureHg: 29.12, altimeterHg: 29.92, altimeterMb: 1013.2,
+			pressureAltitudeFt: 1949.6, densityAltitudeFt: 4210.4, visibilityM: 9999.4, fieldElevationFt: 2100.4,
+			windMinKt: 8.4, windMaxKt: 14.6, windDirectionFrom: 350.4, windDirectionTo: 20.4,
+			surfaceType: 'asphalt', surfaceCondition: 'wet'},
+		profile: {gates: [
+				{gate: '500 ft', seconds: -42.5, heightFt: 512.4, distanceNm: 1.61, terrainFt: -20.4, airspeed: 131.4,
+					verticalSpeed: -702.6, pitch: 2.04, bank: -1.26, headingTrue: 338.4, trackTrue: 340.6},
+				{gate: '1 nm', seconds: -27, heightFt: 318.4, distanceNm: 1.0, pathAngle: 3.04}],
+			series: [{seconds: -0.5, heightFt: 2.4}], highestTerrainFt: 612.4, highestTerrainNm: 4.2}})js");
+}
+
 }
 
 class TstMapWidget : public QObject {
@@ -606,7 +626,7 @@ private slots:
 	}
 
 	// The AI prompt names the airport and runway with the popup's labels:
-	// "ICAO (Name)" and "runway (heading°)", each part only when known.
+	// "ICAO (Name)" and "runway (heading° true)", each part only when known.
 	void analysisPromptNamesTheAirportAndRunway() {
 		const QString js = QStringLiteral(
 			"(function (name, heading) { var t = {icao: 'EGLL', airportName: name, runway: '27L', runwayHeading: heading,"
@@ -616,9 +636,139 @@ private slots:
 			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) {"
 			"    return /^  (Airport|Runway): /.test(l); }).join('|'); })(%1)");
 		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("'Heathrow', 270"))).toString(),
-			QStringLiteral("  Airport: EGLL (Heathrow)|  Runway: 27L (270°)"));
+			QStringLiteral("  Airport: EGLL (Heathrow)|  Runway: 27L (270° true)"));
 		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("'', -1"))).toString(),
 			QStringLiteral("  Airport: EGLL|  Runway: 27L"));
+	}
+
+	// The popup marks each heading true (T) or magnetic (M): the aircraft's
+	// true heading from its sample, with the stored magnetic one, and the
+	// crab angle; without a sample, only the magnetic heading and no crab.
+	void popupHeadingsAreMarkedTrueOrMagnetic() {
+		const QString js = QStringLiteral(
+			"(function (conditions) { var t = {icao: '', runway: '34C', runwayHeading: 340, lat: 1, lng: 2, airspeed: 140,"
+			"    verticalSpeed: 0, pitchDegrees: 0, bankDegrees: 0, headingDegrees: 334, distanceLength: 0, distanceWidth: 0,"
+			"    distanceLengthPercent: 0, distanceWidthPercent: 0, windDirection: 299, windVelocity: 12, zuluTime: 'z',"
+			"    conditions: conditions};"
+			"  var d = document.createElement('div');"
+			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Touchdown', null, 'f', 'L').html;"
+			"  return Array.prototype.map.call(d.querySelectorAll('.td-row'), function (r) {"
+			"    return r.querySelector('.td-key').textContent + ': ' + r.querySelector('.td-val').textContent; })"
+			"    .filter(function (r) { return /^(Runway|Heading|Crab|Wind):/.test(r); }).join('|'); })(%1)");
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{headingTrue: 338.4, crabAngle: -2.6}"))).toString(),
+			QStringLiteral("Runway: 34C (340° T)|Heading: 338° T (334° M)|Crab: 3° L|Wind: 299° T / 12 kt"));
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{headingTrue: 338.4, crabAngle: 1.6}"))).toString(),
+			QStringLiteral("Runway: 34C (340° T)|Heading: 338° T (334° M)|Crab: 2° R|Wind: 299° T / 12 kt"));
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{headingTrue: 338.4, crabAngle: 0.4}"))).toString(),
+			QStringLiteral("Runway: 34C (340° T)|Heading: 338° T (334° M)|Crab: 0°|Wind: 299° T / 12 kt"));
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("undefined"))).toString(),
+			QStringLiteral("Runway: 34C (340° T)|Heading: 334° M|Wind: 299° T / 12 kt"));
+	}
+
+	// The touchdown prompt carries the conditions at the contact and the
+	// final trajectory (map_script.cpp's "conditions" and "profile"), one
+	// line per recorded value, every heading marked true or magnetic.
+	void touchdownPromptCarriesConditionsAndTrajectory() {
+		const QString js = QStringLiteral(
+			"(function () { var t = %1;"
+			"  var lines = buildTouchdownPrompt(t).split('\\n');"
+			"  return %2.filter(function (l) { return lines.indexOf(l) < 0; }); })()")
+			.arg(fullContactJs(), QStringLiteral(R"js([
+				'  Heading: 338° true (334° magnetic); ground track 341° true; crab 2.2° (nose left of the track)',
+				'  Wind: 299° true at 12 kt',
+				'Conditions:',
+				'  Time: 2026-06-21T00:00:00.000+00:00 (local 2026-06-21T03:00:00.000+03:00)',
+				'  Sun: 3.2° below the horizon (civil twilight)',
+				'  Position: 24.5528° N, 39.7051° E; magnetic variation 4.4° E',
+				'  Ground elevation at the contact: 2100 ft',
+				'  Outside air temperature: 31.5 °C',
+				'  Pressure: altimeter setting 29.92 inHg (1013 mb); station pressure 29.12 inHg',
+				'  Altitudes: pressure altitude 1950 ft; density altitude 4210 ft',
+				'  Visibility: 9999 m',
+				'  Wind over the 30 s before the contact: 8-15 kt, direction 350° to 20° true (clockwise)',
+				'  Surface under the aircraft: asphalt, wet',
+				'  Gates:',
+				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T',
+				'    1 nm: -27.0 s, height 318 ft, 1.00 nm, path angle 3.0° from here',
+				'  Samples, last 15 s before the touchdown:',
+				'    -0.5 s, height 2 ft',
+				'  Highest terrain within 5 nm before the touchdown: +612 ft, 4.20 nm from the touchdown point (more than 500 ft above it)'
+			])js"));
+		QCOMPARE(evalPageJs(widget_, js).toStringList(), QStringList());
+	}
+
+	// Both prompts ask for the "Final segment:" and "Environment:" sections
+	// before the data, and the liftoff's trajectory spans the rotation and
+	// climb-out.
+	void analysisPromptsAskForTheFinalSegmentAndEnvironment() {
+		const QString js = QStringLiteral(
+			"(function () { var t = %1;"
+			"  return [buildLiftoffPrompt(t), buildTouchdownPrompt(t)].map(function (p) {"
+			"    var data = p.indexOf('\\n---\\n');"
+			"    return [p.indexOf('\\nFinal segment:\\n• [') >= 0 && p.indexOf('\\nFinal segment:\\n') < data,"
+			"      p.indexOf('\\nEnvironment:\\n• [') >= 0 && p.indexOf('\\nEnvironment:\\n') < data,"
+			"      /\\nAirport: from your general knowledge/.test(p)].join(); })"
+			"    .concat([buildLiftoffPrompt(t).indexOf('\\n  Samples, from 10 s before to 10 s after the liftoff:\\n') >= 0,"
+			"      buildLiftoffPrompt(t).indexOf('\\nFinal trajectory (seconds from the liftoff point;') >= 0,"
+			"      buildTouchdownPrompt(t).indexOf('\\nFinal trajectory (seconds from the touchdown point;') >= 0]).join('|'); })()")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral("true,true,true|true,true,true|true|true|true"));
+	}
+
+	// A value that wasn't recorded gets no line (never "NaN" or
+	// "undefined"): without a sample only the time and position remain, and
+	// an empty trajectory adds no block.
+	void promptLeavesOutWhatWasNotRecorded() {
+		const QString js = QStringLiteral(
+			"(function (extra) { var t = {icao: 'EGLL', runway: '27L', runwayHeading: 270, lat: 51.47, lng: -0.45,"
+			"    airspeed: 140, verticalSpeed: -120, pitchDegrees: 3, bankDegrees: 0, headingDegrees: 271, distanceLength: 1000,"
+			"    distanceWidth: 2, distanceLengthPercent: 0.2, distanceWidthPercent: 0.04, windDirection: 250, windVelocity: 8,"
+			"    zuluTime: '2026-01-01T10:00:00.000+00:00_4', gForce: 1.1};"
+			"  Object.assign(t, extra);"
+			"  var p = buildTouchdownPrompt(t);"
+			"  var lines = p.split('\\n');"
+			"  var at = lines.indexOf('Conditions:');"
+			"  return [/NaN|undefined/.test(p), /Final trajectory/.test(p),"
+			"    lines.filter(function (l) { return /^  Heading:/.test(l); })[0]]"
+			"    .concat(lines.slice(at + 1, lines.indexOf('', at))).join('|'); })(%1)");
+		const QString withoutSample = QStringLiteral(
+			"false|false|  Heading: 271° magnetic|  Time: 2026-01-01T10:00:00.000+00:00|  Position: 51.4700° N, 0.4500° W");
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{}"))).toString(), withoutSample);
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{conditions: {}, profile: {gates: [], series: []}}"))).toString(),
+			withoutSample);
+	}
+
+	void sunLightBands() {
+		QCOMPARE(evalPageJs(widget_, QStringLiteral("[5, -0.833, -0.9, -6, -6.1, -12, -12.1, -18, -18.1].map(sunLightLabel).join('|')")).toString(),
+			QStringLiteral("day|day|civil twilight|civil twilight|nautical twilight|nautical twilight|astronomical twilight|"
+				"astronomical twilight|night"));
+	}
+
+	// The prompt is bounded whatever the trip: with every value recorded,
+	// every gate crossed and the series at its 60-sample cap, both prompts
+	// stay under 32,000 characters (16k tokens at a pessimistic 2 characters
+	// per token).
+	void worstCasePromptStaysUnder32000Characters() {
+		const QString js = QStringLiteral(
+			"(function () { var t = %1;"
+			"  window._aircraftTitle = 'Aircraft With A Very Long Livery And Model Name For The Worst Case Prompt Size';"
+			"  t.airportName = 'An Airport Whose Name Is As Long As Any In The Facility Database Could Be';"
+			"  function point(gate) { var p = {seconds: -123.456, heightFt: -12345.678, distanceNm: 12.3456, terrainFt: -12345.678,"
+			"      airspeed: 123.456, verticalSpeed: -12345.678, pitch: -12.345, bank: -123.456, headingTrue: 359.6, trackTrue: 359.6,"
+			"      pathAngle: -12.345};"
+			"    if (gate) p.gate = gate; return p; }"
+			"  t.profile = {gates: ['1000 ft', '500 ft', '300 ft', '200 ft', '100 ft', '50 ft', '3 nm', '2 nm', '1 nm'].map(point),"
+			"    series: [], highestTerrainFt: 12345.678, highestTerrainNm: 4.999};"
+			"  for (var i = 0; i < 60; ++i) t.profile.series.push(point());"
+			"  var lengths = [buildLiftoffPrompt(t).length, buildTouchdownPrompt(t).length];"
+			"  window._aircraftTitle = '';"
+			"  return lengths; })()")
+			.arg(fullContactJs());
+		const QVariantList lengths = evalPageJs(widget_, js).toList();
+		QCOMPARE(lengths.size(), 2);
+		for (const QVariant& length : lengths)
+			QVERIFY2(length.toInt() > 0 && length.toInt() < 32000, qPrintable(length.toString()));
+		qInfo("worst-case prompt lengths: liftoff %d, touchdown %d characters", lengths[0].toInt(), lengths[1].toInt());
 	}
 
 	// The map's touchdown popup and the KML export's placemark description
@@ -647,6 +797,9 @@ private slots:
 		td.windVelocity = 12;
 		td.zuluTime = QStringLiteral("2024-03-15T10:30:00.000+00:00_5");
 		td.localTime = QStringLiteral("2024-03-15T10:30:00.000+00:00_5");
+		td.conditions.fromSample = true;
+		td.conditions.headingTrue = 268.5;  // halves again
+		td.conditions.crabAngle = -2.5;
 		TripDataset dataset;
 		dataset.points = { samplePoint(51.47, -0.45) };
 		dataset.touchdowns = { td };
@@ -668,6 +821,8 @@ private slots:
 		QCOMPARE(popup.first(), QStringLiteral("Airport: EGLL (Heathrow)"));
 		QVERIFY2(popup.value(2).startsWith(QStringLiteral("Coordinate: ")), qPrintable(popup.value(2)));
 		popup.removeAt(2);
+		QVERIFY2(popup.contains(QStringLiteral("Heading: 269° T (271° M)")), qPrintable(popup.join('|')));
+		QVERIFY2(popup.contains(QStringLiteral("Crab: 3° L")), qPrintable(popup.join('|')));
 
 		QTemporaryDir dir;
 		const QString path = dir.filePath(QStringLiteral("trip.kml"));

@@ -4,11 +4,80 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include <cmath>
+
 namespace {
 
 QString call(const char* function, const QJsonDocument& argument) {
 	return QStringLiteral("%1(%2);").arg(QString::fromLatin1(function),
 		QString::fromUtf8(argument.toJson(QJsonDocument::Compact)));
+}
+
+// Sets obj[key] to value unless it's NaN (not recorded): map.html leaves an
+// absent value out of the popup and the prompt instead of showing 0.
+void setKnown(QJsonObject& obj, const char* key, double value) {
+	if (!std::isnan(value))
+		obj[QLatin1String(key)] = value;
+}
+
+void setKnown(QJsonObject& obj, const char* key, const QString& value) {
+	if (!value.isEmpty())
+		obj[QLatin1String(key)] = value;
+}
+
+QJsonObject conditionsToJson(const ContactConditions& c) {
+	QJsonObject obj;
+	setKnown(obj, "headingTrue", c.headingTrue);
+	setKnown(obj, "headingMagnetic", c.headingMagnetic);
+	setKnown(obj, "trackTrue", c.trackTrue);
+	setKnown(obj, "magneticVariation", c.magneticVariation);
+	setKnown(obj, "crabAngle", c.crabAngle);
+	setKnown(obj, "sunElevation", c.sunElevation);
+	setKnown(obj, "temperatureC", c.temperatureC);
+	setKnown(obj, "stationPressureHg", c.stationPressureHg);
+	setKnown(obj, "altimeterHg", c.altimeterHg);
+	setKnown(obj, "altimeterMb", c.altimeterMb);
+	setKnown(obj, "pressureAltitudeFt", c.pressureAltitudeFt);
+	setKnown(obj, "densityAltitudeFt", c.densityAltitudeFt);
+	setKnown(obj, "visibilityM", c.visibilityM);
+	setKnown(obj, "fieldElevationFt", c.fieldElevationFt);
+	setKnown(obj, "windMinKt", c.windMinKt);
+	setKnown(obj, "windMaxKt", c.windMaxKt);
+	setKnown(obj, "windDirectionFrom", c.windDirectionFrom);
+	setKnown(obj, "windDirectionTo", c.windDirectionTo);
+	setKnown(obj, "surfaceType", c.surfaceType);
+	setKnown(obj, "surfaceCondition", c.surfaceCondition);
+	return obj;
+}
+
+QJsonArray profilePointsToJson(const std::vector<ProfilePoint>& points) {
+	QJsonArray arr;
+	for (const ProfilePoint& p : points) {
+		QJsonObject obj;
+		setKnown(obj, "gate", p.gate);
+		obj["seconds"] = p.seconds;
+		setKnown(obj, "heightFt", p.heightFt);
+		setKnown(obj, "distanceNm", p.distanceNm);
+		setKnown(obj, "terrainFt", p.terrainFt);
+		setKnown(obj, "airspeed", p.airspeed);
+		setKnown(obj, "verticalSpeed", p.verticalSpeed);
+		setKnown(obj, "pitch", p.pitch);
+		setKnown(obj, "bank", p.bank);
+		setKnown(obj, "headingTrue", p.headingTrue);
+		setKnown(obj, "trackTrue", p.trackTrue);
+		setKnown(obj, "pathAngle", p.pathAngle);
+		arr.append(obj);
+	}
+	return arr;
+}
+
+QJsonObject profileToJson(const ContactProfile& profile) {
+	QJsonObject obj;
+	obj["gates"] = profilePointsToJson(profile.gates);
+	obj["series"] = profilePointsToJson(profile.series);
+	setKnown(obj, "highestTerrainFt", profile.highestTerrainFt);
+	setKnown(obj, "highestTerrainNm", profile.highestTerrainNm);
+	return obj;
 }
 
 // The fields liftoff and touchdown markers share (their popups show the same
@@ -36,6 +105,11 @@ QJsonObject runwayContactToJson(const RunwayContactPoint& t) {
 	obj["localTime"] = t.localTime;
 	obj["rowId"] = t.rowId;
 	obj["analysisReport"] = t.analysisReport;
+	// Without a sample at the contact there's nothing to derive: both absent.
+	if (t.conditions.fromSample) {
+		obj["conditions"] = conditionsToJson(t.conditions);
+		obj["profile"] = profileToJson(t.profile);
+	}
 	return obj;
 }
 

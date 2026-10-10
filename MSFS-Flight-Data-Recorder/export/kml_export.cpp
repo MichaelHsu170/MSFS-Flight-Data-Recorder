@@ -7,6 +7,8 @@
 #include <QIODevice>
 #include <QtGlobal>
 
+#include <cmath>
+
 namespace {
 
 constexpr double kFeetToMeters = 0.3048;
@@ -58,7 +60,7 @@ QString runwayContactDescription(const RunwayContactPoint& t, const QString& gFo
 	if (!airport.isEmpty())
 		html += descRow(QStringLiteral("Airport"), airport);
 	if (!t.runway.isEmpty()) {
-		const QString rwy = t.runwayHeading >= 0 ? QStringLiteral("%1 (%2°)").arg(t.runway).arg(t.runwayHeading) : t.runway;
+		const QString rwy = t.runwayHeading >= 0 ? QStringLiteral("%1 (%2° T)").arg(t.runway).arg(t.runwayHeading) : t.runway;
 		html += descRow(QStringLiteral("Runway"), rwy);
 	}
 	html += descRow(QStringLiteral("Airspeed"), QStringLiteral("%1 kt").arg(t.airspeed));
@@ -66,7 +68,16 @@ QString runwayContactDescription(const RunwayContactPoint& t, const QString& gFo
 	html += gForceRow;
 	html += descRow(QStringLiteral("Pitch"), QStringLiteral("%1°").arg(t.pitchDegrees, 0, 'f', 1));
 	html += descRow(QStringLiteral("Bank"), QStringLiteral("%1°").arg(t.bankDegrees, 0, 'f', 1));
-	html += descRow(QStringLiteral("Heading"), QStringLiteral("%1°").arg(t.headingDegrees));
+	// True from the contact's sample, like the runway and wind, with the stored
+	// magnetic heading alongside; just the magnetic one without a sample.
+	const QString magnetic = QStringLiteral("%1° M").arg(t.headingDegrees);
+	html += descRow(QStringLiteral("Heading"), std::isnan(t.conditions.headingTrue) ? magnetic
+		: QStringLiteral("%1° T (%2)").arg(qRound(t.conditions.headingTrue)).arg(magnetic));
+	if (!std::isnan(t.conditions.crabAngle)) {
+		const int crab = qRound(qAbs(t.conditions.crabAngle));
+		html += descRow(QStringLiteral("Crab"), crab == 0 ? QStringLiteral("0°")
+			: QStringLiteral("%1° %2").arg(crab).arg(t.conditions.crabAngle > 0 ? QChar('R') : QChar('L')));
+	}
 	// Gated on a matched runway, not "distanceLength >= 0": a NULL distance_length
 	// column (no runway matched) reads back as 0 via sqlite3_column_double, which
 	// would otherwise show a meaningless "0 ft (0%)" as if a runway had been found.
@@ -77,7 +88,7 @@ QString runwayContactDescription(const RunwayContactPoint& t, const QString& gFo
 		html += descRow(QStringLiteral("Centerline"),
 			QStringLiteral("%1 ft %2 (%3%)").arg(qRound(qAbs(t.distanceWidth))).arg(side).arg(qRound(qAbs(t.distanceWidthPercent) * 100)));
 	}
-	html += descRow(QStringLiteral("Wind"), QStringLiteral("%1° / %2 kt").arg(t.windDirection).arg(t.windVelocity));
+	html += descRow(QStringLiteral("Wind"), QStringLiteral("%1° T / %2 kt").arg(t.windDirection).arg(t.windVelocity));
 	html += descRow(QStringLiteral("Zulu"), t.zuluTime);
 	if (!t.localTime.isEmpty())
 		html += descRow(QStringLiteral("Local"), t.localTime);

@@ -211,22 +211,61 @@ function roundHalfAwayFromZero(x) {
 
 // A liftoff/touchdown's airport as "ICAO (Name)", or just "ICAO" without a
 // name (trip_dataset.h's airportLabel() in C++), and its runway as
-// "09L (92°)", or just "09L" without a heading -- the labels the popup and
-// the AI prompt both show. Callers check t.icao / t.runway first.
+// "09L (92° T)", or just "09L" without a heading -- the labels the popup and
+// the AI prompt both show. Callers check t.icao / t.runway first. trueLabel
+// marks the runway's heading, which is true ("T" in the popup, "true" in the
+// prompt), like the wind's.
 function contactAirportLabel(t) {
     return t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
 }
-function contactRunwayLabel(t) {
-    return t.runway + (t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '°)' : '');
+function contactRunwayLabel(t, trueLabel) {
+    return t.runway + (t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '° ' + trueLabel + ')' : '');
+}
+
+// Whether t's derived conditions/profile (map_script.cpp, absent for a value
+// that wasn't recorded) have key.
+function hasValue(obj, key) {
+    return !!obj && typeof obj[key] === 'number';
+}
+
+// The aircraft's heading as the popup shows it: true from the contact's
+// sample, with the stored (magnetic) heading in parentheses, so it compares
+// directly with the runway and the wind (both true). Without a sample, just
+// the magnetic one, marked as such.
+function contactHeadingLabel(t) {
+    var magnetic = t.headingDegrees + '° M';
+    return hasValue(t.conditions, 'headingTrue')
+        ? roundHalfAwayFromZero(t.conditions.headingTrue) + '° T (' + magnetic + ')'
+        : magnetic;
+}
+
+// The crab angle (heading minus ground track) as "3° R" (nose right of the
+// track) / "3° L" / "0°"; empty without a sample.
+function contactCrabLabel(t) {
+    if (!hasValue(t.conditions, 'crabAngle')) return '';
+    var degrees = roundHalfAwayFromZero(Math.abs(t.conditions.crabAngle));
+    return degrees === 0 ? '0°' : degrees + '° ' + (t.conditions.crabAngle > 0 ? 'R' : 'L');
+}
+
+// The light the sun's elevation gives: day while any of the sun is above the
+// horizon (-0.833° allows for refraction and its radius), then the civil,
+// nautical and astronomical twilight bands.
+function sunLightLabel(elevation) {
+    if (elevation >= -0.833) return 'day';
+    if (elevation >= -6) return 'civil twilight';
+    if (elevation >= -12) return 'nautical twilight';
+    if (elevation >= -18) return 'astronomical twilight';
+    return 'night';
 }
 
 // ── Gemini analysis helpers ──────────────────────────────────────────────────
 
 // The start of an analysis prompt, shared by liftoffs and touchdowns: the
-// instructions, the answer structure, then dataTitle and the airport, runway
-// and airspeed. The caller adds its own lines and finishes with
+// instructions, the answer structure (finalSegment and environment describe
+// its last two sections' bullets), then dataTitle and the airport, runway and
+// airspeed. The caller adds its own lines and finishes with
 // finishAnalysisPrompt().
-function startAnalysisPrompt(intro, dataTitle, t, aircraft) {
+function startAnalysisPrompt(intro, finalSegment, environment, dataTitle, t, aircraft) {
     var lines = [];
 
     lines.push(intro);
@@ -243,20 +282,127 @@ function startAnalysisPrompt(intro, dataTitle, t, aircraft) {
     lines.push('Areas to improve:');
     lines.push('• [one brief point per bullet]');
     lines.push('');
+    lines.push('Final segment:');
+    lines.push('• [' + finalSegment + ']');
+    lines.push('');
+    lines.push('Environment:');
+    lines.push('• [' + environment + ']');
+    lines.push('');
     lines.push('---');
     lines.push(dataTitle);
     if (aircraft) lines.push('  Aircraft: ' + aircraft);
     if (t.icao) lines.push('  Airport: ' + contactAirportLabel(t));
-    if (t.runway) lines.push('  Runway: ' + contactRunwayLabel(t));
+    if (t.runway) lines.push('  Runway: ' + contactRunwayLabel(t, 'true'));
     lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
     return lines;
 }
 
-// Adds heading, wind, the runway position (distanceLabel: ... ft (N% lengthOf))
-// and the closing "Consider:" line, and returns the prompt text.
-function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, consider) {
-    lines.push('  Heading: ' + t.headingDegrees + '°');
-    lines.push('  Wind: ' + t.windDirection + '° at ' + t.windVelocity + ' kt');
+// The prompt's heading line: true heading (and the stored magnetic one),
+// track and crab from the contact's sample, or just the magnetic heading
+// without one.
+function headingPromptLine(t) {
+    var c = t.conditions;
+    if (!hasValue(c, 'headingTrue')) return '  Heading: ' + t.headingDegrees + '° magnetic';
+    var line = '  Heading: ' + roundHalfAwayFromZero(c.headingTrue) + '° true (' + t.headingDegrees + '° magnetic)';
+    if (hasValue(c, 'trackTrue')) line += '; ground track ' + roundHalfAwayFromZero(c.trackTrue) + '° true';
+    if (hasValue(c, 'crabAngle')) {
+        var crab = Math.abs(c.crabAngle).toFixed(1);
+        line += '; crab ' + crab + '°' + (Number(crab) === 0 ? '' : ' (nose ' + (c.crabAngle > 0 ? 'right' : 'left') + ' of the track)');
+    }
+    return line;
+}
+
+// The "Conditions:" block: the time and position at the contact, then its
+// light and weather, one line per value recorded (none without a sample).
+// The times lose DATETIME::format_date_time()'s "_<day-of-week>" suffix.
+function conditionsPromptLines(t) {
+    var c = t.conditions;
+    var lines = [];
+    function add(label, text) { lines.push('  ' + label + ': ' + text); }
+    function time(text) { return text.replace(/_\d+$/, ''); }
+    add('Time', time(t.zuluTime) + (t.localTime ? ' (local ' + time(t.localTime) + ')' : ''));
+    if (hasValue(c, 'sunElevation'))
+        add('Sun', Math.abs(c.sunElevation).toFixed(1) + '° ' + (c.sunElevation >= 0 ? 'above' : 'below') + ' the horizon (' + sunLightLabel(c.sunElevation) + ')');
+    var position = Math.abs(t.lat).toFixed(4) + '° ' + (t.lat >= 0 ? 'N' : 'S') + ', ' + Math.abs(t.lng).toFixed(4) + '° ' + (t.lng >= 0 ? 'E' : 'W');
+    if (hasValue(c, 'magneticVariation'))
+        position += '; magnetic variation ' + Math.abs(c.magneticVariation).toFixed(1) + '° ' + (c.magneticVariation >= 0 ? 'E' : 'W');
+    add('Position', position);
+    if (!c) return lines;
+    if (hasValue(c, 'fieldElevationFt')) add('Ground elevation at the contact', roundHalfAwayFromZero(c.fieldElevationFt) + ' ft');
+    if (hasValue(c, 'temperatureC')) add('Outside air temperature', c.temperatureC.toFixed(1) + ' °C');
+    var pressure = [];
+    if (hasValue(c, 'altimeterHg')) pressure.push('altimeter setting ' + c.altimeterHg.toFixed(2) + ' inHg' + (hasValue(c, 'altimeterMb') ? ' (' + roundHalfAwayFromZero(c.altimeterMb) + ' mb)' : ''));
+    if (hasValue(c, 'stationPressureHg')) pressure.push('station pressure ' + c.stationPressureHg.toFixed(2) + ' inHg');
+    if (pressure.length) add('Pressure', pressure.join('; '));
+    var altitudes = [];
+    if (hasValue(c, 'pressureAltitudeFt')) altitudes.push('pressure altitude ' + roundHalfAwayFromZero(c.pressureAltitudeFt) + ' ft');
+    if (hasValue(c, 'densityAltitudeFt')) altitudes.push('density altitude ' + roundHalfAwayFromZero(c.densityAltitudeFt) + ' ft');
+    if (altitudes.length) add('Altitudes', altitudes.join('; '));
+    if (hasValue(c, 'visibilityM')) add('Visibility', roundHalfAwayFromZero(c.visibilityM) + ' m');
+    if (hasValue(c, 'windMinKt')) {
+        var wind = roundHalfAwayFromZero(c.windMinKt) + '-' + roundHalfAwayFromZero(c.windMaxKt) + ' kt';
+        if (hasValue(c, 'windDirectionFrom'))
+            wind += ', direction ' + roundHalfAwayFromZero(c.windDirectionFrom) + '° to ' + roundHalfAwayFromZero(c.windDirectionTo) + '° true (clockwise)';
+        add('Wind over the 30 s before the contact', wind);
+    }
+    if (c.surfaceType || c.surfaceCondition)
+        add('Surface under the aircraft', [c.surfaceType, c.surfaceCondition].filter(Boolean).join(', '));
+    return lines;
+}
+
+// One trajectory point (trip_dataset.h's ProfilePoint) as
+// "-12.5 s, height 230 ft, 0.62 nm, ...", leaving out what wasn't recorded.
+function profilePointText(p) {
+    var parts = [p.seconds.toFixed(1) + ' s'];
+    function add(key, text) { if (hasValue(p, key)) parts.push(text(p[key])); }
+    add('heightFt', function(v) { return 'height ' + roundHalfAwayFromZero(v) + ' ft'; });
+    add('distanceNm', function(v) { return v.toFixed(2) + ' nm'; });
+    add('terrainFt', function(v) { return 'terrain ' + (v > 0 ? '+' : '') + roundHalfAwayFromZero(v) + ' ft'; });
+    add('airspeed', function(v) { return 'IAS ' + roundHalfAwayFromZero(v) + ' kt'; });
+    add('verticalSpeed', function(v) { return 'V/S ' + roundHalfAwayFromZero(v) + ' ft/min'; });
+    add('pitch', function(v) { return 'pitch ' + v.toFixed(1) + '°'; });
+    add('bank', function(v) { return 'bank ' + v.toFixed(1) + '°'; });
+    add('headingTrue', function(v) { return 'heading ' + roundHalfAwayFromZero(v) + '° T'; });
+    add('trackTrue', function(v) { return 'track ' + roundHalfAwayFromZero(v) + '° T'; });
+    add('pathAngle', function(v) { return 'path angle ' + v.toFixed(1) + '° from here'; });
+    return parts.join(', ');
+}
+
+// The "Final trajectory:" block (trip_dataset.h's ContactProfile): the
+// gates, the dense series and the highest terrain, measured from the contact
+// point (pointName) rather than the ground below, over seriesSpan ("last 15 s")
+// and terrainSpan ("before the touchdown"). None without any of them.
+function profilePromptLines(t, pointName, seriesSpan, terrainSpan) {
+    var profile = t.profile;
+    if (!profile || (!profile.gates.length && !profile.series.length && !hasValue(profile, 'highestTerrainFt'))) return [];
+    var lines = ['Final trajectory (seconds from the ' + pointName + '; height = altitude above the ' + pointName + ', not radio height; distance = to the ' + pointName + '; terrain = ground below relative to the ' + pointName + '):'];
+    if (profile.gates.length) {
+        lines.push('  Gates:');
+        profile.gates.forEach(function(p) { lines.push('    ' + p.gate + ': ' + profilePointText(p)); });
+    }
+    if (profile.series.length) {
+        lines.push('  Samples, ' + seriesSpan + ':');
+        profile.series.forEach(function(p) { lines.push('    ' + profilePointText(p)); });
+    }
+    if (hasValue(profile, 'highestTerrainFt'))
+        lines.push('  Highest terrain within 5 nm ' + terrainSpan + ': ' + (profile.highestTerrainFt > 0 ? '+' : '') + roundHalfAwayFromZero(profile.highestTerrainFt) + ' ft, ' + profile.highestTerrainNm.toFixed(2) + ' nm from the ' + pointName + (profile.highestTerrainFt > 500 ? ' (more than 500 ft above it)' : ''));
+    return lines;
+}
+
+// What the model is told about using its own knowledge of the airport:
+// labeled, checked against the runway end and the recorded trajectory, and
+// admitted when missing.
+function airportKnowledgeLine(subject) {
+    return 'Airport: from your general knowledge of this airport (by ICAO code, name and position), describe in the Environment section any terrain, approach or departure procedure, or hazard that affected this ' + subject + ', labeled as general knowledge rather than recorded data. Before using a characteristic, check that it applies to this flight: it must belong to the runway end used, and the recorded gates (heading and track) must show it was flown; when the recording contradicts a published procedure, say so instead of assuming it was flown. If you do not know the airport, say so rather than guess.';
+}
+
+// Adds heading, wind, the runway position (distanceLabel: ... ft (N% lengthOf)),
+// the Conditions and Final trajectory blocks (profileLines), the closing
+// "Consider:" line and the airport-knowledge instruction for subject
+// ("landing"), and returns the prompt text.
+function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, consider, subject) {
+    lines.push(headingPromptLine(t));
+    lines.push('  Wind: ' + t.windDirection + '° true at ' + t.windVelocity + ' kt');
     // Gated on t.runway (a runway was matched), not "distanceLength >= 0":
     // a NULL distance_length column (no runway matched, never written) reads
     // back as 0 via sqlite3_column_double, which would pass ">= 0" and show
@@ -269,13 +415,23 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, consider) {
         lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
     }
     lines.push('');
+    lines.push('Conditions:');
+    lines = lines.concat(conditionsPromptLines(t));
+    if (profileLines.length) {
+        lines.push('');
+        lines = lines.concat(profileLines);
+    }
+    lines.push('');
     lines.push(consider);
+    lines.push(airportKnowledgeLine(subject));
     return lines.join('\n');
 }
 
 function buildLiftoffPrompt(t) {
     var aircraft = window._aircraftTitle || '';
     var lines = startAnalysisPrompt('You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.',
+        'the rotation and initial climb: pitch, speed, bank and track through the gates',
+        'how the conditions, airport, runway and terrain affected this liftoff',
         'Liftoff data:', t, aircraft);
     // Deliberately no vertical-speed line here, unlike buildTouchdownPrompt()
     // below -- at the moment of liftoff vertical speed is just starting to
@@ -290,18 +446,24 @@ function buildLiftoffPrompt(t) {
     // real signal (dropped wing, crosswind technique), not a mid-ramp snapshot.
     lines.push('  Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold at liftoff', 'runway',
-        'Consider: crosswind component (calculate from wind direction vs runway heading), centerline tracking during the takeoff roll, use of available runway length' + (aircraft ? ', aircraft-type-specific handling' : '') + '.');
+        profilePromptLines(t, 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff'),
+        'Consider: crosswind component (calculate from the true wind vs the true runway heading), centerline tracking during the takeoff roll, use of available runway length, rotation and climb-out attitude and speed, density altitude, runway surface condition, gusts, light and visibility, terrain after the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
+        'liftoff');
 }
 
 function buildTouchdownPrompt(t) {
     var aircraft = window._aircraftTitle || '';
     var lines = startAnalysisPrompt('You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 landing.',
+        'stability at the gates (speed, sink rate, path angle, alignment), and technique through the flare and decrab',
+        'how the conditions, airport, runway and terrain affected this landing',
         'Landing data:', t, aircraft);
     lines.push('  Vertical speed: ' + t.verticalSpeed + ' ft/min');
     lines.push('  G-force: ' + Number(t.gForce).toFixed(2) + ' G');
     lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold', 'landing distance available',
-        'Consider: vertical speed & G-force comfort, crosswind component (calculate from wind direction vs runway heading), centerline tracking, touchdown zone placement' + (aircraft ? ', aircraft-type-specific handling' : '') + '.');
+        profilePromptLines(t, 'touchdown point', 'last 15 s before the touchdown', 'before the touchdown'),
+        'Consider: vertical speed & G-force comfort, crosswind component (calculate from the true wind vs the true runway heading), decrab at touchdown (crab angle), centerline tracking, touchdown zone placement, stabilization at the gates, flare technique, density altitude, runway surface condition, gusts, light and visibility, terrain before the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
+        'landing');
 }
 
 // Extract complete top-level {...} JSON objects from buf.
@@ -629,7 +791,7 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
         + '<div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:8px">' + title + '</div>';
 
     if (t.icao) leftHtml += row('Airport', contactAirportLabel(t));
-    if (t.runway) leftHtml += row('Runway', contactRunwayLabel(t));
+    if (t.runway) leftHtml += row('Runway', contactRunwayLabel(t, 'T'));
     leftHtml += row('Coordinate', formatDMS(Number(t.lat), Number(t.lng)));
 
     leftHtml += div;
@@ -638,7 +800,9 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
     if (gForceText) leftHtml += row('G-Force', gForceText);
     leftHtml += row('Pitch', Number(t.pitchDegrees).toFixed(1) + '°');
     leftHtml += row('Bank', Number(t.bankDegrees).toFixed(1) + '°');
-    leftHtml += row('Heading', t.headingDegrees + '°');
+    leftHtml += row('Heading', contactHeadingLabel(t));
+    var crab = contactCrabLabel(t);
+    if (crab) leftHtml += row('Crab', crab);
 
     // Gated on t.runway, not "distanceLength >= 0" -- see finishAnalysisPrompt().
     if (t.runway) {
@@ -649,7 +813,7 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
     }
 
     leftHtml += div;
-    leftHtml += row('Wind', t.windDirection + '° / ' + t.windVelocity + ' kt');
+    leftHtml += row('Wind', t.windDirection + '° T / ' + t.windVelocity + ' kt');
     leftHtml += row('Zulu', t.zuluTime);
     if (t.localTime) leftHtml += row('Local', t.localTime);
 

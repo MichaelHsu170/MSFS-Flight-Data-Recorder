@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QString>
 #include <QtGlobal>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -33,7 +34,8 @@ struct TripSamplePoint {
 	QString zuluTime;
 	QString localTime;
 
-	// Raw values for all TRIP_DATA_NUM_FIELDS entries, in macro-list order.
+	// Raw values for all TRIP_DATA_NUM_FIELDS entries, in macro-list order
+	// (TripNumField); NaN for a NULL (a column added after the row was written).
 	// Raw bool groups (bit-packed ints) for all TRIP_DATA_BOOL_FIELDS entries,
 	// indexed by group number as tripBoolGroups() returns them ([0] unused).
 	// DataTablePanel formats these to strings on demand for the one point it
@@ -45,6 +47,10 @@ struct TripSamplePoint {
 	// nothing was recorded (a NULL, or an engine without a row).
 	std::vector<double> engineValues;
 
+	// field's value from rawNums; NaN if not recorded.
+	double rawNum(TripNumField field) const {
+		return field < (int)rawNums.size() ? rawNums[field] : std::nan("");
+	}
 	// Engines 1..engineCount() have room in engineValues.
 	int engineCount() const { return (int)(engineValues.size() / TRIP_ENGINE_FIELD_COUNT); }
 	// field of engine (1-based); NaN if not recorded.
@@ -54,8 +60,73 @@ struct TripSamplePoint {
 	}
 };
 
+// A liftoff's/touchdown's conditions, from the trip's samples at that moment
+// (analyzeContacts() in contact_analysis.h; derived when the trip loads,
+// never stored). Every value is NaN (a name empty) when its sample didn't
+// record it, or when no sample was found (fromSample false).
+struct ContactConditions {
+	bool fromSample = false;
+	double headingTrue = std::nan("");      // degrees
+	double headingMagnetic = std::nan("");  // degrees
+	double trackTrue = std::nan("");        // ground track, degrees
+	double magneticVariation = std::nan(""); // headingTrue - headingMagnetic, -180..180 (+ = east)
+	double crabAngle = std::nan("");        // headingTrue - trackTrue, -180..180 (+ = nose right of the track)
+	double sunElevation = std::nan("");     // degrees above the horizon (sunElevationDegrees())
+	double temperatureC = std::nan("");     // outside air
+	double stationPressureHg = std::nan(""); // ambient pressure, inHg
+	double altimeterHg = std::nan("");      // Kohlsman setting
+	double altimeterMb = std::nan("");
+	double pressureAltitudeFt = std::nan("");
+	double densityAltitudeFt = std::nan(""); // densityAltitudeFeet()
+	double visibilityM = std::nan("");
+	double fieldElevationFt = std::nan(""); // ground under the aircraft, ft MSL
+	// Wind over the 30 s up to the contact: lowest and highest speed (kt), and
+	// the direction range (degrees true, From..To clockwise).
+	double windMinKt = std::nan("");
+	double windMaxKt = std::nan("");
+	double windDirectionFrom = std::nan("");
+	double windDirectionTo = std::nan("");
+	QString surfaceType;       // SURFACE TYPE ("asphalt"), empty if unknown
+	QString surfaceCondition;  // SURFACE CONDITION ("wet"), empty if unknown
+};
+
+// One sample of a contact's final trajectory (ContactProfile). Heights are
+// measured from the contact, not from the ground below: radio height follows
+// the terrain under the aircraft (a valley, cliff or the sea before the
+// runway), height above the touchdown/liftoff point doesn't.
+struct ProfilePoint {
+	QString gate;                 // "500 ft", "2 nm"; empty in the dense series
+	double seconds = 0;           // from the contact (negative = before it)
+	double heightFt = std::nan(""); // MSL altitude minus the on-ground sample's at the contact
+	double distanceNm = std::nan(""); // great-circle distance to the contact position
+	double terrainFt = std::nan("");  // the ground below, relative to the ground at the contact
+	double airspeed = std::nan("");   // kt indicated
+	double verticalSpeed = std::nan(""); // ft/min
+	double pitch = std::nan("");      // degrees, + = nose up
+	double bank = std::nan("");       // degrees
+	double headingTrue = std::nan("");
+	double trackTrue = std::nan("");
+	// Distance gates only: the descent angle (degrees) from this gate to the
+	// next closer one, or to the contact after the last.
+	double pathAngle = std::nan("");
+};
+
+// A liftoff's/touchdown's final trajectory (analyzeContacts()): the approach
+// before a touchdown, the rotation and climb-out around a liftoff. Never
+// reaches past the trip's previous or next contact.
+struct ContactProfile {
+	std::vector<ProfilePoint> gates;   // in time order
+	std::vector<ProfilePoint> series;  // every sample near the contact (capped), in time order
+	// The highest ground (relative to the ground at the contact) under the
+	// last 5 nm of the approach / the first 5 nm of the climb-out, and its
+	// distance from the contact; NaN without samples there.
+	double highestTerrainFt = std::nan("");
+	double highestTerrainNm = std::nan("");
+};
+
 // What a liftoff and a touchdown both record (trip_liftoffs/trip_touchdowns
-// share these columns), shown as a map marker and its popup.
+// share these columns), shown as a map marker and its popup. conditions and
+// profile are derived from the trip's samples when it loads.
 struct RunwayContactPoint {
 	double latitude = 0;
 	double longitude = 0;
@@ -80,6 +151,8 @@ struct RunwayContactPoint {
 	QString localTime;
 	int rowId = 0;           // the row's id, used to UPDATE analysis_report
 	QString analysisReport;  // stored AI analysis text, empty if never analyzed
+	ContactConditions conditions;
+	ContactProfile profile;
 };
 
 // One moment the aircraft became airborne during the trip (trip_liftoffs):
@@ -98,7 +171,8 @@ struct TouchdownPoint : RunwayContactPoint {
 // the trip (trip_events). trip_events only stores a timestamp, not a
 // position -- latitude/longitude/sampleIndex are resolved after loading from
 // the first TripSamplePoint at or after zuluTime, or the last point for an
-// event after the final sample (see resolveEventPositions() in db_history.h).
+// event after the final sample (sampleAtOrAfter(); see
+// resolveEventPositions() in db_history.h).
 struct TripEvent {
 	QString event;
 	QString zuluTime;
@@ -114,6 +188,18 @@ struct TripEvent {
 inline QDateTime parseZuluTime(const QString& value) {
 	const QString isoPart = value.section('_', 0, 0);
 	return QDateTime::fromString(isoPart, Qt::ISODateWithMs);
+}
+
+// The index of the first of points at or after zuluTime, the last point for
+// a time after the final one, or -1 without points. Compares zuluTime
+// strings lexicographically: every row shares the same
+// "%04d-%02d-%02dT..." format and timezone. points are in time order.
+inline int sampleAtOrAfter(const std::vector<TripSamplePoint>& points, const QString& zuluTime) {
+	auto it = std::lower_bound(points.begin(), points.end(), zuluTime,
+		[](const TripSamplePoint& point, const QString& time) { return point.zuluTime < time; });
+	if (it == points.end() && !points.empty())
+		--it;
+	return it == points.end() ? -1 : (int)(it - points.begin());
 }
 
 // "ICAO (Name)", or just "ICAO" without a name; empty without an ICAO. The
