@@ -40,6 +40,10 @@ QJsonObject conditionsToJson(const ContactConditions& c) {
 	setKnown(obj, "pressureAltitudeFt", c.pressureAltitudeFt);
 	setKnown(obj, "densityAltitudeFt", c.densityAltitudeFt);
 	setKnown(obj, "visibilityM", c.visibilityM);
+	setKnown(obj, "seaLevelPressureMb", c.seaLevelPressureMb);
+	setKnown(obj, "precipitation", c.precipitation);
+	setKnown(obj, "precipitationRate", c.precipitationRate);
+	setKnown(obj, "inCloud", c.inCloud);
 	setKnown(obj, "fieldElevationFt", c.fieldElevationFt);
 	setKnown(obj, "windMinKt", c.windMinKt);
 	setKnown(obj, "windMaxKt", c.windMaxKt);

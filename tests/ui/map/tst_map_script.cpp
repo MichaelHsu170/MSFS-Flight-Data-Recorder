@@ -155,6 +155,9 @@ private slots:
 		td.conditions.headingTrue = 268.5;
 		td.conditions.crabAngle = -2.5;
 		td.conditions.surfaceType = QStringLiteral("asphalt");
+		td.conditions.inCloud = 0;  // known: "not in cloud" is sent, not left out
+		td.conditions.precipitation = QStringLiteral("rain");
+		td.conditions.seaLevelPressureMb = 1008;
 		ProfilePoint gate;
 		gate.gate = QStringLiteral("500 ft");
 		gate.seconds = -30;
@@ -168,7 +171,10 @@ private slots:
 		QCOMPARE(o.size(), 24);
 
 		const QJsonObject c = o["conditions"].toObject();
-		QCOMPARE(c.keys(), QStringList({ "crabAngle", "headingTrue", "surfaceType" }));
+		QCOMPARE(c.keys(), QStringList({ "crabAngle", "headingTrue", "inCloud", "precipitation", "seaLevelPressureMb", "surfaceType" }));
+		QCOMPARE(c["inCloud"].toDouble(), 0.0);
+		QCOMPARE(c["precipitation"].toString(), QStringLiteral("rain"));
+		QCOMPARE(c["seaLevelPressureMb"].toDouble(), 1008.0);
 		QCOMPARE(c["headingTrue"].toDouble(), 268.5);
 		QCOMPARE(c["crabAngle"].toDouble(), -2.5);
 		QCOMPARE(c["surfaceType"].toString(), QStringLiteral("asphalt"));

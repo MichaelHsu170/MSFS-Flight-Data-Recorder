@@ -97,6 +97,49 @@ private slots:
 		QVERIFY(surfaceConditionName(255).isEmpty());
 	}
 
+	// AMBIENT PRECIP STATE: 2 none, 4 rain, 8 snow.
+	void precipitationNames() {
+		QCOMPARE(precipitationName(2), QStringLiteral("none"));
+		QCOMPARE(precipitationName(4), QStringLiteral("rain"));
+		QCOMPARE(precipitationName(8), QStringLiteral("snow"));
+		QCOMPARE(precipitationName(12), QStringLiteral("rain and snow"));
+		QVERIFY(precipitationName(0).isEmpty());
+		QVERIFY(precipitationName(std::nan("")).isEmpty());
+	}
+
+	// Precipitation, sea-level pressure and cloud come from the contact's
+	// sample; in-cloud only when that sample also recorded the precipitation
+	// state, since older samples have its bit cleared rather than unknown.
+	void precipitationAndCloudComeFromTheContactSample() {
+		const TripBoolBit cloud = TripBoolBits::ambient_in_cloud;
+		TripDataset dataset;
+		TripSamplePoint p = sample(0, 1017, 17);
+		p.rawNums[TRIP_NUM_ambient_precip_state] = 4;
+		p.rawNums[TRIP_NUM_ambient_precip_rate] = 2.5;
+		p.rawNums[TRIP_NUM_sea_level_pressure] = 1008;
+		p.boolGroups[cloud.group] = 1u << cloud.bit;
+		dataset.points = { p };
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+		analyzeContacts(dataset);
+		const ContactConditions& c = dataset.touchdowns[0].conditions;
+		QCOMPARE(c.precipitation, QStringLiteral("rain"));
+		QCOMPARE(c.precipitationRate, 2.5);
+		QCOMPARE(c.seaLevelPressureMb, 1008.0);
+		QCOMPARE(c.inCloud, 1.0);
+
+		dataset.points[0].boolGroups[cloud.group] = 0;
+		analyzeContacts(dataset);
+		QCOMPARE(dataset.touchdowns[0].conditions.inCloud, 0.0);
+
+		// An older sample: no precipitation state, so its cleared or even set
+		// bit says nothing.
+		dataset.points[0].rawNums[TRIP_NUM_ambient_precip_state] = std::nan("");
+		dataset.points[0].boolGroups[cloud.group] = 1u << cloud.bit;
+		analyzeContacts(dataset);
+		QVERIFY(std::isnan(dataset.touchdowns[0].conditions.inCloud));
+		QVERIFY(dataset.touchdowns[0].conditions.precipitation.isEmpty());
+	}
+
 	void conditionsComeFromTheContactSample() {
 		TripDataset dataset;
 		TripSamplePoint p = sample(0, 1017, 17);

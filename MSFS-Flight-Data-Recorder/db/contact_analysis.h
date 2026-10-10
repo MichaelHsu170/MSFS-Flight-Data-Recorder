@@ -25,6 +25,10 @@ double densityAltitudeFeet(double pressureAltitudeFt, double temperatureC);
 QString surfaceTypeName(double value);
 QString surfaceConditionName(double value);
 
+// The AMBIENT PRECIP STATE mask (2 none, 4 rain, 8 snow) as "none", "rain",
+// "snow" or "rain and snow"; empty for NaN or a mask with none of these bits.
+QString precipitationName(double mask);
+
 // Fills every liftoff's and touchdown's conditions and profile from
 // dataset.points (the sample at or after its zuluTime, sampleAtOrAfter()).
 // The profile's window ends at the trip's neighboring contacts: a touchdown's

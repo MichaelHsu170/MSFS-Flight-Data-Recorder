@@ -35,9 +35,10 @@ inline QString tripFieldLabel(const char* name) {
 // bit-packed into bool_group_<boolGroup> at bit <bitIndex> for storage (see
 // tripBoolGroups() below); `name` is both the FLIGHT_DATA_RECORD member name
 // and the storage bit's label (data_table_panel.cpp unpacks it from the
-// matching bool_group). Bits 13-30 of group 2 and 1-4 and 6-9 of group 3 are
+// matching bool_group). Bits 14-30 of group 2 and 1-4 and 6-9 of group 3 are
 // free: they held engines 1-2's on/off values before trip_engine_data, and
-// the migration that moved those (db.cpp) clears them.
+// the migration that moved those (db.cpp) clears them. A bit added later
+// (like group 2's bit 13) reads 0 on older samples, not unknown.
 //
 // TRIP_ENGINE_FIELDS(X): X(name, sqlType, onOff) -- one value per engine, a
 // column of trip_engine_data (one row per engine of each trip_data sample).
@@ -155,7 +156,10 @@ inline QString tripFieldLabel(const char* name) {
 	X(wheel_rpm_0, wheel_rpm_0, INTEGER) \
 	X(wheel_rpm_1, wheel_rpm_1, INTEGER) \
 	X(wheel_rpm_2, wheel_rpm_2, INTEGER) \
-	X(electrical_battery_voltage, electrical_battery_voltage, REAL)
+	X(electrical_battery_voltage, electrical_battery_voltage, REAL) \
+	X(ambient_precip_state, ambient_precip_state, INTEGER) \
+	X(ambient_precip_rate, ambient_precip_rate, REAL) \
+	X(sea_level_pressure, sea_level_pressure, REAL)
 
 #define TRIP_DATA_BOOL_FIELDS(X) \
 	X(autopilot_airspeed_hold, 1, 0) \
@@ -203,6 +207,7 @@ inline QString tripFieldLabel(const char* name) {
 	X(external_power_available, 2, 10) \
 	X(external_power_connection_on, 2, 11) \
 	X(external_power_on, 2, 12) \
+	X(ambient_in_cloud, 2, 13) \
 	X(general_eng_master_alternator, 2, 31) \
 	X(general_eng_reverse_thrust_engaged, 3, 0) \
 	X(master_ignition_switch, 3, 5) \

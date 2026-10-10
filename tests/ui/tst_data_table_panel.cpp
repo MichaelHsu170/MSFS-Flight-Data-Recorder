@@ -71,9 +71,9 @@ private slots:
 	void rowsCoverEveryField() {
 		DataTablePanel panel;
 		QTableWidget* t = table(panel);
-		// Zulu, Local, combined GPS row, the other 108 numeric fields, 70
+		// Zulu, Local, combined GPS row, the other 111 numeric fields, 71
 		// bools; no engine rows before a trip with engines loads.
-		QCOMPARE(t->rowCount(), 3 + 108 + 70);
+		QCOMPARE(t->rowCount(), 3 + 111 + 71);
 		QCOMPARE(t->item(0, 0)->text(), QStringLiteral("Time (Zulu)"));
 		QCOMPARE(t->item(1, 0)->text(), QStringLiteral("Time (Local)"));
 		QCOMPARE(t->item(2, 0)->text(), QStringLiteral("GPS Position"));
@@ -85,12 +85,12 @@ private slots:
 		TripDataset d;
 		d.points = { withEngines(makePoint(0, "t"), 2) };
 		panel.setDataset(&d);
-		QCOMPARE(t->rowCount(), 3 + 108 + 70 + 32 * 2);
-		QCOMPARE(t->item(3 + 108 + 70, 0)->text(), QStringLiteral("Turb Eng N1 1"));
-		QCOMPARE(t->item(3 + 108 + 70 + 1, 0)->text(), QStringLiteral("Turb Eng N1 2"));
-		QCOMPARE(t->item(3 + 108 + 70 + 2, 0)->text(), QStringLiteral("Turb Eng N2 1"));
+		QCOMPARE(t->rowCount(), 3 + 111 + 71 + 32 * 2);
+		QCOMPARE(t->item(3 + 111 + 71, 0)->text(), QStringLiteral("Turb Eng N1 1"));
+		QCOMPARE(t->item(3 + 111 + 71 + 1, 0)->text(), QStringLiteral("Turb Eng N1 2"));
+		QCOMPARE(t->item(3 + 111 + 71 + 2, 0)->text(), QStringLiteral("Turb Eng N2 1"));
 		QCOMPARE(t->item(t->rowCount() - 1, 0)->text(), QStringLiteral("Turb Eng Is Igniting 2"));
-		QCOMPARE(t->item(3 + 108 + 70 - 1, 0)->text(), QStringLiteral("Kohlsman Setting Std"));
+		QCOMPARE(t->item(3 + 111 + 71 - 1, 0)->text(), QStringLiteral("Kohlsman Setting Std"));
 	}
 
 	void startsEmpty() {

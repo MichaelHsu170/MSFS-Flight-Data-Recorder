@@ -345,6 +345,10 @@ enum DATA_REQUEST_ID {
 	NUM(kohlsman_setting_hg, "KOHLSMAN SETTING HG", "inHg") \
 	NUM(kohlsman_setting_mb, "KOHLSMAN SETTING MB", "Millibars") \
 	NUM(kohlsman_setting_std, "KOHLSMAN SETTING STD", "Bool") \
+	NUM(ambient_precip_state, "AMBIENT PRECIP STATE", "Mask") \
+	NUM(ambient_precip_rate, "AMBIENT PRECIP RATE", "millimeters of water") \
+	NUM(sea_level_pressure, "SEA LEVEL PRESSURE", "Millibars") \
+	NUM(ambient_in_cloud, "AMBIENT IN CLOUD", "Bool") \
 	STR(title, "TITLE", 256) \
 	STR(atc_airline, "ATC AIRLINE", 64) \
 	STR(atc_flight_number, "ATC FLIGHT NUMBER", 8) \

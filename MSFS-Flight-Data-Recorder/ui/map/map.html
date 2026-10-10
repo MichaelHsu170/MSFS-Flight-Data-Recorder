@@ -333,12 +333,16 @@ function conditionsPromptLines(t) {
     var pressure = [];
     if (hasValue(c, 'altimeterHg')) pressure.push('altimeter setting ' + c.altimeterHg.toFixed(2) + ' inHg' + (hasValue(c, 'altimeterMb') ? ' (' + roundHalfAwayFromZero(c.altimeterMb) + ' mb)' : ''));
     if (hasValue(c, 'stationPressureHg')) pressure.push('station pressure ' + c.stationPressureHg.toFixed(2) + ' inHg');
+    if (hasValue(c, 'seaLevelPressureMb')) pressure.push('actual sea-level pressure ' + roundHalfAwayFromZero(c.seaLevelPressureMb) + ' mb');
     if (pressure.length) add('Pressure', pressure.join('; '));
     var altitudes = [];
     if (hasValue(c, 'pressureAltitudeFt')) altitudes.push('pressure altitude ' + roundHalfAwayFromZero(c.pressureAltitudeFt) + ' ft');
     if (hasValue(c, 'densityAltitudeFt')) altitudes.push('density altitude ' + roundHalfAwayFromZero(c.densityAltitudeFt) + ' ft');
     if (altitudes.length) add('Altitudes', altitudes.join('; '));
     if (hasValue(c, 'visibilityM')) add('Visibility', roundHalfAwayFromZero(c.visibilityM) + ' m');
+    if (hasValue(c, 'inCloud')) add('Cloud', c.inCloud ? 'in cloud' : 'not in cloud');
+    if (c.precipitation)
+        add('Precipitation', c.precipitation + (c.precipitation !== 'none' && hasValue(c, 'precipitationRate') ? ', rate ' + c.precipitationRate.toFixed(1) + ' mm of water' : ''));
     if (hasValue(c, 'windMinKt')) {
         var wind = roundHalfAwayFromZero(c.windMinKt) + '-' + roundHalfAwayFromZero(c.windMaxKt) + ' kt';
         if (hasValue(c, 'windDirectionFrom'))

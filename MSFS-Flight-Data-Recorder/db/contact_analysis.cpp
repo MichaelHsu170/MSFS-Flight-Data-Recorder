@@ -225,6 +225,12 @@ ContactConditions conditionsAt(const std::vector<TripSamplePoint>& points, const
 	c.pressureAltitudeFt = p.rawNum(TRIP_NUM_pressure_altitude) * M_2_FT;  // recorded in meters
 	c.densityAltitudeFt = densityAltitudeFeet(c.pressureAltitudeFt, c.temperatureC);
 	c.visibilityM = p.rawNum(TRIP_NUM_ambient_visibility);
+	c.seaLevelPressureMb = p.rawNum(TRIP_NUM_sea_level_pressure);
+	const double precipitationState = p.rawNum(TRIP_NUM_ambient_precip_state);
+	c.precipitation = precipitationName(precipitationState);
+	c.precipitationRate = p.rawNum(TRIP_NUM_ambient_precip_rate);
+	if (!std::isnan(precipitationState))
+		c.inCloud = TripBoolBits::ambient_in_cloud.isSet(p.boolGroups) ? 1 : 0;
 	c.fieldElevationFt = groundElevation(points[s.ground]);
 	c.surfaceType = surfaceTypeName(p.rawNum(TRIP_NUM_surface_type));
 	c.surfaceCondition = surfaceConditionName(p.rawNum(TRIP_NUM_surface_condition));
@@ -329,6 +335,19 @@ QString surfaceTypeName(double value) {
 QString surfaceConditionName(double value) {
 	static const char* const names[] = { "normal", "wet", "icy", "snow" };
 	return enumName(names, value);
+}
+
+QString precipitationName(double mask) {
+	if (std::isnan(mask))
+		return QString();
+	const int bits = (int)mask;
+	if ((bits & 4) && (bits & 8))
+		return QStringLiteral("rain and snow");
+	if (bits & 4)
+		return QStringLiteral("rain");
+	if (bits & 8)
+		return QStringLiteral("snow");
+	return bits & 2 ? QStringLiteral("none") : QString();
 }
 
 void analyzeContacts(TripDataset& dataset) {

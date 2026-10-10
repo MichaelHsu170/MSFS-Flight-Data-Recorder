@@ -79,6 +79,12 @@ struct ContactConditions {
 	double pressureAltitudeFt = std::nan("");
 	double densityAltitudeFt = std::nan(""); // densityAltitudeFeet()
 	double visibilityM = std::nan("");
+	double seaLevelPressureMb = std::nan(""); // the actual QNH, so a wrong altimeter setting shows
+	QString precipitation;                   // AMBIENT PRECIP STATE ("rain"), empty if unknown
+	double precipitationRate = std::nan(""); // AMBIENT PRECIP RATE, millimeters of water
+	// 1 in cloud, 0 not; NaN unless the sample also recorded the precipitation
+	// state: older samples, recorded before this bit, have it cleared, not unknown.
+	double inCloud = std::nan("");
 	double fieldElevationFt = std::nan(""); // ground under the aircraft, ft MSL
 	// Wind over the 30 s up to the contact: lowest and highest speed (kt), and
 	// the direction range (degrees true, From..To clockwise).

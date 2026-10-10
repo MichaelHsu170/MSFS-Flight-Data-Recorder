@@ -102,6 +102,7 @@ QString fullContactJs() {
 		conditions: {headingTrue: 338.4, headingMagnetic: 334, trackTrue: 340.6, magneticVariation: 4.4, crabAngle: -2.2,
 			sunElevation: -3.21, temperatureC: 31.5, stationPressureHg: 29.12, altimeterHg: 29.92, altimeterMb: 1013.2,
 			pressureAltitudeFt: 1949.6, densityAltitudeFt: 4210.4, visibilityM: 9999.4, fieldElevationFt: 2100.4,
+			seaLevelPressureMb: 1008.6, inCloud: 1, precipitation: 'rain', precipitationRate: 2.46,
 			windMinKt: 8.4, windMaxKt: 14.6, windDirectionFrom: 350.4, windDirectionTo: 20.4,
 			surfaceType: 'asphalt', surfaceCondition: 'wet'},
 		profile: {gates: [
@@ -687,9 +688,11 @@ private slots:
 				'  Position: 24.5528° N, 39.7051° E; magnetic variation 4.4° E',
 				'  Ground elevation at the contact: 2100 ft',
 				'  Outside air temperature: 31.5 °C',
-				'  Pressure: altimeter setting 29.92 inHg (1013 mb); station pressure 29.12 inHg',
+				'  Pressure: altimeter setting 29.92 inHg (1013 mb); station pressure 29.12 inHg; actual sea-level pressure 1009 mb',
 				'  Altitudes: pressure altitude 1950 ft; density altitude 4210 ft',
 				'  Visibility: 9999 m',
+				'  Cloud: in cloud',
+				'  Precipitation: rain, rate 2.5 mm of water',
 				'  Wind over the 30 s before the contact: 8-15 kt, direction 350° to 20° true (clockwise)',
 				'  Surface under the aircraft: asphalt, wet',
 				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):',
@@ -765,6 +768,15 @@ private slots:
 				"|; threshold = along the runway from the marked threshold,marked threshold"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, {runwayLengthFt: undefined, profile: {gates: [], series: [{seconds: 0}]}})")).toString(),
 			QStringLiteral("no threshold"));
+	}
+
+	// Out of cloud is said, not left out; no precipitation has no rate.
+	void cloudAndPrecipitationLines() {
+		const QString js = QStringLiteral(
+			"(function () { var t = %1; Object.assign(t.conditions, {inCloud: 0, precipitation: 'none', precipitationRate: 0});"
+			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /^  (Cloud|Precipitation):/.test(l); }).join('|'); })()")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral("  Cloud: not in cloud|  Precipitation: none"));
 	}
 
 	void sunLightBands() {
