@@ -913,9 +913,8 @@ private slots:
 		QCOMPARE(dataset.liftoffPoints[0].icao, QStringLiteral("AAAA"));
 		QCOMPARE(dataset.touchdowns.size(), size_t(1));
 		QCOMPARE(dataset.touchdowns[0].icao, QStringLiteral("BBBB"));
-		// Its conditions and final trajectory come from its sample.
+		// Its conditions come from its sample.
 		QVERIFY(dataset.touchdowns[0].conditions.fromSample);
-		QCOMPARE(dataset.touchdowns[0].profile.series.size(), size_t(2));
 		QCOMPARE(dataset.events.size(), size_t(1));
 		QCOMPARE(dataset.events[0].sampleIndex, 1);
 		QCOMPARE(dataset.events[0].latitude, 2.0);

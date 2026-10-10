@@ -186,7 +186,7 @@ Clicking a liftoff or touchdown marker on the map opens a popup with two panels:
   - Every heading is marked true (**T**) or magnetic (**M**). The runway and wind headings are true. The aircraft's heading is shown in true too, from the trip's sample at that moment, with the recorded magnetic heading in parentheses (e.g. "338° T (334° M)"), so it compares directly with the runway's. The difference that remains is the **crab** angle: heading minus ground track, "2° R" when the nose points right of the track. A liftoff or touchdown without a matching sample shows only the magnetic heading and no crab.
 - **Right**: an **Analyze Liftoff** / **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API).
 
-The prompt sends the popup's values, every heading in true, including the runway's real heading (not just its two-digit number, which can be off by up to ~10°), so the model can calculate an accurate crosswind component. It also sends what the trip's samples show around the liftoff or touchdown, derived when the trip loads (`db/contact_analysis.cpp`), so trips recorded before this feature get it too:
+The prompt sends the popup's values, every heading in true, including the runway's real heading (not just its two-digit number, which can be off by up to ~10°), so the model can calculate an accurate crosswind component. It also sends what the trip's samples show around the liftoff or touchdown, derived from them (`db/contact_analysis.cpp`), so trips recorded before this feature get it too: the conditions when the trip loads, the final trajectory when its Analyze button is clicked.
 
 - **Conditions**: time, the sun's elevation and the light (day, civil/nautical/astronomical twilight, night; computed from the position and time, since at high latitude the same clock time can be midnight sun or polar night), position and magnetic variation, ground elevation, outside air temperature, altimeter setting, station pressure and the actual sea-level pressure (so a wrong altimeter setting shows), pressure and density altitude, visibility, whether the aircraft was in cloud, precipitation and its rate, the wind's range over the 30 s before, and the surface type and condition. Sea-level pressure, cloud and precipitation are recorded only by this version onward, so older trips don't have them.
 - **Runway**, when one was matched: its length, width, displaced threshold at the end used and slope (uphill or downhill in the direction of travel), and the runway remaining ahead of the touchdown or liftoff in ft and % of its length. These come from the simulator's facility data when the contact is recorded, so liftoffs and touchdowns recorded before this feature don't have them.
@@ -196,7 +196,10 @@ The prompt sends the popup's values, every heading in true, including the runway
   - **Highest terrain** under the 5 nm before the touchdown or after the liftoff.
   - With the runway data, each gate and sample also gives its distance along the runway from the marked threshold (touchdown) or the runway start (liftoff), negative before it, and its distance right or left of the extended centerline.
   - **Heights are measured from the touchdown or liftoff point, not radio height.** Radio height follows the terrain under the aircraft (a valley, cliff or the sea before the runway), so each point also gives the terrain below it.
-  - The window stops at the trip's previous or next liftoff/touchdown, so a touch-and-go's circuit isn't counted twice.
+  - The window stops at the trip's previous or next liftoff/touchdown, so a touch-and-go's circuit or a bounce isn't counted twice. Each touchdown of a bounced landing gets its own.
+  - **When it can't be built**, because the trip has no sample at or after the contact, or a time in its window (the contact's or a sample's) can't be read, the analysis covers the liftoff or touchdown itself only. The prompt tells the model so, and a notice under the button tells you.
+
+Until the answer starts, a status line in the result area says what it's waiting for: "Building the approach trajectory…" (or climb-out), "Sending to LLM…", then "Waiting for the model…", counting retries ("Retrying (2/3): …").
 
 A value that wasn't recorded is left out, never sent as 0. The model is also told to describe the airport's terrain, procedures and hazards from its general knowledge, labeled as such. It must check each one against the runway end used and the recorded trajectory before applying it, and say when it doesn't know the airport. The prompt is bounded by construction: under 32,000 characters with every value present.
 
@@ -261,7 +264,7 @@ MSFS-Flight-Data-Recorder/
 │   │   ├── db_connection.h / .cpp  Read-only/read-write connections for the UI and background queries
 │   │   ├── db_query.h / .cpp     Statement helpers shared by the UI-side queries: row loop, single statements, transactions
 │   │   ├── db_history.h / .cpp   Read-only queries: trip list, telemetry, events, liftoff points, touchdowns; trip deletion, AI reports
-│   │   ├── contact_analysis.h / .cpp  Each liftoff's/touchdown's conditions and final trajectory, derived from the trip's samples on load
+│   │   ├── contact_analysis.h / .cpp  Each liftoff's/touchdown's conditions (on load) and final trajectory (on analysis), derived from the trip's samples
 │   │   ├── db_groups.h / .cpp    Trip-group queries: list, add, rename, delete, reorder, assign a trip
 │   │   └── trip_dataset.h        Shared data structs (TripSamplePoint, TripEvent, TripDataset, etc.) and helpers
 │   ├── ui/                       The main window and its panels

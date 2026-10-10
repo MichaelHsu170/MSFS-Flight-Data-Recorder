@@ -28,7 +28,6 @@ void setKnown(QJsonObject& obj, const char* key, const QString& value) {
 QJsonObject conditionsToJson(const ContactConditions& c) {
 	QJsonObject obj;
 	setKnown(obj, "headingTrue", c.headingTrue);
-	setKnown(obj, "headingMagnetic", c.headingMagnetic);
 	setKnown(obj, "trackTrue", c.trackTrue);
 	setKnown(obj, "magneticVariation", c.magneticVariation);
 	setKnown(obj, "crabAngle", c.crabAngle);
@@ -77,15 +76,6 @@ QJsonArray profilePointsToJson(const std::vector<ProfilePoint>& points) {
 	return arr;
 }
 
-QJsonObject profileToJson(const ContactProfile& profile) {
-	QJsonObject obj;
-	obj["gates"] = profilePointsToJson(profile.gates);
-	obj["series"] = profilePointsToJson(profile.series);
-	setKnown(obj, "highestTerrainFt", profile.highestTerrainFt);
-	setKnown(obj, "highestTerrainNm", profile.highestTerrainNm);
-	return obj;
-}
-
 // The fields liftoff and touchdown markers share (their popups show the same
 // runway/attitude/wind details).
 QJsonObject runwayContactToJson(const RunwayContactPoint& t) {
@@ -116,14 +106,21 @@ QJsonObject runwayContactToJson(const RunwayContactPoint& t) {
 	setKnown(obj, "runwayWidthFt", t.runwayData.widthFt);
 	setKnown(obj, "thresholdOffsetFt", t.runwayData.thresholdOffsetFt);
 	setKnown(obj, "runwaySlope", t.runwayData.slopeDegrees);
-	// Without a sample at the contact there's nothing to derive: both absent.
-	if (t.conditions.fromSample) {
+	// Without a sample at the contact there's nothing to derive: absent.
+	if (t.conditions.fromSample)
 		obj["conditions"] = conditionsToJson(t.conditions);
-		obj["profile"] = profileToJson(t.profile);
-	}
 	return obj;
 }
 
+}
+
+QJsonObject mapProfileJson(const ContactProfile& profile) {
+	QJsonObject obj;
+	obj["gates"] = profilePointsToJson(profile.gates);
+	obj["series"] = profilePointsToJson(profile.series);
+	setKnown(obj, "highestTerrainFt", profile.highestTerrainFt);
+	setKnown(obj, "highestTerrainNm", profile.highestTerrainNm);
+	return obj;
 }
 
 QString mapSetStringJs(const QString& jsVariable, const QString& value) {

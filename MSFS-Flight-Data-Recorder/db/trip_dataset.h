@@ -123,7 +123,8 @@ struct ProfilePoint {
 	double pathAngle = std::nan("");
 };
 
-// A liftoff's/touchdown's final trajectory (analyzeContacts()): the approach
+// A liftoff's/touchdown's final trajectory (contactProfile() in
+// contact_analysis.h, built when its AI analysis asks for it): the approach
 // before a touchdown, the rotation and climb-out around a liftoff. Never
 // reaches past the trip's previous or next contact.
 struct ContactProfile {
@@ -150,8 +151,8 @@ struct ContactRunway {
 };
 
 // What a liftoff and a touchdown both record (trip_liftoffs/trip_touchdowns
-// share these columns), shown as a map marker and its popup. conditions and
-// profile are derived from the trip's samples when it loads.
+// share these columns), shown as a map marker and its popup. conditions are
+// derived from the trip's samples when it loads.
 struct RunwayContactPoint {
 	double latitude = 0;
 	double longitude = 0;
@@ -178,7 +179,6 @@ struct RunwayContactPoint {
 	QString analysisReport;  // stored AI analysis text, empty if never analyzed
 	ContactRunway runwayData;
 	ContactConditions conditions;
-	ContactProfile profile;
 };
 
 // One moment the aircraft became airborne during the trip (trip_liftoffs):

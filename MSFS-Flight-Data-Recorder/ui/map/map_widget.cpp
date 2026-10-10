@@ -216,6 +216,7 @@ void MapWidget::setDataset(const TripDataset& dataset) {
 	// DataTablePanel's own raw dataset_ pointer -- see trajectory_view.cpp's
 	// setDataset() for the destruction-ordering guarantee.
 	dataset_ = &dataset;
+	bridge_->setDataset(dataset_);
 	trajCoords_.clear();
 	trajCoords_.reserve(dataset.points.size());
 	QElapsedTimer copyTimer; copyTimer.start();
@@ -251,6 +252,7 @@ void MapWidget::showOverview(const std::vector<TripSummary>& trips) {
 	overviewTrips_ = trips;
 	lastCursorIndex_ = -1;
 	dataset_ = nullptr;
+	bridge_->setDataset(nullptr);
 	trajCoords_.clear();
 	liftoffPoints_.clear();
 	touchdowns_.clear();

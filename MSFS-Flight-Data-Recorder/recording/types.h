@@ -170,7 +170,9 @@ public:
 	COORDINATE coordinate;
 	// SLOPE, degrees: the last field of the wire copy (see
 	// FACILITY_DATA_RUNWAY in airport_lookup.cpp). Taken as rising from the
-	// primary end toward the secondary (RUNWAY_OPERATION::slope).
+	// primary end toward the secondary (RUNWAY_OPERATION::slope). The SDK
+	// doesn't say which way it points; not yet checked against a sloped
+	// runway in the simulator (see tests/README.md, "Not covered").
 	float slope;
 	COORDINATE start_points[2];
 

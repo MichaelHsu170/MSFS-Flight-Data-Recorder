@@ -58,6 +58,9 @@
     color: #7c3aed;
   }
 
+  .td-status { color: #7c3aed; font-style: italic; }
+  .td-note { margin-top: 6px; font-size: 11px; line-height: 1.5; color: #92400e; }
+
   .td-analyze-btn {
     display: inline-flex;
     align-items: center;
@@ -222,8 +225,8 @@ function contactRunwayLabel(t, trueLabel) {
     return t.runway + (t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '° ' + trueLabel + ')' : '');
 }
 
-// Whether t's derived conditions/profile (map_script.cpp, absent for a value
-// that wasn't recorded) have key.
+// Whether t's derived conditions (map_script.cpp) or profile (MapBridge),
+// absent for a value that wasn't recorded, have key.
 function hasValue(obj, key) {
     return !!obj && typeof obj[key] === 'number';
 }
@@ -379,10 +382,13 @@ function profilePointText(p) {
 // point (pointName) rather than the ground below, over seriesSpan ("last 15 s")
 // and terrainSpan ("before the touchdown"). A point's threshold distance is
 // measured from thresholdName ("marked threshold"), like the contact's. None
-// without any of them.
+// without any of them; a line saying it's unavailable when t.profile is null
+// (MapBridge couldn't build it, runAiAnalysis()).
 function profilePromptLines(t, pointName, seriesSpan, terrainSpan, thresholdName) {
     var profile = t.profile;
-    if (!profile || (!profile.gates.length && !profile.series.length && !hasValue(profile, 'highestTerrainFt'))) return [];
+    if (!profile)
+        return ['Final trajectory: not available (it could not be built from the recorded samples). Judge the ' + pointName + ' from the data above alone, and in the Final segment section say that the trajectory was not available instead of describing it.'];
+    if (!profile.gates.length && !profile.series.length && !hasValue(profile, 'highestTerrainFt')) return [];
     var onRunway = profile.gates.concat(profile.series).some(function(p) { return hasValue(p, 'thresholdFt'); });
     var lines = ['Final trajectory (seconds from the ' + pointName + '; height = altitude above the ' + pointName + ', not radio height; distance = to the ' + pointName + '; terrain = ground below relative to the ' + pointName
         + (onRunway ? '; threshold = along the runway from the ' + thresholdName + ', negative = before it; centerline = from the extended runway centerline' : '') + '):'];
@@ -572,16 +578,32 @@ function showSaveResult(el, ok) {
         + 'so it won\'t be there the next time this trip is loaded.</div>');
 }
 
+// Each Analyze handler's final trajectory, by the handler's name: for its
+// status line and its popup's can't-be-built notice.
+var TRAJECTORY_NAMES = { analyzeLiftoff: 'climb-out', analyzeTouchdown: 'approach' };
+
 async function analyzeLiftoff(id) {
-    return runAiAnalysis(id, _liftoffStore[id], buildLiftoffPrompt, function(rowId, report, onSaved) {
+    return runAiAnalysis(id, _liftoffStore[id], TRAJECTORY_NAMES.analyzeLiftoff, function(rowId, onLoaded) {
+        if (mapBridge) mapBridge.liftoffProfile(rowId, onLoaded); else onLoaded(null);
+    }, buildLiftoffPrompt, function(rowId, report, onSaved) {
         if (mapBridge) mapBridge.saveLiftoffAnalysisReport(rowId, report, onSaved);
     }, 'Analyze Liftoff');
 }
 
 async function analyzeTouchdown(id) {
-    return runAiAnalysis(id, _touchdownStore[id], buildTouchdownPrompt, function(rowId, report, onSaved) {
+    return runAiAnalysis(id, _touchdownStore[id], TRAJECTORY_NAMES.analyzeTouchdown, function(rowId, onLoaded) {
+        if (mapBridge) mapBridge.touchdownProfile(rowId, onLoaded); else onLoaded(null);
+    }, buildTouchdownPrompt, function(rowId, report, onSaved) {
         if (mapBridge) mapBridge.saveTouchdownAnalysisReport(rowId, report, onSaved);
     }, 'Analyze Landing');
+}
+
+// Below point id's Analyze button, whether its last analysis had to go
+// without the final trajectory (t.profile null, runAiAnalysis()), in its popup
+// as it is now.
+function showProfileNotice(id, t) {
+    var note = document.getElementById('td-note-' + id);
+    if (note) note.style.display = t.profile === null ? '' : 'none';
 }
 
 // Shows point id's analysis as running (button disabled, spinner) or not, in
@@ -593,7 +615,12 @@ function showAnalysisRunning(id, running) {
     if (spinner) spinner.style.display = running ? 'inline-block' : 'none';
 }
 
-async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
+// Runs point id's AI analysis: first its final trajectory (trajectoryName,
+// "approach"), from loadProfile(rowId, onLoaded) into t.profile (null when it
+// can't be built: the analysis then covers the contact alone, the prompt and
+// a notice under the button say so), then the model's streamed answer, with a
+// status line in the result area until the first of it arrives.
+async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, saveReport, retryLabel) {
     var result  = document.getElementById('td-result-' + id);
     // t.analyzing: already running for this point, from a popup since closed
     // and reopened.
@@ -602,12 +629,16 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
     t.analyzing = true;
     showAnalysisRunning(id, true);
 
+    result.innerHTML = '<div class="td-status">Building the ' + trajectoryName + ' trajectory…</div>';
+    t.profile = await new Promise(function(resolve) { loadProfile(t.rowId, resolve); });
+    showProfileNotice(id, t);
+
     var key = window._geminiApiKey || '';
     var MAX_ATTEMPTS = 3;
 
     // Per-attempt DOM refs and state -- function-scoped so onChunk can close
     // over them; initAttempt() reassigns them before each attempt.
-    var thDet, thSum, thArr, thLbl, thBody, finalDiv;
+    var statusDiv, thDet, thSum, thArr, thLbl, thBody, finalDiv;
     var sawThinking, thinkingDone;
     var thinkingText, finalText;
     var finishReason;
@@ -616,7 +647,8 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
     // answers without it shows just the answer.
     function initAttempt() {
         result.innerHTML =
-            '<details class="td-think-det" id="td-th-det-' + id + '" open style="display:none">'
+            '<div class="td-status" id="td-status-' + id + '"></div>'
+          + '<details class="td-think-det" id="td-th-det-' + id + '" open style="display:none">'
           +   '<summary class="td-think-sum" id="td-th-sum-' + id + '"'
           +     ' style="pointer-events:none;opacity:0.55;cursor:default">'
           +     '<span id="td-th-arr-' + id + '">▾</span>'
@@ -627,6 +659,8 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
           + '<div id="td-th-final-' + id + '"></div>';
         // Looked up in result, not the document: a popup closed mid-analysis
         // is no longer in the document, but its attempts still run here.
+        statusDiv = result.querySelector('#td-status-'  + id);
+        showStatus('Sending to LLM…');
         thDet    = result.querySelector('#td-th-det-'   + id);
         thSum    = result.querySelector('#td-th-sum-'   + id);
         thArr    = result.querySelector('#td-th-arr-'   + id);
@@ -647,7 +681,14 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
         });
     }
 
+    // Until the first chunk: what's being waited for, with the attempt
+    // number on a retry.
+    function showStatus(text) {
+        statusDiv.textContent = (attempt > 0 ? 'Retrying (' + (attempt + 1) + '/' + MAX_ATTEMPTS + '): ' : '') + text;
+    }
+
     function onChunk(text, isThought) {
+        statusDiv.style.display = 'none';
         if (isThought) {
             sawThinking = true;
             thDet.style.display = '';
@@ -687,6 +728,7 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
                     })
                 }
             );
+            if (res.ok) showStatus('Waiting for the model…');
             if (!res.ok) {
                 var errBody = await res.text();
                 // A server error (5xx) or rate limit (429) is often gone a
@@ -760,6 +802,7 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
         }
     }
 
+    statusDiv.style.display = 'none';
     t.analyzing = false;
     showAnalysisRunning(id, false);
     result.scrollTop = 0;
@@ -868,6 +911,10 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
         '      ✦ ' + analyzeLabel,
         '    </button>',
         '    <span id="td-spin-' + id + '" class="td-spinner" style="display:none">↻</span>',
+        '  </div>',
+        '  <div id="td-note-' + id + '" class="td-note" style="display:none">',
+        '    The ' + TRAJECTORY_NAMES[analyzeFn] + ' trajectory couldn\'t be built from this trip\'s',
+        '    recorded samples, so this analysis covers the ' + title.toLowerCase() + ' itself only.',
         '  </div>',
         '  <div id="td-result-' + id + '"',
         '       style="margin-top:9px;font-size:11px;line-height:1.6;height:260px;overflow-y:auto;color:#374151">',
@@ -1266,6 +1313,7 @@ function initLeafletProvider() {
                 var stored = currentStore()[popup.id];
                 if (stored && stored.analysisReport) renderStoredReport(popup.id, stored.analysisReport);
                 if (stored && stored.analyzing) showAnalysisRunning(popup.id, true);
+                if (stored) showProfileNotice(popup.id, stored);
             });
             return m;
         });

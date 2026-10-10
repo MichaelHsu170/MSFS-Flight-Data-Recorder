@@ -27,6 +27,7 @@
 #include "map_bridge.h"
 #include "map_widget.h"
 #include "test_support.h"
+#include "trip_data_fields.h"
 
 #include <QApplication>
 #include <QClipboard>
@@ -43,6 +44,7 @@
 #include <QWebEngineView>
 #include <QtTest>
 
+#include <cmath>
 #include <functional>
 
 using namespace TestSupport;
@@ -99,7 +101,7 @@ QString fullContactJs() {
 		windDirection: 299, windVelocity: 12, gForce: 1.21,
 		runwayLengthFt: 10000.4, runwayWidthFt: 150.4, thresholdOffsetFt: 820.4, runwaySlope: -0.314,
 		zuluTime: '2026-06-21T00:00:00.000+00:00_1', localTime: '2026-06-21T03:00:00.000+03:00_1',
-		conditions: {headingTrue: 338.4, headingMagnetic: 334, trackTrue: 340.6, magneticVariation: 4.4, crabAngle: -2.2,
+		conditions: {headingTrue: 338.4, trackTrue: 340.6, magneticVariation: 4.4, crabAngle: -2.2,
 			sunElevation: -3.21, temperatureC: 31.5, stationPressureHg: 29.12, altimeterHg: 29.92, altimeterMb: 1013.2,
 			pressureAltitudeFt: 1949.6, densityAltitudeFt: 4210.4, visibilityM: 9999.4, fieldElevationFt: 2100.4,
 			seaLevelPressureMb: 1008.6, inCloud: 1, precipitation: 'rain', precipitationRate: 2.46,
@@ -110,7 +112,7 @@ QString fullContactJs() {
 					verticalSpeed: -702.6, pitch: 2.04, bank: -1.26, headingTrue: 338.4, trackTrue: 340.6,
 					thresholdFt: -8640.4, centerlineFt: -12.6},
 				{gate: '1 nm', seconds: -27, heightFt: 318.4, distanceNm: 1.0, pathAngle: 3.04}],
-			series: [{seconds: -0.5, heightFt: 2.4}], highestTerrainFt: 612.4, highestTerrainNm: 4.2}})js");
+			series: [{seconds: -0.5, heightFt: 2.4, terrainFt: 30.4}], highestTerrainFt: 612.4, highestTerrainNm: 4.2}})js");
 }
 
 }
@@ -129,11 +131,18 @@ class TstMapWidget : public QObject {
 	// pieces with HTTP status statuses[n] (the last one repeated; 200 if
 	// none; 0 for a request that never reaches the service, as when offline;
 	// -1 for a 200 whose connection drops after its pieces); saving the
-	// report succeeds if saveOk. Returns what it did: calls (fetches made),
-	// saved (the report saved, null if none), text (the answer shown),
-	// thinkingShown, and the last request's url and apiKey (its
-	// x-goog-api-key header).
-	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts, bool saveOk = true, const QList<int>& statuses = {}) {
+	// report succeeds if saveOk; the trajectory loaded first is profile (JS,
+	// "null" for none). Returns what it did: calls (fetches made), saved (the
+	// report saved, null if none), text (the answer shown), thinkingShown,
+	// the last request's url and apiKey (its x-goog-api-key header),
+	// profileRow (the row whose trajectory was asked for), statuses (the
+	// result area's text while the trajectory loaded, then the status line's
+	// at each request and each attempt's first read), statusShown (after),
+	// statusShownAtStreamEnd (when the last attempt's stream ended),
+	// noticeShown (the no-trajectory notice) and promptProfile (t.profile
+	// when the prompt was built, as JSON).
+	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts, bool saveOk = true, const QList<int>& statuses = {},
+		const QString& profile = QStringLiteral("{gates: [], series: []}")) {
 		QJsonArray json;
 		for (const QStringList& pieces : attempts)
 			json.append(QJsonArray::fromStringList(pieces));
@@ -141,20 +150,25 @@ class TstMapWidget : public QObject {
 		for (int status : statuses)
 			jsonStatuses.append(status);
 		evalPageJs(widget_, QStringLiteral(R"JS(
-			(function (attempts, statuses) {
-			    window._ai = { calls: 0, saved: null, done: false };
+			(function (attempts, statuses, profile) {
+			    window._ai = { calls: 0, saved: null, done: false, statuses: [] };
+			    function statusText() { return document.getElementById('td-status-ai').textContent; }
 			    var realFetch = window.fetch;
 			    window.fetch = function (url, init) {
 			        window._ai.url = url;
 			        window._ai.apiKey = init.headers['x-goog-api-key'];
+			        window._ai.statuses.push(statusText());
 			        var n = window._ai.calls++;
 			        var status = statuses.length ? statuses[Math.min(n, statuses.length - 1)] : 200;
 			        if (status === 0) return Promise.reject(new TypeError('Failed to fetch'));
 			        var drops = status === -1;
 			        if (drops) status = 200;
 			        var pieces = attempts[Math.min(n, attempts.length - 1)].slice();
+			        var firstRead = true;
 			        var reader = { read: function () {
+			            if (firstRead) { firstRead = false; window._ai.statuses.push(statusText()); }
 			            if (pieces.length) return Promise.resolve({ done: false, value: new TextEncoder().encode(pieces.shift()) });
+			            window._ai.statusShownAtStreamEnd = document.getElementById('td-status-ai').style.display !== 'none';
 			            return drops ? Promise.reject(new TypeError('network error')) : Promise.resolve({ done: true });
 			        } };
 			        return Promise.resolve({ ok: status < 300, status: status,
@@ -163,19 +177,28 @@ class TstMapWidget : public QObject {
 			    };
 			    var box = document.getElementById('ai-test');
 			    if (!box) { box = document.createElement('div'); box.id = 'ai-test'; document.body.appendChild(box); }
-			    box.innerHTML = '<button id="td-btn-ai"></button><span id="td-spin-ai"></span><div id="td-result-ai"></div>';
-			    runAiAnalysis('ai', { rowId: 5 }, function () { return 'prompt'; },
+			    box.innerHTML = '<button id="td-btn-ai"></button><span id="td-spin-ai"></span><div id="td-note-ai"></div>'
+			        + '<div id="td-result-ai"></div>';
+			    runAiAnalysis('ai', { rowId: 5 }, 'climb-out', function (rowId, onLoaded) {
+			            window._ai.profileRow = rowId;
+			            window._ai.statuses.push(document.getElementById('td-result-ai').textContent);
+			            setTimeout(function () { onLoaded(profile); }, 0);
+			        }, function (t) { window._ai.promptProfile = JSON.stringify(t.profile); return 'prompt'; },
 			        function (rowId, report, onSaved) { window._ai.saved = report; onSaved(%2); }, 'Analyze Liftoff')
 			        .then(function () { window.fetch = realFetch; window._ai.done = true; });
-			})(%1, %3))JS").arg(QString::fromUtf8(QJsonDocument(json).toJson(QJsonDocument::Compact)),
+			})(%1, %3, %4))JS").arg(QString::fromUtf8(QJsonDocument(json).toJson(QJsonDocument::Compact)),
 				saveOk ? QStringLiteral("true") : QStringLiteral("false"),
-				QString::fromUtf8(QJsonDocument(jsonStatuses).toJson(QJsonDocument::Compact))));
+				QString::fromUtf8(QJsonDocument(jsonStatuses).toJson(QJsonDocument::Compact)), profile));
 		if (!QTest::qWaitFor([this] { return evalPageJs(widget_, QStringLiteral("window._ai.done")).toBool(); }, 5000))
 			return {};
 		return evalPageJs(widget_, QStringLiteral(
 			"({ calls: window._ai.calls, saved: window._ai.saved, url: window._ai.url, apiKey: window._ai.apiKey,"
 			"   text: document.getElementById('td-th-final-ai').textContent,"
-			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none' })")).toMap();
+			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none',"
+			"   profileRow: window._ai.profileRow, statuses: window._ai.statuses.join('|'), promptProfile: window._ai.promptProfile,"
+			"   statusShown: document.getElementById('td-status-ai').style.display !== 'none',"
+			"   statusShownAtStreamEnd: window._ai.statusShownAtStreamEnd,"
+			"   noticeShown: document.getElementById('td-note-ai').style.display !== 'none' })")).toMap();
 	}
 
 	QWebEngineView* mapView() { return widget_->findChild<QWebEngineView*>(); }
@@ -700,7 +723,7 @@ private slots:
 				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft left',
 				'    1 nm: -27.0 s, height 318 ft, 1.00 nm, path angle 3.0° from here',
 				'  Samples, last 15 s before the touchdown:',
-				'    -0.5 s, height 2 ft',
+				'    -0.5 s, height 2 ft, terrain +30 ft',
 				'  Highest terrain within 5 nm before the touchdown: +612 ft, 4.20 nm from the touchdown point (more than 500 ft above it)'
 			])js"));
 		QCOMPARE(evalPageJs(widget_, js).toStringList(), QStringList());
@@ -742,9 +765,25 @@ private slots:
 			"    .concat(lines.slice(at + 1, lines.indexOf('', at))).join('|'); })(%1)");
 		const QString withoutSample = QStringLiteral(
 			"false|false|  Heading: 271° magnetic|  Time: 2026-01-01T10:00:00.000+00:00|  Position: 51.4700° N, 0.4500° W");
-		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{}"))).toString(), withoutSample);
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{profile: {gates: [], series: []}}"))).toString(), withoutSample);
 		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{conditions: {}, profile: {gates: [], series: []}}"))).toString(),
 			withoutSample);
+	}
+
+	// A trajectory that couldn't be built (null, from MapBridge) isn't left
+	// out silently: the prompt says so, and has the model judge the contact
+	// alone and say so in its Final segment section.
+	void promptSaysWhenTheTrajectoryIsUnavailable() {
+		const QString js = QStringLiteral(
+			"(function () { var t = %1; t.profile = null;"
+			"  return [buildLiftoffPrompt(t), buildTouchdownPrompt(t)].map(function (p) {"
+			"    return p.split('\\n').filter(function (l) { return /^Final trajectory/.test(l); }).join('/'); }).join('|'); })()")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral(
+			"Final trajectory: not available (it could not be built from the recorded samples). Judge the liftoff point from the data "
+			"above alone, and in the Final segment section say that the trajectory was not available instead of describing it."
+			"|Final trajectory: not available (it could not be built from the recorded samples). Judge the touchdown point from the data "
+			"above alone, and in the Final segment section say that the trajectory was not available instead of describing it."));
 	}
 
 	// The runway's dimensions and the runway left ahead follow the contact:
@@ -777,6 +816,53 @@ private slots:
 			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /^  (Cloud|Precipitation):/.test(l); }).join('|'); })()")
 			.arg(fullContactJs());
 		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral("  Cloud: not in cloud|  Precipitation: none"));
+	}
+
+	// A crab that rounds to 0.0° names no side of the track.
+	void promptCrabRoundingToZeroNamesNoSide() {
+		const QString js = QStringLiteral(
+			"(function () { var t = %1; t.conditions.crabAngle = -0.04;"
+			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /^  Heading:/.test(l); }).join('|'); })()")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js).toString(),
+			QStringLiteral("  Heading: 338° true (334° magnetic); ground track 341° true; crab 0.0°"));
+	}
+
+	// The surface line names only the parts that are known.
+	void surfaceLineNamesOnlyWhatIsKnown() {
+		const QString js = QStringLiteral(
+			"(function (extra) { var t = %1; Object.assign(t.conditions, extra);"
+			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /^  Surface/.test(l); }).join('|'); })")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({surfaceCondition: undefined})")).toString(),
+			QStringLiteral("  Surface under the aircraft: asphalt"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({surfaceType: undefined})")).toString(),
+			QStringLiteral("  Surface under the aircraft: wet"));
+	}
+
+	// Each Analyze button asks MapBridge for its own contact's trajectory,
+	// by its row: a liftoff's climb-out, a touchdown's approach.
+	void analyzeAsksForItsOwnContactsTrajectory() {
+		const QString asked = evalPageJs(widget_, QStringLiteral(R"JS(
+			(function () {
+			    var asked = [], realRun = runAiAnalysis;
+			    var real = { lo: mapBridge.liftoffProfile, td: mapBridge.touchdownProfile };
+			    mapBridge.liftoffProfile = function (rowId) { asked.push('liftoff ' + rowId); };
+			    mapBridge.touchdownProfile = function (rowId) { asked.push('touchdown ' + rowId); };
+			    runAiAnalysis = function (id, t, name, loadProfile) { loadProfile(t.rowId, function () {}); };
+			    _liftoffStore.probe = { rowId: 3 };
+			    _touchdownStore.probe = { rowId: 7 };
+			    analyzeLiftoff('probe');
+			    analyzeTouchdown('probe');
+			    delete _liftoffStore.probe;
+			    delete _touchdownStore.probe;
+			    runAiAnalysis = realRun;
+			    mapBridge.liftoffProfile = real.lo;
+			    mapBridge.touchdownProfile = real.td;
+			    return asked.join('|');
+			})()
+		)JS")).toString();
+		QCOMPARE(asked, QStringLiteral("liftoff 3|touchdown 7"));
 	}
 
 	void sunLightBands() {
@@ -891,6 +977,34 @@ private slots:
 		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A\nGood."));
 		QCOMPARE(r.value("text").toString(), QStringLiteral("Grade: AGood."));
 		QCOMPARE(r.value("thinkingShown").toBool(), false);
+	}
+
+	// Until the answer starts, a status line says what's being waited for:
+	// the trajectory being built, the request on its way, then the model;
+	// it's gone as soon as the answer shows.
+	void aStatusLineShowsUntilTheAnswerStarts() {
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } });
+		QCOMPARE(r.value("statuses").toString(),
+			QStringLiteral("Building the climb-out trajectory…|Sending to LLM…|Waiting for the model…"));
+		QCOMPARE(r.value("statusShownAtStreamEnd").toBool(), false);
+		QCOMPARE(r.value("statusShown").toBool(), false);
+	}
+
+	// The analysis first loads its contact's trajectory (by row id) into the
+	// prompt's t.profile. One that can't be built (null) doesn't stop it:
+	// the answer is still saved, and a notice under the button says the
+	// analysis covers the contact alone. With a trajectory there's none.
+	void anAnalysisWithoutATrajectoryGoesAheadWithANotice() {
+		const QStringList stream = { aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) };
+		QVariantMap r = runAiAnalysisWith({ stream }, true, {}, QStringLiteral("null"));
+		QCOMPARE(r.value("profileRow").toInt(), 5);
+		QCOMPARE(r.value("promptProfile").toString(), QStringLiteral("null"));
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
+		QCOMPARE(r.value("noticeShown").toBool(), true);
+
+		r = runAiAnalysisWith({ stream }, true, {}, QStringLiteral("{gates: [], series: [{seconds: -1}]}"));
+		QCOMPARE(r.value("promptProfile").toString(), QStringLiteral(R"({"gates":[],"series":[{"seconds":-1}]})"));
+		QCOMPARE(r.value("noticeShown").toBool(), false);
 	}
 
 	// The API key travels in the x-goog-api-key header, never in the URL,
@@ -1017,7 +1131,8 @@ private slots:
 			ai.firstButton = document.getElementById('td-btn-' + id);
 			ai.firstButton.click();
 		)JS"));
-		QCOMPARE(evalPageJs(widget_, QStringLiteral("window._dup.calls")).toInt(), 1);
+		// The request goes out once the trajectory is back from MapBridge.
+		QTRY_COMPARE(evalPageJs(widget_, QStringLiteral("window._dup.calls")).toInt(), 1);
 
 		const QString reopened = evalPageJs(widget_, QStringLiteral(R"JS(
 			var ai = window._dup;
@@ -1098,6 +1213,7 @@ private slots:
 		)JS").arg(streams));
 		// Leaflet fades a closed popup out before it removes it from the page.
 		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("!document.getElementById('td-result-' + window._closed.id)")).toBool());
+		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("window._closed.release !== null")).toBool());  // after the trajectory
 		evalPageJs(widget_, QStringLiteral("window._closed.release()"));
 		QTRY_VERIFY(!evalPageJs(widget_, QStringLiteral("_liftoffStore[window._closed.id].analyzing")).toBool());
 		const QString done = evalPageJs(widget_, QStringLiteral(R"JS(
@@ -1110,6 +1226,84 @@ private slots:
 			shown
 		)JS")).toString();
 		QCOMPARE(done, QStringLiteral("2|Grade: A|false|Grade: A"));
+	}
+
+	// Clicking Analyze has MapBridge build that contact's trajectory from the
+	// trip shown, for the prompt. A trip whose samples can't give one (no
+	// times) gets the prompt's "not available" line instead, and the notice
+	// under the button, which stays when the popup is reopened.
+	void analyzeGetsTheTrajectoryFromTheTrip_data() {
+		QTest::addColumn<bool>("timed");
+		QTest::addColumn<QString>("trajectoryLine");  // how the prompt's trajectory line starts
+		QTest::addColumn<bool>("notice");
+		QTest::newRow("built") << true << QStringLiteral("Final trajectory (seconds from the liftoff point;") << false;
+		QTest::newRow("unavailable") << false << QStringLiteral("Final trajectory: not available (") << true;
+	}
+	void analyzeGetsTheTrajectoryFromTheTrip() {
+		QFETCH(bool, timed);
+		QFETCH(QString, trajectoryLine);
+		QFETCH(bool, notice);
+		evalPageJs(widget_, QStringLiteral("window._geminiApiKey = 'test-key'")); // the popups are built with it
+		TripDataset dataset = tripToSave();
+		dataset.liftoffPoints[0].rowId = 5;
+		if (timed) {
+			// Rolling at 500 ft, then 60 ft up 0.5 s after the liftoff: the 35 ft gate.
+			const char* times[] = { "2026-01-02T10:00:00.000+00:00_1", "2026-01-02T10:00:01.000+00:00_1" };
+			const double altitudes[] = { 500, 560 };
+			for (int i = 0; i < 2; ++i) {
+				TripSamplePoint& p = dataset.points[i];
+				p.zuluTime = QString::fromLatin1(times[i]);
+				p.rawNums.assign(TRIP_NUM_FIELD_COUNT, std::nan(""));
+				p.rawNums[TRIP_NUM_plane_altitude] = altitudes[i];
+				p.rawNums[TRIP_NUM_plane_alt_above_ground] = altitudes[i] - 500;
+			}
+			dataset.liftoffPoints[0].zuluTime = QStringLiteral("2026-01-02T10:00:00.500+00:00_1");
+		}
+		loadTrip(dataset);
+		evalPageJs(widget_, QStringLiteral(R"JS(
+			window._geminiApiKey = '';
+			var id = Object.keys(_liftoffStore)[0];
+			var marker = null;
+			leafletMapInstance.eachLayer(function (l) {
+			    if (l.getPopup && l.getPopup() && String(l.getPopup().getContent()).indexOf('td-btn-' + id + '\x22') >= 0) marker = l;
+			});
+			var realFetch = window.fetch;
+			var ai = window._traj = { id: id, marker: marker, prompt: null };
+			window.fetch = function (url, init) {
+			    window.fetch = realFetch;
+			    ai.prompt = JSON.parse(init.body).contents[0].parts[0].text;
+			    return Promise.resolve({ ok: false, status: 400,
+			        text: function () { return Promise.resolve('[{"error":{"code":400,"message":"Stop here."}}]'); } });
+			};
+			marker.openPopup();
+			document.getElementById('td-btn-' + id).click();
+		)JS"));
+		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("window._traj.prompt !== null && !_liftoffStore[window._traj.id].analyzing")).toBool());
+		const QVariantList shown = evalPageJs(widget_, QStringLiteral(R"JS(
+			var ai = window._traj;
+			function noticeShown() { return document.getElementById('td-note-' + ai.id).style.display !== 'none'; }
+			var first = noticeShown();
+			ai.marker.closePopup();
+			ai.marker.openPopup();
+			var shown = [ai.prompt.split('\n').filter(function (l) { return /^Final trajectory/.test(l); }), first, noticeShown(),
+			    document.getElementById('td-note-' + ai.id).textContent.replace(/\s+/g, ' ').trim()];
+			ai.marker.closePopup();
+			shown
+		)JS")).toList();
+		const QStringList lines = shown.value(0).toStringList();
+		QCOMPARE(lines.size(), 1);
+		QVERIFY2(lines[0].startsWith(trajectoryLine), qPrintable(lines[0]));
+		QCOMPARE(shown.value(1).toBool(), notice);
+		QCOMPARE(shown.value(2).toBool(), notice);  // after reopening
+		QCOMPARE(shown.value(3).toString(), QStringLiteral("The climb-out trajectory couldn't be built from this trip's"
+			" recorded samples, so this analysis covers the liftoff itself only."));
+
+		// Back on the overview the trip is gone, and so is its trajectory.
+		widget_->showOverview({});
+		evalPageJs(widget_, QStringLiteral("window._traj.afterOverview = undefined;"
+			" mapBridge.liftoffProfile(5, function (p) { window._traj.afterOverview = p; })"));
+		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("window._traj.afterOverview !== undefined")).toBool());
+		QVERIFY(evalPageJs(widget_, QStringLiteral("window._traj.afterOverview === null")).toBool());
 	}
 
 	// A server error or rate limit is often gone a moment later: the request
@@ -1128,6 +1322,9 @@ private slots:
 		QCOMPARE(r.value("calls").toInt(), 2);
 		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
 		QCOMPARE(r.value("text").toString(), QStringLiteral("Grade: A"));
+		// The status line counts the retry.
+		QCOMPARE(r.value("statuses").toString(), QStringLiteral(
+			"Building the climb-out trajectory…|Sending to LLM…|Retrying (2/3): Sending to LLM…|Retrying (2/3): Waiting for the model…"));
 	}
 
 	// Three server errors in a row: the last one's message is shown and
@@ -1150,6 +1347,7 @@ private slots:
 		const QString text = r.value("text").toString();
 		QVERIFY2(text.startsWith(QStringLiteral("API error 400: API key not valid.")), qPrintable(text));
 		QVERIFY2(text.contains(QStringLiteral("gemini_api_key")), qPrintable(text));
+		QCOMPARE(r.value("statusShown").toBool(), false);  // no answer came, but it's over
 	}
 
 	// A service that can't be reached (offline) is tried three times, then

@@ -5,10 +5,13 @@
 #include <QDateTime>
 #include <QString>
 
+#include <optional>
+
 // What the map popup and the AI analysis prompt know about each liftoff and
-// touchdown beyond its own row: the conditions at that moment and the final
-// trajectory around it, both derived from the trip's samples when the trip
-// loads (completeTripDataset()), so they cover every trip ever recorded.
+// touchdown beyond its own row, derived from the trip's samples, so they
+// cover every trip ever recorded: the conditions at that moment, when the
+// trip loads (completeTripDataset()), and the final trajectory around it,
+// when its AI analysis asks for it (MapBridge).
 
 // The sun's elevation (degrees above the horizon, without refraction) at
 // latitude/longitude at utc, by NOAA's solar position equations. Latitude is
@@ -29,9 +32,16 @@ QString surfaceConditionName(double value);
 // "snow" or "rain and snow"; empty for NaN or a mask with none of these bits.
 QString precipitationName(double mask);
 
-// Fills every liftoff's and touchdown's conditions and profile from
-// dataset.points (the sample at or after its zuluTime, sampleAtOrAfter()).
-// The profile's window ends at the trip's neighboring contacts: a touchdown's
-// approach starts at the previous contact, a liftoff's climb-out ends at the
-// next one, so a touch-and-go's circuit isn't counted twice.
+// Fills every liftoff's and touchdown's conditions from dataset.points (the
+// sample at or after its zuluTime, sampleAtOrAfter()).
 void analyzeContacts(TripDataset& dataset);
+
+// contact's (one of dataset's touchdowns if touchdown, else liftoffs) final
+// trajectory from dataset.points. Its window ends at the trip's neighboring
+// contacts: a touchdown's approach starts at the previous contact, a
+// liftoff's climb-out ends at the next one, so a touch-and-go's circuit or a
+// bounce isn't counted twice. nullopt when none can be built: no sample at
+// or after the contact, or a point whose seconds from the contact can't be
+// read (its sample's or the contact's time unparsable), which would leave the
+// model a trajectory it can't place in time.
+std::optional<ContactProfile> contactProfile(const TripDataset& dataset, const RunwayContactPoint& contact, bool touchdown);

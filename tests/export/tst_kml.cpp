@@ -13,6 +13,8 @@
 #include <QXmlStreamReader>
 #include <QtTest>
 
+#include <cmath>
+
 using namespace TestSupport;
 
 namespace {
@@ -153,6 +155,29 @@ private slots:
 				"<b>Threshold:</b> -164 ft (-2%)<br/>", "<b>Centerline:</b> 3 ft L (4%)<br/>" })
 			QVERIFY2(kml.contains(QString::fromUtf8(row)), row);
 		QVERIFY(!kml.contains("<b>Local:</b> <br/>"));
+	}
+
+	// The crab angle from the contact's sample, rounded, with its side; no
+	// row without a sample.
+	void crabRowSaysWhichSide_data() {
+		QTest::addColumn<double>("crabAngle");
+		QTest::addColumn<QString>("row");
+		QTest::newRow("left") << -2.5 << QString::fromUtf8("<b>Crab:</b> 3° L<br/>");
+		QTest::newRow("right") << 1.6 << QString::fromUtf8("<b>Crab:</b> 2° R<br/>");
+		QTest::newRow("none") << 0.4 << QString::fromUtf8("<b>Crab:</b> 0°<br/>");
+		QTest::newRow("no sample") << std::nan("") << QString();
+	}
+	void crabRowSaysWhichSide() {
+		QFETCH(double, crabAngle);
+		QFETCH(QString, row);
+		TripDataset d = fullDataset();
+		d.liftoffPoints.clear();
+		d.touchdowns[0].conditions.crabAngle = crabAngle;
+		const QString kml = exportToString(d);
+		if (row.isEmpty())
+			QVERIFY(!kml.contains(QStringLiteral("<b>Crab:</b>")));
+		else
+			QVERIFY2(kml.contains(row), qPrintable(row));
 	}
 
 	// The KML 2.2 schema (ogckml22.xsd, AbstractFeatureGroup then Placemark)

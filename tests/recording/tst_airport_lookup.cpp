@@ -6,6 +6,8 @@
 
 #include <QtTest>
 
+#include <algorithm>
+
 using namespace TestSupport;
 
 namespace {
@@ -757,6 +759,26 @@ private slots:
 		touchDown(sim, onRunway(rwy, 500));
 		sim.serviceLookups();
 		QCOMPARE(FakeSim::state().facilityDefinitionFields.size(), fields);
+	}
+
+	void runwayDefinitionSendsRunwaysWireFieldsInOrder() {
+		// SimConnect sends a runway record's fields in definition order, and
+		// FACILITY_DATA_RUNWAY copies them straight into RUNWAY's length..slope
+		// (types.h): the same fields, in the same order, up to the first
+		// nested record.
+		FlightDriver sim;
+		const RunwaySpec rwy = eastWestRunway();
+		sim.airports = { testAirport(rwy) };
+		startOnRunway(sim, rwy);
+		liftOff(sim, onRunway(rwy, 1800));
+		sim.serviceLookups();
+		const std::vector<std::string>& fields = FakeSim::state().facilityDefinitionFields;
+		const auto open = std::find(fields.begin(), fields.end(), "OPEN RUNWAY");
+		QVERIFY(open != fields.end());
+		const auto nested = std::find(open, fields.end(), "OPEN PRIMARY_THRESHOLD");
+		const std::vector<std::string> expected = { "LENGTH", "WIDTH", "HEADING", "PRIMARY_NUMBER", "SECONDARY_NUMBER",
+			"PRIMARY_DESIGNATOR", "SECONDARY_DESIGNATOR", "LATITUDE", "LONGITUDE", "SLOPE" };
+		QCOMPARE(std::vector<std::string>(open + 1, nested), expected);
 	}
 
 	// --- Fallbacks: no runway, no airport ---

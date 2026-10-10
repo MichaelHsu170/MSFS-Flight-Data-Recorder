@@ -1,11 +1,17 @@
 // MapBridge (map_bridge.cpp): the map page's calls into C++ -- cursor, range
-// and overview-click forwarding, and saving AI analysis reports.
+// and overview-click forwarding, saving AI analysis reports, and each
+// contact's final trajectory for its analysis.
 #include "test_support.h"
 
 #include "db.h"
 #include "map_bridge.h"
+#include "trip_data_fields.h"
 
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QtTest>
+
+#include <cmath>
 
 using namespace TestSupport;
 
@@ -48,6 +54,60 @@ private slots:
 		// A save that saveAnalysisReport() refuses (an invalid row id) is
 		// reported too.
 		QVERIFY(!bridge.saveLiftoffAnalysisReport(0, "x"));
+	}
+
+	// A contact's trajectory is built from the dataset MapWidget set, found
+	// by its row id; null for a row not in it, without a dataset, or for a
+	// contact without a trajectory (no sample at or after it).
+	void returnsEachContactsTrajectory() {
+		auto sample = [](const char* time, double altitude) {
+			TripSamplePoint p;
+			p.zuluTime = QString::fromLatin1(time);
+			p.rawNums.assign(TRIP_NUM_FIELD_COUNT, std::nan(""));
+			p.rawNums[TRIP_NUM_plane_altitude] = altitude;
+			p.rawNums[TRIP_NUM_plane_alt_above_ground] = altitude - 500;
+			return p;
+		};
+		TripDataset dataset;
+		dataset.points = { sample("2026-06-21T12:00:00.000+00:00_1", 500), sample("2026-06-21T12:00:01.000+00:00_1", 560),
+			sample("2026-06-21T12:00:59.000+00:00_1", 520), sample("2026-06-21T12:01:00.000+00:00_1", 500) };
+		LiftoffPoint liftoff;
+		liftoff.rowId = 5;
+		liftoff.zuluTime = QStringLiteral("2026-06-21T12:00:00.500+00:00_1");
+		dataset.liftoffPoints = { liftoff };
+		TouchdownPoint touchdown;
+		touchdown.rowId = 6;
+		touchdown.zuluTime = QStringLiteral("2026-06-21T12:01:00.000+00:00_1");
+		dataset.touchdowns = { touchdown };
+
+		MapBridge bridge;
+		QVERIFY(bridge.touchdownProfile(6).isNull());  // no dataset yet
+		bridge.setDataset(&dataset);
+
+		// The liftoff's only gate is 35 ft, 0.5 s after it (60 ft).
+		const QJsonObject climb = QJsonObject::fromVariantMap(bridge.liftoffProfile(5).toMap());
+		const QJsonArray climbGates = climb["gates"].toArray();
+		QCOMPARE(climbGates.size(), 1);
+		QCOMPARE(climbGates.at(0)["gate"].toString(), QStringLiteral("35 ft"));
+		QCOMPARE(climbGates.at(0)["heightFt"].toDouble(), 60.0);
+		QCOMPARE(climbGates.at(0)["seconds"].toDouble(), 0.5);
+		// The touchdown's 15 s series: the samples 1 s before and at it.
+		const QJsonArray series = QJsonObject::fromVariantMap(bridge.touchdownProfile(6).toMap())["series"].toArray();
+		QCOMPARE(series.size(), 2);
+		QCOMPARE(series.at(0)["seconds"].toDouble(), -1.0);
+		QCOMPARE(series.at(0)["heightFt"].toDouble(), 20.0);
+		QCOMPARE(series.at(1)["seconds"].toDouble(), 0.0);
+
+		// Each table's own rows only.
+		QVERIFY(bridge.touchdownProfile(5).isNull());
+		QVERIFY(bridge.liftoffProfile(6).isNull());
+		QVERIFY(bridge.touchdownProfile(7).isNull());
+		TripDataset noSamples = dataset;
+		noSamples.points.clear();
+		bridge.setDataset(&noSamples);
+		QVERIFY(bridge.touchdownProfile(6).isNull());
+		bridge.setDataset(nullptr);
+		QVERIFY(bridge.liftoffProfile(5).isNull());
 	}
 
 	// Reported as not saved, so the page can say so.

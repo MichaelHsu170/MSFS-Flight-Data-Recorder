@@ -3,6 +3,7 @@
 #include "types.h"
 
 #include <cmath>
+#include <optional>
 
 namespace {
 
@@ -160,8 +161,8 @@ ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamp
 			gates.push_back({ i, builder.at(i, feetGate(feet)) });
 	}
 	// Each distance gate's path angle is down to the next closer one, the
-	// closest's down to the contact (height 0).
-	double nextHeight = 0, nextDistance = builder.distance(s.ground);
+	// closest's down to the contact (height 0, distance 0).
+	double nextHeight = 0, nextDistance = 0;
 	for (int k = (int)std::size(kTouchdownDistanceGates) - 1; k >= 0; --k) {
 		const double nm = kTouchdownDistanceGates[k];
 		const int i = lastAtOrAbove([&](int j) { return builder.distance(j); }, nm);
@@ -179,7 +180,9 @@ ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamp
 	for (auto& gate : gates)
 		profile.gates.push_back(gate.second);
 	int first = s.at;
-	while (first - 1 >= s.begin && builder.seconds(first - 1) >= -kTouchdownSeriesSeconds)
+	// A sample whose time can't be read is taken in, so contactProfile()
+	// drops the trajectory rather than cutting it short there.
+	while (first - 1 >= s.begin && !(builder.seconds(first - 1) < -kTouchdownSeriesSeconds))
 		--first;
 	profile.series = series(builder, first, s.at);
 	builder.highestTerrain(profile, s.ground, s.begin);
@@ -196,10 +199,13 @@ ContactProfile liftoffProfile(const ProfileBuilder& builder, const ContactSample
 			}
 		}
 	}
+	// From the on-ground sample its heights are measured from, even one past
+	// the 10 s (a gap in the recording).
 	int first = s.ground, last = s.at;
-	while (first - 1 >= s.begin && builder.seconds(first - 1) >= -kLiftoffSeriesSeconds)
+	// As in touchdownProfile(), a sample without a time is taken in.
+	while (first - 1 >= s.begin && !(builder.seconds(first - 1) < -kLiftoffSeriesSeconds))
 		--first;
-	while (last + 1 < s.end && builder.seconds(last + 1) <= kLiftoffSeriesSeconds)
+	while (last + 1 < s.end && !(builder.seconds(last + 1) > kLiftoffSeriesSeconds))
 		++last;
 	profile.series = series(builder, first, last);
 	if (s.ground < s.end)
@@ -257,18 +263,33 @@ ContactConditions conditionsAt(const std::vector<TripSamplePoint>& points, const
 			highOffset = (std::max)(highOffset, offset);
 		}
 	}
-	if (!std::isnan(direction)) {
-		c.windDirectionFrom = wrap360(direction + lowOffset);
-		c.windDirectionTo = wrap360(direction + highOffset);
-	}
+	// Unknown (NaN) without the contact's own direction.
+	c.windDirectionFrom = wrap360(direction + lowOffset);
+	c.windDirectionTo = wrap360(direction + highOffset);
 	return c;
 }
 
-void analyzeContact(const std::vector<TripSamplePoint>& points, const std::vector<QString>& contactTimes,
-	RunwayContactPoint& contact, bool touchdown) {
+// Whether every point of profile has its time from the contact.
+bool allTimesKnown(const ContactProfile& profile) {
+	for (const std::vector<ProfilePoint>* points : { &profile.gates, &profile.series })
+		for (const ProfilePoint& p : *points)
+			if (std::isnan(p.seconds))
+				return false;
+	return true;
+}
+
+// contact's samples in dataset; nullopt without a sample at or after it.
+std::optional<ContactSamples> contactSamples(const TripDataset& dataset, const RunwayContactPoint& contact, bool touchdown) {
+	const std::vector<TripSamplePoint>& points = dataset.points;
 	const int at = sampleAtOrAfter(points, contact.zuluTime);
 	if (at < 0)
-		return;
+		return std::nullopt;
+	std::vector<QString> contactTimes;
+	for (const LiftoffPoint& p : dataset.liftoffPoints)
+		contactTimes.push_back(p.zuluTime);
+	for (const TouchdownPoint& p : dataset.touchdowns)
+		contactTimes.push_back(p.zuluTime);
+	std::sort(contactTimes.begin(), contactTimes.end());
 	ContactSamples s;
 	// The neighboring contacts: strictly before and after this one's time.
 	const auto previous = std::lower_bound(contactTimes.begin(), contactTimes.end(), contact.zuluTime);
@@ -276,11 +297,9 @@ void analyzeContact(const std::vector<TripSamplePoint>& points, const std::vecto
 	s.begin = previous == contactTimes.begin() ? 0 : sampleAtOrAfter(points, *(previous - 1));
 	s.end = next == contactTimes.end() ? (int)points.size() : sampleAtOrAfter(points, *next);
 	s.at = at;
-	s.ground = !touchdown && at > s.begin && points[at - 1].zuluTime < contact.zuluTime ? at - 1 : at;
+	s.ground = !touchdown && at > s.begin ? at - 1 : at;
 	s.time = parseZuluTime(contact.zuluTime);
-	contact.conditions = conditionsAt(points, contact, s);
-	const ProfileBuilder builder(points, contact, s, touchdown);
-	contact.profile = touchdown ? touchdownProfile(builder, s) : liftoffProfile(builder, s);
+	return s;
 }
 
 }
@@ -351,14 +370,21 @@ QString precipitationName(double mask) {
 }
 
 void analyzeContacts(TripDataset& dataset) {
-	std::vector<QString> contactTimes;
-	for (const LiftoffPoint& p : dataset.liftoffPoints)
-		contactTimes.push_back(p.zuluTime);
-	for (const TouchdownPoint& p : dataset.touchdowns)
-		contactTimes.push_back(p.zuluTime);
-	std::sort(contactTimes.begin(), contactTimes.end());
 	for (LiftoffPoint& p : dataset.liftoffPoints)
-		analyzeContact(dataset.points, contactTimes, p, false);
+		if (const std::optional<ContactSamples> s = contactSamples(dataset, p, false))
+			p.conditions = conditionsAt(dataset.points, p, *s);
 	for (TouchdownPoint& p : dataset.touchdowns)
-		analyzeContact(dataset.points, contactTimes, p, true);
+		if (const std::optional<ContactSamples> s = contactSamples(dataset, p, true))
+			p.conditions = conditionsAt(dataset.points, p, *s);
+}
+
+std::optional<ContactProfile> contactProfile(const TripDataset& dataset, const RunwayContactPoint& contact, bool touchdown) {
+	const std::optional<ContactSamples> s = contactSamples(dataset, contact, touchdown);
+	if (!s)
+		return std::nullopt;
+	const ProfileBuilder builder(dataset.points, contact, *s, touchdown);
+	ContactProfile profile = touchdown ? touchdownProfile(builder, *s) : liftoffProfile(builder, *s);
+	if (!allTimesKnown(profile))
+		return std::nullopt;
+	return profile;
 }

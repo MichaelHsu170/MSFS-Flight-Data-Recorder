@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QJsonObject>
 #include <QString>
 
 #include <utility>
@@ -30,6 +31,12 @@ QString mapSetLiftoffsJs(const std::vector<LiftoffPoint>& liftoffs);
 QString mapSetTouchdownsJs(const std::vector<TouchdownPoint>& touchdowns);
 QString mapSetEventsJs(const std::vector<TripEvent>& events);
 QString mapSetEventsVisibleJs(bool visible);
+// A contact's final trajectory (contactProfile()) as the page's t.profile
+// for buildLiftoffPrompt()/buildTouchdownPrompt(): {gates, series,
+// highestTerrainFt, highestTerrainNm}, each point's and the terrain's
+// unrecorded values absent. Returned by MapBridge::liftoffProfile()/
+// touchdownProfile().
+QJsonObject mapProfileJson(const ContactProfile& profile);
 // setOverview([...]): one departure->destination segment per trip, with its
 // group ("Ungrouped" for group 0) for the legend and colors.
 QString mapSetOverviewJs(const std::vector<TripSummary>& trips);

@@ -43,8 +43,8 @@ void resolveEventPositions(TripDataset& dataset);
 // The trip's samples (none without a connection), named after the trip.
 TripDataset tripSamples(sqlite3* sql, int tripId, const QString& aircraftTitle, const QString& departureZuluTime);
 // Adds the liftoffs, touchdowns and events, placing each event on the trajectory
-// and deriving each liftoff's/touchdown's conditions and final trajectory
-// from the samples (analyzeContacts() in contact_analysis.h).
+// and deriving each liftoff's/touchdown's conditions from the samples
+// (analyzeContacts() in contact_analysis.h).
 void completeTripDataset(TripDataset& dataset, std::vector<LiftoffPoint> liftoffPoints,
 	std::vector<TouchdownPoint> touchdowns, std::vector<TripEvent> events);
 

@@ -146,9 +146,9 @@ private slots:
 		QCOMPARE(o.size(), 22);
 	}
 
-	// A contact with a sample also carries its conditions and final
-	// trajectory, each value only when known (no NaN reaches the page).
-	void contactsWithASampleCarryConditionsAndProfile() {
+	// A contact with a sample also carries its conditions, each value only
+	// when known (no NaN reaches the page).
+	void contactsWithASampleCarryConditions() {
 		TouchdownPoint td;
 		fillRunwayContact(td);
 		td.conditions.fromSample = true;
@@ -158,17 +158,8 @@ private slots:
 		td.conditions.inCloud = 0;  // known: "not in cloud" is sent, not left out
 		td.conditions.precipitation = QStringLiteral("rain");
 		td.conditions.seaLevelPressureMb = 1008;
-		ProfilePoint gate;
-		gate.gate = QStringLiteral("500 ft");
-		gate.seconds = -30;
-		gate.heightFt = 510;
-		ProfilePoint last;  // at the contact: seconds 0 is still sent
-		last.heightFt = 0;
-		td.profile.gates = { gate };
-		td.profile.series = { last };
-		td.profile.highestTerrainFt = 420;
 		const QJsonObject o = argumentOf(mapSetTouchdownsJs({ td }), QStringLiteral("setTouchdowns")).array().at(0).toObject();
-		QCOMPARE(o.size(), 24);
+		QCOMPARE(o.size(), 23);
 
 		const QJsonObject c = o["conditions"].toObject();
 		QCOMPARE(c.keys(), QStringList({ "crabAngle", "headingTrue", "inCloud", "precipitation", "seaLevelPressureMb", "surfaceType" }));
@@ -178,8 +169,22 @@ private slots:
 		QCOMPARE(c["headingTrue"].toDouble(), 268.5);
 		QCOMPARE(c["crabAngle"].toDouble(), -2.5);
 		QCOMPARE(c["surfaceType"].toString(), QStringLiteral("asphalt"));
+	}
 
-		const QJsonObject profile = o["profile"].toObject();
+	// A final trajectory (MapBridge's, for the prompt) carries each value
+	// only when known; a point's seconds always.
+	void profileCarriesKnownValues() {
+		ContactProfile contactProfile;
+		ProfilePoint gate;
+		gate.gate = QStringLiteral("500 ft");
+		gate.seconds = -30;
+		gate.heightFt = 510;
+		ProfilePoint last;  // at the contact: seconds 0 is still sent
+		last.heightFt = 0;
+		contactProfile.gates = { gate };
+		contactProfile.series = { last };
+		contactProfile.highestTerrainFt = 420;
+		const QJsonObject profile = mapProfileJson(contactProfile);
 		QCOMPARE(profile.keys(), QStringList({ "gates", "highestTerrainFt", "series" }));
 		QCOMPARE(profile["highestTerrainFt"].toDouble(), 420.0);
 		const QJsonObject g = profile["gates"].toArray().at(0).toObject();
@@ -191,10 +196,87 @@ private slots:
 		QCOMPARE(series.size(), 1);
 		QCOMPARE(series.at(0).toObject().keys(), QStringList({ "heightFt", "seconds" }));
 		QCOMPARE(series.at(0).toObject()["seconds"].toDouble(), 0.0);
+
+		// Each point's place on the runway, when known.
+		ProfilePoint onRunway;
+		onRunway.thresholdFt = -120.5;
+		onRunway.centerlineFt = 4.25;
+		contactProfile.series = { onRunway };
+		const QJsonObject point = mapProfileJson(contactProfile)["series"].toArray().at(0).toObject();
+		QCOMPARE(point.keys(), QStringList({ "centerlineFt", "seconds", "thresholdFt" }));
+		QCOMPARE(point["thresholdFt"].toDouble(), -120.5);
+		QCOMPARE(point["centerlineFt"].toDouble(), 4.25);
 	}
 
-	// The runway end's stored data and each point's place on the runway are
-	// sent when known; the start and exact heading stay in C++.
+	// Every condition and trajectory value reaches the page under the name
+	// map.html reads it by.
+	void everyValueHasTheNameThePageReads() {
+		TouchdownPoint td;
+		ContactConditions& c = td.conditions;
+		c.fromSample = true;
+		c.headingTrue = 1;
+		c.headingMagnetic = 2;
+		c.trackTrue = 3;
+		c.magneticVariation = 4;
+		c.crabAngle = 5;
+		c.sunElevation = 6;
+		c.temperatureC = 7;
+		c.stationPressureHg = 8;
+		c.altimeterHg = 9;
+		c.altimeterMb = 10;
+		c.pressureAltitudeFt = 11;
+		c.densityAltitudeFt = 12;
+		c.visibilityM = 13;
+		c.seaLevelPressureMb = 14;
+		c.precipitation = QStringLiteral("snow");
+		c.precipitationRate = 15;
+		c.inCloud = 1;
+		c.fieldElevationFt = 16;
+		c.windMinKt = 17;
+		c.windMaxKt = 18;
+		c.windDirectionFrom = 19;
+		c.windDirectionTo = 20;
+		c.surfaceType = QStringLiteral("grass");
+		c.surfaceCondition = QStringLiteral("icy");
+		const QJsonObject o = argumentOf(mapSetTouchdownsJs({ td }), QStringLiteral("setTouchdowns")).array().at(0).toObject();
+		QCOMPARE(o["conditions"].toObject(), (QJsonObject{ { "headingTrue", 1 }, { "trackTrue", 3 },
+			{ "magneticVariation", 4 }, { "crabAngle", 5 }, { "sunElevation", 6 }, { "temperatureC", 7 },
+			{ "stationPressureHg", 8 }, { "altimeterHg", 9 }, { "altimeterMb", 10 }, { "pressureAltitudeFt", 11 },
+			{ "densityAltitudeFt", 12 }, { "visibilityM", 13 }, { "seaLevelPressureMb", 14 }, { "precipitation", "snow" },
+			{ "precipitationRate", 15 }, { "inCloud", 1 }, { "fieldElevationFt", 16 }, { "windMinKt", 17 },
+			{ "windMaxKt", 18 }, { "windDirectionFrom", 19 }, { "windDirectionTo", 20 }, { "surfaceType", "grass" },
+			{ "surfaceCondition", "icy" } }));
+
+		ProfilePoint p;
+		p.gate = QStringLiteral("2 nm");
+		p.seconds = -40;
+		p.heightFt = 640;
+		p.distanceNm = 2;
+		p.terrainFt = 30;
+		p.airspeed = 135;
+		p.verticalSpeed = -720;
+		p.pitch = 1.5;
+		p.bank = -3;
+		p.headingTrue = 271;
+		p.trackTrue = 268;
+		p.thresholdFt = -12000;
+		p.centerlineFt = 25;
+		p.pathAngle = 3.1;
+		ContactProfile contactProfile;
+		contactProfile.gates = { p };
+		contactProfile.highestTerrainFt = 420;
+		contactProfile.highestTerrainNm = 3.5;
+		const QJsonObject profile = mapProfileJson(contactProfile);
+		QCOMPARE(profile["gates"].toArray().at(0).toObject(), (QJsonObject{ { "gate", "2 nm" }, { "seconds", -40 },
+			{ "heightFt", 640 }, { "distanceNm", 2 }, { "terrainFt", 30 }, { "airspeed", 135 }, { "verticalSpeed", -720 },
+			{ "pitch", 1.5 }, { "bank", -3 }, { "headingTrue", 271 }, { "trackTrue", 268 }, { "thresholdFt", -12000 },
+			{ "centerlineFt", 25 }, { "pathAngle", 3.1 } }));
+		QCOMPARE(profile["highestTerrainFt"].toDouble(), 420.0);
+		QCOMPARE(profile["highestTerrainNm"].toDouble(), 3.5);
+	}
+
+	// The runway end's stored data is sent when known; the start and exact
+	// heading stay in C++.
 	void contactsCarryTheirRunwayDataWhenKnown() {
 		LiftoffPoint lo;
 		fillRunwayContact(lo);
@@ -206,20 +288,13 @@ private slots:
 		lo.runwayData.startLongitude = 8.6;
 		lo.runwayData.trueHeading = 155.5;
 		lo.conditions.fromSample = true;
-		ProfilePoint p;
-		p.thresholdFt = -120.5;
-		p.centerlineFt = 4.25;
-		lo.profile.series = { p };
 		const QJsonObject o = argumentOf(mapSetLiftoffsJs({ lo }), QStringLiteral("setLiftoffs")).array().at(0).toObject();
 		QCOMPARE(o["runwayLengthFt"].toDouble(), 9800.0);
 		QCOMPARE(o["runwayWidthFt"].toDouble(), 148.0);
-		QCOMPARE(o["thresholdOffsetFt"].toDouble(), 0.0);
+		// 0 (no displaced threshold) is a known value, sent, not left out.
+		QCOMPARE(o["thresholdOffsetFt"], QJsonValue(0.0));
 		QCOMPARE(o["runwaySlope"].toDouble(), -0.25);
-		QCOMPARE(o.size(), 21 + 4 + 2);  // the shared fields, the runway data, conditions and profile
-		const QJsonObject point = o["profile"].toObject()["series"].toArray().at(0).toObject();
-		QCOMPARE(point.keys(), QStringList({ "centerlineFt", "seconds", "thresholdFt" }));
-		QCOMPARE(point["thresholdFt"].toDouble(), -120.5);
-		QCOMPARE(point["centerlineFt"].toDouble(), 4.25);
+		QCOMPARE(o.size(), 21 + 4 + 1);  // the shared fields, the runway data and conditions
 	}
 
 	void emptyMarkerListsAreStillCalls() {
