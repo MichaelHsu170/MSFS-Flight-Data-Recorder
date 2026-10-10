@@ -399,11 +399,11 @@ function profilePromptLines(t, pointName, seriesSpan, terrainSpan, thresholdName
     return lines;
 }
 
-// What the model is told about using its own knowledge of the airport:
-// labeled, checked against the runway end and the recorded trajectory, and
-// admitted when missing.
+// What the model is told about looking up the airport (the request's Google
+// Search tool) and using its own knowledge of it: labeled, checked against
+// the runway end and the recorded trajectory, and admitted when missing.
 function airportKnowledgeLine(subject) {
-    return 'Airport: from your general knowledge of this airport (by ICAO code, name and position), describe in the Environment section any terrain, approach or departure procedure, or hazard that affected this ' + subject + ', labeled as general knowledge rather than recorded data. Before using a characteristic, check that it applies to this flight: it must belong to the runway end used, and the recorded gates (heading and track) must show it was flown; when the recording contradicts a published procedure, say so instead of assuming it was flown. If you do not know the airport, say so rather than guess.';
+    return 'Airport: search the web for this airport (by ICAO code and name): its terrain, the approach and departure procedures for the runway end used, and its hazards. With that and your general knowledge of it, describe in the Environment section any terrain, approach or departure procedure, or hazard that affected this ' + subject + ', labeled as from a search or from general knowledge rather than recorded data. Before using a characteristic, check that it applies to this flight: it must belong to the runway end used, and the recorded gates (heading and track) must show it was flown; when the recording contradicts a published procedure, say so instead of assuming it was flown. If neither the search nor your knowledge tells you about the airport, say so rather than guess.';
 }
 
 // The used runway end's dimensions and the runway left ahead of the contact,
@@ -499,12 +499,14 @@ function buildTouchdownPrompt(t) {
 
 // Extract complete top-level {...} JSON objects from buf.
 // Calls onChunk(text, isThought) for every text part found, and
-// onFinish(reason) for an object carrying the candidate's finishReason.
+// onFinish(reason) for an object carrying the candidate's finishReason, and
+// onSources(chunks) for one carrying its Google Search groundingMetadata
+// (chunks: its groundingChunks, [] when it searched but cites nothing).
 // Iterates all parts in each response object (thinking models can emit
 // thought:true parts alongside regular parts in the same chunk). Braces
 // inside JSON strings (the model's own text) don't count.
 // Returns the unconsumed remainder of buf.
-function processStreamBuffer(buf, onChunk, onFinish) {
+function processStreamBuffer(buf, onChunk, onFinish, onSources) {
     var depth = 0, start = -1, lastEnd = 0;
     var inString = false, escaped = false;
     for (var i = 0; i < buf.length; i++) {
@@ -530,6 +532,7 @@ function processStreamBuffer(buf, onChunk, onFinish) {
                             if (parts[p].text) onChunk(parts[p].text, !!parts[p].thought);
                         }
                     }
+                    if (candidate && candidate.groundingMetadata) onSources(candidate.groundingMetadata.groundingChunks || []);
                     if (candidate && candidate.finishReason) onFinish(candidate.finishReason);
                 } catch (e) { /* incomplete or non-content object */ }
                 lastEnd = i + 1;
@@ -611,6 +614,7 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
     var sawThinking, thinkingDone;
     var thinkingText, finalText;
     var finishReason;
+    var sources;  // the attempt's cited web pages, {title, uri}, each once
 
     // The thinking panel stays hidden until thinking arrives: a model that
     // answers without it shows just the answer.
@@ -638,6 +642,7 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
         thinkingText = '';
         finalText    = '';
         finishReason = '';
+        sources      = [];
         // Guard on thinkingDone prevents the browser's spurious initial toggle
         // event (queued when <details open> is created via innerHTML) from
         // overwriting "Thinking…" with "Hide thinking".
@@ -671,6 +676,13 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
         finishReason = reason;
     }
 
+    function onSources(chunks) {
+        chunks.forEach(function(c) {
+            if (c.web && c.web.uri && !sources.some(function(s) { return s.uri === c.web.uri; }))
+                sources.push({ title: c.web.title || '', uri: c.web.uri });
+        });
+    }
+
     for (var attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         initAttempt();
 
@@ -683,7 +695,9 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
                     body: JSON.stringify({
-                        contents: [{ role: 'user', parts: [{ text: buildPrompt(t) }] }]
+                        contents: [{ role: 'user', parts: [{ text: buildPrompt(t) }] }],
+                        // Lets the model look up the airport (airportKnowledgeLine()).
+                        tools: [{ google_search: {} }]
                     })
                 }
             );
@@ -721,10 +735,10 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
                 var streamChunk = await reader.read();
                 if (streamChunk.done) break;
                 buf += decoder.decode(streamChunk.value, { stream: true });
-                buf = processStreamBuffer(buf, onChunk, onFinish);
+                buf = processStreamBuffer(buf, onChunk, onFinish, onSources);
             }
             buf += decoder.decode();
-            processStreamBuffer(buf, onChunk, onFinish);
+            processStreamBuffer(buf, onChunk, onFinish, onSources);
         } catch (e) {
             // Network error -- retry unless this was the last attempt.
             if (attempt === MAX_ATTEMPTS - 1) {
@@ -739,6 +753,15 @@ async function runAiAnalysis(id, t, buildPrompt, saveReport, retryLabel) {
         // a safety stop or a dropped stream) with an answer. Thinking is
         // optional, and stored only when there was some.
         if (finishReason === 'STOP' && finalText.trim()) {
+            // The pages the search cited, after the answer (shown and saved
+            // with it), so the airport's description can be checked.
+            if (sources.length) {
+                var sourcesText = '\n\nSources:\n' + sources.map(function(s) {
+                    return '• ' + (s.title ? s.title + ': ' : '') + s.uri;
+                }).join('\n');
+                finalText += sourcesText;
+                appendHtml(finalDiv, sourcesText);
+            }
             if (t.rowId) {
                 var stored = sawThinking ? '<thinking>' + thinkingText + '</thinking>' + finalText : finalText;
                 // Mirror the DB write into the in-memory store (t is the same

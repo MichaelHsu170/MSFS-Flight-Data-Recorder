@@ -198,7 +198,7 @@ The prompt sends the popup's values, every heading in true, including the runway
   - **Heights are measured from the touchdown or liftoff point, not radio height.** Radio height follows the terrain under the aircraft (a valley, cliff or the sea before the runway), so each point also gives the terrain below it.
   - The window stops at the trip's previous or next liftoff/touchdown, so a touch-and-go's circuit isn't counted twice.
 
-A value that wasn't recorded is left out, never sent as 0. The model is also told to describe the airport's terrain, procedures and hazards from its general knowledge, labeled as such. It must check each one against the runway end used and the recorded trajectory before applying it, and say when it doesn't know the airport. The prompt is bounded by construction: under 32,000 characters with every value present.
+A value that wasn't recorded is left out, never sent as 0. The request also offers the model Google Search (Gemini API search grounding), and the prompt tells it to look up the airport's terrain, the procedures for the runway end used, and its hazards, and to describe them along with its general knowledge, labeled as from a search or from general knowledge. It must check each one against the runway end used and the recorded trajectory before applying it, and say when neither tells it about the airport. The pages a search cited follow the answer as a **Sources:** list, saved with the report. The prompt is bounded by construction: under 32,000 characters with every value present.
 
 The analysis is returned in a fixed structure:
 
@@ -209,6 +209,7 @@ Strengths:  • …
 Areas to improve:  • …
 Final segment:  • stability at the gates and the flare/decrab (landing), or the rotation and initial climb (liftoff)
 Environment:  • how the conditions, airport, runway and terrain affected it
+Sources:  • the pages a search cited, when it searched
 ```
 
 Reports saved before this change keep their old format; analyzing again gives the new one.

@@ -84,6 +84,29 @@ QString aiChunk(const QList<QPair<QString, bool>>& parts, const QString& finishR
 	return QString::fromUtf8(QJsonDocument(QJsonObject{ { "candidates", QJsonArray{ candidate } } }).toJson(QJsonDocument::Compact));
 }
 
+// chunk (an aiChunk()) with Google Search grounding metadata citing sources
+// ({title, uri}; an empty title left out), as the API sends it on the
+// stream's last chunk.
+QString withSources(const QString& chunk, const QList<QPair<QString, QString>>& sources) {
+	QJsonObject response = QJsonDocument::fromJson(chunk.toUtf8()).object();
+	QJsonArray chunks;
+	for (const auto& [title, uri] : sources) {
+		QJsonObject web{ { "uri", uri } };
+		if (!title.isEmpty())
+			web["title"] = title;
+		chunks.append(QJsonObject{ { "web", web } });
+	}
+	QJsonArray candidates = response["candidates"].toArray();
+	QJsonObject candidate = candidates[0].toObject();
+	QJsonObject metadata{ { "webSearchQueries", QJsonArray{ "OEMA airport" } } };
+	if (!chunks.isEmpty())
+		metadata["groundingChunks"] = chunks;
+	candidate["groundingMetadata"] = metadata;
+	candidates[0] = candidate;
+	response["candidates"] = candidates;
+	return QString::fromUtf8(QJsonDocument(response).toJson(QJsonDocument::Compact));
+}
+
 // A whole streamed response, as the API sends it: a JSON array of chunks.
 QString aiStream(const QStringList& chunks) {
 	return QLatin1Char('[') + chunks.join(QStringLiteral(",\r\n")) + QLatin1Char(']');
@@ -131,8 +154,8 @@ class TstMapWidget : public QObject {
 	// -1 for a 200 whose connection drops after its pieces); saving the
 	// report succeeds if saveOk. Returns what it did: calls (fetches made),
 	// saved (the report saved, null if none), text (the answer shown),
-	// thinkingShown, and the last request's url and apiKey (its
-	// x-goog-api-key header).
+	// thinkingShown, and the last request's url, apiKey (its
+	// x-goog-api-key header) and body.
 	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts, bool saveOk = true, const QList<int>& statuses = {}) {
 		QJsonArray json;
 		for (const QStringList& pieces : attempts)
@@ -147,6 +170,7 @@ class TstMapWidget : public QObject {
 			    window.fetch = function (url, init) {
 			        window._ai.url = url;
 			        window._ai.apiKey = init.headers['x-goog-api-key'];
+			        window._ai.body = init.body;
 			        var n = window._ai.calls++;
 			        var status = statuses.length ? statuses[Math.min(n, statuses.length - 1)] : 200;
 			        if (status === 0) return Promise.reject(new TypeError('Failed to fetch'));
@@ -173,7 +197,7 @@ class TstMapWidget : public QObject {
 		if (!QTest::qWaitFor([this] { return evalPageJs(widget_, QStringLiteral("window._ai.done")).toBool(); }, 5000))
 			return {};
 		return evalPageJs(widget_, QStringLiteral(
-			"({ calls: window._ai.calls, saved: window._ai.saved, url: window._ai.url, apiKey: window._ai.apiKey,"
+			"({ calls: window._ai.calls, saved: window._ai.saved, url: window._ai.url, apiKey: window._ai.apiKey, body: window._ai.body,"
 			"   text: document.getElementById('td-th-final-ai').textContent,"
 			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none' })")).toMap();
 	}
@@ -716,7 +740,7 @@ private slots:
 			"    var data = p.indexOf('\\n---\\n');"
 			"    return [p.indexOf('\\nFinal segment:\\n• [') >= 0 && p.indexOf('\\nFinal segment:\\n') < data,"
 			"      p.indexOf('\\nEnvironment:\\n• [') >= 0 && p.indexOf('\\nEnvironment:\\n') < data,"
-			"      /\\nAirport: from your general knowledge/.test(p)].join(); })"
+			"      /\\nAirport: search the web for this airport/.test(p)].join(); })"
 			"    .concat([buildLiftoffPrompt(t).indexOf('\\n  Samples, from 10 s before to 10 s after the liftoff:\\n') >= 0,"
 			"      buildLiftoffPrompt(t).indexOf('\\nFinal trajectory (seconds from the liftoff point;') >= 0,"
 			"      buildTouchdownPrompt(t).indexOf('\\nFinal trajectory (seconds from the touchdown point;') >= 0]).join('|'); })()")
@@ -902,6 +926,32 @@ private slots:
 		QCOMPARE(r.value("apiKey").toString(), QStringLiteral("secret-key"));
 		QCOMPARE(r.value("url").toString(),
 			QStringLiteral("https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:streamGenerateContent"));
+	}
+
+	// The request offers the model Google Search, to look up the airport.
+	void aiRequestOffersGoogleSearch() {
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } });
+		const QJsonObject body = QJsonDocument::fromJson(r.value("body").toString().toUtf8()).object();
+		QCOMPARE(body["tools"].toArray(), QJsonArray({ QJsonObject{ { "google_search", QJsonObject() } } }));
+		QCOMPARE(body["contents"].toArray().at(0).toObject()["parts"].toArray().at(0).toObject()["text"].toString(), QStringLiteral("prompt"));
+	}
+
+	// The pages a grounded answer cites follow it as a "Sources:" list, shown
+	// and saved: each page once, by its title when it has one; a search that
+	// cites nothing adds none, and a retried attempt's sources are dropped.
+	void aGroundedAnswerListsItsSources() {
+		const QVariantMap r = runAiAnalysisWith({
+			{ aiStream({ withSources(aiChunk({ { "Grade: half", false } }, "MAX_TOKENS"), { { "old.example", "https://old.example/x" } }) }) },
+			{ aiStream({ withSources(aiChunk({ { "Grade: A", false } }), {}),
+				withSources(aiChunk({ { "\nGood.", false } }, "STOP"), { { "skybrary.aero", "https://a.example/1" },
+					{ "", "https://b.example/2" }, { "skybrary.aero", "https://a.example/1" } }) }) } });
+		QCOMPARE(r.value("calls").toInt(), 2);
+		QCOMPARE(r.value("saved").toString(),
+			QStringLiteral("Grade: A\nGood.\n\nSources:\n• skybrary.aero: https://a.example/1\n• https://b.example/2"));
+		QCOMPARE(r.value("text").toString(), QStringLiteral("Grade: AGood.Sources:• skybrary.aero: https://a.example/1• https://b.example/2"));
+
+		const QVariantMap none = runAiAnalysisWith({ { aiStream({ withSources(aiChunk({ { "Grade: B", false } }, "STOP"), {}) }) } });
+		QCOMPARE(none.value("saved").toString(), QStringLiteral("Grade: B"));
 	}
 
 	// Thinking, then the answer, split across reads mid-object: saved with
