@@ -40,8 +40,10 @@ void analyzeContacts(TripDataset& dataset);
 // trajectory from dataset.points. Its window ends at the trip's neighboring
 // contacts: a touchdown's approach starts at the previous contact, a
 // liftoff's climb-out ends at the next one, so a touch-and-go's circuit or a
-// bounce isn't counted twice. nullopt when none can be built: no sample at
-// or after the contact, or a point whose seconds from the contact can't be
-// read (its sample's or the contact's time unparsable), which would leave the
-// model a trajectory it can't place in time.
+// bounce isn't counted twice. A contact after the trip's last sample is
+// measured from that sample (sampleAtOrAfter()), so its trajectory ends
+// before it. nullopt when none can be built: a trip without samples, or a
+// point whose seconds from the contact can't be read (its sample's or the
+// contact's time unparsable), which would leave the model a trajectory it
+// can't place in time.
 std::optional<ContactProfile> contactProfile(const TripDataset& dataset, const RunwayContactPoint& contact, bool touchdown);

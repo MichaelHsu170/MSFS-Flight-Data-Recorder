@@ -330,6 +330,18 @@ class TstMapWidget : public QObject {
 		QVERIFY(loaded.value(0).value(0).toBool());
 	}
 
+	// The lines in expected (a JS array of strings) that the touchdown prompt
+	// for fullContactJs() as t, after the JS statements setup, lacks; "no
+	// result" if the page gave none (it threw, or isn't loaded), so that can't
+	// pass as nothing lacking.
+	QStringList touchdownPromptLacks(const QString& setup, const QString& expected) {
+		const QVariant lacking = evalPageJs(widget_, QStringLiteral(
+			"(function () { var t = %1; %2"
+			"  var lines = buildTouchdownPrompt(t).split('\\n');"
+			"  return %3.filter(function (l) { return lines.indexOf(l) < 0; }); })()").arg(fullContactJs(), setup, expected));
+		return lacking.isValid() ? lacking.toStringList() : QStringList({ QStringLiteral("no result") });
+	}
+
 private slots:
 	// Logger::init() takes effect once per process, so it runs here.
 	void initTestCase() {
@@ -696,11 +708,7 @@ private slots:
 	// final trajectory (map_script.cpp's "conditions" and "profile"), one
 	// line per recorded value, every heading marked true or magnetic.
 	void touchdownPromptCarriesConditionsAndTrajectory() {
-		const QString js = QStringLiteral(
-			"(function () { var t = %1;"
-			"  var lines = buildTouchdownPrompt(t).split('\\n');"
-			"  return %2.filter(function (l) { return lines.indexOf(l) < 0; }); })()")
-			.arg(fullContactJs(), QStringLiteral(R"js([
+		QCOMPARE(touchdownPromptLacks(QString(), QStringLiteral(R"js([
 				'  Heading: 338° true (334° magnetic); ground track 341° true; crab 2.2° (nose left of the track)',
 				'  Wind: 299° true at 12 kt',
 				'  Runway: 10000 ft long, 150 ft wide, threshold displaced 820 ft at this end, slope 0.31° downhill in the direction of travel',
@@ -725,8 +733,22 @@ private slots:
 				'  Samples, last 15 s before the touchdown:',
 				'    -0.5 s, height 2 ft, terrain +30 ft',
 				'  Highest terrain within 5 nm before the touchdown: +612 ft, 4.20 nm from the touchdown point (more than 500 ft above it)'
-			])js"));
-		QCOMPARE(evalPageJs(widget_, js).toStringList(), QStringList());
+			])js")), QStringList());
+	}
+
+	// The other side of each signed value: the nose right of the track, the
+	// sun above the horizon, a westerly variation, a point right of the
+	// centerline, and terrain not more than 500 ft above the touchdown point.
+	void touchdownPromptNamesTheOtherSides() {
+		QCOMPARE(touchdownPromptLacks(QStringLiteral(
+			"Object.assign(t.conditions, {crabAngle: 2.2, sunElevation: 10, magneticVariation: -4.4});"
+			"t.profile.gates[0].centerlineFt = 12.6; t.profile.highestTerrainFt = 500;"), QStringLiteral(R"js([
+				'  Heading: 338° true (334° magnetic); ground track 341° true; crab 2.2° (nose right of the track)',
+				'  Sun: 10.0° above the horizon (day)',
+				'  Position: 24.5528° N, 39.7051° E; magnetic variation 4.4° W',
+				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft right',
+				'  Highest terrain within 5 nm before the touchdown: +500 ft, 4.20 nm from the touchdown point'
+			])js")), QStringList());
 	}
 
 	// Both prompts ask for the "Final segment:" and "Environment:" sections

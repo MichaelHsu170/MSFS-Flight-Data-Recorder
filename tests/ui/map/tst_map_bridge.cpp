@@ -58,7 +58,7 @@ private slots:
 
 	// A contact's trajectory is built from the dataset MapWidget set, found
 	// by its row id; null for a row not in it, without a dataset, or for a
-	// contact without a trajectory (no sample at or after it).
+	// contact without a trajectory (a trip without samples).
 	void returnsEachContactsTrajectory() {
 		auto sample = [](const char* time, double altitude) {
 			TripSamplePoint p;

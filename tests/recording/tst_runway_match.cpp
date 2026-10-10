@@ -246,14 +246,20 @@ private slots:
 		QVERIFY(qAbs(m.candidates[0].distances_percent[0] - 500.0 / 3000) < 0.001);
 	}
 
+	// At either end.
 	void thresholdDataIgnoredWhenDisabled() {
 		RunwaySpec r = eastWest();
 		r.primaryThresholdM = 300;
+		r.secondaryThresholdM = 200;
 		r.thresholdEnable = 0;
 		TestAirport a({ r });
 		const RUNWAY_MATCH m = match(a.airport, pointOnRunway(r, 700, 5), 90, true);
 		QVERIFY(qAbs(m.candidates[0].distances[0] - 700 * kFeetPerMeter) < 2);
 		QCOMPARE(m.candidates[0].threshold_offset_m, 0.0);
+		const RUNWAY_MATCH reverse = match(a.airport, pointOnRunway(r, 1000, 5), 270, true);
+		QVERIFY(!reverse.candidates[0].is_primary);
+		QVERIFY(qAbs(reverse.candidates[0].distances[0] - 2000 * kFeetPerMeter) < 2);
+		QCOMPARE(reverse.candidates[0].threshold_offset_m, 0.0);
 	}
 
 	void traceDescribesEachDecision() {

@@ -71,7 +71,9 @@ struct ContactConditions {
 	double trackTrue = std::nan("");        // ground track, degrees
 	double magneticVariation = std::nan(""); // headingTrue - headingMagnetic, -180..180 (+ = east)
 	double crabAngle = std::nan("");        // headingTrue - trackTrue, -180..180 (+ = nose right of the track)
-	double sunElevation = std::nan("");     // degrees above the horizon (sunElevationDegrees())
+	// Degrees above the horizon (sunElevationDegrees()); NaN when the
+	// contact's time can't be read.
+	double sunElevation = std::nan("");
 	double temperatureC = std::nan("");     // outside air
 	double stationPressureHg = std::nan(""); // ambient pressure, inHg
 	double altimeterHg = std::nan("");      // Kohlsman setting
@@ -87,7 +89,9 @@ struct ContactConditions {
 	double inCloud = std::nan("");
 	double fieldElevationFt = std::nan(""); // ground under the aircraft, ft MSL
 	// Wind over the 30 s up to the contact: lowest and highest speed (kt), and
-	// the direction range (degrees true, From..To clockwise).
+	// the direction range (degrees true, From..To clockwise). The range stops
+	// at a sample whose time can't be read; when the contact's can't, it is
+	// the contact's sample alone.
 	double windMinKt = std::nan("");
 	double windMaxKt = std::nan("");
 	double windDirectionFrom = std::nan("");

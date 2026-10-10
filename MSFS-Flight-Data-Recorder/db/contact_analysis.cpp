@@ -88,18 +88,19 @@ public:
 		out.bank = p.bankDegrees;
 		out.headingTrue = p.rawNum(TRIP_NUM_plane_heading_degrees_true);
 		out.trackTrue = p.rawNum(TRIP_NUM_gps_ground_true_track);
+		// Without the runway's start or heading (a contact recorded before
+		// they were stored) runway_offsets() gives NaN, so the point isn't
+		// placed on the runway.
 		const ContactRunway& runway = contact_.runwayData;
-		if (!std::isnan(runway.startLatitude) && !std::isnan(runway.startLongitude) && !std::isnan(runway.trueHeading)) {
-			COORDINATE start, point;
-			start.latitude = runway.startLatitude;
-			start.longitude = runway.startLongitude;
-			point.latitude = p.latitude;
-			point.longitude = p.longitude;
-			const RUNWAY_OFFSETS offsets = runway_offsets(start, runway.trueHeading, point);
-			// Measured like the contact's distanceLength (match_runways()).
-			out.thresholdFt = offsets.along_ft - (touchdown_ ? runway.thresholdOffsetFt : 0);
-			out.centerlineFt = offsets.cross_ft;
-		}
+		COORDINATE start, point;
+		start.latitude = runway.startLatitude;
+		start.longitude = runway.startLongitude;
+		point.latitude = p.latitude;
+		point.longitude = p.longitude;
+		const RUNWAY_OFFSETS offsets = runway_offsets(start, runway.trueHeading, point);
+		// Measured like the contact's distanceLength (match_runways()).
+		out.thresholdFt = offsets.along_ft - (touchdown_ ? runway.thresholdOffsetFt : 0);
+		out.centerlineFt = offsets.cross_ft;
 		return out;
 	}
 	double height(int index) const { return points_[index].rawNum(TRIP_NUM_plane_altitude) - groundAltitude_; }
@@ -278,7 +279,7 @@ bool allTimesKnown(const ContactProfile& profile) {
 	return true;
 }
 
-// contact's samples in dataset; nullopt without a sample at or after it.
+// contact's samples in dataset; nullopt without any samples.
 std::optional<ContactSamples> contactSamples(const TripDataset& dataset, const RunwayContactPoint& contact, bool touchdown) {
 	const std::vector<TripSamplePoint>& points = dataset.points;
 	const int at = sampleAtOrAfter(points, contact.zuluTime);

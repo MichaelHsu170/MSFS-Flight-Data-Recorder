@@ -234,26 +234,33 @@ private slots:
 		QVERIFY(std::isnan(profile->series.at(1).airspeed));  // the touchdown sample's, not recorded
 	}
 
-	// The wind range covers the 30 s up to the contact, its directions one
-	// range across north.
+	// The wind range covers the 30 s up to the contact (30 s before it still
+	// in, 31 s out), its directions one range across north.
 	void windRangeCoversTheLast30Seconds() {
-		TripDataset dataset;
-		const struct { double seconds, direction, speed; } winds[] = {
-			{ -40, 90, 30 }, { -20, 350, 8 }, { -10, 20, 14 }, { 0, 0, 10 } };
-		for (const auto& w : winds) {
-			TripSamplePoint p = sample(w.seconds, 1000, 0);
-			p.rawNums[TRIP_NUM_ambient_wind_direction] = w.direction;
-			p.rawNums[TRIP_NUM_ambient_wind_velocity] = w.speed;
-			dataset.points.push_back(p);
-		}
-		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
-		analyzeContacts(dataset);
+		struct Wind { double seconds, direction, speed; };
+		auto windsBefore = [](const std::vector<Wind>& winds) {
+			TripDataset dataset;
+			for (const Wind& w : winds) {
+				TripSamplePoint p = sample(w.seconds, 1000, 0);
+				p.rawNums[TRIP_NUM_ambient_wind_direction] = w.direction;
+				p.rawNums[TRIP_NUM_ambient_wind_velocity] = w.speed;
+				dataset.points.push_back(p);
+			}
+			dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+			analyzeContacts(dataset);
+			return dataset.touchdowns[0].conditions;
+		};
 
-		const ContactConditions& c = dataset.touchdowns[0].conditions;
+		const ContactConditions c = windsBefore({ { -31, 90, 30 }, { -30, 350, 8 }, { -10, 20, 14 }, { 0, 0, 10 } });
 		QCOMPARE(c.windMinKt, 8.0);
 		QCOMPARE(c.windMaxKt, 14.0);
 		QCOMPARE(c.windDirectionFrom, 350.0);
 		QCOMPARE(c.windDirectionTo, 20.0);
+
+		// The range's end past north, from the contact's 350.
+		const ContactConditions past = windsBefore({ { -10, 10, 12 }, { 0, 350, 10 } });
+		QCOMPARE(past.windDirectionFrom, 350.0);
+		QCOMPARE(past.windDirectionTo, 10.0);
 	}
 
 	// Each gate is its last crossing before the touchdown: the climb back to
@@ -432,6 +439,22 @@ private slots:
 		QCOMPARE(series.back().seconds, 0.0);
 	}
 
+	// A touchdown after the trip's last sample (the recording stopped first)
+	// is measured from that sample, as sampleAtOrAfter() gives: its
+	// conditions and a trajectory ending before it.
+	void contactAfterTheLastSampleUsesThatSample() {
+		TripDataset dataset;
+		dataset.points = { sample(-2, 1100, 100), sample(-1, 1050, 50) };
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		QCOMPARE(profile->series.size(), size_t(2));
+		QCOMPARE(profile->series.front().seconds, -2.0);
+		QCOMPARE(profile->series.back().seconds, -1.0);
+		analyzeContacts(dataset);
+		QVERIFY(dataset.touchdowns[0].conditions.fromSample);
+	}
+
 	// However dense the samples, the series is at most 60 lines and keeps
 	// both ends.
 	void seriesIsCappedAt60() {
@@ -470,11 +493,13 @@ private slots:
 		QVERIFY(qAbs(profile->highestTerrainNm - 0.75) < 0.01);  // the closer of the two cliff-top samples
 	}
 
-	// A liftoff's highest terrain is ahead of it, under the climb-out.
+	// A liftoff's highest terrain is ahead of it, under the climb-out, and
+	// measured from the on-ground sample before it, not the first airborne one.
 	void liftoffHighestTerrainIsUnderTheClimbOut() {
 		TripDataset dataset;
-		// Field at 500 ft; a 300 ft rise 1 nm out, then lower ground.
-		dataset.points = { sample(0, 500, 0), sample(1, 700, 200, 0.5), sample(2, 1100, 300, 1.0),
+		// Field at 500 ft; the ground under the first airborne sample at 520
+		// ft, a 300 ft rise 1 nm out, then lower ground.
+		dataset.points = { sample(0, 500, 0), sample(1, 700, 180, 0.5), sample(2, 1100, 300, 1.0),
 			sample(3, 1300, 700, 1.5) };
 		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.5) };
 		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
@@ -490,15 +515,15 @@ private slots:
 	void highestTerrainStopsBeyond5Nm() {
 		TripDataset dataset;
 		// Field at 100 ft. Walking back from the touchdown: level, +200 ft at
-		// 4 nm, +900 ft at 6 nm, then +800 ft back at 3 nm.
-		dataset.points = { sample(-4, 1300, 400, 3.0), sample(-3, 1500, 500, 6.0), sample(-2, 1000, 700, 4.0),
+		// 4.9 nm, +900 ft at 5.5 nm, then +800 ft back at 3 nm.
+		dataset.points = { sample(-4, 1300, 400, 3.0), sample(-3, 1500, 500, 5.5), sample(-2, 1000, 700, 4.9),
 			sample(-1, 500, 400, 2.0), sample(0, 100, 0) };
 		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
 		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(profile);
 
 		QCOMPARE(profile->highestTerrainFt, 200.0);
-		QVERIFY(qAbs(profile->highestTerrainNm - 4.0) < 0.01);
+		QVERIFY(qAbs(profile->highestTerrainNm - 4.9) < 0.01);
 	}
 
 	// On an exact 3-degree path (318.4 ft per nm) to the touchdown point, each
@@ -601,15 +626,39 @@ private slots:
 		rolling.points.insert(rolling.points.begin(), early);
 		QVERIFY(!contactProfile(rolling, rolling.liftoffPoints[0], false));
 
+		// The contact's own: the conditions are its sample's (at 0 s), except
+		// the sun, which needs the time, and the wind range, its sample alone.
 		TripDataset contact = touchdownAfter({ 50, 0 });
+		contact.points[0].rawNums[TRIP_NUM_ambient_wind_velocity] = 30;
+		contact.points[1].rawNums[TRIP_NUM_ambient_wind_velocity] = 10;
 		contact.touchdowns[0].zuluTime = beforeTouchdown;
 		QVERIFY(!contactProfile(contact, contact.touchdowns[0], true));
 		analyzeContacts(contact);
-		QVERIFY(contact.touchdowns[0].conditions.fromSample);
+		const ContactConditions& c = contact.touchdowns[0].conditions;
+		QVERIFY(c.fromSample);
+		QVERIFY(std::isnan(c.sunElevation));
+		QCOMPARE(c.windMinKt, 10.0);
+		QCOMPARE(c.windMaxKt, 10.0);
+	}
+
+	// The wind range stops at a sample whose time can't be read: the 30 kt
+	// at -40 s is outside it anyway, the 20 kt one is unreadable.
+	void unreadableTimeEndsTheWindRange() {
+		TripDataset dataset;
+		TripSamplePoint unreadable = sample(0, 1000, 0);
+		unreadable.zuluTime = QStringLiteral("2026-06-21T11:59:60.000+00:00_1");  // between -40 and 0 s
+		dataset.points = { sample(-40, 1000, 0), unreadable, sample(0, 1000, 0) };
+		const double speeds[] = { 30, 20, 10 };
+		for (size_t i = 0; i < dataset.points.size(); ++i)
+			dataset.points[i].rawNums[TRIP_NUM_ambient_wind_velocity] = speeds[i];
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+		analyzeContacts(dataset);
+		QCOMPARE(dataset.touchdowns[0].conditions.windMinKt, 10.0);
+		QCOMPARE(dataset.touchdowns[0].conditions.windMaxKt, 10.0);
 	}
 
 	// A sample whose time can't be read outside the trajectory (before its
-	// 15 s series, and not a gate) doesn't matter.
+	// 15 s series, and not a gate) doesn't matter; one that is a gate does.
 	void unreadableTimeOutsideTheTrajectoryIsIgnored() {
 		std::vector<double> heights;
 		for (int i = 20; i >= 0; --i)
@@ -621,6 +670,11 @@ private slots:
 		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(profile);
 		QCOMPARE(profile->series.front().seconds, -15.0);
+
+		// 1100 ft above the touchdown point: the 1000, 500 and 300 ft gates.
+		dataset.points.front() = sample(0, 2100, 1100);
+		dataset.points.front().zuluTime = early.zuluTime;
+		QVERIFY(!contactProfile(dataset, dataset.touchdowns[0], true));
 	}
 
 	// With no samples nothing is derived; with values not recorded, those

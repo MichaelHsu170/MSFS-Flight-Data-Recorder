@@ -157,6 +157,15 @@ private slots:
 		QVERIFY(!kml.contains("<b>Local:</b> <br/>"));
 	}
 
+	// With the contact's sample the heading is its true one, the same
+	// reference as the runway and wind, with the stored magnetic one after it.
+	void headingRowIsTrueWithASample() {
+		TripDataset d = fullDataset();
+		d.liftoffPoints[0].conditions.headingTrue = 96.6;
+		const QString kml = exportToString(d);
+		QVERIFY(kml.contains(QString::fromUtf8("<b>Heading:</b> 97° T (92° M)<br/>")));
+	}
+
 	// The crab angle from the contact's sample, rounded, with its side; no
 	// row without a sample.
 	void crabRowSaysWhichSide_data() {

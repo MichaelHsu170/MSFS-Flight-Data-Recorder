@@ -197,7 +197,7 @@ The prompt sends the popup's values, every heading in true, including the runway
   - With the runway data, each gate and sample also gives its distance along the runway from the marked threshold (touchdown) or the runway start (liftoff), negative before it, and its distance right or left of the extended centerline.
   - **Heights are measured from the touchdown or liftoff point, not radio height.** Radio height follows the terrain under the aircraft (a valley, cliff or the sea before the runway), so each point also gives the terrain below it.
   - The window stops at the trip's previous or next liftoff/touchdown, so a touch-and-go's circuit or a bounce isn't counted twice. Each touchdown of a bounced landing gets its own.
-  - **When it can't be built**, because the trip has no sample at or after the contact, or a time in its window (the contact's or a sample's) can't be read, the analysis covers the liftoff or touchdown itself only. The prompt tells the model so, and a notice under the button tells you.
+  - **When it can't be built**, because the trip has no samples, or a time in its window (the contact's or a sample's) can't be read, the analysis covers the liftoff or touchdown itself only. The prompt tells the model so, and a notice under the button tells you.
 
 Until the answer starts, a status line in the result area says what it's waiting for: "Building the approach trajectory…" (or climb-out), "Sending to LLM…", then "Waiting for the model…", counting retries ("Retrying (2/3): …").
 
