@@ -630,6 +630,18 @@ private slots:
 		QCOMPARE(event, QStringLiteral("Event• A & <i>B</i><i>z</i>|0"));
 	}
 
+	// A touchdown's notice names its approach (a liftoff's, its climb-out).
+	void touchdownNoticeNamesTheApproach() {
+		const QString note = evalPageJs(widget_, QStringLiteral(
+			"(function () { var d = document.createElement('div');"
+			"  d.innerHTML = runwayContactPopupHtml('x', {icao: 'X', lat: 1, lng: 2, airspeed: 1, verticalSpeed: 0,"
+			"    pitchDegrees: 0, bankDegrees: 0, headingDegrees: 0, windDirection: 0, windVelocity: 0, zuluTime: 'z'},"
+			"    'Touchdown', null, 'analyzeTouchdown', 'Analyze Landing').html;"
+			"  return d.querySelector('#td-note-x').textContent.replace(/\\s+/g, ' ').trim(); })()")).toString();
+		QCOMPARE(note, QStringLiteral("The approach trajectory couldn't be built from this trip's recorded samples,"
+			" so this analysis covers the touchdown itself only."));
+	}
+
 	// With no runway matched the stored distances read back as 0 and mean
 	// nothing, so neither the popup nor the AI prompt shows them; with one
 	// matched, both do.
@@ -1253,7 +1265,8 @@ private slots:
 	// Clicking Analyze has MapBridge build that contact's trajectory from the
 	// trip shown, for the prompt. A trip whose samples can't give one (no
 	// times) gets the prompt's "not available" line instead, and the notice
-	// under the button, which stays when the popup is reopened.
+	// under the button, which stays when the popup is reopened; before the
+	// analysis there is none.
 	void analyzeGetsTheTrajectoryFromTheTrip_data() {
 		QTest::addColumn<bool>("timed");
 		QTest::addColumn<QString>("trajectoryLine");  // how the prompt's trajectory line starts
@@ -1298,8 +1311,10 @@ private slots:
 			        text: function () { return Promise.resolve('[{"error":{"code":400,"message":"Stop here."}}]'); } });
 			};
 			marker.openPopup();
+			ai.noticeBefore = document.getElementById('td-note-' + id).style.display !== 'none';
 			document.getElementById('td-btn-' + id).click();
 		)JS"));
+		QCOMPARE(evalPageJs(widget_, QStringLiteral("window._traj.noticeBefore")), QVariant(false));  // not analyzed yet
 		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("window._traj.prompt !== null && !_liftoffStore[window._traj.id].analyzing")).toBool());
 		const QVariantList shown = evalPageJs(widget_, QStringLiteral(R"JS(
 			var ai = window._traj;

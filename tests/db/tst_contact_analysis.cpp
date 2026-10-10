@@ -190,16 +190,20 @@ private slots:
 	}
 
 	// The sun and every distance are taken at the contact's own position:
-	// 12:00 UTC is midnight at longitude 180, where on the equator at the
-	// solstice the sun is 90 - 23.44 below the horizon.
+	// 12:00 UTC is midnight at longitude 180, where at 30°N at the solstice
+	// the sun is 90 - 30 - 23.44 below the horizon (with latitude and
+	// longitude swapped it would be about 52.6 below).
 	void theContactsPositionPlacesTheSunAndTheDistances() {
 		TripDataset dataset = touchdownAfter({ 100, 0 });
-		for (TripSamplePoint& p : dataset.points)
+		for (TripSamplePoint& p : dataset.points) {
+			p.latitude = 30;
 			p.longitude = 180;
-		dataset.points[0].latitude = 1.0 / 60;  // 1 arcminute north: 1.0007 nm
+		}
+		dataset.points[0].latitude = 30 + 1.0 / 60;  // 1 arcminute north: 1.0007 nm
+		dataset.touchdowns[0].latitude = 30;
 		dataset.touchdowns[0].longitude = 180;
 		analyzeContacts(dataset);
-		QVERIFY(qAbs(dataset.touchdowns[0].conditions.sunElevation - -66.56) < 0.1);
+		QVERIFY(qAbs(dataset.touchdowns[0].conditions.sunElevation - -36.56) < 0.1);
 
 		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(profile);
@@ -413,21 +417,42 @@ private slots:
 		QVERIFY(std::isnan(profile->highestTerrainFt));
 	}
 
-	// A liftoff's series runs from 10 s before it to 10 s after: of samples
-	// 1 s apart, -9.5 s to +9.5 s, the next ones out (-10.5, +10.5) left out.
+	// A liftoff's series runs from 10 s before it to 10 s after, both ends
+	// included: of samples 1 s apart, -9.5 s to +9.5 s for a liftoff between
+	// two (the next ones out, -10.5 and +10.5, left out), -10 s to +10 s for
+	// one on a sample.
 	void liftoffSeriesCoversTenSecondsEachSide() {
 		TripDataset dataset;
 		for (int i = 0; i <= 30; ++i) {
 			const double height = i <= 15 ? 0 : (i - 15) * 50;
 			dataset.points.push_back(sample(i, 500 + height, height));
 		}
-		dataset.liftoffPoints = { contactAt<LiftoffPoint>(15.5) };
-		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
+		const struct { double liftoff; size_t count; double end; } cases[] = { { 15.5, 20, 9.5 }, { 15, 21, 10 } };
+		for (const auto& c : cases) {
+			dataset.liftoffPoints = { contactAt<LiftoffPoint>(c.liftoff) };
+			const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
+			QVERIFY(profile);
+
+			QCOMPARE(profile->series.size(), c.count);
+			QCOMPARE(profile->series.front().seconds, -c.end);
+			QCOMPARE(profile->series.back().seconds, c.end);
+		}
+	}
+
+	// A touchdown's gates are crossings before it: a sample after it (a gap in
+	// the recording put it 1.5 nm down the runway, 30 s later) is never one.
+	void touchdownGatesComeBeforeTheContact() {
+		TripDataset dataset;
+		dataset.points = { sample(-10, 1500, 500, -1.5), sample(30, 1000, 0, 1.5) };
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(profile);
 
-		QCOMPARE(profile->series.size(), size_t(20));
-		QCOMPARE(profile->series.front().seconds, -9.5);
-		QCOMPARE(profile->series.back().seconds, 9.5);
+		const ProfilePoint* oneNm = gate(*profile, QStringLiteral("1 nm"));
+		QVERIFY(oneNm);
+		QCOMPARE(oneNm->seconds, -10.0);
+		for (const ProfilePoint& p : profile->gates)
+			QVERIFY(p.seconds < 0);
 	}
 
 	// The touchdown series is the last 15 s.
