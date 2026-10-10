@@ -1,6 +1,6 @@
 ---
 name: diff-review
-description: Reviews code changes for bugs, incorrect logic, and suspicious behavior in uncommitted working-tree changes (the default) or in the diff against a commit/tag/branch the user names (still including any uncommitted changes on top of that ref). Produces a findings report with context and proposed fixes; never edits, stages, or commits anything. Use whenever the user asks to review, check, audit, or sanity-check a diff, recent edits, uncommitted changes, or changes against a ref for bugs, regressions, or suspicious behavior.
+description: Reviews code changes for bugs, incorrect logic, and suspicious behavior in uncommitted working-tree changes (the default) or in the diff against a commit/tag/branch the user names (still including any uncommitted changes on top of that ref). Produces a findings report with context and proposed fixes; never edits, stages, or commits anything in the working tree (its coverage break-check edits only a throwaway copy under build/). Use whenever the user asks to review, check, audit, or sanity-check a diff, recent edits, uncommitted changes, or changes against a ref for bugs, regressions, or suspicious behavior.
 context: fork
 allowed-tools:
   - Read
@@ -14,6 +14,9 @@ allowed-tools:
   - Bash(git ls-files *)
   - Bash(git merge-base *)
   - PowerShell(cmd /c ".vscode\scripts\build.bat Debug test rebuild")
+  - PowerShell(powershell -NoProfile -ExecutionPolicy Bypass -File .vscode\scripts\review_copy.ps1*)
+  - PowerShell(cmd /c "build\review-copy\.vscode\scripts\build.bat Debug *")
+  - Edit(build/review-copy/**)
 ---
 
 # Diff Review
@@ -22,10 +25,10 @@ Read [`.github/diff-review.md`](../../../.github/diff-review.md) at the reposito
 
 This skill runs in a forked subagent (`context: fork` above) that starts without the conversation it was invoked from, which is how it meets that file's "review from zero known context" rule: the reviewer can't lean on design rationale or earlier "this part is fine" conclusions from the chat, even when the same session wrote the code.
 
-Run the build-and-test command in the foreground with a 600000 ms timeout, never in the background: this review runs in a forked subagent, and a background build is killed as soon as the subagent ends its turn.
+Run every build (each `build.bat` command) in the foreground with a 600000 ms timeout, never in the background: this review runs in a forked subagent, and a background build is killed as soon as the subagent ends its turn.
 
 Arguments: $ARGUMENTS
 
 If a ref (commit/tag/branch) was given in the arguments above, that's the ref referred to in that file's scope-determination step; if none was given, follow its no-ref path (uncommitted changes only).
 
-This skill's tool access is already locked to read-only file tools, read-only `git` commands, and the build-and-test command the compliance check runs, which writes only to the git-ignored `build/` directory (see `allowed-tools` above). Never attempt to Edit, Write, or run a mutating `git`/shell command during this skill, even if asked to "just fix it" mid-review. Applying a fix is a separate, explicit follow-up outside this skill's scope.
+This skill's tool access is already locked to read-only file tools, read-only `git` commands, the build-and-test command the compliance check runs, and, for the coverage break-check, the copy script, the copy's `build.bat`, and Edit on files under `build/review-copy/`; all of it writes only to the git-ignored `build/` directory (see `allowed-tools` above). Never Edit a file outside `build/review-copy/`, Write any file, or run a mutating `git`/shell command during this skill, even if asked to "just fix it" mid-review. Applying a fix is a separate, explicit follow-up outside this skill's scope.

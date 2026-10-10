@@ -47,7 +47,7 @@ Automated tests run the app's code against a fake SimConnect with made-up flight
 .\.vscode\scripts\build.bat Debug test
 ```
 
-Add `rebuild` as the third argument (`build.bat Debug test rebuild`, or `build.bat Debug notest rebuild` to skip the tests) to recompile everything first, so every file's compiler warnings show. Any other extra argument is an error. The app and the tests compile at warning level 4 (`/W4`); warnings from Qt's and the SimConnect SDK's headers are turned off.
+Add `rebuild` as the third argument (`build.bat Debug test rebuild`, or `build.bat Debug notest rebuild` to skip the tests) to recompile everything first, so every file's compiler warnings show. `build.bat Debug only tst_map_widget tst_map_script` builds and runs just the named test programs. Any other extra argument is an error. The app and the tests compile at warning level 4 (`/W4`); warnings from Qt's and the SimConnect SDK's headers are turned off.
 
 See [tests/README.md](tests/README.md) for what is covered, what still needs a manual check, and open questions for real sim data.
 
@@ -311,6 +311,7 @@ MSFS-Flight-Data-Recorder/
 │   └── scripts/
 │       ├── build.bat             Sources vcvarsall.bat once, configures (if needed), builds, optionally runs the tests
 │       ├── clean.ps1             Removes the build/ directory
-│       └── coverage.ps1          Runs the tests under OpenCppCoverage and writes a line-coverage report
+│       ├── coverage.ps1          Runs the tests under OpenCppCoverage and writes a line-coverage report
+│       └── review_copy.ps1       Syncs build/review-copy, the copy the diff review breaks code in to check coverage
 └── CMakeLists.txt                fdr_core library (all app code but main.cpp), the app, and tests/
 ```

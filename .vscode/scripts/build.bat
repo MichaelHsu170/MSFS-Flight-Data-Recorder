@@ -1,5 +1,6 @@
 @echo off
 REM build.bat <Debug|Release> [test|notest [rebuild]]
+REM build.bat <Debug|Release> only <test>...
 REM
 REM Single-process build task driven by VS Code's Ctrl+Shift+B menu (see
 REM ..\tasks.json). It sets up the MSVC x64 environment once, then
@@ -16,7 +17,11 @@ REM just those of the files that were out of date -- the diff review's
 REM warning check (.github\diff-review.md) relies on that. To rebuild without
 REM testing, pass "notest" second. Any other second or third argument is an
 REM error, so a misplaced "rebuild" (build.bat Release rebuild) isn't silently
-REM ignored.
+REM ignored. With "only" second, followed by test program names (tst_...),
+REM only those programs (and what they link) are built, then only they run:
+REM the diff review's coverage check rebuilds and reruns the few tests behind
+REM one broken line many times, which the whole build and suite would make
+REM take hours (.github\diff-review.md).
 
 setlocal enabledelayedexpansion
 
@@ -26,11 +31,18 @@ if "%CONFIG%"=="" (
   exit /b 1
 )
 set "ARGS_OK=1"
-if not "%~2"=="" if /i not "%~2"=="test" if /i not "%~2"=="notest" set "ARGS_OK="
-if not "%~3"=="" if /i not "%~3"=="rebuild" set "ARGS_OK="
-if not "%~4"=="" set "ARGS_OK="
+set "ONLY_TARGETS="
+if /i "%~2"=="only" (
+  for /f "tokens=2,*" %%A in ("%*") do set "ONLY_TARGETS=%%B"
+  if not defined ONLY_TARGETS set "ARGS_OK="
+) else (
+  if not "%~2"=="" if /i not "%~2"=="test" if /i not "%~2"=="notest" set "ARGS_OK="
+  if not "%~3"=="" if /i not "%~3"=="rebuild" set "ARGS_OK="
+  if not "%~4"=="" set "ARGS_OK="
+)
 if not defined ARGS_OK (
   echo Error: usage: build.bat ^<Debug^|Release^> [test^|notest [rebuild]]
+  echo        build.bat ^<Debug^|Release^> only ^<test^>...
   exit /b 1
 )
 
@@ -85,15 +97,25 @@ if not exist "%BUILD_DIR%\CMakeCache.txt" (
 
 set "CLEAN_FIRST="
 if /i "%~3"=="rebuild" set "CLEAN_FIRST=--clean-first"
+set "TARGETS="
+if defined ONLY_TARGETS set "TARGETS=--target %ONLY_TARGETS%"
 echo Building %CONFIG% ...
-"%CMAKE%" --build "%BUILD_DIR%" --config %CONFIG% %CLEAN_FIRST%
+"%CMAKE%" --build "%BUILD_DIR%" --config %CONFIG% %CLEAN_FIRST% %TARGETS%
 set "BUILD_RESULT=%errorlevel%"
 if not "%BUILD_RESULT%"=="0" endlocal & exit /b %BUILD_RESULT%
 
-if /i "%~2"=="test" (
-  for %%I in ("%CMAKE%") do set "CTEST=%%~dpIctest.exe"
+for %%I in ("%CMAKE%") do set "CTEST=%%~dpIctest.exe"
+REM The tests named after "only", by exact name ("tst_a|tst_b" in ctest's
+REM regex). Expanded with %%, not !!, so the regex's ^ stays: a command with
+REM a !variable! drops carets, even quoted ones.
+if defined ONLY_TARGETS set "ONLY_REGEX=%ONLY_TARGETS: =|%"
+if defined ONLY_TARGETS (
+  echo Testing %CONFIG% ^(%ONLY_TARGETS%^) ...
+  "%CTEST%" --test-dir "%BUILD_DIR%" -C %CONFIG% --output-on-failure --no-tests=error -R "^(%ONLY_REGEX%)$"
+  set "BUILD_RESULT=!errorlevel!"
+) else if /i "%~2"=="test" (
   echo Testing %CONFIG% ...
-  "!CTEST!" --test-dir "%BUILD_DIR%" -C %CONFIG% --output-on-failure
+  "%CTEST%" --test-dir "%BUILD_DIR%" -C %CONFIG% --output-on-failure
   set "BUILD_RESULT=!errorlevel!"
 )
 endlocal & exit /b %BUILD_RESULT%

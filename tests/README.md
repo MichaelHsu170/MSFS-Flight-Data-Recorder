@@ -22,7 +22,8 @@ on PATH: `build.bat` uses the `cmake.exe` on PATH, else Visual Studio's
 bundled copy (`<VS install>\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\`),
 and runs the `ctest.exe` beside it.
 
-A single test program can also be run directly, e.g.
+`build.bat Debug only tst_a tst_b` builds and runs only the named test
+programs. A single test program can also be run directly, e.g.
 `build\Debug\tests\tst_airport_lookup.exe`, optionally with one test
 function name as an argument. The whole suite took between about 140 s
 and 230 s (Debug) on the verification machine, varying from run to run.
