@@ -30,10 +30,9 @@ public:
 	void start();
 
 	const FLIGHT_DATA& currentData() const { return status_.data; }
-	bool isRecording() const { return status_.recording; }
 	// User-facing gate on automatic recording start; see STATUS::recording_enabled.
 	bool isRecordingEnabled() const { return status_.recording_enabled; }
-	// No-op while a trip is recording (see isRecording()): toggling it
+	// No-op while a trip is recording (currentTripId() is set): toggling it
 	// mid-trip couldn't affect that trip. LiveStatusPanel also keeps its
 	// toggle locked until that trip is saved.
 	void setRecordingEnabled(bool enabled);

@@ -33,15 +33,15 @@ void tracef(const std::function<void(const char*)>& trace, const char* fmt, ...)
 template <typename Length>
 void footprint(COORDINATE anchor, float runway_heading, Length length, Length width, const COORDINATE& point,
 	double& distance, double& limit) {
-	double angle = atan(width / 2 / length) / V_PI * 180;
+	double angle = atan(width / 2 / length) / DEG_2_RAD;
 	double bearing = anchor.bearing2Coordinate(point);
 	distance = anchor.distanceInKm2Coordinate(point) * 1000;
 	double diff_bearing = bearing_difference(bearing, runway_heading);
 	limit = 0;
 	if (diff_bearing >= 0 && diff_bearing <= angle)
-		limit = length / cos(diff_bearing / 180 * V_PI);
+		limit = length / cos(diff_bearing * DEG_2_RAD);
 	else if (diff_bearing > angle && diff_bearing <= 90)
-		limit = width / 2 / sin(diff_bearing / 180 * V_PI);
+		limit = width / 2 / sin(diff_bearing * DEG_2_RAD);
 }
 
 }
@@ -51,7 +51,7 @@ RUNWAY_OFFSETS runway_offsets(COORDINATE threshold, double heading, const COORDI
 	// acos(cos d / cos xt) but exact for a point near the threshold or on the
 	// centerline.
 	const double d = threshold.distanceInKm2Coordinate(point) / EARTHRADIUSKM;
-	const double dtheta = (threshold.bearing2Coordinate(point) - heading) * V_PI / 180;
+	const double dtheta = (threshold.bearing2Coordinate(point) - heading) * DEG_2_RAD;
 	const double radius_ft = EARTHRADIUSKM * 1000 * M_2_FT;
 	RUNWAY_OFFSETS offsets;
 	offsets.along_ft = atan2(sin(d) * cos(dtheta), cos(d)) * radius_ft;

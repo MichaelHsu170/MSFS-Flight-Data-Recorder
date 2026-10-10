@@ -1052,26 +1052,25 @@ static bool migrate_trip_engine_data(sqlite3* sql, StepProgress& progress, const
 		const std::string e = std::to_string(engine);
 		std::string engine_values = "rowid," + e + ",trip";
 		for (int field = 0; field < TRIP_ENGINE_FIELD_COUNT; ++field) {
-			std::vector<std::string> sources;
+			// Every earlier layout stored a value in one place only: its
+			// "_<engine>" column, a bool_group bit or an engine power BLOB.
+			std::string source = "NULL";
 			const std::string column = std::string(kEngineColumns[field].name) + "_" + e;
 			if (has(column))
-				sources.push_back(column);
+				source = column;
 			for (const LegacyEngineBit& legacy : kLegacyEngineBits)
 				if (legacy.field == field && engine <= kLegacyColumnEngines && has(bool_group(legacy.group)))
-					sources.push_back("((" + bool_group(legacy.group) + " >> " + std::to_string(legacy.bit + engine - 1) + ") & 1)");
+					source = "((" + bool_group(legacy.group) + " >> " + std::to_string(legacy.bit + engine - 1) + ") & 1)";
 			for (const bool speed : { true, false }) {
 				std::string types;
 				for (const LegacyEnginePower& legacy : kLegacyEnginePower)
 					if ((speed ? legacy.speed : legacy.load) == field)
 						types += (types.empty() ? "" : ",") + std::to_string(legacy.engineType);
 				if (blobs && !types.empty())
-					sources.push_back("CASE WHEN engine_type IN (" + types + ") THEN engine_value("
-						+ (speed ? "engine_speed," : "engine_load,") + std::to_string(engine - 1) + ") END");
+					source = "CASE WHEN engine_type IN (" + types + ") THEN engine_value("
+						+ (speed ? "engine_speed," : "engine_load,") + std::to_string(engine - 1) + ") END";
 			}
-			std::string source = sources.empty() ? "NULL" : sources[0];
-			for (size_t i = 1; i < sources.size(); ++i)
-				source += "," + sources[i];
-			engine_values += "," + (sources.size() > 1 ? "COALESCE(" + source + ")" : source);
+			engine_values += "," + source;
 		}
 		std::string where = "rowid BETWEEN ?1 AND ?2 AND number_of_engines >= " + e;
 		if (engine > kLegacyColumnEngines) {

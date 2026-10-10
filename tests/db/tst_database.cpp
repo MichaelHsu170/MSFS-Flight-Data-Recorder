@@ -1225,7 +1225,7 @@ private slots:
 		// The worker thread survived the failure and is still draining the
 		// queue: ending the trip still reaches the "Recording stopped" sentinel.
 		sim.endTrip();
-		QVERIFY(!sim.bridge().isRecording());
+		QCOMPARE(sim.bridge().currentTripId(), -1);
 	}
 
 	// --- UI connections and analysis reports ---

@@ -18,6 +18,7 @@
 #include "event_filter.h"
 #define DATABASE_NAME "flight_data"
 #define V_PI 3.14159265358979323846
+#define DEG_2_RAD (V_PI / 180.0)
 #define M_2_FT 3.2808399
 #define EARTHRADIUSKM 6371.0
 
@@ -126,35 +127,35 @@ public:
 	}
 
 	double distanceInKm2Coordinate(COORDINATE loc) {
-		double phy1 = latitude * V_PI / 180.0;
-		double phy2 = loc.latitude * V_PI / 180.0;
-		double dPhy = (loc.latitude - latitude) * V_PI / 180.0;
-		double dLambda = (loc.longitude - longitude) * V_PI / 180.0;
+		double phy1 = latitude * DEG_2_RAD;
+		double phy2 = loc.latitude * DEG_2_RAD;
+		double dPhy = (loc.latitude - latitude) * DEG_2_RAD;
+		double dLambda = (loc.longitude - longitude) * DEG_2_RAD;
 		double a = pow(sin(dPhy / 2), 2) + cos(phy1) * cos(phy2) * pow(sin(dLambda / 2), 2);
 		double c = 2 * atan2(sqrt(a), sqrt(1 - a));
 		return EARTHRADIUSKM * c;
 	}
 
 	double bearing2Coordinate(COORDINATE loc) {
-		double phy1 = latitude * V_PI / 180.0;
-		double phy2 = loc.latitude * V_PI / 180.0;
-		double lambda1 = longitude * V_PI / 180.0;
-		double lambda2 = loc.longitude * V_PI / 180.0;
+		double phy1 = latitude * DEG_2_RAD;
+		double phy2 = loc.latitude * DEG_2_RAD;
+		double lambda1 = longitude * DEG_2_RAD;
+		double lambda2 = loc.longitude * DEG_2_RAD;
 		double y = sin(lambda2 - lambda1) * cos(phy2);
 		double x = cos(phy1) * sin(phy2) - sin(phy1) * cos(phy2) * cos(lambda2 - lambda1);
 		double theta = atan2(y, x);
-		return wrap_bearing(theta * 180 / V_PI);
+		return wrap_bearing(theta / DEG_2_RAD);
 	}
 
 	COORDINATE destinationWithDistanceAndBearing(double distance, double bearing) {
 		COORDINATE ret;
-		double phy = latitude * V_PI / 180.0;
-		double lambda = longitude * V_PI / 180.0;
-		double theta = bearing * V_PI / 180.0;
+		double phy = latitude * DEG_2_RAD;
+		double lambda = longitude * DEG_2_RAD;
+		double theta = bearing * DEG_2_RAD;
 		ret.latitude = asin(sin(phy) * cos(distance / EARTHRADIUSKM) + cos(phy) * sin(distance / EARTHRADIUSKM) * cos(theta));
 		ret.longitude = lambda + atan2(sin(theta) * sin(distance / EARTHRADIUSKM) * cos(phy), cos(distance / EARTHRADIUSKM) - sin(phy) * sin(ret.latitude));
-		ret.latitude *= 180.0 / V_PI;
-		ret.longitude *= 180.0 / V_PI;
+		ret.latitude /= DEG_2_RAD;
+		ret.longitude /= DEG_2_RAD;
 		return ret;
 	}
 };

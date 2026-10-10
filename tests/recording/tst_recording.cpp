@@ -174,7 +174,7 @@ private slots:
 		FlightDriver sim;
 		sim.ticks(5);
 		QCOMPARE(tripCount(), 0);
-		QVERIFY(!sim.bridge().isRecording());
+		QCOMPARE(sim.bridge().currentTripId(), -1);
 	}
 
 	void noTripWhenSimNotRunning() {
@@ -278,7 +278,6 @@ private slots:
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		const int tripId = sim.startTrip();
 		QVERIFY(tripId > 0);
-		QVERIFY(sim.bridge().isRecording());
 		QCOMPARE(sim.bridge().currentTripId(), tripId);
 		QCOMPARE(started.count(), 1);
 		QCOMPARE(started.at(0).at(0).toInt(), tripId);
@@ -401,7 +400,6 @@ private slots:
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		sim.ticks(2);
 		sim.endTrip();
-		QVERIFY(!sim.bridge().isRecording());
 		QCOMPARE(sim.bridge().currentTripId(), -1);
 		QVERIFY(waitFor([&ended] { return ended.count() == 1; }));
 		QCOMPARE(ended.at(0).at(0).toInt(), tripId);
@@ -420,10 +418,10 @@ private slots:
 		sim.record.eng_combustion[1] = 0;
 		sim.record.eng_combustion[2] = 0;
 		sim.tick();
-		QVERIFY(sim.bridge().isRecording());
+		QVERIFY(sim.bridge().currentTripId() > 0);
 		sim.record.eng_combustion[3] = 0;
 		sim.tick();
-		QVERIFY(!sim.bridge().isRecording());
+		QCOMPARE(sim.bridge().currentTripId(), -1);
 	}
 
 	void tripEndStopsBeforeSampling() {
@@ -437,7 +435,7 @@ private slots:
 		FlightDriver sim;
 		const int tripId = sim.startTrip();
 		sim.simEvent(EVENT_SIM, 0);
-		QVERIFY(!sim.bridge().isRecording());
+		QCOMPARE(sim.bridge().currentTripId(), -1);
 		QVERIFY(waitFor([&sim, tripId] { return !sim.bridge().isTripFlushing(tripId); }));
 		QVERIFY(!tripRow(tripId)["destination_zulu_time"].isNull());
 	}
@@ -458,7 +456,7 @@ private slots:
 		const int tripId = sim.startTrip();
 		sim.send(recvPacket(SIMCONNECT_RECV_ID_QUIT, sizeof(SIMCONNECT_RECV)));
 		sim.pump();
-		QVERIFY(!sim.bridge().isRecording());
+		QCOMPARE(sim.bridge().currentTripId(), -1);
 		QVERIFY(waitFor([&sim, tripId] { return !sim.bridge().isTripFlushing(tripId); }));
 		QVERIFY(!tripRow(tripId)["destination_zulu_time"].isNull());
 	}
@@ -541,14 +539,14 @@ private slots:
 		QSignalSpy started(&sim.bridge(), &RecorderBridge::recordingStateChanged);
 		sim.setEngines(true);
 		sim.tick();
-		QVERIFY(!sim.bridge().isRecording());
+		QCOMPARE(sim.bridge().currentTripId(), -1);
 		QCOMPARE(started.count(), 0);
 		QCOMPARE(tripCount(), 0);
 		QVERIFY(!lastLogWith(log, { QStringLiteral("Recording start failed"), QStringLiteral("trip insert") }).isEmpty());
 		// Engines still running: the next sample retries the start.
 		exec("DROP TRIGGER fail_insert");
 		sim.tick();
-		QVERIFY(sim.bridge().isRecording());
+		QVERIFY(sim.bridge().currentTripId() > 0);
 		QCOMPARE(tripCount(), 1);
 	}
 
@@ -559,7 +557,6 @@ private slots:
 		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
 		QSignalSpy ended(&sim.bridge(), &RecorderBridge::tripEnded);
 		sim.endTrip();
-		QVERIFY(!sim.bridge().isRecording());
 		QCOMPARE(sim.bridge().currentTripId(), -1);
 		QVERIFY(waitFor([&ended] { return ended.count() == 1; }));
 		QVERIFY(!lastLogWith(log, { QStringLiteral("destination time"), QStringLiteral("trip %1").arg(tripId) }).isEmpty());

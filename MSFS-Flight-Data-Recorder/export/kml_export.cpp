@@ -1,5 +1,6 @@
 #include "kml_export.h"
 #include "logger.h"
+#include "types.h"
 
 #include <QDateTime>
 #include <QElapsedTimer>
@@ -10,8 +11,6 @@
 #include <cmath>
 
 namespace {
-
-constexpr double kFeetToMeters = 0.3048;
 
 QString xmlEscape(const QString& s) {
 	QString out;
@@ -184,7 +183,7 @@ QString buildTripKml(const TripDataset& dataset) {
 		kml += QStringLiteral("<Placemark><name>Flight Path</name><styleUrl>#pathStyle</styleUrl>"
 			"<LineString><altitudeMode>absolute</altitudeMode><coordinates>");
 		for (const TripSamplePoint& p : dataset.points) {
-			kml += formatCoordinate(p.longitude, p.latitude, p.altitude * kFeetToMeters);
+			kml += formatCoordinate(p.longitude, p.latitude, p.altitude / M_2_FT);
 			kml += QLatin1Char(' ');
 		}
 		kml += QStringLiteral("</coordinates></LineString></Placemark>\n");
@@ -200,7 +199,7 @@ QString buildTripKml(const TripDataset& dataset) {
 			if (when.isEmpty())
 				continue;
 			kml += QStringLiteral("<when>%1</when>\n").arg(when);
-			coordLines += QStringLiteral("<gx:coord>%1</gx:coord>\n").arg(formatGxCoordinate(p.longitude, p.latitude, p.altitude * kFeetToMeters));
+			coordLines += QStringLiteral("<gx:coord>%1</gx:coord>\n").arg(formatGxCoordinate(p.longitude, p.latitude, p.altitude / M_2_FT));
 		}
 		kml += coordLines;
 		kml += QStringLiteral("</gx:Track></Placemark>\n</Folder>\n");

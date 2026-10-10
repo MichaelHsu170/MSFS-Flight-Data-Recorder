@@ -178,7 +178,7 @@ private slots:
 		QWidget* toggle = recordingToggle(panel);
 		toggle->resize(100, 20);
 		emit sim.bridge().recordingStateChanged(7);
-		QVERIFY(!sim.bridge().isRecording());
+		QCOMPARE(sim.bridge().currentTripId(), -1);
 		sendLeftButton(toggle, QEvent::MouseButtonRelease, QPoint(5, 5));
 		QVERIFY(sim.bridge().isRecordingEnabled());
 		QCOMPARE(toggle->toolTip(), QStringLiteral("Recording trip #7 (can't be toggled while a trip is recording)"));

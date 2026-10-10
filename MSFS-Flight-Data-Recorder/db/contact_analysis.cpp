@@ -7,7 +7,6 @@
 
 namespace {
 
-constexpr double kDegToRad = V_PI / 180;
 constexpr double kFeetPerNm = 6076.12;
 
 // The touchdown gates: the last crossing before the contact of each height
@@ -170,7 +169,7 @@ ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamp
 		if (i < 0)
 			continue;
 		ProfilePoint gate = builder.at(i, nmGate(nm));
-		gate.pathAngle = std::atan2(gate.heightFt - nextHeight, (gate.distanceNm - nextDistance) * kFeetPerNm) / kDegToRad;
+		gate.pathAngle = std::atan2(gate.heightFt - nextHeight, (gate.distanceNm - nextDistance) * kFeetPerNm) / DEG_2_RAD;
 		nextHeight = gate.heightFt;
 		nextDistance = gate.distanceNm;
 		gates.push_back({ i, gate });
@@ -311,24 +310,24 @@ double sunElevationDegrees(double latitude, double longitude, const QDateTime& u
 	const double meanLongitude = wrap360(280.46646 + t * (36000.76983 + t * 0.0003032));
 	const double meanAnomaly = 357.52911 + t * (35999.05029 - 0.0001537 * t);
 	const double eccentricity = 0.016708634 - t * (0.000042037 + 0.0000001267 * t);
-	const double m = meanAnomaly * kDegToRad;
+	const double m = meanAnomaly * DEG_2_RAD;
 	const double center = std::sin(m) * (1.914602 - t * (0.004817 + 0.000014 * t))
 		+ std::sin(2 * m) * (0.019993 - 0.000101 * t) + std::sin(3 * m) * 0.000289;
-	const double omega = (125.04 - 1934.136 * t) * kDegToRad;
-	const double apparentLongitude = (meanLongitude + center - 0.00569 - 0.00478 * std::sin(omega)) * kDegToRad;
+	const double omega = (125.04 - 1934.136 * t) * DEG_2_RAD;
+	const double apparentLongitude = (meanLongitude + center - 0.00569 - 0.00478 * std::sin(omega)) * DEG_2_RAD;
 	const double meanObliquity = 23 + (26 + (21.448 - t * (46.815 + t * (0.00059 - t * 0.001813))) / 60) / 60;
-	const double obliquity = (meanObliquity + 0.00256 * std::cos(omega)) * kDegToRad;
+	const double obliquity = (meanObliquity + 0.00256 * std::cos(omega)) * DEG_2_RAD;
 	const double declination = std::asin(std::sin(obliquity) * std::sin(apparentLongitude));
 	const double y = std::pow(std::tan(obliquity / 2), 2);
-	const double l0 = meanLongitude * kDegToRad;
-	const double equationOfTimeMinutes = 4 / kDegToRad * (y * std::sin(2 * l0) - 2 * eccentricity * std::sin(m)
+	const double l0 = meanLongitude * DEG_2_RAD;
+	const double equationOfTimeMinutes = 4 / DEG_2_RAD * (y * std::sin(2 * l0) - 2 * eccentricity * std::sin(m)
 		+ 4 * eccentricity * y * std::sin(m) * std::cos(2 * l0) - 0.5 * y * y * std::sin(4 * l0)
 		- 1.25 * eccentricity * eccentricity * std::sin(2 * m));
 	const double utcMinutes = utc.toUTC().time().msecsSinceStartOfDay() / 60000.0;
-	const double hourAngle = ((utcMinutes + equationOfTimeMinutes + 4 * longitude) / 4 - 180) * kDegToRad;
-	const double lat = latitude * kDegToRad;
+	const double hourAngle = ((utcMinutes + equationOfTimeMinutes + 4 * longitude) / 4 - 180) * DEG_2_RAD;
+	const double lat = latitude * DEG_2_RAD;
 	const double cosZenith = std::sin(lat) * std::sin(declination) + std::cos(lat) * std::cos(declination) * std::cos(hourAngle);
-	return 90 - std::acos(std::clamp(cosZenith, -1.0, 1.0)) / kDegToRad;
+	return 90 - std::acos(std::clamp(cosZenith, -1.0, 1.0)) / DEG_2_RAD;
 }
 
 double densityAltitudeFeet(double pressureAltitudeFt, double temperatureC) {
