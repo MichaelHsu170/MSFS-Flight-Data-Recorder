@@ -14,6 +14,10 @@ struct sqlite3_stmt;
 // A text column as a QString; empty for NULL.
 QString columnText(sqlite3_stmt* stmt, int column);
 
+// A numeric column as a double; NaN for NULL (a column added after the row was
+// written, or a value not recorded).
+double columnDouble(sqlite3_stmt* stmt, int column);
+
 // Prepares stmtText; nullptr (logged as "<context>: prepare failed for
 // "<stmtText>": ...") on failure.
 sqlite3_stmt* prepareStatement(sqlite3* sql, const char* stmtText, const QString& context);

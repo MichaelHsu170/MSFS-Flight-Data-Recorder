@@ -65,6 +65,8 @@ QJsonArray profilePointsToJson(const std::vector<ProfilePoint>& points) {
 		setKnown(obj, "bank", p.bank);
 		setKnown(obj, "headingTrue", p.headingTrue);
 		setKnown(obj, "trackTrue", p.trackTrue);
+		setKnown(obj, "thresholdFt", p.thresholdFt);
+		setKnown(obj, "centerlineFt", p.centerlineFt);
 		setKnown(obj, "pathAngle", p.pathAngle);
 		arr.append(obj);
 	}
@@ -105,6 +107,11 @@ QJsonObject runwayContactToJson(const RunwayContactPoint& t) {
 	obj["localTime"] = t.localTime;
 	obj["rowId"] = t.rowId;
 	obj["analysisReport"] = t.analysisReport;
+	// The used runway end's facility data, each absent when not stored.
+	setKnown(obj, "runwayLengthFt", t.runwayData.lengthFt);
+	setKnown(obj, "runwayWidthFt", t.runwayData.widthFt);
+	setKnown(obj, "thresholdOffsetFt", t.runwayData.thresholdOffsetFt);
+	setKnown(obj, "runwaySlope", t.runwayData.slopeDegrees);
 	// Without a sample at the contact there's nothing to derive: both absent.
 	if (t.conditions.fromSample) {
 		obj["conditions"] = conditionsToJson(t.conditions);

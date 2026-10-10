@@ -106,6 +106,12 @@ struct ProfilePoint {
 	double bank = std::nan("");       // degrees
 	double headingTrue = std::nan("");
 	double trackTrue = std::nan("");
+	// Along the runway (ft; from the marked threshold for a touchdown, from the
+	// physical start for a liftoff, like distanceLength; negative = before it)
+	// and from its centerline (ft, +right/-left); NaN without the contact's
+	// ContactRunway.
+	double thresholdFt = std::nan("");
+	double centerlineFt = std::nan("");
 	// Distance gates only: the descent angle (degrees) from this gate to the
 	// next closer one, or to the contact after the last.
 	double pathAngle = std::nan("");
@@ -122,6 +128,19 @@ struct ContactProfile {
 	// distance from the contact; NaN without samples there.
 	double highestTerrainFt = std::nan("");
 	double highestTerrainNm = std::nan("");
+};
+
+// The used runway end's facility data stored with a contact (the runway_*
+// columns); every value NaN when no runway was matched or the contact was
+// recorded before these were.
+struct ContactRunway {
+	double lengthFt = std::nan("");
+	double widthFt = std::nan("");
+	double thresholdOffsetFt = std::nan("");  // displaced threshold of the used end
+	double startLatitude = std::nan("");      // the used end's physical start
+	double startLongitude = std::nan("");
+	double trueHeading = std::nan("");        // exact, degrees true
+	double slopeDegrees = std::nan("");       // in the direction of travel, + = uphill
 };
 
 // What a liftoff and a touchdown both record (trip_liftoffs/trip_touchdowns
@@ -151,6 +170,7 @@ struct RunwayContactPoint {
 	QString localTime;
 	int rowId = 0;           // the row's id, used to UPDATE analysis_report
 	QString analysisReport;  // stored AI analysis text, empty if never analyzed
+	ContactRunway runwayData;
 	ContactConditions conditions;
 	ContactProfile profile;
 };

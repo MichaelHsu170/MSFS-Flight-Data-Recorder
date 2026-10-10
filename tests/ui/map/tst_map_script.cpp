@@ -187,6 +187,35 @@ private slots:
 		QCOMPARE(series.at(0).toObject()["seconds"].toDouble(), 0.0);
 	}
 
+	// The runway end's stored data and each point's place on the runway are
+	// sent when known; the start and exact heading stay in C++.
+	void contactsCarryTheirRunwayDataWhenKnown() {
+		LiftoffPoint lo;
+		fillRunwayContact(lo);
+		lo.runwayData.lengthFt = 9800;
+		lo.runwayData.widthFt = 148;
+		lo.runwayData.thresholdOffsetFt = 0;
+		lo.runwayData.slopeDegrees = -0.25;
+		lo.runwayData.startLatitude = 47.4;
+		lo.runwayData.startLongitude = 8.6;
+		lo.runwayData.trueHeading = 155.5;
+		lo.conditions.fromSample = true;
+		ProfilePoint p;
+		p.thresholdFt = -120.5;
+		p.centerlineFt = 4.25;
+		lo.profile.series = { p };
+		const QJsonObject o = argumentOf(mapSetLiftoffsJs({ lo }), QStringLiteral("setLiftoffs")).array().at(0).toObject();
+		QCOMPARE(o["runwayLengthFt"].toDouble(), 9800.0);
+		QCOMPARE(o["runwayWidthFt"].toDouble(), 148.0);
+		QCOMPARE(o["thresholdOffsetFt"].toDouble(), 0.0);
+		QCOMPARE(o["runwaySlope"].toDouble(), -0.25);
+		QCOMPARE(o.size(), 21 + 4 + 2);  // the shared fields, the runway data, conditions and profile
+		const QJsonObject point = o["profile"].toObject()["series"].toArray().at(0).toObject();
+		QCOMPARE(point.keys(), QStringList({ "centerlineFt", "seconds", "thresholdFt" }));
+		QCOMPARE(point["thresholdFt"].toDouble(), -120.5);
+		QCOMPARE(point["centerlineFt"].toDouble(), 4.25);
+	}
+
 	void emptyMarkerListsAreStillCalls() {
 		QCOMPARE(mapSetLiftoffsJs({}), QStringLiteral("setLiftoffs([]);"));
 		QCOMPARE(mapSetTouchdownsJs({}), QStringLiteral("setTouchdowns([]);"));

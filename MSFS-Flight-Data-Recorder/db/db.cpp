@@ -100,7 +100,11 @@ std::string trip_data_insert() {
 }
 
 // trip_liftoffs' and trip_touchdowns' column definitions: the same columns,
-// plus g_force (after vertical_speed) for touchdowns.
+// plus g_force (after vertical_speed) for touchdowns. The runway_* columns
+// after analysis_report are the used end's facility data (RUNWAY_OPERATION),
+// NULL without a matched runway or for a contact recorded before they were
+// added: length, width and displaced threshold in ft, its physical start,
+// exact true heading, and slope in degrees.
 std::string contact_table_fields(CONTACT_TABLE table) {
 	return std::string(
 		"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
@@ -125,7 +129,14 @@ std::string contact_table_fields(CONTACT_TABLE table) {
 		"wind_velocity INTEGER,"
 		"time_zulu VARCHAR(32) NOT NULL,"
 		"time_local VARCHAR(32) NOT NULL,"
-		"analysis_report TEXT";
+		"analysis_report TEXT,"
+		"runway_length REAL,"
+		"runway_width REAL,"
+		"threshold_offset REAL,"
+		"runway_start_latitude REAL,"
+		"runway_start_longitude REAL,"
+		"runway_true_heading REAL,"
+		"runway_slope REAL";
 }
 
 struct TableDef {
@@ -418,7 +429,9 @@ void db_set_contact_airport(STATUS* status, CONTACT_TABLE table, int row_id, con
 	const RUNWAY_OPERATION& rwy = airport.runway_act;
 	db_insert_update_table(status,
 		(update + ",runway=?,runway_heading=?,"
-			"distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?"
+			"distance_length=?,distance_width=?,distance_length_percent=?,distance_width_percent=?,"
+			"runway_length=?,runway_width=?,threshold_offset=?,runway_start_latitude=?,runway_start_longitude=?,"
+			"runway_true_heading=?,runway_slope=?"
 			" WHERE id=?;").c_str(),
 		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
 			db_bind(stmt, stmt_txt, 1, airport.icao);
@@ -433,7 +446,14 @@ void db_set_contact_airport(STATUS* status, CONTACT_TABLE table, int row_id, con
 			db_bind(stmt, stmt_txt, 6, rwy.distances[1]);
 			db_bind(stmt, stmt_txt, 7, rwy.distances_percent[0]);
 			db_bind(stmt, stmt_txt, 8, rwy.distances_percent[1]);
-			db_bind(stmt, stmt_txt, 9, row_id);
+			db_bind(stmt, stmt_txt, 9, rwy.length_m * M_2_FT);
+			db_bind(stmt, stmt_txt, 10, rwy.width_m * M_2_FT);
+			db_bind(stmt, stmt_txt, 11, rwy.threshold_offset_m * M_2_FT);
+			db_bind(stmt, stmt_txt, 12, rwy.start.latitude);
+			db_bind(stmt, stmt_txt, 13, rwy.start.longitude);
+			db_bind(stmt, stmt_txt, 14, rwy.true_heading);
+			db_bind(stmt, stmt_txt, 15, rwy.slope);
+			db_bind(stmt, stmt_txt, 16, row_id);
 		});
 }
 

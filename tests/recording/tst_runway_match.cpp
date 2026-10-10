@@ -41,6 +41,7 @@ struct TestAirport {
 			r.secondary_threshold_offset_m = specs[i].secondaryThresholdM;
 			r.primary_threshold_enable = specs[i].thresholdEnable;
 			r.secondary_threshold_enable = specs[i].thresholdEnable;
+			r.slope = specs[i].slope;
 		}
 	}
 };
@@ -99,6 +100,46 @@ private slots:
 		const RUNWAY_MATCH atThreshold = match(a.airport, pointOnRunway(eastWest(), 0, 0), 90, false);
 		QCOMPARE(atThreshold.candidates.size(), size_t(1));
 		QVERIFY2(qAbs(atThreshold.candidates[0].distances[0]) < 2, qPrintable(QString::number(atThreshold.candidates[0].distances[0])));
+	}
+
+	void offsetsAreAlongAndAcrossTheRunwayFromTheGivenEnd() {
+		const RunwaySpec r = eastWest();
+		const COORDINATE threshold = pointOnRunway(r, 0, 0);
+		const RUNWAY_OFFSETS on = runway_offsets(threshold, 90, pointOnRunway(r, 1200, 5));
+		QVERIFY2(qAbs(on.along_ft - 1200 * kFeetPerMeter) < 2, qPrintable(QString::number(on.along_ft)));
+		QVERIFY2(qAbs(on.cross_ft - 5 * kFeetPerMeter) < 0.5, qPrintable(QString::number(on.cross_ft)));
+		// Short of the threshold and left of the extended centerline: both negative.
+		const RUNWAY_OFFSETS before = runway_offsets(threshold, 90, pointOnRunway(r, -900, -10));
+		QVERIFY2(qAbs(before.along_ft + 900 * kFeetPerMeter) < 2, qPrintable(QString::number(before.along_ft)));
+		QVERIFY2(qAbs(before.cross_ft + 10 * kFeetPerMeter) < 0.5, qPrintable(QString::number(before.cross_ft)));
+	}
+
+	void usedEndsFacilityDataIsCaptured() {
+		RunwaySpec r = eastWest();
+		r.primaryThresholdM = 300;
+		r.secondaryThresholdM = 200;
+		r.thresholdEnable = 1;
+		r.slope = 0.5f;
+		TestAirport a({ r });
+		// A liftoff from 09 still gets its end's threshold offset (its distance
+		// is measured from the physical end).
+		const RUNWAY_MATCH primary = match(a.airport, pointOnRunway(r, 700, 5), 90, false);
+		const RUNWAY_OPERATION& p = primary.candidates[0];
+		QCOMPARE(p.true_heading, 90.0);
+		QCOMPARE(p.length_m, 3000.0);
+		QCOMPARE(p.width_m, 45.0);
+		QCOMPARE(p.threshold_offset_m, 300.0);
+		QCOMPARE(p.slope, 0.5);
+		QCOMPARE(p.start.latitude, a.airport.runways[0].start_points[0].latitude);
+		QCOMPARE(p.start.longitude, a.airport.runways[0].start_points[0].longitude);
+		// Landing on 27: the other end's start and offset, the slope downhill.
+		const RUNWAY_MATCH secondary = match(a.airport, pointOnRunway(r, 1000, 5), 270, true);
+		const RUNWAY_OPERATION& s = secondary.candidates[0];
+		QCOMPARE(s.true_heading, 270.0);
+		QCOMPARE(s.threshold_offset_m, 200.0);
+		QCOMPARE(s.slope, -0.5);
+		QCOMPARE(s.start.latitude, a.airport.runways[0].start_points[1].latitude);
+		QCOMPARE(s.start.longitude, a.airport.runways[0].start_points[1].longitude);
 	}
 
 	void runwayEndsAreStored() {
@@ -212,6 +253,7 @@ private slots:
 		TestAirport a({ r });
 		const RUNWAY_MATCH m = match(a.airport, pointOnRunway(r, 700, 5), 90, true);
 		QVERIFY(qAbs(m.candidates[0].distances[0] - 700 * kFeetPerMeter) < 2);
+		QCOMPARE(m.candidates[0].threshold_offset_m, 0.0);
 	}
 
 	void traceDescribesEachDecision() {

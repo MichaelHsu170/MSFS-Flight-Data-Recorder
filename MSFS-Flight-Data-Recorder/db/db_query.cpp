@@ -3,9 +3,15 @@
 
 #include "sqlite3.h"
 
+#include <cmath>
+
 QString columnText(sqlite3_stmt* stmt, int column) {
 	const unsigned char* text = sqlite3_column_text(stmt, column);
 	return text ? QString::fromUtf8(reinterpret_cast<const char*>(text)) : QString();
+}
+
+double columnDouble(sqlite3_stmt* stmt, int column) {
+	return sqlite3_column_type(stmt, column) == SQLITE_NULL ? std::nan("") : sqlite3_column_double(stmt, column);
 }
 
 sqlite3_stmt* prepareStatement(sqlite3* sql, const char* stmtText, const QString& context) {

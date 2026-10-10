@@ -364,6 +364,8 @@ function profilePointText(p) {
     add('bank', function(v) { return 'bank ' + v.toFixed(1) + '°'; });
     add('headingTrue', function(v) { return 'heading ' + roundHalfAwayFromZero(v) + '° T'; });
     add('trackTrue', function(v) { return 'track ' + roundHalfAwayFromZero(v) + '° T'; });
+    add('thresholdFt', function(v) { return 'threshold ' + roundHalfAwayFromZero(v) + ' ft'; });
+    add('centerlineFt', function(v) { return 'centerline ' + Math.round(Math.abs(v)) + ' ft ' + (v >= 0 ? 'right' : 'left'); });
     add('pathAngle', function(v) { return 'path angle ' + v.toFixed(1) + '° from here'; });
     return parts.join(', ');
 }
@@ -371,11 +373,15 @@ function profilePointText(p) {
 // The "Final trajectory:" block (trip_dataset.h's ContactProfile): the
 // gates, the dense series and the highest terrain, measured from the contact
 // point (pointName) rather than the ground below, over seriesSpan ("last 15 s")
-// and terrainSpan ("before the touchdown"). None without any of them.
-function profilePromptLines(t, pointName, seriesSpan, terrainSpan) {
+// and terrainSpan ("before the touchdown"). A point's threshold distance is
+// measured from thresholdName ("marked threshold"), like the contact's. None
+// without any of them.
+function profilePromptLines(t, pointName, seriesSpan, terrainSpan, thresholdName) {
     var profile = t.profile;
     if (!profile || (!profile.gates.length && !profile.series.length && !hasValue(profile, 'highestTerrainFt'))) return [];
-    var lines = ['Final trajectory (seconds from the ' + pointName + '; height = altitude above the ' + pointName + ', not radio height; distance = to the ' + pointName + '; terrain = ground below relative to the ' + pointName + '):'];
+    var onRunway = profile.gates.concat(profile.series).some(function(p) { return hasValue(p, 'thresholdFt'); });
+    var lines = ['Final trajectory (seconds from the ' + pointName + '; height = altitude above the ' + pointName + ', not radio height; distance = to the ' + pointName + '; terrain = ground below relative to the ' + pointName
+        + (onRunway ? '; threshold = along the runway from the ' + thresholdName + ', negative = before it; centerline = from the extended runway centerline' : '') + '):'];
     if (profile.gates.length) {
         lines.push('  Gates:');
         profile.gates.forEach(function(p) { lines.push('    ' + p.gate + ': ' + profilePointText(p)); });
@@ -396,8 +402,28 @@ function airportKnowledgeLine(subject) {
     return 'Airport: from your general knowledge of this airport (by ICAO code, name and position), describe in the Environment section any terrain, approach or departure procedure, or hazard that affected this ' + subject + ', labeled as general knowledge rather than recorded data. Before using a characteristic, check that it applies to this flight: it must belong to the runway end used, and the recorded gates (heading and track) must show it was flown; when the recording contradicts a published procedure, say so instead of assuming it was flown. If you do not know the airport, say so rather than guess.';
 }
 
-// Adds heading, wind, the runway position (distanceLabel: ... ft (N% lengthOf)),
-// the Conditions and Final trajectory blocks (profileLines), the closing
+// The used runway end's dimensions and the runway left ahead of the contact,
+// when stored (trip_dataset.h's ContactRunway). A touchdown's distanceLength
+// is from the marked threshold, so its end's displaced threshold is added
+// back; a liftoff's is from the physical start.
+function runwayPromptLines(t, touchdown) {
+    if (!hasValue(t, 'runwayLengthFt')) return [];
+    var parts = [roundHalfAwayFromZero(t.runwayLengthFt) + ' ft long'];
+    if (hasValue(t, 'runwayWidthFt')) parts.push(roundHalfAwayFromZero(t.runwayWidthFt) + ' ft wide');
+    if (hasValue(t, 'thresholdOffsetFt'))
+        parts.push(t.thresholdOffsetFt > 0 ? 'threshold displaced ' + roundHalfAwayFromZero(t.thresholdOffsetFt) + ' ft at this end' : 'no displaced threshold at this end');
+    if (hasValue(t, 'runwaySlope'))
+        parts.push('slope ' + Math.abs(t.runwaySlope).toFixed(2) + '° ' + (t.runwaySlope > 0 ? 'uphill' : t.runwaySlope < 0 ? 'downhill' : 'level') + ' in the direction of travel');
+    var lines = ['  Runway: ' + parts.join(', ')];
+    var start = touchdown ? (hasValue(t, 'thresholdOffsetFt') ? t.thresholdOffsetFt : 0) : 0;
+    var remaining = t.runwayLengthFt - start - t.distanceLength;
+    lines.push('  Runway remaining ahead: ' + roundHalfAwayFromZero(remaining) + ' ft (' + roundHalfAwayFromZero(remaining / t.runwayLengthFt * 100) + '% of the runway length)');
+    return lines;
+}
+
+// Adds heading, wind, the runway position (distanceLabel: ... ft (N% lengthOf))
+// and dimensions (runwayPromptLines(), touchdown for a landing), the
+// Conditions and Final trajectory blocks (profileLines), the closing
 // "Consider:" line and the airport-knowledge instruction for subject
 // ("landing"), and returns the prompt text.
 function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, consider, subject) {
@@ -413,6 +439,7 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, c
         lines.push('  ' + distanceLabel + ': ' + roundHalfAwayFromZero(t.distanceLength) + ' ft (' + roundHalfAwayFromZero(t.distanceLengthPercent * 100) + '% of ' + lengthOf + ') [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
         var side = t.distanceWidth >= 0 ? 'right' : 'left';
         lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
+        lines = lines.concat(runwayPromptLines(t, subject === 'landing'));
     }
     lines.push('');
     lines.push('Conditions:');
@@ -446,8 +473,8 @@ function buildLiftoffPrompt(t) {
     // real signal (dropped wing, crosswind technique), not a mid-ramp snapshot.
     lines.push('  Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold at liftoff', 'runway',
-        profilePromptLines(t, 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff'),
-        'Consider: crosswind component (calculate from the true wind vs the true runway heading), centerline tracking during the takeoff roll, use of available runway length, rotation and climb-out attitude and speed, density altitude, runway surface condition, gusts, light and visibility, terrain after the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
+        profilePromptLines(t, 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff', 'runway start'),
+        'Consider: crosswind component (calculate from the true wind vs the true runway heading), centerline tracking during the takeoff roll, use of available runway length and the runway remaining, runway slope, rotation and climb-out attitude and speed, density altitude, runway surface condition, gusts, light and visibility, terrain after the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
         'liftoff');
 }
 
@@ -461,8 +488,8 @@ function buildTouchdownPrompt(t) {
     lines.push('  G-force: ' + Number(t.gForce).toFixed(2) + ' G');
     lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold', 'landing distance available',
-        profilePromptLines(t, 'touchdown point', 'last 15 s before the touchdown', 'before the touchdown'),
-        'Consider: vertical speed & G-force comfort, crosswind component (calculate from the true wind vs the true runway heading), decrab at touchdown (crab angle), centerline tracking, touchdown zone placement, stabilization at the gates, flare technique, density altitude, runway surface condition, gusts, light and visibility, terrain before the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
+        profilePromptLines(t, 'touchdown point', 'last 15 s before the touchdown', 'before the touchdown', 'marked threshold'),
+        'Consider: vertical speed & G-force comfort, crosswind component (calculate from the true wind vs the true runway heading), decrab at touchdown (crab angle), centerline tracking, touchdown zone placement and the runway remaining, runway slope, stabilization at the gates, flare technique, density altitude, runway surface condition, gusts, light and visibility, terrain before the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
         'landing');
 }
 

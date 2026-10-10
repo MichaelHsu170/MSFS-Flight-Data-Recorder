@@ -773,6 +773,60 @@ private slots:
 		QCOMPARE(tds[0].analysisReport, QString());
 	}
 
+	void contactRunwayDataReadsBackAndNullIsUnknown() {
+		sqlite3* db = freshDatabase();
+		exec(db, "INSERT INTO trip_touchdowns (trip,airspeed_indicated,vertical_speed,g_force,plane_pitch_degrees,plane_bank_degrees,heading_indicator,"
+			"plane_latitude,plane_longitude,time_zulu,time_local,runway_length,runway_width,threshold_offset,runway_start_latitude,"
+			"runway_start_longitude,runway_true_heading,runway_slope) VALUES "
+			"(7,130,-180,1.3,3,0.5,271,43.3,1.3,'z1','l1',9800.5,148,820,43.25,1.75,269.5,0.3),"
+			"(7,130,-180,1.3,3,0.5,271,43.3,1.3,'z2','l2',NULL,NULL,NULL,NULL,NULL,NULL,NULL);");
+		const std::vector<TouchdownPoint> tds = queryTouchdowns(db, 7);
+		sqlite3_close(db);
+		QCOMPARE(tds.size(), size_t(2));
+		QCOMPARE(tds[0].runwayData.lengthFt, 9800.5);
+		QCOMPARE(tds[0].runwayData.widthFt, 148.0);
+		QCOMPARE(tds[0].runwayData.thresholdOffsetFt, 820.0);
+		QCOMPARE(tds[0].runwayData.startLatitude, 43.25);
+		QCOMPARE(tds[0].runwayData.startLongitude, 1.75);
+		QCOMPARE(tds[0].runwayData.trueHeading, 269.5);
+		QCOMPARE(tds[0].runwayData.slopeDegrees, 0.3);
+		QCOMPARE(tds[0].gForce, 1.3); // still read after the new columns
+		const ContactRunway& unknown = tds[1].runwayData;
+		for (double v : { unknown.lengthFt, unknown.widthFt, unknown.thresholdOffsetFt, unknown.startLatitude,
+				unknown.startLongitude, unknown.trueHeading, unknown.slopeDegrees })
+			QVERIFY(std::isnan(v));
+	}
+
+	// A touchdown table from before the runway_* columns gains them, and its
+	// rows read back with the runway data unknown.
+	void migrateAddsTheRunwayColumnsToOlderContactTables() {
+		sqlite3* db = openDatabaseFile();
+		QVERIFY(db);
+		exec(db, "CREATE TABLE trip_touchdowns (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,trip INTEGER NOT NULL,"
+			"airspeed_indicated INTEGER NOT NULL,vertical_speed INTEGER NOT NULL,g_force REAL NOT NULL,plane_pitch_degrees REAL NOT NULL,"
+			"plane_bank_degrees REAL NOT NULL,heading_indicator INTEGER NOT NULL,plane_latitude REAL NOT NULL,plane_longitude REAL NOT NULL,"
+			"icao VARCHAR(4),airport_name VARCHAR(64),runway VARCHAR(3),runway_heading INTEGER,distance_length REAL,distance_width REAL,"
+			"distance_length_percent REAL,distance_width_percent REAL,wind_direction INTEGER,wind_velocity INTEGER,"
+			"time_zulu VARCHAR(32) NOT NULL,time_local VARCHAR(32) NOT NULL,analysis_report TEXT);");
+		exec(db, "INSERT INTO trip_touchdowns (trip,airspeed_indicated,vertical_speed,g_force,plane_pitch_degrees,plane_bank_degrees,"
+			"heading_indicator,plane_latitude,plane_longitude,runway,time_zulu,time_local) VALUES (3,130,-180,1.25,3,0,271,43.3,1.3,'27','z','l');");
+		sqlite3_close(db);
+
+		QVERIFY(migrate_db());
+		sqlite3* sql = connect_db_readwrite();
+		const std::vector<TouchdownPoint> tds = queryTouchdowns(sql, 3);
+		sqlite3_close(sql);
+		QCOMPARE(tds.size(), size_t(1));
+		QCOMPARE(tds[0].runway, QStringLiteral("27"));
+		QCOMPARE(tds[0].gForce, 1.25);
+		QVERIFY(std::isnan(tds[0].runwayData.lengthFt));
+		QVERIFY(std::isnan(tds[0].runwayData.slopeDegrees));
+		const QVariantMap row = queryRows("SELECT * FROM trip_touchdowns").value(0);
+		for (const char* column : { "runway_length", "runway_width", "threshold_offset", "runway_start_latitude",
+				"runway_start_longitude", "runway_true_heading", "runway_slope" })
+			QVERIFY2(row.contains(column) && row[column].isNull(), column);
+	}
+
 	void liftoffsAndTouchdownsReturnEmptyWhenTheirTablesAreMissing() {
 		sqlite3* db = freshDatabase();
 		exec(db, "DROP TABLE trip_liftoffs");
@@ -1046,6 +1100,13 @@ private slots:
 		a.runway_act.distances[1] = -12.25;
 		a.runway_act.distances_percent[0] = 0.25;
 		a.runway_act.distances_percent[1] = -0.2;
+		a.runway_act.true_heading = 163.75;
+		a.runway_act.start.latitude = 47.4638;
+		a.runway_act.start.longitude = -122.3079;
+		a.runway_act.length_m = 3000;
+		a.runway_act.width_m = 45;
+		a.runway_act.threshold_offset_m = 100;
+		a.runway_act.slope = -0.25;
 		db_set_contact_airport(w.status(), CONTACT_TABLE::LIFTOFFS, lo, a, "16L");
 		db_set_contact_airport(w.status(), CONTACT_TABLE::TOUCHDOWNS, td, a, "16L");
 		for (const char* table : { "trip_liftoffs", "trip_touchdowns" }) {
@@ -1058,6 +1119,14 @@ private slots:
 			QCOMPARE(row["distance_width"].toDouble(), -12.25);
 			QCOMPARE(row["distance_length_percent"].toDouble(), 0.25);
 			QCOMPARE(row["distance_width_percent"].toDouble(), -0.2);
+			// Lengths in ft: 3000 m, 45 m and 100 m.
+			QVERIFY(qAbs(row["runway_length"].toDouble() - 9842.5197) < 0.001);
+			QVERIFY(qAbs(row["runway_width"].toDouble() - 147.6378) < 0.001);
+			QVERIFY(qAbs(row["threshold_offset"].toDouble() - 328.08399) < 0.001);
+			QCOMPARE(row["runway_start_latitude"].toDouble(), 47.4638);
+			QCOMPARE(row["runway_start_longitude"].toDouble(), -122.3079);
+			QCOMPARE(row["runway_true_heading"].toDouble(), 163.75);
+			QCOMPARE(row["runway_slope"].toDouble(), -0.25);
 		}
 	}
 
@@ -1088,6 +1157,9 @@ private slots:
 		QVERIFY(row["runway"].isNull());
 		QVERIFY(row["runway_heading"].isNull());
 		QVERIFY(row["distance_length"].isNull());
+		for (const char* column : { "runway_length", "runway_width", "threshold_offset", "runway_start_latitude",
+				"runway_start_longitude", "runway_true_heading", "runway_slope" })
+			QVERIFY2(row[column].isNull(), column);
 	}
 
 	void failedWriteThrowsAndRollsBack() {

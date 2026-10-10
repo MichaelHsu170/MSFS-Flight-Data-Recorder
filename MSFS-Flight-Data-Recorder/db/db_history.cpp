@@ -73,8 +73,7 @@ void readEngineRows(sqlite3* sql, int tripId, const std::vector<sqlite3_int64>& 
 		if (values.size() < first + TRIP_ENGINE_FIELD_COUNT)
 			values.resize(first + TRIP_ENGINE_FIELD_COUNT, std::nan(""));
 		for (int field = 0; field < TRIP_ENGINE_FIELD_COUNT; ++field)
-			values[first + field] = sqlite3_column_type(row, 2 + field) == SQLITE_NULL
-				? std::nan("") : sqlite3_column_double(row, 2 + field);
+			values[first + field] = columnDouble(row, 2 + field);
 		return true;
 	});
 }
@@ -226,8 +225,7 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 
 		point.rawNums.reserve(numFieldIndices.size());
 		for (int idx : numFieldIndices)
-			point.rawNums.push_back(idx >= 0 && sqlite3_column_type(stmt, idx) != SQLITE_NULL
-				? sqlite3_column_double(stmt, idx) : std::nan(""));
+			point.rawNums.push_back(idx >= 0 ? columnDouble(stmt, idx) : std::nan(""));
 
 		sampleIds.push_back(sqlite3_column_int64(stmt, idxId));
 		dataset.points.push_back(point);
@@ -245,7 +243,9 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	"id, plane_latitude, plane_longitude, icao, airport_name, runway, runway_heading, airspeed_indicated, " \
 	"vertical_speed, plane_pitch_degrees, plane_bank_degrees, heading_indicator, " \
 	"distance_length, distance_width, distance_length_percent, distance_width_percent, " \
-	"wind_direction, wind_velocity, time_zulu, time_local, analysis_report"
+	"wind_direction, wind_velocity, time_zulu, time_local, analysis_report, " \
+	"runway_length, runway_width, threshold_offset, runway_start_latitude, runway_start_longitude, " \
+	"runway_true_heading, runway_slope"
 
 namespace {
 
@@ -282,6 +282,14 @@ void readContactPoint(sqlite3_stmt* stmt, RunwayContactPoint& point) {
 	point.zuluTime              = columnText(stmt, 18);
 	point.localTime             = columnText(stmt, 19);
 	point.analysisReport        = columnText(stmt, 20);
+	ContactRunway& runway = point.runwayData;
+	runway.lengthFt             = columnDouble(stmt, 21);
+	runway.widthFt              = columnDouble(stmt, 22);
+	runway.thresholdOffsetFt    = columnDouble(stmt, 23);
+	runway.startLatitude        = columnDouble(stmt, 24);
+	runway.startLongitude       = columnDouble(stmt, 25);
+	runway.trueHeading          = columnDouble(stmt, 26);
+	runway.slopeDegrees         = columnDouble(stmt, 27);
 }
 
 }

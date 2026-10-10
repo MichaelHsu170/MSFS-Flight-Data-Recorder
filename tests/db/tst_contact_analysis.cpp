@@ -295,6 +295,42 @@ private slots:
 		QVERIFY(std::isnan(gate(profile, QStringLiteral("500 ft"))->pathAngle));
 	}
 
+	// With the contact's runway end stored, each point is placed along and
+	// across the runway: from the marked threshold for a touchdown, from the
+	// physical start for a liftoff. One arcminute on the 6371 km sphere is
+	// 6080.2 ft; 0.001 degree of longitude at the equator 364.8 ft.
+	void pointsArePlacedAlongAndAcrossTheRunway() {
+		ContactRunway runway;
+		runway.startLatitude = 0.5 / 60;  // the runway's start 0.5 arcminute north of the contact
+		runway.startLongitude = 0;
+		runway.trueHeading = 180;          // southbound
+		runway.thresholdOffsetFt = 1000;
+
+		TripDataset landing;
+		TripSamplePoint wide = sample(-10, 1300, 300, 1.5);
+		wide.longitude = 0.001;            // east: left of a southbound runway
+		landing.points = { wide, sample(0, 1000, 0) };
+		landing.touchdowns = { contactAt<TouchdownPoint>(0) };
+		landing.touchdowns[0].runwayData = runway;
+		analyzeContacts(landing);
+		const std::vector<ProfilePoint>& approach = landing.touchdowns[0].profile.series;
+		QCOMPARE(approach.size(), size_t(2));
+		// 1 arcminute before the start, 1000 ft more before the marked threshold.
+		QVERIFY2(qAbs(approach[0].thresholdFt - -7080.2) < 1, qPrintable(QString::number(approach[0].thresholdFt)));
+		QVERIFY2(qAbs(approach[0].centerlineFt - -364.8) < 0.5, qPrintable(QString::number(approach[0].centerlineFt)));
+		QVERIFY2(qAbs(approach[1].thresholdFt - 2040.1) < 1, qPrintable(QString::number(approach[1].thresholdFt)));
+		QVERIFY2(qAbs(approach[1].centerlineFt) < 0.01, qPrintable(QString::number(approach[1].centerlineFt)));
+
+		TripDataset departure;
+		departure.points = { sample(0, 1000, 0), sample(1, 1060, 60, -0.5) };
+		departure.liftoffPoints = { contactAt<LiftoffPoint>(0.5) };
+		departure.liftoffPoints[0].runwayData = runway;
+		analyzeContacts(departure);
+		const ProfilePoint* climb = gate(departure.liftoffPoints[0].profile, QStringLiteral("35 ft"));
+		QVERIFY(climb);
+		QVERIFY2(qAbs(climb->thresholdFt - 6080.2) < 1, qPrintable(QString::number(climb->thresholdFt)));
+	}
+
 	// With no samples nothing is derived; with values not recorded, those
 	// stay unknown rather than 0.
 	void missingDataStaysUnknown() {
@@ -318,6 +354,10 @@ private slots:
 		QVERIFY(c.surfaceType.isEmpty());
 		QVERIFY(c.surfaceCondition.isEmpty());
 		QVERIFY(std::isnan(dataset.touchdowns[0].profile.highestTerrainFt));
+		// Without the runway's stored end, no point is placed on it.
+		const ProfilePoint& at = dataset.touchdowns[0].profile.series.at(0);
+		QVERIFY(std::isnan(at.thresholdFt));
+		QVERIFY(std::isnan(at.centerlineFt));
 	}
 };
 

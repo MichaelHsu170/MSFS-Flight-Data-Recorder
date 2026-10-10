@@ -11,7 +11,7 @@
 struct RUNWAY_MATCH {
 	// Every runway whose footprint (its strict length x width rectangle)
 	// contains the point, with direction, operational heading and
-	// threshold/centerline distances filled in. airport_lookup.cpp picks the one
+	// threshold/centerline distances and the used end's facility data filled in. airport_lookup.cpp picks the one
 	// best aligned with the direction of travel.
 	std::vector<RUNWAY_OPERATION> candidates;
 	// True if any runway's padded "margin rectangle" (RUNWAY_MARGIN_LENGTH_M
@@ -21,6 +21,16 @@ struct RUNWAY_MATCH {
 	// confidently on one".
 	bool any_margin_hit = false;
 };
+
+// Where point lies relative to a runway end: along-track (from threshold in
+// the direction of heading, degrees true; negative = before it) and
+// cross-track (+right/-left of the centerline), in feet, on the great circle
+// through threshold along heading.
+struct RUNWAY_OFFSETS {
+	double along_ft = 0;
+	double cross_ft = 0;
+};
+RUNWAY_OFFSETS runway_offsets(COORDINATE threshold, double heading, const COORDINATE& point);
 
 // airport's runways must be populated; each one's start_points[] (the two
 // physical runway ends) is computed and stored as a side effect. point is the

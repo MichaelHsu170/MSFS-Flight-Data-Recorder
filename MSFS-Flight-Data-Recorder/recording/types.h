@@ -168,6 +168,10 @@ public:
 	int numbers[2];
 	int designators[2];
 	COORDINATE coordinate;
+	// SLOPE, degrees: the last field of the wire copy (see
+	// FACILITY_DATA_RUNWAY in airport_lookup.cpp). Taken as rising from the
+	// primary end toward the secondary (RUNWAY_OPERATION::slope).
+	float slope;
 	COORDINATE start_points[2];
 
 	// Displaced-threshold offset (meters, from the physical runway end to the
@@ -197,6 +201,7 @@ public:
 		for (int i = 0; i < (int)(sizeof(designators) / sizeof(int)); i++)
 			designators[i] = -1;
 		coordinate.clear();
+		slope = 0;
 		for (int i = 0; i < 2; i++)
 			start_points[i].clear();
 		primary_threshold_offset_m = 0;
@@ -247,6 +252,19 @@ struct RUNWAY_OPERATION {
 	// matching the -1 = unset convention used by distances[]/distances_percent[]
 	// above.
 	int heading = -1;
+	// The used end's facility data, captured at match time for the same reason
+	// and stored with the contact (db_set_contact_airport()): its exact true
+	// heading (degrees, -1 = not computed), its physical start
+	// (RUNWAY::start_points[]), the runway's length and width (m), the end's
+	// displaced threshold (m, 0 without threshold data), and the slope in the
+	// direction of travel (degrees, + = uphill; RUNWAY::slope, negated for the
+	// secondary end).
+	double true_heading = -1;
+	COORDINATE start;
+	double length_m = 0;
+	double width_m = 0;
+	double threshold_offset_m = 0;
+	double slope = 0;
 };
 
 class AIRPORT {

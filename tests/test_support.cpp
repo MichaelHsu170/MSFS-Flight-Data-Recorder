@@ -477,7 +477,7 @@ std::vector<char> facilityAirportPacket(const AirportSpec& airport) {
 
 std::vector<char> facilityRunwayPacket(DWORD itemIndex, DWORD uniqueRequestId, const RunwaySpec& runway) {
 	// LENGTH, WIDTH, HEADING, PRIMARY_NUMBER, SECONDARY_NUMBER,
-	// PRIMARY_DESIGNATOR, SECONDARY_DESIGNATOR, LATITUDE, LONGITUDE.
+	// PRIMARY_DESIGNATOR, SECONDARY_DESIGNATOR, LATITUDE, LONGITUDE, SLOPE.
 	std::vector<char> payload;
 	appendBytes(payload, runway.lengthM);
 	appendBytes(payload, runway.widthM);
@@ -488,6 +488,7 @@ std::vector<char> facilityRunwayPacket(DWORD itemIndex, DWORD uniqueRequestId, c
 	appendBytes(payload, runway.secondaryDesignator);
 	appendBytes(payload, runway.latitude);
 	appendBytes(payload, runway.longitude);
+	appendBytes(payload, runway.slope);
 	return facilityDataPacket(SIMCONNECT_FACILITY_DATA_RUNWAY, uniqueRequestId, 1, itemIndex, payload);
 }
 

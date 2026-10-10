@@ -415,6 +415,56 @@ private slots:
 		VERIFY_NEAR(lo["distance_length"], 2000 * kFeetPerMeter, 2);
 	}
 
+	void usedRunwayEndsFacilityDataIsStoredWithTheContact() {
+		// Departing 09 (the primary end): its own start, heading and
+		// displaced threshold, and the slope as sent.
+		FlightDriver sim;
+		RunwaySpec rwy = eastWestRunway();
+		rwy.primaryThresholdM = 300;
+		rwy.secondaryThresholdM = 200;
+		rwy.thresholdEnable = 1;
+		rwy.slope = 0.5f;
+		sim.airports = { testAirport(rwy) };
+		const int tripId = startOnRunway(sim, rwy);
+		liftOff(sim, onRunway(rwy, 1800));
+		sim.serviceLookups();
+		const QVariantMap lo = liftoffs(tripId).value(0);
+		VERIFY_NEAR(lo["runway_length"], 3000 * kFeetPerMeter, 0.01);
+		VERIFY_NEAR(lo["runway_width"], 45 * kFeetPerMeter, 0.01);
+		VERIFY_NEAR(lo["threshold_offset"], 300 * kFeetPerMeter, 0.01);
+		VERIFY_NEAR(lo["runway_true_heading"], 90, 1e-6);
+		VERIFY_NEAR(lo["runway_slope"], 0.5, 1e-6);
+		const COORDINATE start = pointOnRunway(rwy, 0);
+		VERIFY_NEAR(lo["runway_start_latitude"], start.latitude, 1e-6);
+		VERIFY_NEAR(lo["runway_start_longitude"], start.longitude, 1e-6);
+	}
+
+	void secondaryEndsFacilityDataHasItsOwnStartThresholdAndSlope() {
+		// Departing 27: the far end's start and threshold, the slope negated
+		// (downhill this way), the heading reversed.
+		FlightDriver sim;
+		RunwaySpec rwy = eastWestRunway();
+		rwy.primaryThresholdM = 300;
+		rwy.secondaryThresholdM = 200;
+		rwy.thresholdEnable = 1;
+		rwy.slope = 0.5f;
+		sim.airports = { testAirport(rwy) };
+		const int tripId = startOnRunway(sim, rwy, 2950, 270);
+		liftOff(sim, onRunway(rwy, 1000));
+		sim.serviceLookups();
+		const QVariantMap lo = liftoffs(tripId).value(0);
+		QCOMPARE(lo["runway"].toString(), QStringLiteral("27"));
+		VERIFY_NEAR(lo["threshold_offset"], 200 * kFeetPerMeter, 0.01);
+		VERIFY_NEAR(lo["runway_true_heading"], 270, 1e-6);
+		VERIFY_NEAR(lo["runway_slope"], -0.5, 1e-6);
+		// Within 1e-5 degrees (about 1 m): the far end is measured along the
+		// runway's great circle, which bears slightly off its nominal heading
+		// there (see tst_runway_match's reverseDirectionUsesTheSecondaryEnd).
+		const COORDINATE start = pointOnRunway(rwy, 3000);
+		VERIFY_NEAR(lo["runway_start_latitude"], start.latitude, 1e-5);
+		VERIFY_NEAR(lo["runway_start_longitude"], start.longitude, 1e-5);
+	}
+
 	void runwayDesignatorsAppearInCodes() {
 		FlightDriver sim;
 		RunwaySpec rwy = eastWestRunway();
@@ -762,6 +812,8 @@ private slots:
 		QCOMPARE(lo["airport_name"].toString(), QStringLiteral("Test Field"));
 		QVERIFY(lo["runway"].isNull());
 		QVERIFY(lo["distance_length"].isNull());
+		QVERIFY(lo["runway_length"].isNull());
+		QVERIFY(lo["runway_slope"].isNull());
 	}
 
 	void touchAndGoNearRunwayGivesMarkerAirportWithoutRunway() {

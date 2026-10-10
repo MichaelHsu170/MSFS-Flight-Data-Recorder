@@ -87,6 +87,7 @@ static void facility_lookup_request_candidate(struct STATUS* status, int idx) {
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "SECONDARY_DESIGNATOR");
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LATITUDE");
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LONGITUDE");
+		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "SLOPE");
 		// Displaced-threshold offsets -- nested PAVEMENT child records, matched
 		// back to this runway in the FACILITY_DATA_PAVEMENT case below via
 		// ParentUniqueRequestId. Request order (primary before secondary)
@@ -278,16 +279,18 @@ void lookup_on_facility_data(struct STATUS* status, SIMCONNECT_RECV_FACILITY_DAT
 			break;
 		}
 		memset(&rep[pWxData->ItemIndex], 0, sizeof(RUNWAY));
-		// Wire payload is only length..coordinate -- start_points[] and
+		// Wire payload is only length..slope -- start_points[] and
 		// the threshold/correlation fields below it are computed/populated
 		// locally (start_points by match_runways(), threshold fields by the nested
 		// FACILITY_DATA_PAVEMENT case below), never sent over the wire, so
 		// all of them must stay excluded from this copy's size.
 		// The definition above sends LENGTH, WIDTH, HEADING (float), the four
-		// numbers/designators (int), then LATITUDE, LONGITUDE (double).
-		constexpr size_t runway_wire_size = offsetof(RUNWAY, start_points) - offsetof(RUNWAY, length);
-		static_assert(runway_wire_size == 3 * sizeof(float) + 4 * sizeof(int) + 2 * sizeof(double),
-			"RUNWAY's length..coordinate must match DEFINITION_RUNWAYS' runway fields");
+		// numbers/designators (int), LATITUDE, LONGITUDE (double), then SLOPE
+		// (float). Measured to the end of slope, not to start_points: the
+		// padding after slope isn't on the wire.
+		constexpr size_t runway_wire_size = offsetof(RUNWAY, slope) + sizeof(float) - offsetof(RUNWAY, length);
+		static_assert(runway_wire_size == 4 * sizeof(float) + 4 * sizeof(int) + 2 * sizeof(double),
+			"RUNWAY's length..slope must match DEFINITION_RUNWAYS' runway fields");
 		memcpy((char*)&rep[pWxData->ItemIndex] + offsetof(RUNWAY, length), &pWxData->Data, runway_wire_size);
 		rep[pWxData->ItemIndex].pending_request_id = pWxData->UniqueRequestId;
 		rep[pWxData->ItemIndex].threshold_pavement_seen = 0;

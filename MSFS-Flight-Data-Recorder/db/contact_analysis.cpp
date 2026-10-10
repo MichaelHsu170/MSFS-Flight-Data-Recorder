@@ -1,4 +1,5 @@
 #include "contact_analysis.h"
+#include "runway_match.h"
 #include "types.h"
 
 #include <cmath>
@@ -66,8 +67,9 @@ struct ContactSamples {
 // Turns samples into ProfilePoints relative to one contact.
 class ProfileBuilder {
 public:
-	ProfileBuilder(const std::vector<TripSamplePoint>& points, const RunwayContactPoint& contact, const ContactSamples& samples)
-		: points_(points), contact_(contact), samples_(samples),
+	ProfileBuilder(const std::vector<TripSamplePoint>& points, const RunwayContactPoint& contact, const ContactSamples& samples,
+		bool touchdown)
+		: points_(points), contact_(contact), samples_(samples), touchdown_(touchdown),
 		groundAltitude_(points[samples.ground].rawNum(TRIP_NUM_plane_altitude)),
 		groundElevation_(groundElevation(points[samples.ground])) {}
 
@@ -85,6 +87,18 @@ public:
 		out.bank = p.bankDegrees;
 		out.headingTrue = p.rawNum(TRIP_NUM_plane_heading_degrees_true);
 		out.trackTrue = p.rawNum(TRIP_NUM_gps_ground_true_track);
+		const ContactRunway& runway = contact_.runwayData;
+		if (!std::isnan(runway.startLatitude) && !std::isnan(runway.startLongitude) && !std::isnan(runway.trueHeading)) {
+			COORDINATE start, point;
+			start.latitude = runway.startLatitude;
+			start.longitude = runway.startLongitude;
+			point.latitude = p.latitude;
+			point.longitude = p.longitude;
+			const RUNWAY_OFFSETS offsets = runway_offsets(start, runway.trueHeading, point);
+			// Measured like the contact's distanceLength (match_runways()).
+			out.thresholdFt = offsets.along_ft - (touchdown_ ? runway.thresholdOffsetFt : 0);
+			out.centerlineFt = offsets.cross_ft;
+		}
 		return out;
 	}
 	double height(int index) const { return points_[index].rawNum(TRIP_NUM_plane_altitude) - groundAltitude_; }
@@ -113,6 +127,7 @@ private:
 	const std::vector<TripSamplePoint>& points_;
 	const RunwayContactPoint& contact_;
 	const ContactSamples& samples_;
+	const bool touchdown_;
 	double groundAltitude_;
 	double groundElevation_;
 };
@@ -258,7 +273,7 @@ void analyzeContact(const std::vector<TripSamplePoint>& points, const std::vecto
 	s.ground = !touchdown && at > s.begin && points[at - 1].zuluTime < contact.zuluTime ? at - 1 : at;
 	s.time = parseZuluTime(contact.zuluTime);
 	contact.conditions = conditionsAt(points, contact, s);
-	const ProfileBuilder builder(points, contact, s);
+	const ProfileBuilder builder(points, contact, s, touchdown);
 	contact.profile = touchdown ? touchdownProfile(builder, s) : liftoffProfile(builder, s);
 }
 

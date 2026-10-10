@@ -46,6 +46,19 @@ void footprint(COORDINATE anchor, float runway_heading, Length length, Length wi
 
 }
 
+RUNWAY_OFFSETS runway_offsets(COORDINATE threshold, double heading, const COORDINATE& point) {
+	// The along-track one is atan(tan d * cos(dtheta)), the same value as
+	// acos(cos d / cos xt) but exact for a point near the threshold or on the
+	// centerline.
+	const double d = threshold.distanceInKm2Coordinate(point) / EARTHRADIUSKM;
+	const double dtheta = (threshold.bearing2Coordinate(point) - heading) * V_PI / 180;
+	const double radius_ft = EARTHRADIUSKM * 1000 * M_2_FT;
+	RUNWAY_OFFSETS offsets;
+	offsets.along_ft = atan2(sin(d) * cos(dtheta), cos(d)) * radius_ft;
+	offsets.cross_ft = asin(sin(d) * sin(dtheta)) * radius_ft;
+	return offsets;
+}
+
 RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bearing_tra, bool is_touchdown,
 	const std::function<void(const char*)>& trace) {
 	RUNWAY_MATCH result;
@@ -84,8 +97,8 @@ RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bea
 		double distance = 0, distance2 = 0;
 		footprint(rwy->start_points[0], rwy->heading, rwy->length, rwy->width, point, distance, distance2);
 
-		tracef(trace, "Runway candidate %d/%d: %s (heading=%.1f, len=%.0f, width=%.0f): distance=%.1fm, distance2=%.1fm -> %s",
-			i + 1, airport.n_runways, rwy_id.c_str(), rwy->heading, rwy->length, rwy->width,
+		tracef(trace, "Runway candidate %d/%d: %s (heading=%.1f, len=%.0f, width=%.0f, slope=%.2f): distance=%.1fm, distance2=%.1fm -> %s",
+			i + 1, airport.n_runways, rwy_id.c_str(), rwy->heading, rwy->length, rwy->width, rwy->slope,
 			distance, distance2, (distance <= distance2) ? "pass" : "fail (outside runway footprint)");
 
 		if (distance <= distance2) {
@@ -100,21 +113,24 @@ RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bea
 				index = 1;
 			}
 			candidate.heading = (int)wrap_bearing((int)(heading + 0.5));
+			candidate.true_heading = heading;
+			candidate.start = rwy->start_points[index];
+			candidate.length_m = rwy->length;
+			candidate.width_m = rwy->width;
+			candidate.slope = candidate.is_primary ? rwy->slope : -rwy->slope;
+			// enable==0 means this runway has no threshold data, so the offset
+			// must stay 0 rather than be applied.
+			const float primary_offset_m = rwy->primary_threshold_enable ? rwy->primary_threshold_offset_m : 0;
+			const float secondary_offset_m = rwy->secondary_threshold_enable ? rwy->secondary_threshold_offset_m : 0;
+			candidate.threshold_offset_m = candidate.is_primary ? primary_offset_m : secondary_offset_m;
 
 			candidate.diff_bearing_tra = bearing_difference(bearing_tra, heading);
 
-			// Along-track (from this end's threshold, down the runway) and
-			// cross-track (+right/-left of the centerline) distances of the
-			// point on the great circle through the threshold along heading.
-			// The along-track one is atan(tan d * cos(dtheta)), the same value
-			// as acos(cos d / cos xt) but exact for a point near the threshold
-			// or on the centerline.
-			COORDINATE& threshold = rwy->start_points[index];
-			const double d = threshold.distanceInKm2Coordinate(point) / EARTHRADIUSKM;
-			const double dtheta = (threshold.bearing2Coordinate(point) - heading) * V_PI / 180;
-			const double radius_ft = EARTHRADIUSKM * 1000 * M_2_FT;
-			candidate.distances[0] = atan2(sin(d) * cos(dtheta), cos(d)) * radius_ft;
-			candidate.distances[1] = asin(sin(d) * sin(dtheta)) * radius_ft;
+			// Along-track (from this end's physical start, down the runway) and
+			// cross-track (+right/-left of the centerline) distances.
+			const RUNWAY_OFFSETS offsets = runway_offsets(rwy->start_points[index], heading, point);
+			candidate.distances[0] = offsets.along_ft;
+			candidate.distances[1] = offsets.cross_ft;
 			candidate.distances_percent[0] = candidate.distances[0] / rwy->length / M_2_FT;
 			candidate.distances_percent[1] = candidate.distances[1] / rwy->width * 2 / M_2_FT;
 			// Displaced-threshold correction applies to touchdowns only: a
@@ -125,16 +141,11 @@ RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bea
 			// is still valid, usable surface for a departure, so a liftoff's
 			// distance/percent stay measured from the physical end.
 			if (is_touchdown) {
-				// enable==0 means this runway has no threshold data, so the
-				// offset must stay 0 rather than be applied. Intentionally not
-				// clamped at 0 after subtraction: a touchdown short of the
-				// marked threshold (e.g. on a blast pad) reporting a negative
-				// distance is meaningful, not an error.
-				const float primary_offset_m = rwy->primary_threshold_enable ? rwy->primary_threshold_offset_m : 0;
-				const float secondary_offset_m = rwy->secondary_threshold_enable ? rwy->secondary_threshold_offset_m : 0;
-				const float threshold_offset_m = candidate.is_primary ? primary_offset_m : secondary_offset_m;
+				// Intentionally not clamped at 0 after subtraction: a touchdown
+				// short of the marked threshold (e.g. on a blast pad) reporting a
+				// negative distance is meaningful, not an error.
 				double distance_before_correction_ft = candidate.distances[0];
-				candidate.distances[0] -= threshold_offset_m * M_2_FT;
+				candidate.distances[0] -= candidate.threshold_offset_m * M_2_FT;
 				// Percent is of landing distance available (physical length
 				// minus both ends' displaced-threshold offsets), not full
 				// physical length, so 100% still means "the far threshold" now
@@ -152,7 +163,7 @@ RUNWAY_MATCH match_runways(AIRPORT& airport, const COORDINATE& point, double bea
 				// airport_lookup.cpp.
 				tracef(trace, "Runway candidate %d/%d: %s touchdown threshold correction: end=%s, offset=%.1fm, distance %.1fft -> %.1fft (%.1f%%), LDA=%.1fm",
 					i + 1, airport.n_runways, rwy_id.c_str(), candidate.is_primary ? "primary" : "secondary",
-					threshold_offset_m, distance_before_correction_ft, candidate.distances[0], candidate.distances_percent[0] * 100,
+					candidate.threshold_offset_m, distance_before_correction_ft, candidate.distances[0], candidate.distances_percent[0] * 100,
 					landing_distance_available_m);
 			}
 

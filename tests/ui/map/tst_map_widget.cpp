@@ -89,13 +89,15 @@ QString aiStream(const QStringList& chunks) {
 	return QLatin1Char('[') + chunks.join(QStringLiteral(",\r\n")) + QLatin1Char(']');
 }
 
-// A touchdown's fields as map_script.cpp sends them, with every derived
-// condition and a short trajectory, as a JavaScript object literal.
+// A touchdown's fields as map_script.cpp sends them, with its runway end's
+// data, every derived condition and a short trajectory, as a JavaScript
+// object literal.
 QString fullContactJs() {
 	return QStringLiteral(R"js({icao: 'OEMA', airportName: 'Prince Mohammad bin Abdulaziz', runway: '34C', runwayHeading: 340,
 		lat: 24.5528, lng: 39.7051, airspeed: 135, verticalSpeed: -180, pitchDegrees: 3.2, bankDegrees: -1.4,
 		headingDegrees: 334, distanceLength: 1250, distanceWidth: -5.6, distanceLengthPercent: 0.11, distanceWidthPercent: -0.12,
 		windDirection: 299, windVelocity: 12, gForce: 1.21,
+		runwayLengthFt: 10000.4, runwayWidthFt: 150.4, thresholdOffsetFt: 820.4, runwaySlope: -0.314,
 		zuluTime: '2026-06-21T00:00:00.000+00:00_1', localTime: '2026-06-21T03:00:00.000+03:00_1',
 		conditions: {headingTrue: 338.4, headingMagnetic: 334, trackTrue: 340.6, magneticVariation: 4.4, crabAngle: -2.2,
 			sunElevation: -3.21, temperatureC: 31.5, stationPressureHg: 29.12, altimeterHg: 29.92, altimeterMb: 1013.2,
@@ -104,7 +106,8 @@ QString fullContactJs() {
 			surfaceType: 'asphalt', surfaceCondition: 'wet'},
 		profile: {gates: [
 				{gate: '500 ft', seconds: -42.5, heightFt: 512.4, distanceNm: 1.61, terrainFt: -20.4, airspeed: 131.4,
-					verticalSpeed: -702.6, pitch: 2.04, bank: -1.26, headingTrue: 338.4, trackTrue: 340.6},
+					verticalSpeed: -702.6, pitch: 2.04, bank: -1.26, headingTrue: 338.4, trackTrue: 340.6,
+					thresholdFt: -8640.4, centerlineFt: -12.6},
 				{gate: '1 nm', seconds: -27, heightFt: 318.4, distanceNm: 1.0, pathAngle: 3.04}],
 			series: [{seconds: -0.5, heightFt: 2.4}], highestTerrainFt: 612.4, highestTerrainNm: 4.2}})js");
 }
@@ -676,6 +679,8 @@ private slots:
 			.arg(fullContactJs(), QStringLiteral(R"js([
 				'  Heading: 338° true (334° magnetic); ground track 341° true; crab 2.2° (nose left of the track)',
 				'  Wind: 299° true at 12 kt',
+				'  Runway: 10000 ft long, 150 ft wide, threshold displaced 820 ft at this end, slope 0.31° downhill in the direction of travel',
+				'  Runway remaining ahead: 7930 ft (79% of the runway length)',
 				'Conditions:',
 				'  Time: 2026-06-21T00:00:00.000+00:00 (local 2026-06-21T03:00:00.000+03:00)',
 				'  Sun: 3.2° below the horizon (civil twilight)',
@@ -687,8 +692,9 @@ private slots:
 				'  Visibility: 9999 m',
 				'  Wind over the 30 s before the contact: 8-15 kt, direction 350° to 20° true (clockwise)',
 				'  Surface under the aircraft: asphalt, wet',
+				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):',
 				'  Gates:',
-				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T',
+				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft left',
 				'    1 nm: -27.0 s, height 318 ft, 1.00 nm, path angle 3.0° from here',
 				'  Samples, last 15 s before the touchdown:',
 				'    -0.5 s, height 2 ft',
@@ -738,6 +744,29 @@ private slots:
 			withoutSample);
 	}
 
+	// The runway's dimensions and the runway left ahead follow the contact:
+	// a touchdown's distance is from the marked threshold, so its end's
+	// displaced threshold counts as behind it; a liftoff's is from the
+	// physical start. Each part only when stored; none without the length.
+	void runwayLinesFollowTheContactType() {
+		const QString js = QStringLiteral(
+			"(function (build, extra) { var t = %1; Object.assign(t, extra);"
+			"  var p = build(t);"
+			"  return p.split('\\n').filter(function (l) { return /^  Runway(: \\d+ ft| remaining)/.test(l); })"
+			"    .concat([/; threshold = along the runway from the (marked threshold|runway start)/.exec(p) || 'no threshold'].map(String)).join('|'); })")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildLiftoffPrompt, {runwaySlope: 0.25})")).toString(),
+			QStringLiteral("  Runway: 10000 ft long, 150 ft wide, threshold displaced 820 ft at this end, slope 0.25° uphill in the direction of travel"
+				"|  Runway remaining ahead: 8750 ft (88% of the runway length)"
+				"|; threshold = along the runway from the runway start,runway start"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, {runwaySlope: 0, thresholdOffsetFt: 0, runwayWidthFt: undefined})")).toString(),
+			QStringLiteral("  Runway: 10000 ft long, no displaced threshold at this end, slope 0.00° level in the direction of travel"
+				"|  Runway remaining ahead: 8750 ft (88% of the runway length)"
+				"|; threshold = along the runway from the marked threshold,marked threshold"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, {runwayLengthFt: undefined, profile: {gates: [], series: [{seconds: 0}]}})")).toString(),
+			QStringLiteral("no threshold"));
+	}
+
 	void sunLightBands() {
 		QCOMPARE(evalPageJs(widget_, QStringLiteral("[5, -0.833, -0.9, -6, -6.1, -12, -12.1, -18, -18.1].map(sunLightLabel).join('|')")).toString(),
 			QStringLiteral("day|day|civil twilight|civil twilight|nautical twilight|nautical twilight|astronomical twilight|"
@@ -755,7 +784,7 @@ private slots:
 			"  t.airportName = 'An Airport Whose Name Is As Long As Any In The Facility Database Could Be';"
 			"  function point(gate) { var p = {seconds: -123.456, heightFt: -12345.678, distanceNm: 12.3456, terrainFt: -12345.678,"
 			"      airspeed: 123.456, verticalSpeed: -12345.678, pitch: -12.345, bank: -123.456, headingTrue: 359.6, trackTrue: 359.6,"
-			"      pathAngle: -12.345};"
+			"      thresholdFt: -123456.789, centerlineFt: -12345.678, pathAngle: -12.345};"
 			"    if (gate) p.gate = gate; return p; }"
 			"  t.profile = {gates: ['1000 ft', '500 ft', '300 ft', '200 ft', '100 ft', '50 ft', '3 nm', '2 nm', '1 nm'].map(point),"
 			"    series: [], highestTerrainFt: 12345.678, highestTerrainNm: 4.999};"

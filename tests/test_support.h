@@ -153,6 +153,7 @@ struct RunwaySpec {
 	float primaryThresholdM = 0;
 	float secondaryThresholdM = 0;
 	int thresholdEnable = 0;   // PAVEMENT ENABLE flag for both ends
+	float slope = 0;           // SLOPE, degrees
 };
 
 struct AirportSpec {
