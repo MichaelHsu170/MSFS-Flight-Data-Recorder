@@ -134,6 +134,10 @@ class TstMapWidget : public QObject {
 	Q_OBJECT
 
 	MapWidget* widget_ = nullptr;
+	// Set when the first slot's page never loaded, so every later slot fails
+	// at once instead of waiting out its timeouts against a page that isn't
+	// there.
+	bool pageNeverLoaded_ = false;
 	QTemporaryDir logDir_;
 	QTemporaryDir filesDir_; // files saved through the map's menu
 	QString logPath_;
@@ -414,6 +418,10 @@ private slots:
 	void cleanupTestCase() {
 		delete widget_;
 	}
+	void init() {
+		if (pageNeverLoaded_)
+			QFAIL("the map page never loaded (see the first slot)");
+	}
 	void cleanup() {
 		cancelPendingModals(); // no dialog action outlives its test
 		// reopeningAPopupMidAnalysisDoesNotRunItTwice() stubs the page's fetch
@@ -447,7 +455,12 @@ private slots:
 		// push decides on that emit right after queueing the trajectory's script
 		// (MapWidget::pushTrip()), so it has once the page shows the point. Also
 		// leaves the shared widget_ in the "page ready" state for every slot below.
-		QTRY_COMPARE_WITH_TIMEOUT(mapTrajectoryPointCount(widget_), 1, 15000);
+		// qWaitFor, not QTRY_*: a failing QTRY keeps waiting to report whether
+		// a longer timeout would have passed.
+		if (!QTest::qWaitFor([this] { return mapTrajectoryPointCount(widget_) == 1; }, 15000)) {
+			pageNeverLoaded_ = true;
+			QFAIL("the map page never showed the trajectory");
+		}
 		QCOMPARE(spy.count(), 1);
 	}
 

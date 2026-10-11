@@ -27,6 +27,9 @@ programs. A single test program can also be run directly, e.g.
 `build\Debug\tests\tst_airport_lookup.exe`, optionally with one test
 function name as an argument. The whole suite took between about 140 s
 and 230 s (Debug) on the verification machine, varying from run to run.
+If `map.html` never loads (a script error, say), `tst_map_widget`'s first
+test fails after 15 s and every later one fails at once, rather than each
+waiting out its timeouts.
 
 Don't run two test runs at once (e.g. `build.bat … test` and
 `coverage.ps1`): the map tests show real windows on the desktop (see
