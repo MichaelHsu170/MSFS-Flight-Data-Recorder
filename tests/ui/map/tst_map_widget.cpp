@@ -22,6 +22,7 @@
 // reaches "page ready" (confirmed experimentally -- its load just hangs).
 // A single instance loads and runs fine, so every slot after the one that
 // establishes readiness shares that one instance instead of making its own.
+#include "engine_power.h"
 #include "kml_export.h"
 #include "logger.h"
 #include "map_bridge.h"
@@ -50,6 +51,17 @@
 using namespace TestSupport;
 
 namespace {
+
+// JS defining contactMarker(id): the map marker whose popup holds point id's
+// Analyze button. Goes before the script that calls it.
+const QString kContactMarkerJs = QStringLiteral(
+	"function contactMarker(id) {"
+	"    var marker = null;"
+	"    leafletMapInstance.eachLayer(function (l) {"
+	"        if (l.getPopup && l.getPopup() && String(l.getPopup().getContent()).indexOf('td-btn-' + id + '\\x22') >= 0) marker = l;"
+	"    });"
+	"    return marker;"
+	"}\n");
 
 LiftoffPoint liftoffAt(const QString& icao) {
 	LiftoffPoint p;
@@ -101,7 +113,7 @@ QString fullContactJs() {
 		windDirection: 299, windVelocity: 12, gForce: 1.21,
 		runwayLengthFt: 10000.4, runwayWidthFt: 150.4, thresholdOffsetFt: 820.4, runwaySlope: -0.314,
 		zuluTime: '2026-06-21T00:00:00.000+00:00_1', localTime: '2026-06-21T03:00:00.000+03:00_1',
-		conditions: {headingTrue: 338.4, trackTrue: 340.6, magneticVariation: 4.4, crabAngle: -2.2,
+		conditions: {headingTrue: 338.4, trackTrue: 340.6, magneticVariation: 4.4, crabAngle: -2.2, runwayHeadingMagnetic: 336,
 			sunElevation: -3.21, temperatureC: 31.5, stationPressureHg: 29.12, altimeterHg: 29.92, altimeterMb: 1013.2,
 			pressureAltitudeFt: 1949.6, densityAltitudeFt: 4210.4, visibilityM: 9999.4, fieldElevationFt: 2100.4,
 			seaLevelPressureMb: 1008.6, inCloud: 1, precipitation: 'rain', precipitationRate: 2.46,
@@ -139,8 +151,9 @@ class TstMapWidget : public QObject {
 	// result area's text while the trajectory loaded, then the status line's
 	// at each request and each attempt's first read), statusShown (after),
 	// statusShownAtStreamEnd (when the last attempt's stream ended),
-	// noticeShown (the no-trajectory notice) and promptProfile (t.profile
-	// when the prompt was built, as JSON).
+	// noticeShown (the no-trajectory notice), promptProfile (t.profile
+	// when the prompt was built, as JSON) and fetchedAt (Date.now() at the last
+	// request).
 	QVariantMap runAiAnalysisWith(const QList<QStringList>& attempts, bool saveOk = true, const QList<int>& statuses = {},
 		const QString& profile = QStringLiteral("{gates: [], series: []}")) {
 		QJsonArray json;
@@ -156,6 +169,7 @@ class TstMapWidget : public QObject {
 			    var realFetch = window.fetch;
 			    window.fetch = function (url, init) {
 			        window._ai.url = url;
+			        window._ai.fetchedAt = Date.now();
 			        window._ai.apiKey = init.headers['x-goog-api-key'];
 			        window._ai.statuses.push(statusText());
 			        var n = window._ai.calls++;
@@ -196,10 +210,28 @@ class TstMapWidget : public QObject {
 			"   text: document.getElementById('td-th-final-ai').textContent,"
 			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none',"
 			"   profileRow: window._ai.profileRow, statuses: window._ai.statuses.join('|'), promptProfile: window._ai.promptProfile,"
+			"   fetchedAt: window._ai.fetchedAt,"
 			"   statusShown: document.getElementById('td-status-ai').style.display !== 'none',"
 			"   statusShownAtStreamEnd: window._ai.statusShownAtStreamEnd,"
 			"   noticeShown: document.getElementById('td-note-ai').style.display !== 'none' })")).toMap();
 	}
+
+	// Records each "Waiting N s for the per-minute token limit…" status
+	// runAiAnalysisWith()'s analysis shows, for tokenWaits(); with release,
+	// empties the minute's prompts on seeing one, so that the analysis goes
+	// on without waiting it out.
+	void watchTokenWaits(bool release) {
+		evalPageJs(widget_, QStringLiteral(R"JS(
+			window._tpmSeen = [];
+			window._tpmWatch = setInterval(function () {
+			    var s = document.getElementById('td-status-ai');
+			    if (!s || !/Waiting \d/.test(s.textContent) || _tpmSeen.indexOf(s.textContent) >= 0) return;
+			    _tpmSeen.push(s.textContent);
+			    if (%1) _tpmLedger = [];
+			}, 20);
+		)JS").arg(release ? QStringLiteral("true") : QStringLiteral("false")));
+	}
+	QString tokenWaits() { return evalPageJs(widget_, QStringLiteral("window._tpmSeen.join('|')")).toString(); }
 
 	QWebEngineView* mapView() { return widget_->findChild<QWebEngineView*>(); }
 	// The widget a user's mouse input reaches the page through.
@@ -222,6 +254,29 @@ class TstMapWidget : public QObject {
 		dataset.liftoffPoints = { liftoff };
 		dataset.touchdowns = { touchdown };
 		dataset.departureZuluTime = QStringLiteral("2026-01-02T10:00:00.500+00:00_5");
+		return dataset;
+	}
+
+	// tripToSave() with the liftoff's samples timed so that its climb-out
+	// trajectory can be built (rolling at 500 ft, then 60 ft up 0.5 s after the
+	// liftoff: the 35 ft gate), and the touchdown's not. The liftoff and the
+	// touchdown are both row 5 (each table numbers its own rows), so a
+	// touchdown's trajectory looked up as a liftoff's is the climb-out, not
+	// none.
+	static TripDataset tripWithClimbOut() {
+		TripDataset dataset = tripToSave();
+		dataset.liftoffPoints[0].rowId = 5;
+		dataset.touchdowns[0].rowId = 5;
+		const char* times[] = { "2026-01-02T10:00:00.000+00:00_1", "2026-01-02T10:00:01.000+00:00_1" };
+		const double altitudes[] = { 500, 560 };
+		for (int i = 0; i < 2; ++i) {
+			TripSamplePoint& p = dataset.points[i];
+			p.zuluTime = QString::fromLatin1(times[i]);
+			p.rawNums.assign(TRIP_NUM_FIELD_COUNT, std::nan(""));
+			p.rawNums[TRIP_NUM_plane_altitude] = altitudes[i];
+			p.rawNums[TRIP_NUM_plane_alt_above_ground] = altitudes[i] - 500;
+		}
+		dataset.liftoffPoints[0].zuluTime = QStringLiteral("2026-01-02T10:00:00.500+00:00_1");
 		return dataset;
 	}
 
@@ -364,6 +419,9 @@ private slots:
 		// and report save; if it failed midway, put the real ones back.
 		evalPageJs(widget_, QStringLiteral(
 			"if (window._dup) { window._dup.restore(); window._dup.marker.closePopup(); window._dup = null; } true"));
+		// Each test starts with the minute's token limit unused, and no
+		// watchTokenWaits() left running.
+		evalPageJs(widget_, QStringLiteral("clearInterval(window._tpmWatch); if (window._tpmLedger) _tpmLedger = []; true"));
 	}
 
 	// Must run first (QTest runs slots in declaration order): right after
@@ -677,24 +735,28 @@ private slots:
 	}
 
 	// The AI prompt names the airport and runway with the popup's labels:
-	// "ICAO (Name)" and "runway (heading° true)", each part only when known.
+	// "ICAO (Name)" and "runway (magnetic, true heading)", each part only when
+	// known: the magnetic one needs the contact's sample.
 	void analysisPromptNamesTheAirportAndRunway() {
 		const QString js = QStringLiteral(
-			"(function (name, heading) { var t = {icao: 'EGLL', airportName: name, runway: '27L', runwayHeading: heading,"
-			"    lat: 1, lng: 2, airspeed: 140, verticalSpeed: 0, pitchDegrees: 0, bankDegrees: 0, headingDegrees: 90,"
-			"    distanceLength: 0, distanceWidth: 0, distanceLengthPercent: 0, distanceWidthPercent: 0, windDirection: 0,"
-			"    windVelocity: 0, zuluTime: 'z', gForce: 1};"
+			"(function (name, heading, conditions) { var t = {icao: 'EGLL', airportName: name, runway: '27L',"
+			"    runwayHeading: heading, lat: 1, lng: 2, airspeed: 140, verticalSpeed: 0, pitchDegrees: 0, bankDegrees: 0,"
+			"    headingDegrees: 90, distanceLength: 0, distanceWidth: 0, distanceLengthPercent: 0, distanceWidthPercent: 0,"
+			"    windDirection: 0, windVelocity: 0, zuluTime: 'z', gForce: 1, conditions: conditions};"
 			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) {"
 			"    return /^  (Airport|Runway): /.test(l); }).join('|'); })(%1)");
-		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("'Heathrow', 270"))).toString(),
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("'Heathrow', 270, {runwayHeadingMagnetic: 268}"))).toString(),
+			QStringLiteral("  Airport: EGLL (Heathrow)|  Runway: 27L (268° magnetic, 270° true)"));
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("'Heathrow', 270, undefined"))).toString(),
 			QStringLiteral("  Airport: EGLL (Heathrow)|  Runway: 27L (270° true)"));
-		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("'', -1"))).toString(),
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("'', -1, {runwayHeadingMagnetic: 268}"))).toString(),
 			QStringLiteral("  Airport: EGLL|  Runway: 27L"));
 	}
 
-	// The popup marks each heading true (T) or magnetic (M): the aircraft's
-	// true heading from its sample, with the stored magnetic one, and the
-	// crab angle; without a sample, only the magnetic heading and no crab.
+	// The popup marks each heading magnetic (M) then true (T): the runway's
+	// magnetic heading and the aircraft's true heading come from the
+	// contact's sample, with the crab angle; without a sample, only the
+	// runway's true heading, the stored magnetic heading and no crab.
 	void popupHeadingsAreMarkedTrueOrMagnetic() {
 		const QString js = QStringLiteral(
 			"(function (conditions) { var t = {icao: '', runway: '34C', runwayHeading: 340, lat: 1, lng: 2, airspeed: 140,"
@@ -706,12 +768,12 @@ private slots:
 			"  return Array.prototype.map.call(d.querySelectorAll('.td-row'), function (r) {"
 			"    return r.querySelector('.td-key').textContent + ': ' + r.querySelector('.td-val').textContent; })"
 			"    .filter(function (r) { return /^(Runway|Heading|Crab|Wind):/.test(r); }).join('|'); })(%1)");
-		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{headingTrue: 338.4, crabAngle: -2.6}"))).toString(),
-			QStringLiteral("Runway: 34C (340° T)|Heading: 338° T (334° M)|Crab: 3° L|Wind: 299° T / 12 kt"));
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{headingTrue: 338.4, crabAngle: -2.6, runwayHeadingMagnetic: 336}"))).toString(),
+			QStringLiteral("Runway: 34C (336° M, 340° T)|Heading: 334° M (338° T)|Crab: 3° L|Wind: 299° T / 12 kt"));
 		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{headingTrue: 338.4, crabAngle: 1.6}"))).toString(),
-			QStringLiteral("Runway: 34C (340° T)|Heading: 338° T (334° M)|Crab: 2° R|Wind: 299° T / 12 kt"));
+			QStringLiteral("Runway: 34C (340° T)|Heading: 334° M (338° T)|Crab: 2° R|Wind: 299° T / 12 kt"));
 		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{headingTrue: 338.4, crabAngle: 0.4}"))).toString(),
-			QStringLiteral("Runway: 34C (340° T)|Heading: 338° T (334° M)|Crab: 0°|Wind: 299° T / 12 kt"));
+			QStringLiteral("Runway: 34C (340° T)|Heading: 334° M (338° T)|Crab: 0°|Wind: 299° T / 12 kt"));
 		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("undefined"))).toString(),
 			QStringLiteral("Runway: 34C (340° T)|Heading: 334° M|Wind: 299° T / 12 kt"));
 	}
@@ -721,7 +783,7 @@ private slots:
 	// line per recorded value, every heading marked true or magnetic.
 	void touchdownPromptCarriesConditionsAndTrajectory() {
 		QCOMPARE(touchdownPromptLacks(QString(), QStringLiteral(R"js([
-				'  Heading: 338° true (334° magnetic); ground track 341° true; crab 2.2° (nose left of the track)',
+				'  Heading: 334° magnetic (338° true); ground track 341° true; crab 2.2° (nose left of the track)',
 				'  Wind: 299° true at 12 kt',
 				'  Runway: 10000 ft long, 150 ft wide, threshold displaced 820 ft at this end, slope 0.31° downhill in the direction of travel',
 				'  Runway remaining ahead: 7930 ft (79% of the runway length)',
@@ -742,10 +804,46 @@ private slots:
 				'  Gates:',
 				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft left',
 				'    1 nm: -27.0 s, height 318 ft, 1.00 nm, path angle 3.0° from here',
-				'  Samples, last 15 s before the touchdown:',
+				'  Samples, from 15 s before to 10 s after the touchdown:',
 				'    -0.5 s, height 2 ft, terrain +30 ft',
 				'  Highest terrain within 5 nm before the touchdown: +612 ft, 4.20 nm from the touchdown point (more than 500 ft above it)'
 			])js")), QStringList());
+	}
+
+	// Each point says whether the aircraft was on the ground and, when
+	// recorded, each engine's throttle and power (? for an engine not
+	// recorded) with the power's unit, each rounded half away from zero like
+	// the other values; the header explains only what the points carry, the
+	// power by its name.
+	void trajectoryPointsCarryOnGroundAndEngines() {
+		const QString js = QStringLiteral(
+			"(function (profile) { var t = %1; t.profile = profile;"
+			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /^Final trajectory|^    (-?\\d|50 ft)/.test(l); }).join('|'); })")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
+			"{seconds: -0.5, onGround: false, heightFt: 2.4, throttle: [-4.5, null], power: [53.5, 54]},"
+			"{seconds: 0, onGround: true, throttle: [30, 30]}]})")).toString(), QStringLiteral(
+			"Final trajectory (seconds from the touchdown point; on ground/airborne = as the simulator reports it; height = altitude above "
+			"the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; "
+			"throttle = throttle lever position per engine (engine 1 first, ? = not recorded) as the aircraft reports it, negative = reverse range; "
+			"N1 = per engine):"
+			"|    -0.5 s, airborne, height 2 ft, throttle -5/?%, N1 54/54%"
+			"|    0.0 s, on ground, throttle 30/30%"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [{gate: '50 ft', seconds: -3, power: [60]}], series: [], powerName: 'torque', "
+			"powerUnit: '%'})")).toString(), QStringLiteral(
+			"Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to "
+			"the touchdown point; terrain = ground below relative to the touchdown point; torque = per engine):"
+			"|    50 ft: -3.0 s, torque 60%"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [{gate: '50 ft', seconds: -3, power: [15.2, 14.5]}], series: [], "
+			"powerName: 'manifold pressure', powerUnit: ' inHg'})")).toString(), QStringLiteral(
+			"Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to "
+			"the touchdown point; terrain = ground below relative to the touchdown point; manifold pressure = per engine):"
+			"|    50 ft: -3.0 s, manifold pressure 15/15 inHg"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], series: [{seconds: 0, onGround: true}], powerName: 'N1'})")).toString(),
+			QStringLiteral(
+			"Final trajectory (seconds from the touchdown point; on ground/airborne = as the simulator reports it; height = altitude above "
+			"the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point):"
+			"|    0.0 s, on ground"));
 	}
 
 	// The other side of each signed value: the nose right of the track, the
@@ -755,7 +853,7 @@ private slots:
 		QCOMPARE(touchdownPromptLacks(QStringLiteral(
 			"Object.assign(t.conditions, {crabAngle: 2.2, sunElevation: 10, magneticVariation: -4.4});"
 			"t.profile.gates[0].centerlineFt = 12.6; t.profile.highestTerrainFt = 500;"), QStringLiteral(R"js([
-				'  Heading: 338° true (334° magnetic); ground track 341° true; crab 2.2° (nose right of the track)',
+				'  Heading: 334° magnetic (338° true); ground track 341° true; crab 2.2° (nose right of the track)',
 				'  Sun: 10.0° above the horizon (day)',
 				'  Position: 24.5528° N, 39.7051° E; magnetic variation 4.4° W',
 				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft right',
@@ -763,22 +861,24 @@ private slots:
 			])js")), QStringList());
 	}
 
-	// Both prompts ask for the "Final segment:" and "Environment:" sections
-	// before the data, and the liftoff's trajectory spans the rotation and
-	// climb-out.
-	void analysisPromptsAskForTheFinalSegmentAndEnvironment() {
+	// Before the data, each prompt asks for its answer's sections, ending in
+	// its trajectory's segment (a liftoff's "Rotation and climb-out", a
+	// touchdown's "Final segment") and "Environment"; each names its own
+	// trajectory, and the liftoff's spans the rotation and climb-out.
+	void analysisPromptsAskForTheirSegmentAndEnvironment() {
 		const QString js = QStringLiteral(
 			"(function () { var t = %1;"
 			"  return [buildLiftoffPrompt(t), buildTouchdownPrompt(t)].map(function (p) {"
-			"    var data = p.indexOf('\\n---\\n');"
-			"    return [p.indexOf('\\nFinal segment:\\n• [') >= 0 && p.indexOf('\\nFinal segment:\\n') < data,"
-			"      p.indexOf('\\nEnvironment:\\n• [') >= 0 && p.indexOf('\\nEnvironment:\\n') < data,"
-			"      /\\nAirport: from your general knowledge/.test(p)].join(); })"
+			"    var lines = p.split('\\n').slice(0, p.split('\\n').indexOf('---'));"
+			"    return lines.filter(function (l, i) { return /:$/.test(l) && /^• \\[/.test(lines[i + 1]); }).join()"
+			"      + ',' + /\\nAirport: from your general knowledge/.test(p); })"
 			"    .concat([buildLiftoffPrompt(t).indexOf('\\n  Samples, from 10 s before to 10 s after the liftoff:\\n') >= 0,"
-			"      buildLiftoffPrompt(t).indexOf('\\nFinal trajectory (seconds from the liftoff point;') >= 0,"
+			"      buildLiftoffPrompt(t).indexOf('\\nTakeoff trajectory (seconds from the liftoff point;') >= 0,"
 			"      buildTouchdownPrompt(t).indexOf('\\nFinal trajectory (seconds from the touchdown point;') >= 0]).join('|'); })()")
 			.arg(fullContactJs());
-		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral("true,true,true|true,true,true|true|true|true"));
+		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral(
+			"Strengths:,Areas to improve:,Rotation and climb-out:,Environment:,true"
+			"|Strengths:,Areas to improve:,Final segment:,Environment:,true|true|true|true"));
 	}
 
 	// A value that wasn't recorded gets no line (never "NaN" or
@@ -806,16 +906,16 @@ private slots:
 
 	// A trajectory that couldn't be built (null, from MapBridge) isn't left
 	// out silently: the prompt says so, and has the model judge the contact
-	// alone and say so in its Final segment section.
+	// alone and say so in its trajectory's segment section.
 	void promptSaysWhenTheTrajectoryIsUnavailable() {
 		const QString js = QStringLiteral(
 			"(function () { var t = %1; t.profile = null;"
 			"  return [buildLiftoffPrompt(t), buildTouchdownPrompt(t)].map(function (p) {"
-			"    return p.split('\\n').filter(function (l) { return /^Final trajectory/.test(l); }).join('/'); }).join('|'); })()")
+			"    return p.split('\\n').filter(function (l) { return /^(Takeoff|Final) trajectory/.test(l); }).join('/'); }).join('|'); })()")
 			.arg(fullContactJs());
 		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral(
-			"Final trajectory: not available (it could not be built from the recorded samples). Judge the liftoff point from the data "
-			"above alone, and in the Final segment section say that the trajectory was not available instead of describing it."
+			"Takeoff trajectory: not available (it could not be built from the recorded samples). Judge the liftoff point from the data "
+			"above alone, and in the Rotation and climb-out section say that the trajectory was not available instead of describing it."
 			"|Final trajectory: not available (it could not be built from the recorded samples). Judge the touchdown point from the data "
 			"above alone, and in the Final segment section say that the trajectory was not available instead of describing it."));
 	}
@@ -859,7 +959,7 @@ private slots:
 			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /^  Heading:/.test(l); }).join('|'); })()")
 			.arg(fullContactJs());
 		QCOMPARE(evalPageJs(widget_, js).toString(),
-			QStringLiteral("  Heading: 338° true (334° magnetic); ground track 341° true; crab 0.0°"));
+			QStringLiteral("  Heading: 334° magnetic (338° true); ground track 341° true; crab 0.0°"));
 	}
 
 	// The surface line names only the parts that are known.
@@ -906,30 +1006,40 @@ private slots:
 	}
 
 	// The prompt is bounded whatever the trip: with every value recorded,
-	// every gate crossed and the series at its 60-sample cap, both prompts
-	// stay under 32,000 characters (16k tokens at a pessimistic 2 characters
-	// per token).
-	void worstCasePromptStaysUnder32000Characters() {
+	// every gate crossed with all SIM_ENGINE_INDEXES engines' values and the
+	// series at its 60-sample cap, both prompts stay within 32,000 characters,
+	// the per-minute limit's 16,000 tokens at the 2 characters per token
+	// map.html estimates, so neither is ever held back for good. The power
+	// is each name at its widest value: a turbine's three-digit torque (N1 is
+	// shorter), and a piston's manifold pressure under 100 inHg, which no
+	// engine reaches (the most boosted run at about 80-90 inHg).
+	void worstCasePromptFitsTheTokenLimit() {
 		const QString js = QStringLiteral(
 			"(function () { var t = %1;"
 			"  window._aircraftTitle = 'Aircraft With A Very Long Livery And Model Name For The Worst Case Prompt Size';"
 			"  t.airportName = 'An Airport Whose Name Is As Long As Any In The Facility Database Could Be';"
 			"  function point(gate) { var p = {seconds: -123.456, heightFt: -12345.678, distanceNm: 12.3456, terrainFt: -12345.678,"
 			"      airspeed: 123.456, verticalSpeed: -12345.678, pitch: -12.345, bank: -123.456, headingTrue: 359.6, trackTrue: 359.6,"
-			"      thresholdFt: -123456.789, centerlineFt: -12345.678, pathAngle: -12.345};"
+			"      thresholdFt: -123456.789, centerlineFt: -12345.678, pathAngle: -12.345, onGround: false,"
+			"      throttle: [], power: []};"
+			"    for (var e = 0; e < %2; ++e) { p.throttle.push(-123.456); p.power.push(power); }"
 			"    if (gate) p.gate = gate; return p; }"
-			"  t.profile = {gates: ['1000 ft', '500 ft', '300 ft', '200 ft', '100 ft', '50 ft', '3 nm', '2 nm', '1 nm'].map(point),"
-			"    series: [], highestTerrainFt: 12345.678, highestTerrainNm: 4.999};"
-			"  for (var i = 0; i < 60; ++i) t.profile.series.push(point());"
-			"  var lengths = [buildLiftoffPrompt(t).length, buildTouchdownPrompt(t).length];"
+			"  var power, lengths = [];"
+			"  [['torque', '%', 123.456], ['manifold pressure', ' inHg', 99.4]].forEach(function (c) {"
+			"    power = c[2];"
+			"    t.profile = {gates: ['1000 ft', '500 ft', '300 ft', '200 ft', '100 ft', '50 ft', '3 nm', '2 nm', '1 nm'].map(point),"
+			"      series: [], highestTerrainFt: 12345.678, highestTerrainNm: 4.999, powerName: c[0], powerUnit: c[1]};"
+			"    for (var i = 0; i < 60; ++i) t.profile.series.push(point());"
+			"    lengths.push(buildLiftoffPrompt(t).length, buildTouchdownPrompt(t).length); });"
 			"  window._aircraftTitle = '';"
 			"  return lengths; })()")
-			.arg(fullContactJs());
+			.arg(fullContactJs(), QString::number(SIM_ENGINE_INDEXES));
 		const QVariantList lengths = evalPageJs(widget_, js).toList();
-		QCOMPARE(lengths.size(), 2);
+		QCOMPARE(lengths.size(), 4);
 		for (const QVariant& length : lengths)
-			QVERIFY2(length.toInt() > 0 && length.toInt() < 32000, qPrintable(length.toString()));
-		qInfo("worst-case prompt lengths: liftoff %d, touchdown %d characters", lengths[0].toInt(), lengths[1].toInt());
+			QVERIFY2(length.toInt() > 0 && length.toInt() <= 32000, qPrintable(length.toString()));
+		qInfo("worst-case prompt lengths: torque liftoff %d, touchdown %d; manifold pressure liftoff %d, touchdown %d characters",
+			lengths[0].toInt(), lengths[1].toInt(), lengths[2].toInt(), lengths[3].toInt());
 	}
 
 	// The map's touchdown popup and the KML export's placemark description
@@ -961,6 +1071,7 @@ private slots:
 		td.conditions.fromSample = true;
 		td.conditions.headingTrue = 268.5;  // halves again
 		td.conditions.crabAngle = -2.5;
+		td.conditions.runwayHeadingMagnetic = 268;
 		TripDataset dataset;
 		dataset.points = { samplePoint(51.47, -0.45) };
 		dataset.touchdowns = { td };
@@ -982,7 +1093,8 @@ private slots:
 		QCOMPARE(popup.first(), QStringLiteral("Airport: EGLL (Heathrow)"));
 		QVERIFY2(popup.value(2).startsWith(QStringLiteral("Coordinate: ")), qPrintable(popup.value(2)));
 		popup.removeAt(2);
-		QVERIFY2(popup.contains(QStringLiteral("Heading: 269° T (271° M)")), qPrintable(popup.join('|')));
+		QVERIFY2(popup.contains(QStringLiteral("Runway: 27L (268° M, 270° T)")), qPrintable(popup.join('|')));
+		QVERIFY2(popup.contains(QStringLiteral("Heading: 271° M (269° T)")), qPrintable(popup.join('|')));
 		QVERIFY2(popup.contains(QStringLiteral("Crab: 3° L")), qPrintable(popup.join('|')));
 
 		QTemporaryDir dir;
@@ -1146,13 +1258,10 @@ private slots:
 		TripDataset dataset = tripToSave();
 		dataset.liftoffPoints[0].rowId = 5;
 		loadTrip(dataset);
-		evalPageJs(widget_, QStringLiteral(R"JS(
+		evalPageJs(widget_, kContactMarkerJs + QStringLiteral(R"JS(
 			window._geminiApiKey = '';
 			var id = Object.keys(_liftoffStore)[0];
-			var marker = null;
-			leafletMapInstance.eachLayer(function (l) {
-			    if (l.getPopup && l.getPopup() && String(l.getPopup().getContent()).indexOf('td-btn-' + id + '\x22') >= 0) marker = l;
-			});
+			var marker = contactMarker(id);
 			var realFetch = window.fetch, realSave = mapBridge.saveLiftoffAnalysisReport;
 			var ai = window._dup = { id: id, marker: marker, calls: 0, saves: 0, release: null };
 			window.fetch = function () {
@@ -1214,13 +1323,10 @@ private slots:
 		const QString streams = QString::fromUtf8(QJsonDocument(QJsonArray{
 			aiStream({ aiChunk({ { "Thought", true }, { "Grade: half", false } }) }),
 			aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) }).toJson(QJsonDocument::Compact));
-		evalPageJs(widget_, QStringLiteral(R"JS(
+		evalPageJs(widget_, kContactMarkerJs + QStringLiteral(R"JS(
 			window._geminiApiKey = '';
 			var id = Object.keys(_liftoffStore)[0];
-			var marker = null;
-			leafletMapInstance.eachLayer(function (l) {
-			    if (l.getPopup && l.getPopup() && String(l.getPopup().getContent()).indexOf('td-btn-' + id + '\x22') >= 0) marker = l;
-			});
+			var marker = contactMarker(id);
 			var streams = %1;
 			var realFetch = window.fetch, realSave = mapBridge.saveLiftoffAnalysisReport;
 			var ai = window._closed = { id: id, marker: marker, calls: 0, saved: null, release: null };
@@ -1271,8 +1377,8 @@ private slots:
 		QTest::addColumn<bool>("timed");
 		QTest::addColumn<QString>("trajectoryLine");  // how the prompt's trajectory line starts
 		QTest::addColumn<bool>("notice");
-		QTest::newRow("built") << true << QStringLiteral("Final trajectory (seconds from the liftoff point;") << false;
-		QTest::newRow("unavailable") << false << QStringLiteral("Final trajectory: not available (") << true;
+		QTest::newRow("built") << true << QStringLiteral("Takeoff trajectory (seconds from the liftoff point;") << false;
+		QTest::newRow("unavailable") << false << QStringLiteral("Takeoff trajectory: not available (") << true;
 	}
 	void analyzeGetsTheTrajectoryFromTheTrip() {
 		QFETCH(bool, timed);
@@ -1281,27 +1387,13 @@ private slots:
 		evalPageJs(widget_, QStringLiteral("window._geminiApiKey = 'test-key'")); // the popups are built with it
 		TripDataset dataset = tripToSave();
 		dataset.liftoffPoints[0].rowId = 5;
-		if (timed) {
-			// Rolling at 500 ft, then 60 ft up 0.5 s after the liftoff: the 35 ft gate.
-			const char* times[] = { "2026-01-02T10:00:00.000+00:00_1", "2026-01-02T10:00:01.000+00:00_1" };
-			const double altitudes[] = { 500, 560 };
-			for (int i = 0; i < 2; ++i) {
-				TripSamplePoint& p = dataset.points[i];
-				p.zuluTime = QString::fromLatin1(times[i]);
-				p.rawNums.assign(TRIP_NUM_FIELD_COUNT, std::nan(""));
-				p.rawNums[TRIP_NUM_plane_altitude] = altitudes[i];
-				p.rawNums[TRIP_NUM_plane_alt_above_ground] = altitudes[i] - 500;
-			}
-			dataset.liftoffPoints[0].zuluTime = QStringLiteral("2026-01-02T10:00:00.500+00:00_1");
-		}
+		if (timed)
+			dataset = tripWithClimbOut();
 		loadTrip(dataset);
-		evalPageJs(widget_, QStringLiteral(R"JS(
+		evalPageJs(widget_, kContactMarkerJs + QStringLiteral(R"JS(
 			window._geminiApiKey = '';
 			var id = Object.keys(_liftoffStore)[0];
-			var marker = null;
-			leafletMapInstance.eachLayer(function (l) {
-			    if (l.getPopup && l.getPopup() && String(l.getPopup().getContent()).indexOf('td-btn-' + id + '\x22') >= 0) marker = l;
-			});
+			var marker = contactMarker(id);
 			var realFetch = window.fetch;
 			var ai = window._traj = { id: id, marker: marker, prompt: null };
 			window.fetch = function (url, init) {
@@ -1322,7 +1414,7 @@ private slots:
 			var first = noticeShown();
 			ai.marker.closePopup();
 			ai.marker.openPopup();
-			var shown = [ai.prompt.split('\n').filter(function (l) { return /^Final trajectory/.test(l); }), first, noticeShown(),
+			var shown = [ai.prompt.split('\n').filter(function (l) { return /^(Takeoff|Final) trajectory/.test(l); }), first, noticeShown(),
 			    document.getElementById('td-note-' + ai.id).textContent.replace(/\s+/g, ' ').trim()];
 			ai.marker.closePopup();
 			shown
@@ -1343,15 +1435,132 @@ private slots:
 		QVERIFY(evalPageJs(widget_, QStringLiteral("window._traj.afterOverview === null")).toBool());
 	}
 
-	// A server error or rate limit is often gone a moment later: the request
-	// is retried, and the answer that follows is saved.
-	void aServerErrorOrRateLimitIsRetried_data() {
+	// Copy Prompt, there even without an API key, puts on the clipboard the
+	// prompt Analyze sends for the same contact, its trajectory included and
+	// looked up in its own table (the liftoff's built, the touchdown's not
+	// available), and says so on the button; the no-trajectory notice is left
+	// to Analyze, even once the popup is reopened. The user's clipboard is put
+	// back afterwards.
+	void copyPromptCopiesWhatAnalyzeSends_data() {
+		QTest::addColumn<QString>("kind");
+		QTest::addColumn<QString>("trajectoryLine");  // how the prompt's trajectory line starts
+		QTest::newRow("liftoff") << QStringLiteral("liftoff") << QStringLiteral("Takeoff trajectory (seconds from the liftoff point;");
+		QTest::newRow("touchdown") << QStringLiteral("touchdown") << QStringLiteral("Final trajectory: not available (");
+	}
+	void copyPromptCopiesWhatAnalyzeSends() {
+		QFETCH(QString, kind);
+		QFETCH(QString, trajectoryLine);
+		evalPageJs(widget_, QStringLiteral("window._geminiApiKey = ''")); // the popups are built without one
+		loadTrip(tripWithClimbOut());
+		const ClipboardGuard keepUsersClipboard;
+		QClipboard* clipboard = QGuiApplication::clipboard();
+		clipboard->clear();
+		const QVariantList before = evalPageJs(widget_, kContactMarkerJs + QStringLiteral(R"JS(
+			(function (kind) {
+			    var store = kind === 'liftoff' ? _liftoffStore : _touchdownStore;
+			    var id = Object.keys(store)[0];
+			    var marker = contactMarker(id);
+			    window._copy = { kind: kind, id: id, marker: marker, prompt: null };
+			    marker.openPopup();
+			    var copy = document.getElementById('td-copy-' + id);
+			    var shown = [document.getElementById('td-btn-' + id).disabled, copy.textContent];
+			    copy.click();
+			    return shown;
+			})('%1'))JS").arg(kind)).toList();
+		QCOMPARE(before.value(0).toBool(), true);  // Analyze needs the key
+		QCOMPARE(before.value(1).toString(), QStringLiteral("Copy Prompt"));
+		QTRY_VERIFY_WITH_TIMEOUT(!clipboard->text().isEmpty(), 5000);
+		const QString copied = clipboard->text();
+		QVERIFY2(copied.split('\n').filter(QRegularExpression(QStringLiteral("^(Takeoff|Final) trajectory"))).value(0).startsWith(trajectoryLine),
+			qPrintable(copied));
+		const QVariantList after = evalPageJs(widget_, QStringLiteral(R"JS(
+			var c = window._copy;
+			[document.getElementById('td-copy-' + c.id).textContent,
+			 document.getElementById('td-note-' + c.id).style.display !== 'none']
+		)JS")).toList();
+		QCOMPARE(after.value(0).toString(), QStringLiteral("✓ Copied"));
+		QCOMPARE(after.value(1).toBool(), false);
+		QTRY_COMPARE_WITH_TIMEOUT(evalPageJs(widget_, QStringLiteral(
+			"document.getElementById('td-copy-' + window._copy.id).textContent")).toString(), QStringLiteral("Copy Prompt"), 5000);
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(R"JS(
+			var c = window._copy;
+			c.marker.closePopup();
+			c.marker.openPopup();
+			document.getElementById('td-note-' + c.id).style.display !== 'none'
+		)JS")), QVariant(false));  // still none after reopening the popup
+
+		// What Analyze sends.
+		evalPageJs(widget_, QStringLiteral(R"JS(
+			var c = window._copy;
+			window._geminiApiKey = 'test-key';
+			var realFetch = window.fetch;
+			window.fetch = function (url, init) {
+			    window.fetch = realFetch;
+			    c.prompt = JSON.parse(init.body).contents[0].parts[0].text;
+			    return Promise.resolve({ ok: false, status: 400,
+			        text: function () { return Promise.resolve('[{"error":{"code":400,"message":"Stop here."}}]'); } });
+			};
+			(c.kind === 'liftoff' ? analyzeLiftoff : analyzeTouchdown)(c.id);
+		)JS"));
+		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral(
+			"var c = window._copy; c.prompt !== null && !(c.kind === 'liftoff' ? _liftoffStore : _touchdownStore)[c.id].analyzing")).toBool());
+		const QString sent = evalPageJs(widget_, QStringLiteral(
+			"window._geminiApiKey = ''; window._copy.marker.closePopup(); window._copy.prompt")).toString();
+		QCOMPARE(copied, sent);
+	}
+
+	// Before the page's bridge is connected, Copy Prompt does nothing, without
+	// an error; with its popup closed while the trajectory loads, it still
+	// copies the prompt. The trajectory is held back until the closed popup
+	// has left the page (Leaflet fades it out first).
+	void copyPromptWithoutTheBridgeOrItsPopup() {
+		evalPageJs(widget_, QStringLiteral("window._geminiApiKey = ''")); // the popups are built without one
+		loadTrip(tripWithClimbOut());
+		const ClipboardGuard keepUsersClipboard;
+		QClipboard* clipboard = QGuiApplication::clipboard();
+		clipboard->setText(QStringLiteral("before"));
+		evalPageJs(widget_, QStringLiteral(R"JS(
+			var g = window._guard = { id: Object.keys(_liftoffStore)[0] };
+			var bridge = mapBridge;
+			mapBridge = null;
+			copyLiftoffPrompt(g.id).then(function () { mapBridge = bridge; g.noBridge = 'done'; },
+			    function (e) { mapBridge = bridge; g.noBridge = String(e); });
+		)JS"));
+		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("window._guard.noBridge !== undefined")).toBool());
+		QCOMPARE(evalPageJs(widget_, QStringLiteral("window._guard.noBridge")).toString(), QStringLiteral("done"));
+		QCOMPARE(clipboard->text(), QStringLiteral("before"));
+
+		evalPageJs(widget_, kContactMarkerJs + QStringLiteral(R"JS(
+			var g = window._guard;
+			var marker = contactMarker(g.id);
+			var realLoad = loadLiftoffProfile;
+			loadLiftoffProfile = function (rowId, onLoaded) {
+			    realLoad(rowId, function (profile) {
+			        var wait = setInterval(function () {
+			            if (document.getElementById('td-copy-' + g.id)) return;
+			            clearInterval(wait);
+			            onLoaded(profile);
+			        }, 20);
+			    });
+			};
+			marker.openPopup();
+			copyLiftoffPrompt(g.id).then(function () { loadLiftoffProfile = realLoad; g.closed = 'done'; },
+			    function (e) { loadLiftoffProfile = realLoad; g.closed = String(e); });
+			marker.closePopup();
+		)JS"));
+		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("window._guard.closed !== undefined")).toBool());
+		QCOMPARE(evalPageJs(widget_, QStringLiteral("window._guard.closed")).toString(), QStringLiteral("done"));
+		QTRY_VERIFY_WITH_TIMEOUT(clipboard->text().contains(QStringLiteral("Takeoff trajectory (seconds from the liftoff point;")), 5000);
+	}
+
+	// A server error is often gone a moment later: the request is retried,
+	// and the answer that follows is saved.
+	void aServerErrorIsRetried_data() {
 		QTest::addColumn<int>("status");
 		QTest::newRow("internal error") << 500;
 		QTest::newRow("unavailable") << 503;
-		QTest::newRow("rate limit") << 429;
 	}
-	void aServerErrorOrRateLimitIsRetried() {
+	void aServerErrorIsRetried() {
 		QFETCH(int, status);
 		const QVariantMap r = runAiAnalysisWith({
 			{ QStringLiteral(R"([{"error":{"code":%1,"message":"Try later."}}])").arg(status) },
@@ -1362,6 +1571,72 @@ private slots:
 		// The status line counts the retry.
 		QCOMPARE(r.value("statuses").toString(), QStringLiteral(
 			"Building the climb-out trajectory…|Sending to LLM…|Retrying (2/3): Sending to LLM…|Retrying (2/3): Waiting for the model…"));
+	}
+
+	// A rate limit means the minute's tokens are used up: the retry waits for
+	// the minute to pass (cut short here once the wait shows), and the answer
+	// that follows is saved.
+	void aRateLimitIsRetriedAfterAMinute() {
+		watchTokenWaits(true);
+		const QVariantMap r = runAiAnalysisWith({
+			{ QStringLiteral(R"([{"error":{"code":429,"message":"Quota exceeded."}}])") },
+			{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } }, true, { 429, 200 });
+		QCOMPARE(tokenWaits(), QStringLiteral("Retrying (2/3): Waiting 60 s for the per-minute token limit…"));
+		QCOMPARE(r.value("calls").toInt(), 2);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
+		QCOMPARE(r.value("statuses").toString(), QStringLiteral(
+			"Building the climb-out trajectory…|Sending to LLM…|Retrying (2/3): Sending to LLM…|Retrying (2/3): Waiting for the model…"));
+	}
+
+	// The wait for the per-minute token limit: none while the minute's
+	// prompts and this one fit in 16,000 tokens (exactly too); otherwise
+	// until enough of the oldest are a minute old. A prompt sent exactly 60 s
+	// ago no longer counts; one over the limit on its own waits for the
+	// minute to be empty. A prompt's tokens are estimated at 2 characters
+	// each, rounded up.
+	void tokenWaitCountsTheLastMinute() {
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(
+			"[tpmWaitMs([], 0, 16000),"
+			" tpmWaitMs([{time: 0, tokens: 6000}], 1000, 10000),"
+			" tpmWaitMs([{time: 0, tokens: 6000}], 1000, 10001),"
+			" tpmWaitMs([{time: 0, tokens: 6000}, {time: 10000, tokens: 6000}], 20000, 6000),"
+			" tpmWaitMs([{time: 0, tokens: 6000}, {time: 10000, tokens: 6000}], 20000, 12000),"
+			" tpmWaitMs([{time: 0, tokens: 16000}], 60000, 1),"
+			" tpmWaitMs([{time: 0, tokens: 16000}], 59999, 1),"
+			" tpmWaitMs([{time: 0, tokens: 100}], 1000, 16001),"
+			" estimatePromptTokens('abc'), estimatePromptTokens('abcd')].join()")).toString(),
+			QStringLiteral("0,0,59000,40000,50000,0,1,59000,2,2"));
+	}
+
+	// An analysis whose prompt doesn't fit in the minute's token limit waits,
+	// counting down, and is sent once the earlier prompts are a minute old.
+	void anAnalysisWaitsForTheTokenLimit() {
+		// The stub's prompt, "prompt", is estimated at 3 tokens: 2 too many.
+		const double sentAt = evalPageJs(widget_, QStringLiteral(
+			"var sentAt = Date.now() - 58000; _tpmLedger = [{time: sentAt, tokens: 15998}]; sentAt")).toDouble();
+		watchTokenWaits(false);
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } });
+		QCOMPARE(tokenWaits(), QStringLiteral("Waiting 2 s for the per-minute token limit…|Waiting 1 s for the per-minute token limit…"));
+		QVERIFY2(r.value("fetchedAt").toDouble() >= sentAt + 60000, qPrintable(QString::number(r.value("fetchedAt").toDouble() - sentAt)));
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
+		QCOMPARE(r.value("statuses").toString(),
+			QStringLiteral("Building the climb-out trajectory…|Sending to LLM…|Waiting for the model…"));
+	}
+
+	// Once the service has counted a prompt's tokens (in its answer), that
+	// count replaces the estimate, for the prompt already sent and its
+	// retry: here the estimate's 3 tokens twice wouldn't fit, the count's 1
+	// twice does, so the retry goes without waiting.
+	void aRetryCountsThePromptsTokensAsTheServiceDid() {
+		evalPageJs(widget_, QStringLiteral("_tpmLedger = [{time: Date.now(), tokens: 15997}]"));
+		watchTokenWaits(false);
+		const QString usage = QStringLiteral(R"({"usageMetadata":{"promptTokenCount":1}})");
+		const QVariantMap r = runAiAnalysisWith({
+			{ aiStream({ aiChunk({ { "Grade: half", false } }, "MAX_TOKENS"), usage }) },
+			{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP"), usage }) } });
+		QCOMPARE(tokenWaits(), QString());
+		QCOMPARE(r.value("calls").toInt(), 2);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
 	}
 
 	// Three server errors in a row: the last one's message is shown and

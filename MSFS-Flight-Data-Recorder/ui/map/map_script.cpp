@@ -4,6 +4,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include <algorithm>
 #include <cmath>
 
 namespace {
@@ -25,12 +26,23 @@ void setKnown(QJsonObject& obj, const char* key, const QString& value) {
 		obj[QLatin1String(key)] = value;
 }
 
+// Per-engine values: absent unless one is known, an unknown engine's null.
+void setKnown(QJsonObject& obj, const char* key, const std::vector<double>& values) {
+	if (std::all_of(values.begin(), values.end(), [](double v) { return std::isnan(v); }))
+		return;
+	QJsonArray arr;
+	for (double v : values)
+		arr.append(std::isnan(v) ? QJsonValue() : QJsonValue(v));
+	obj[QLatin1String(key)] = arr;
+}
+
 QJsonObject conditionsToJson(const ContactConditions& c) {
 	QJsonObject obj;
 	setKnown(obj, "headingTrue", c.headingTrue);
 	setKnown(obj, "trackTrue", c.trackTrue);
 	setKnown(obj, "magneticVariation", c.magneticVariation);
 	setKnown(obj, "crabAngle", c.crabAngle);
+	setKnown(obj, "runwayHeadingMagnetic", c.runwayHeadingMagnetic);
 	setKnown(obj, "sunElevation", c.sunElevation);
 	setKnown(obj, "temperatureC", c.temperatureC);
 	setKnown(obj, "stationPressureHg", c.stationPressureHg);
@@ -71,6 +83,9 @@ QJsonArray profilePointsToJson(const std::vector<ProfilePoint>& points) {
 		setKnown(obj, "thresholdFt", p.thresholdFt);
 		setKnown(obj, "centerlineFt", p.centerlineFt);
 		setKnown(obj, "pathAngle", p.pathAngle);
+		obj["onGround"] = p.onGround;
+		setKnown(obj, "throttle", p.throttle);
+		setKnown(obj, "power", p.power);
 		arr.append(obj);
 	}
 	return arr;
@@ -120,6 +135,8 @@ QJsonObject mapProfileJson(const ContactProfile& profile) {
 	obj["series"] = profilePointsToJson(profile.series);
 	setKnown(obj, "highestTerrainFt", profile.highestTerrainFt);
 	setKnown(obj, "highestTerrainNm", profile.highestTerrainNm);
+	setKnown(obj, "powerName", profile.powerName);
+	setKnown(obj, "powerUnit", profile.powerUnit);
 	return obj;
 }
 

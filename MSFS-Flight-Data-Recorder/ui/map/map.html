@@ -94,6 +94,20 @@
     cursor: not-allowed;
     transform: none;
   }
+  .td-copy-btn {
+    margin-left: auto;
+    background: #fff;
+    color: #6366f1;
+    border: 1px solid #c7d2fe;
+    border-radius: 7px;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    user-select: none;
+  }
+  .td-copy-btn:hover { background: #eef2ff; }
   .td-analyze-label {
     font-size: 10px;
     font-weight: 700;
@@ -212,34 +226,48 @@ function roundHalfAwayFromZero(x) {
     return Math.sign(x) * Math.round(Math.abs(x));
 }
 
-// A liftoff/touchdown's airport as "ICAO (Name)", or just "ICAO" without a
-// name (trip_dataset.h's airportLabel() in C++), and its runway as
-// "09L (92° T)", or just "09L" without a heading -- the labels the popup and
-// the AI prompt both show. Callers check t.icao / t.runway first. trueLabel
-// marks the runway's heading, which is true ("T" in the popup, "true" in the
-// prompt), like the wind's.
-function contactAirportLabel(t) {
-    return t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
-}
-function contactRunwayLabel(t, trueLabel) {
-    return t.runway + (t.runwayHeading >= 0 ? ' (' + t.runwayHeading + '° ' + trueLabel + ')' : '');
-}
-
 // Whether t's derived conditions (map_script.cpp) or profile (MapBridge),
 // absent for a value that wasn't recorded, have key.
 function hasValue(obj, key) {
     return !!obj && typeof obj[key] === 'number';
 }
 
-// The aircraft's heading as the popup shows it: true from the contact's
-// sample, with the stored (magnetic) heading in parentheses, so it compares
-// directly with the runway and the wind (both true). Without a sample, just
-// the magnetic one, marked as such.
-function contactHeadingLabel(t) {
-    var magnetic = t.headingDegrees + '° M';
-    return hasValue(t.conditions, 'headingTrue')
-        ? roundHalfAwayFromZero(t.conditions.headingTrue) + '° T (' + magnetic + ')'
-        : magnetic;
+// A runway heading as "74° M, 62° T": magnetic first, then true, each left
+// out when unknown (null/undefined); labels are "M"/"T" in the popup and
+// "magnetic"/"true" in the prompt.
+function magneticTrueLabel(magnetic, trueHeading, labels) {
+    var parts = [];
+    if (magnetic != null) parts.push(magnetic + '° ' + labels[0]);
+    if (trueHeading != null) parts.push(trueHeading + '° ' + labels[1]);
+    return parts.join(', ');
+}
+var popupHeadingLabels = ['M', 'T'];
+var promptHeadingLabels = ['magnetic', 'true'];
+
+// A liftoff/touchdown's airport as "ICAO (Name)", or just "ICAO" without a
+// name (trip_dataset.h's airportLabel() in C++), and its runway as
+// "09L (90° M, 92° T)", "09L (92° T)" without the magnetic variation (no
+// sample), or just "09L" without a heading -- the labels the popup and the AI
+// prompt both show. Callers check t.icao / t.runway first. The runway's
+// number matches its magnetic heading; the true one compares with the wind's.
+function contactAirportLabel(t) {
+    return t.icao + (t.airportName ? ' (' + t.airportName + ')' : '');
+}
+function contactRunwayLabel(t, labels) {
+    if (t.runwayHeading < 0) return t.runway;
+    var magnetic = hasValue(t.conditions, 'runwayHeadingMagnetic') ? t.conditions.runwayHeadingMagnetic : null;
+    return t.runway + ' (' + magneticTrueLabel(magnetic, t.runwayHeading, labels) + ')';
+}
+
+// The aircraft's heading as "334° M (338° T)": the stored (magnetic) heading,
+// then in brackets the true one from the contact's sample, which compares
+// directly with the runway's and the wind's. Without a sample, just the
+// magnetic one. Labels as for magneticTrueLabel().
+function contactHeadingLabel(t, labels) {
+    var label = t.headingDegrees + '° ' + labels[0];
+    if (hasValue(t.conditions, 'headingTrue'))
+        label += ' (' + roundHalfAwayFromZero(t.conditions.headingTrue) + '° ' + labels[1] + ')';
+    return label;
 }
 
 // The crab angle (heading minus ground track) as "3° R" (nose right of the
@@ -264,11 +292,12 @@ function sunLightLabel(elevation) {
 // ── Gemini analysis helpers ──────────────────────────────────────────────────
 
 // The start of an analysis prompt, shared by liftoffs and touchdowns: the
-// instructions, the answer structure (finalSegment and environment describe
-// its last two sections' bullets), then dataTitle and the airport, runway and
+// instructions, the answer structure (its last two sections: segment, the
+// trajectory's, "Final segment", with its bullet segmentBullet, and
+// Environment, with environment), then dataTitle and the airport, runway and
 // airspeed. The caller adds its own lines and finishes with
 // finishAnalysisPrompt().
-function startAnalysisPrompt(intro, finalSegment, environment, dataTitle, t, aircraft) {
+function startAnalysisPrompt(intro, segment, segmentBullet, environment, dataTitle, t, aircraft) {
     var lines = [];
 
     lines.push(intro);
@@ -285,8 +314,8 @@ function startAnalysisPrompt(intro, finalSegment, environment, dataTitle, t, air
     lines.push('Areas to improve:');
     lines.push('• [one brief point per bullet]');
     lines.push('');
-    lines.push('Final segment:');
-    lines.push('• [' + finalSegment + ']');
+    lines.push(segment + ':');
+    lines.push('• [' + segmentBullet + ']');
     lines.push('');
     lines.push('Environment:');
     lines.push('• [' + environment + ']');
@@ -295,18 +324,18 @@ function startAnalysisPrompt(intro, finalSegment, environment, dataTitle, t, air
     lines.push(dataTitle);
     if (aircraft) lines.push('  Aircraft: ' + aircraft);
     if (t.icao) lines.push('  Airport: ' + contactAirportLabel(t));
-    if (t.runway) lines.push('  Runway: ' + contactRunwayLabel(t, 'true'));
+    if (t.runway) lines.push('  Runway: ' + contactRunwayLabel(t, promptHeadingLabels));
     lines.push('  Airspeed: ' + t.airspeed + ' kt indicated');
     return lines;
 }
 
-// The prompt's heading line: true heading (and the stored magnetic one),
+// The prompt's heading line: the stored magnetic heading and the true one,
 // track and crab from the contact's sample, or just the magnetic heading
 // without one.
 function headingPromptLine(t) {
     var c = t.conditions;
-    if (!hasValue(c, 'headingTrue')) return '  Heading: ' + t.headingDegrees + '° magnetic';
-    var line = '  Heading: ' + roundHalfAwayFromZero(c.headingTrue) + '° true (' + t.headingDegrees + '° magnetic)';
+    var line = '  Heading: ' + contactHeadingLabel(t, promptHeadingLabels);
+    if (!hasValue(c, 'headingTrue')) return line;
     if (hasValue(c, 'trackTrue')) line += '; ground track ' + roundHalfAwayFromZero(c.trackTrue) + '° true';
     if (hasValue(c, 'crabAngle')) {
         var crab = Math.abs(c.crabAngle).toFixed(1);
@@ -358,10 +387,17 @@ function conditionsPromptLines(t) {
 }
 
 // One trajectory point (trip_dataset.h's ProfilePoint) as
-// "-12.5 s, height 230 ft, 0.62 nm, ...", leaving out what wasn't recorded.
-function profilePointText(p) {
+// "-12.5 s, airborne, height 230 ft, 0.62 nm, ...", leaving out what wasn't
+// recorded; its power values are profile.powerName's ("N1"), in
+// profile.powerUnit ("%").
+function profilePointText(p, profile) {
     var parts = [p.seconds.toFixed(1) + ' s'];
     function add(key, text) { if (hasValue(p, key)) parts.push(text(p[key])); }
+    function engines(key, name, unit) {
+        if (p[key])
+            parts.push(name + ' ' + p[key].map(function(v) { return v === null ? '?' : roundHalfAwayFromZero(v); }).join('/') + unit);
+    }
+    if (typeof p.onGround === 'boolean') parts.push(p.onGround ? 'on ground' : 'airborne');
     add('heightFt', function(v) { return 'height ' + roundHalfAwayFromZero(v) + ' ft'; });
     add('distanceNm', function(v) { return v.toFixed(2) + ' nm'; });
     add('terrainFt', function(v) { return 'terrain ' + (v > 0 ? '+' : '') + roundHalfAwayFromZero(v) + ' ft'; });
@@ -374,31 +410,39 @@ function profilePointText(p) {
     add('thresholdFt', function(v) { return 'threshold ' + roundHalfAwayFromZero(v) + ' ft'; });
     add('centerlineFt', function(v) { return 'centerline ' + Math.round(Math.abs(v)) + ' ft ' + (v >= 0 ? 'right' : 'left'); });
     add('pathAngle', function(v) { return 'path angle ' + v.toFixed(1) + '° from here'; });
+    engines('throttle', 'throttle', '%');
+    engines('power', profile.powerName, profile.powerUnit);
     return parts.join(', ');
 }
 
-// The "Final trajectory:" block (trip_dataset.h's ContactProfile): the
-// gates, the dense series and the highest terrain, measured from the contact
-// point (pointName) rather than the ground below, over seriesSpan ("last 15 s")
-// and terrainSpan ("before the touchdown"). A point's threshold distance is
-// measured from thresholdName ("marked threshold"), like the contact's. None
-// without any of them; a line saying it's unavailable when t.profile is null
-// (MapBridge couldn't build it, runAiAnalysis()).
-function profilePromptLines(t, pointName, seriesSpan, terrainSpan, thresholdName) {
+// The trajectory block, titled title ("Final trajectory"; trip_dataset.h's
+// ContactProfile): the gates, the dense series and the highest terrain,
+// measured from the contact point (pointName) rather than the ground below,
+// over seriesSpan ("from 15 s before to 10 s after the touchdown") and
+// terrainSpan ("before the touchdown"). A point's threshold distance is
+// measured from thresholdName ("marked threshold"), like the contact's; its
+// engine values are explained only when recorded. None without any of them;
+// a line saying it's unavailable when t.profile is null (MapBridge couldn't
+// build it, runAiAnalysis()), for the answer's segment section to say so.
+function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpan, thresholdName) {
     var profile = t.profile;
     if (!profile)
-        return ['Final trajectory: not available (it could not be built from the recorded samples). Judge the ' + pointName + ' from the data above alone, and in the Final segment section say that the trajectory was not available instead of describing it.'];
+        return [title + ': not available (it could not be built from the recorded samples). Judge the ' + pointName + ' from the data above alone, and in the ' + segment + ' section say that the trajectory was not available instead of describing it.'];
     if (!profile.gates.length && !profile.series.length && !hasValue(profile, 'highestTerrainFt')) return [];
-    var onRunway = profile.gates.concat(profile.series).some(function(p) { return hasValue(p, 'thresholdFt'); });
-    var lines = ['Final trajectory (seconds from the ' + pointName + '; height = altitude above the ' + pointName + ', not radio height; distance = to the ' + pointName + '; terrain = ground below relative to the ' + pointName
-        + (onRunway ? '; threshold = along the runway from the ' + thresholdName + ', negative = before it; centerline = from the extended runway centerline' : '') + '):'];
+    var points = profile.gates.concat(profile.series);
+    function any(key) { return points.some(function(p) { return p[key] !== undefined; }); }
+    var powerName = profile.powerName;
+    var lines = [title + ' (seconds from the ' + pointName + (any('onGround') ? '; on ground/airborne = as the simulator reports it' : '') + '; height = altitude above the ' + pointName + ', not radio height; distance = to the ' + pointName + '; terrain = ground below relative to the ' + pointName
+        + (any('thresholdFt') ? '; threshold = along the runway from the ' + thresholdName + ', negative = before it; centerline = from the extended runway centerline' : '')
+        + (any('throttle') ? '; throttle = throttle lever position per engine (engine 1 first, ? = not recorded) as the aircraft reports it, negative = reverse range' : '')
+        + (powerName && any('power') ? '; ' + powerName + ' = per engine' : '') + '):'];
     if (profile.gates.length) {
         lines.push('  Gates:');
-        profile.gates.forEach(function(p) { lines.push('    ' + p.gate + ': ' + profilePointText(p)); });
+        profile.gates.forEach(function(p) { lines.push('    ' + p.gate + ': ' + profilePointText(p, profile)); });
     }
     if (profile.series.length) {
         lines.push('  Samples, ' + seriesSpan + ':');
-        profile.series.forEach(function(p) { lines.push('    ' + profilePointText(p)); });
+        profile.series.forEach(function(p) { lines.push('    ' + profilePointText(p, profile)); });
     }
     if (hasValue(profile, 'highestTerrainFt'))
         lines.push('  Highest terrain within 5 nm ' + terrainSpan + ': ' + (profile.highestTerrainFt > 0 ? '+' : '') + roundHalfAwayFromZero(profile.highestTerrainFt) + ' ft, ' + profile.highestTerrainNm.toFixed(2) + ' nm from the ' + pointName + (profile.highestTerrainFt > 500 ? ' (more than 500 ft above it)' : ''));
@@ -433,7 +477,7 @@ function runwayPromptLines(t, touchdown) {
 
 // Adds heading, wind, the runway position (distanceLabel: ... ft (N% lengthOf))
 // and dimensions (runwayPromptLines(), touchdown for a landing), the
-// Conditions and Final trajectory blocks (profileLines), the closing
+// Conditions and trajectory blocks (profileLines), the closing
 // "Consider:" line and the airport-knowledge instruction for subject
 // ("landing"), and returns the prompt text.
 function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, consider, subject) {
@@ -467,7 +511,7 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, c
 function buildLiftoffPrompt(t) {
     var aircraft = window._aircraftTitle || '';
     var lines = startAnalysisPrompt('You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.',
-        'the rotation and initial climb: pitch, speed, bank and track through the gates',
+        'Rotation and climb-out', 'the rotation and initial climb: pitch, speed, bank and track through the gates',
         'how the conditions, airport, runway and terrain affected this liftoff',
         'Liftoff data:', t, aircraft);
     // Deliberately no vertical-speed line here, unlike buildTouchdownPrompt()
@@ -483,7 +527,7 @@ function buildLiftoffPrompt(t) {
     // real signal (dropped wing, crosswind technique), not a mid-ramp snapshot.
     lines.push('  Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold at liftoff', 'runway',
-        profilePromptLines(t, 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff', 'runway start'),
+        profilePromptLines(t, 'Takeoff trajectory', 'Rotation and climb-out', 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff', 'runway start'),
         'Consider: crosswind component (calculate from the true wind vs the true runway heading), centerline tracking during the takeoff roll, use of available runway length and the runway remaining, runway slope, rotation and climb-out attitude and speed, density altitude, runway surface condition, gusts, light and visibility, terrain after the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
         'liftoff');
 }
@@ -491,26 +535,71 @@ function buildLiftoffPrompt(t) {
 function buildTouchdownPrompt(t) {
     var aircraft = window._aircraftTitle || '';
     var lines = startAnalysisPrompt('You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 landing.',
-        'stability at the gates (speed, sink rate, path angle, alignment), and technique through the flare and decrab',
+        'Final segment', 'stability at the gates (speed, sink rate, path angle, alignment), and technique through the flare, decrab, touchdown and rollout, including any bounce',
         'how the conditions, airport, runway and terrain affected this landing',
         'Landing data:', t, aircraft);
     lines.push('  Vertical speed: ' + t.verticalSpeed + ' ft/min');
     lines.push('  G-force: ' + Number(t.gForce).toFixed(2) + ' G');
     lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold', 'landing distance available',
-        profilePromptLines(t, 'touchdown point', 'last 15 s before the touchdown', 'before the touchdown', 'marked threshold'),
+        profilePromptLines(t, 'Final trajectory', 'Final segment', 'touchdown point', 'from 15 s before to 10 s after the touchdown', 'before the touchdown', 'marked threshold'),
         'Consider: vertical speed & G-force comfort, crosswind component (calculate from the true wind vs the true runway heading), decrab at touchdown (crab angle), centerline tracking, touchdown zone placement and the runway remaining, runway slope, stabilization at the gates, flare technique, density altitude, runway surface condition, gusts, light and visibility, terrain before the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
         'landing');
 }
 
+// Gemini's limit on the prompt tokens sent per minute with one API key,
+// kept by every analysis on the page together (runAiAnalysis()). Only the
+// prompts count: the answers' tokens don't.
+var TPM_LIMIT = 16000;
+// The prompts sent in the last minute, oldest first: { time (ms), tokens }.
+var _tpmLedger = [];
+
+// text's prompt tokens before the service has counted them, rounded up to
+// be safe: Gemma's tokenizer gives each digit a token of its own, and the
+// prompts, mostly numbers, measured 2.2-3.1 characters per token.
+function estimatePromptTokens(text) { return Math.ceil(text.length / 2); }
+
+// How long (ms) after now until tokens more fit within TPM_LIMIT with the
+// prompts in ledger: 0 when they fit now. Each prompt frees its tokens 60 s
+// after it was sent, oldest first. A prompt over the limit on its own waits
+// for the minute to be empty (none is: worstCasePromptFitsTheTokenLimit()).
+function tpmWaitMs(ledger, now, tokens) {
+    var recent = ledger.filter(function(e) { return now - e.time < 60000; });
+    var used = recent.reduce(function(sum, e) { return sum + e.tokens; }, 0);
+    var wait = 0;
+    for (var i = 0; i < recent.length && used + tokens > TPM_LIMIT; i++) {
+        used -= recent[i].tokens;
+        wait = recent[i].time + 60000 - now;
+    }
+    return wait;
+}
+
+// Waits until tokens fit within TPM_LIMIT, calling onWait(seconds left)
+// each second meanwhile, then records them as sent now. Returns their
+// ledger entry, for the service's own count to replace the estimate.
+async function reserveTokens(tokens, onWait) {
+    for (;;) {
+        var now = Date.now();
+        var wait = tpmWaitMs(_tpmLedger, now, tokens);
+        if (!wait) break;
+        onWait(Math.ceil(wait / 1000));
+        await new Promise(function(resolve) { setTimeout(resolve, Math.min(wait, 1000)); });
+    }
+    _tpmLedger = _tpmLedger.filter(function(e) { return now - e.time < 60000; });
+    var entry = { time: now, tokens: tokens };
+    _tpmLedger.push(entry);
+    return entry;
+}
+
 // Extract complete top-level {...} JSON objects from buf.
-// Calls onChunk(text, isThought) for every text part found, and
-// onFinish(reason) for an object carrying the candidate's finishReason.
+// Calls onChunk(text, isThought) for every text part found,
+// onFinish(reason) for an object carrying the candidate's finishReason, and
+// onUsage(tokens) for one carrying the prompt's token count.
 // Iterates all parts in each response object (thinking models can emit
 // thought:true parts alongside regular parts in the same chunk). Braces
 // inside JSON strings (the model's own text) don't count.
 // Returns the unconsumed remainder of buf.
-function processStreamBuffer(buf, onChunk, onFinish) {
+function processStreamBuffer(buf, onChunk, onFinish, onUsage) {
     var depth = 0, start = -1, lastEnd = 0;
     var inString = false, escaped = false;
     for (var i = 0; i < buf.length; i++) {
@@ -537,6 +626,7 @@ function processStreamBuffer(buf, onChunk, onFinish) {
                         }
                     }
                     if (candidate && candidate.finishReason) onFinish(candidate.finishReason);
+                    if (obj && obj.usageMetadata && obj.usageMetadata.promptTokenCount) onUsage(obj.usageMetadata.promptTokenCount);
                 } catch (e) { /* incomplete or non-content object */ }
                 lastEnd = i + 1;
                 start = -1;
@@ -581,21 +671,54 @@ function showSaveResult(el, ok) {
 // Each Analyze handler's final trajectory, by the handler's name: for its
 // status line and its popup's can't-be-built notice.
 var TRAJECTORY_NAMES = { analyzeLiftoff: 'climb-out', analyzeTouchdown: 'approach' };
+// Each Analyze handler's Copy Prompt handler, by the handler's name.
+var COPY_PROMPT_FNS = { analyzeLiftoff: 'copyLiftoffPrompt', analyzeTouchdown: 'copyTouchdownPrompt' };
+
+// Contact rowId's final trajectory, to onLoaded (null without one).
+function loadLiftoffProfile(rowId, onLoaded) {
+    if (mapBridge) mapBridge.liftoffProfile(rowId, onLoaded); else onLoaded(null);
+}
+
+function loadTouchdownProfile(rowId, onLoaded) {
+    if (mapBridge) mapBridge.touchdownProfile(rowId, onLoaded); else onLoaded(null);
+}
 
 async function analyzeLiftoff(id) {
-    return runAiAnalysis(id, _liftoffStore[id], TRAJECTORY_NAMES.analyzeLiftoff, function(rowId, onLoaded) {
-        if (mapBridge) mapBridge.liftoffProfile(rowId, onLoaded); else onLoaded(null);
-    }, buildLiftoffPrompt, function(rowId, report, onSaved) {
+    return runAiAnalysis(id, _liftoffStore[id], TRAJECTORY_NAMES.analyzeLiftoff, loadLiftoffProfile,
+        buildLiftoffPrompt, function(rowId, report, onSaved) {
         if (mapBridge) mapBridge.saveLiftoffAnalysisReport(rowId, report, onSaved);
     }, 'Analyze Liftoff');
 }
 
 async function analyzeTouchdown(id) {
-    return runAiAnalysis(id, _touchdownStore[id], TRAJECTORY_NAMES.analyzeTouchdown, function(rowId, onLoaded) {
-        if (mapBridge) mapBridge.touchdownProfile(rowId, onLoaded); else onLoaded(null);
-    }, buildTouchdownPrompt, function(rowId, report, onSaved) {
+    return runAiAnalysis(id, _touchdownStore[id], TRAJECTORY_NAMES.analyzeTouchdown, loadTouchdownProfile,
+        buildTouchdownPrompt, function(rowId, report, onSaved) {
         if (mapBridge) mapBridge.saveTouchdownAnalysisReport(rowId, report, onSaved);
     }, 'Analyze Landing');
+}
+
+async function copyLiftoffPrompt(id) {
+    return copyPrompt(id, _liftoffStore[id], loadLiftoffProfile, buildLiftoffPrompt);
+}
+
+async function copyTouchdownPrompt(id) {
+    return copyPrompt(id, _touchdownStore[id], loadTouchdownProfile, buildTouchdownPrompt);
+}
+
+// Copies the prompt point id's Analyze button sends (runAiAnalysis()) to the
+// clipboard, with its final trajectory loaded the same way, then shows
+// "Copied" on its Copy Prompt button for a moment. t itself is left as it is:
+// its profile and the popup's notice belong to its last analysis. Nothing
+// before the page's bridge is connected; a popup closed while the trajectory
+// loads still gets its prompt copied.
+async function copyPrompt(id, t, loadProfile, buildPrompt) {
+    if (!mapBridge) return;
+    var profile = await new Promise(function(resolve) { loadProfile(t.rowId, resolve); });
+    mapBridge.copyText(buildPrompt(Object.assign({}, t, { profile: profile })));
+    var btn = document.getElementById('td-copy-' + id);
+    if (!btn) return;
+    btn.textContent = '✓ Copied';
+    setTimeout(function() { btn.textContent = 'Copy Prompt'; }, 1500);
 }
 
 // Below point id's Analyze button, whether its last analysis had to go
@@ -619,7 +742,8 @@ function showAnalysisRunning(id, running) {
 // "approach"), from loadProfile(rowId, onLoaded) into t.profile (null when it
 // can't be built: the analysis then covers the contact alone, the prompt and
 // a notice under the button say so), then the model's streamed answer, with a
-// status line in the result area until the first of it arrives.
+// status line in the result area until the first of it arrives. Each attempt
+// first waits for its prompt to fit within TPM_LIMIT.
 async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, saveReport, retryLabel) {
     var result  = document.getElementById('td-result-' + id);
     // t.analyzing: already running for this point, from a popup since closed
@@ -635,6 +759,10 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
 
     var key = window._geminiApiKey || '';
     var MAX_ATTEMPTS = 3;
+    var prompt = buildPrompt(t);
+    // The prompt's tokens: estimated until an attempt's answer counts them.
+    var promptTokens = estimatePromptTokens(prompt);
+    var sent; // the attempt's TPM ledger entry
 
     // Per-attempt DOM refs and state -- function-scoped so onChunk can close
     // over them; initAttempt() reassigns them before each attempt.
@@ -660,7 +788,6 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
         // Looked up in result, not the document: a popup closed mid-analysis
         // is no longer in the document, but its attempts still run here.
         statusDiv = result.querySelector('#td-status-'  + id);
-        showStatus('Sending to LLM…');
         thDet    = result.querySelector('#td-th-det-'   + id);
         thSum    = result.querySelector('#td-th-sum-'   + id);
         thArr    = result.querySelector('#td-th-arr-'   + id);
@@ -712,8 +839,16 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
         finishReason = reason;
     }
 
+    function onUsage(tokens) {
+        sent.tokens = promptTokens = tokens;
+    }
+
     for (var attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         initAttempt();
+        sent = await reserveTokens(promptTokens, function(seconds) {
+            showStatus('Waiting ' + seconds + ' s for the per-minute token limit…');
+        });
+        showStatus('Sending to LLM…');
 
         try {
             // The key goes in a header, not the URL: the browser's console
@@ -724,7 +859,7 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
                     body: JSON.stringify({
-                        contents: [{ role: 'user', parts: [{ text: buildPrompt(t) }] }]
+                        contents: [{ role: 'user', parts: [{ text: prompt }] }]
                     })
                 }
             );
@@ -734,6 +869,10 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                 // A server error (5xx) or rate limit (429) is often gone a
                 // moment later: retry it like a network error. Any other HTTP
                 // error (bad key, model issue) won't change, so it's final.
+                // A rate limit means the minute's tokens are used up (by
+                // another app with the same key, say): this request counts
+                // as all of them, so the next waits for the minute to pass.
+                if (res.status === 429) sent.tokens = TPM_LIMIT;
                 if ((res.status >= 500 || res.status === 429) && attempt < MAX_ATTEMPTS - 1) {
                     console.warn('Gemini API error, retrying:', res.status, errBody);
                     continue;
@@ -763,10 +902,10 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                 var streamChunk = await reader.read();
                 if (streamChunk.done) break;
                 buf += decoder.decode(streamChunk.value, { stream: true });
-                buf = processStreamBuffer(buf, onChunk, onFinish);
+                buf = processStreamBuffer(buf, onChunk, onFinish, onUsage);
             }
             buf += decoder.decode();
-            processStreamBuffer(buf, onChunk, onFinish);
+            processStreamBuffer(buf, onChunk, onFinish, onUsage);
         } catch (e) {
             // Network error -- retry unless this was the last attempt.
             if (attempt === MAX_ATTEMPTS - 1) {
@@ -865,7 +1004,7 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
         + '<div style="font-size:11px;font-weight:700;color:#1e293b;margin-bottom:8px">' + title + '</div>';
 
     if (t.icao) leftHtml += row('Airport', contactAirportLabel(t));
-    if (t.runway) leftHtml += row('Runway', contactRunwayLabel(t, 'T'));
+    if (t.runway) leftHtml += row('Runway', contactRunwayLabel(t, popupHeadingLabels));
     leftHtml += row('Coordinate', formatDMS(Number(t.lat), Number(t.lng)));
 
     leftHtml += div;
@@ -874,7 +1013,7 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
     if (gForceText) leftHtml += row('G-Force', gForceText);
     leftHtml += row('Pitch', Number(t.pitchDegrees).toFixed(1) + '°');
     leftHtml += row('Bank', Number(t.bankDegrees).toFixed(1) + '°');
-    leftHtml += row('Heading', contactHeadingLabel(t));
+    leftHtml += row('Heading', contactHeadingLabel(t, popupHeadingLabels));
     var crab = contactCrabLabel(t);
     if (crab) leftHtml += row('Crab', crab);
 
@@ -894,7 +1033,8 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
     leftHtml += '</div>';
     var left = leftHtml;
 
-    // Right column: analyze button + result area (pre-filled from DB if available)
+    // Right column: Analyze and Copy Prompt buttons + result area (pre-filled
+    // from DB if available). Copy Prompt works without an API key.
     var hasKey = !!(window._geminiApiKey && window._geminiApiKey.trim().length > 0);
     var disabledAttr = hasKey ? '' : ' disabled title="Set gemini_api_key in settings.ini to enable"';
     var clickAttr = hasKey ? ' onclick="' + analyzeFn + '(\'' + id + '\')"' : '';
@@ -906,11 +1046,13 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
     var right = [
         '<div style="border-left:1px solid #e5e7eb;padding-left:14px;min-width:360px">',
         '  <div class="td-analyze-label">✦ AI Analysis</div>',
-        '  <div>',
+        '  <div style="display:flex;align-items:center">',
         '    <button class="td-analyze-btn" id="td-btn-' + id + '"' + disabledAttr + clickAttr + '>',
         '      ✦ ' + analyzeLabel,
         '    </button>',
         '    <span id="td-spin-' + id + '" class="td-spinner" style="display:none">↻</span>',
+        '    <button class="td-copy-btn" id="td-copy-' + id + '" title="Copy the prompt Analyze sends to the clipboard"'
+            + ' onclick="' + COPY_PROMPT_FNS[analyzeFn] + '(\'' + id + '\')">Copy Prompt</button>',
         '  </div>',
         '  <div id="td-note-' + id + '" class="td-note" style="display:none">',
         '    The ' + TRAJECTORY_NAMES[analyzeFn] + ' trajectory couldn\'t be built from this trip\'s',

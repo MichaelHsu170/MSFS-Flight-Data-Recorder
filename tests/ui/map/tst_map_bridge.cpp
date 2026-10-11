@@ -91,7 +91,8 @@ private slots:
 		QCOMPARE(climbGates.at(0)["gate"].toString(), QStringLiteral("35 ft"));
 		QCOMPARE(climbGates.at(0)["heightFt"].toDouble(), 60.0);
 		QCOMPARE(climbGates.at(0)["seconds"].toDouble(), 0.5);
-		// The touchdown's 15 s series: the samples 1 s before and at it.
+		// The touchdown's series, 15 s before to 10 s after it: the samples
+		// 1 s before and at it.
 		const QJsonArray series = QJsonObject::fromVariantMap(bridge.touchdownProfile(6).toMap())["series"].toArray();
 		QCOMPARE(series.size(), 2);
 		QCOMPARE(series.at(0)["seconds"].toDouble(), -1.0);

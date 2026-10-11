@@ -71,6 +71,10 @@ struct ContactConditions {
 	double trackTrue = std::nan("");        // ground track, degrees
 	double magneticVariation = std::nan(""); // headingTrue - headingMagnetic, -180..180 (+ = east)
 	double crabAngle = std::nan("");        // headingTrue - trackTrue, -180..180 (+ = nose right of the track)
+	// The runway's heading converted to magnetic with magneticVariation, in
+	// whole degrees 1..360; NaN without either. Runway numbers come from the
+	// magnetic heading, so this is the one the number matches.
+	double runwayHeadingMagnetic = std::nan("");
 	// Degrees above the horizon (sunElevationDegrees()); NaN when the
 	// contact's time can't be read.
 	double sunElevation = std::nan("");
@@ -125,15 +129,30 @@ struct ProfilePoint {
 	// Distance gates only: the descent angle (degrees) from this gate to the
 	// next closer one, or to the contact after the last.
 	double pathAngle = std::nan("");
+	bool onGround = false;  // SIM ON GROUND
+	// Per engine, engine 1 first (NaN where not recorded): the throttle lever
+	// position as the aircraft reports it (%, negative = reverse range), and
+	// the value ContactProfile::powerName names (empty without one).
+	std::vector<double> throttle;
+	std::vector<double> power;
 };
 
 // A liftoff's/touchdown's final trajectory (contactProfile() in
-// contact_analysis.h, built when its AI analysis asks for it): the approach
-// before a touchdown, the rotation and climb-out around a liftoff. Never
-// reaches past the trip's previous or next contact.
+// contact_analysis.h, built when its AI analysis asks for it): the approach,
+// touchdown and rollout around a touchdown, the rotation and climb-out
+// around a liftoff. The gates and terrain never reach past the trip's
+// previous or next contact; the series covers fixed seconds around the
+// contact, whatever happened in them (a bounce, a go-around).
 struct ContactProfile {
 	std::vector<ProfilePoint> gates;   // in time order
 	std::vector<ProfilePoint> series;  // every sample near the contact (capped), in time order
+	// What each point's power values are, by the contact sample's ENGINE TYPE,
+	// and their unit: "N1" for a jet and "torque" for a turboprop or helicopter
+	// turbine, in "%"; "manifold pressure" for a piston, in " inHg" (it shows
+	// power with a fixed-pitch or a constant-speed propeller, where RPM is held
+	// by the governor). Both empty for any other type.
+	QString powerName;
+	QString powerUnit;
 	// The highest ground (relative to the ground at the contact) under the
 	// last 5 nm of the approach / the first 5 nm of the climb-out, and its
 	// distance from the contact; NaN without samples there.
@@ -277,8 +296,8 @@ inline QString appendDepartureTimestamp(const QString& base, const QString& depa
 }
 
 // Sample indices lo..hi thinned by a whole-number stride to at most
-// maxPoints, plus hi itself -- so the last sample (e.g. the touchdown) is
-// never dropped.
+// maxPoints, plus hi itself -- so the last sample (e.g. the end of the
+// trajectory) is never dropped.
 // Shared by MapWidget's trajectory and ChartsPanel's series: rendering every
 // sample of a long flight is too slow for both. Empty if hi < lo.
 inline std::vector<int> decimatedIndices(int lo, int hi, int maxPoints) {

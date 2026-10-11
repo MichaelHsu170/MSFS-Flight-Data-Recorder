@@ -172,7 +172,8 @@ private slots:
 	}
 
 	// A final trajectory (MapBridge's, for the prompt) carries each value
-	// only when known; a point's seconds always.
+	// only when known; a point's seconds and on-ground state always, its
+	// per-engine values when one engine's is known (an unknown one's null).
 	void profileCarriesKnownValues() {
 		ContactProfile contactProfile;
 		ProfilePoint gate;
@@ -188,13 +189,13 @@ private slots:
 		QCOMPARE(profile.keys(), QStringList({ "gates", "highestTerrainFt", "series" }));
 		QCOMPARE(profile["highestTerrainFt"].toDouble(), 420.0);
 		const QJsonObject g = profile["gates"].toArray().at(0).toObject();
-		QCOMPARE(g.keys(), QStringList({ "gate", "heightFt", "seconds" }));
+		QCOMPARE(g.keys(), QStringList({ "gate", "heightFt", "onGround", "seconds" }));
 		QCOMPARE(g["gate"].toString(), QStringLiteral("500 ft"));
 		QCOMPARE(g["seconds"].toDouble(), -30.0);
 		QCOMPARE(g["heightFt"].toDouble(), 510.0);
 		const QJsonArray series = profile["series"].toArray();
 		QCOMPARE(series.size(), 1);
-		QCOMPARE(series.at(0).toObject().keys(), QStringList({ "heightFt", "seconds" }));
+		QCOMPARE(series.at(0).toObject().keys(), QStringList({ "heightFt", "onGround", "seconds" }));
 		QCOMPARE(series.at(0).toObject()["seconds"].toDouble(), 0.0);
 
 		// Each point's place on the runway, when known.
@@ -203,9 +204,19 @@ private slots:
 		onRunway.centerlineFt = 4.25;
 		contactProfile.series = { onRunway };
 		const QJsonObject point = mapProfileJson(contactProfile)["series"].toArray().at(0).toObject();
-		QCOMPARE(point.keys(), QStringList({ "centerlineFt", "seconds", "thresholdFt" }));
+		QCOMPARE(point.keys(), QStringList({ "centerlineFt", "onGround", "seconds", "thresholdFt" }));
 		QCOMPARE(point["thresholdFt"].toDouble(), -120.5);
 		QCOMPARE(point["centerlineFt"].toDouble(), 4.25);
+
+		// Engine values: none known is absent, one of two known is sent with
+		// the other's null.
+		ProfilePoint engines;
+		engines.throttle = { std::nan(""), std::nan("") };
+		engines.power = { std::nan(""), 52.5 };
+		contactProfile.series = { engines };
+		const QJsonObject enginePoint = mapProfileJson(contactProfile)["series"].toArray().at(0).toObject();
+		QCOMPARE(enginePoint.keys(), QStringList({ "onGround", "power", "seconds" }));
+		QCOMPARE(enginePoint["power"].toArray(), (QJsonArray{ QJsonValue(), 52.5 }));
 	}
 
 	// Every condition and trajectory value reaches the page under the name
@@ -238,9 +249,10 @@ private slots:
 		c.windDirectionTo = 20;
 		c.surfaceType = QStringLiteral("grass");
 		c.surfaceCondition = QStringLiteral("icy");
+		c.runwayHeadingMagnetic = 21;
 		const QJsonObject o = argumentOf(mapSetTouchdownsJs({ td }), QStringLiteral("setTouchdowns")).array().at(0).toObject();
 		QCOMPARE(o["conditions"].toObject(), (QJsonObject{ { "headingTrue", 1 }, { "trackTrue", 3 },
-			{ "magneticVariation", 4 }, { "crabAngle", 5 }, { "sunElevation", 6 }, { "temperatureC", 7 },
+			{ "magneticVariation", 4 }, { "crabAngle", 5 }, { "runwayHeadingMagnetic", 21 }, { "sunElevation", 6 }, { "temperatureC", 7 },
 			{ "stationPressureHg", 8 }, { "altimeterHg", 9 }, { "altimeterMb", 10 }, { "pressureAltitudeFt", 11 },
 			{ "densityAltitudeFt", 12 }, { "visibilityM", 13 }, { "seaLevelPressureMb", 14 }, { "precipitation", "snow" },
 			{ "precipitationRate", 15 }, { "inCloud", 1 }, { "fieldElevationFt", 16 }, { "windMinKt", 17 },
@@ -262,15 +274,23 @@ private slots:
 		p.thresholdFt = -12000;
 		p.centerlineFt = 25;
 		p.pathAngle = 3.1;
+		p.onGround = true;
+		p.throttle = { -4, 30 };
+		p.power = { 53, 54 };
 		ContactProfile contactProfile;
 		contactProfile.gates = { p };
 		contactProfile.highestTerrainFt = 420;
+		contactProfile.powerName = QStringLiteral("N1");
+		contactProfile.powerUnit = QStringLiteral("%");
 		contactProfile.highestTerrainNm = 3.5;
 		const QJsonObject profile = mapProfileJson(contactProfile);
 		QCOMPARE(profile["gates"].toArray().at(0).toObject(), (QJsonObject{ { "gate", "2 nm" }, { "seconds", -40 },
 			{ "heightFt", 640 }, { "distanceNm", 2 }, { "terrainFt", 30 }, { "airspeed", 135 }, { "verticalSpeed", -720 },
 			{ "pitch", 1.5 }, { "bank", -3 }, { "headingTrue", 271 }, { "trackTrue", 268 }, { "thresholdFt", -12000 },
-			{ "centerlineFt", 25 }, { "pathAngle", 3.1 } }));
+			{ "centerlineFt", 25 }, { "pathAngle", 3.1 }, { "onGround", true }, { "throttle", QJsonArray{ -4, 30 } },
+			{ "power", QJsonArray{ 53, 54 } } }));
+		QCOMPARE(profile["powerName"].toString(), QStringLiteral("N1"));
+		QCOMPARE(profile["powerUnit"].toString(), QStringLiteral("%"));
 		QCOMPARE(profile["highestTerrainFt"].toDouble(), 420.0);
 		QCOMPARE(profile["highestTerrainNm"].toDouble(), 3.5);
 	}

@@ -2,6 +2,7 @@
 #include "runway_match.h"
 #include "types.h"
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 
@@ -16,10 +17,12 @@ constexpr double kTouchdownHeightGates[] = { 1000, 500, 300, 200, 100, 50 };
 constexpr double kTouchdownDistanceGates[] = { 3, 2, 1 };
 constexpr double kLiftoffHeightGates[] = { 35, 100, 200, 500, 1000 };
 
-// The dense series: every sample from 15 s before a touchdown, or from 10 s
-// before to 10 s after a liftoff, thinned to at most kMaxSeriesPoints.
+// The dense series: every sample from 15 s before to 10 s after a
+// touchdown, or from 10 s before to 10 s after a liftoff, thinned to at most
+// kMaxSeriesPoints.
 constexpr double kTouchdownSeriesSeconds = 15;
 constexpr double kLiftoffSeriesSeconds = 10;
+constexpr double kSeriesSecondsAfter = 10;
 constexpr int kMaxSeriesPoints = 60;
 
 constexpr double kTerrainRangeNm = 5;     // ContactProfile's highest terrain
@@ -52,10 +55,11 @@ double groundElevation(const TripSamplePoint& point) {
 	return point.rawNum(TRIP_NUM_plane_altitude) - point.rawNum(TRIP_NUM_plane_alt_above_ground);
 }
 
-// The samples a contact is measured from: [begin, end) is its window (from
-// the previous contact to the next), at is the sample at or after the
-// contact, and ground the on-ground sample its heights are measured from (at
-// for a touchdown; the last one before a liftoff, since at is airborne).
+// The samples a contact is measured from: [begin, end) is its gates' and
+// terrain's window (from the previous contact to the next), at is the
+// sample at or after the contact, and ground the on-ground sample its
+// heights are measured from (at for a touchdown; the last one before a
+// liftoff, since at is airborne).
 struct ContactSamples {
 	int begin = 0;
 	int end = 0;
@@ -64,6 +68,24 @@ struct ContactSamples {
 	QDateTime time;
 };
 
+// The engine value ContactProfile::powerName/powerUnit describe.
+struct PowerField {
+	TripEngineField field;
+	QString name;
+	QString unit;
+};
+
+// The power value for an ENGINE TYPE, or nullopt for a type without one.
+std::optional<PowerField> powerField(int engineType) {
+	switch (engineType) {
+	case 0: return PowerField{ TRIP_ENGINE_recip_eng_manifold_pressure, QStringLiteral("manifold pressure"), QStringLiteral(" inHg") };  // piston
+	case 1: return PowerField{ TRIP_ENGINE_turb_eng_n1, QStringLiteral("N1"), QStringLiteral("%") };  // jet
+	case 3:  // helicopter turbine
+	case 5: return PowerField{ TRIP_ENGINE_turb_eng_max_torque_percent, QStringLiteral("torque"), QStringLiteral("%") };  // turboprop
+	default: return std::nullopt;
+	}
+}
+
 // Turns samples into ProfilePoints relative to one contact.
 class ProfileBuilder {
 public:
@@ -71,7 +93,8 @@ public:
 		bool touchdown)
 		: points_(points), contact_(contact), samples_(samples), touchdown_(touchdown),
 		groundAltitude_(points[samples.ground].rawNum(TRIP_NUM_plane_altitude)),
-		groundElevation_(groundElevation(points[samples.ground])) {}
+		groundElevation_(groundElevation(points[samples.ground])),
+		power_(powerField(points[samples.at].engineType)) {}
 
 	ProfilePoint at(int index, const QString& gate = QString()) const {
 		const TripSamplePoint& p = points_[index];
@@ -100,8 +123,22 @@ public:
 		// Measured like the contact's distanceLength (match_runways()).
 		out.thresholdFt = offsets.along_ft - (touchdown_ ? runway.thresholdOffsetFt : 0);
 		out.centerlineFt = offsets.cross_ft;
+		out.onGround = TripBoolBits::sim_on_ground.isSet(p.boolGroups);
+		for (int engine = 1; engine <= p.engineCount(); ++engine) {
+			out.throttle.push_back(p.engineValue(engine, TRIP_ENGINE_general_eng_throttle_lever_position));
+			if (power_)
+				out.power.push_back(p.engineValue(engine, power_->field));
+		}
 		return out;
 	}
+	// Names the power values on profile (ContactProfile::powerName/powerUnit).
+	void describePower(ContactProfile& profile) const {
+		if (power_) {
+			profile.powerName = power_->name;
+			profile.powerUnit = power_->unit;
+		}
+	}
+	int size() const { return (int)points_.size(); }
 	double height(int index) const { return points_[index].rawNum(TRIP_NUM_plane_altitude) - groundAltitude_; }
 	double distance(int index) const {
 		return distanceNm(points_[index].latitude, points_[index].longitude, contact_.latitude, contact_.longitude);
@@ -131,16 +168,35 @@ private:
 	const bool touchdown_;
 	double groundAltitude_;
 	double groundElevation_;
+	std::optional<PowerField> power_;
 };
 
 QString feetGate(double feet) { return QStringLiteral("%1 ft").arg(feet); }
 QString nmGate(double nm) { return QStringLiteral("%1 nm").arg(nm); }
 
-// Indices lo..hi thinned to kMaxSeriesPoints, as ProfilePoints.
-std::vector<ProfilePoint> series(const ProfileBuilder& builder, int lo, int hi) {
+// The samples from secondsBefore before the contact to kSeriesSecondsAfter
+// after it, thinned to kMaxSeriesPoints, as ProfilePoints. Always from the
+// on-ground sample the heights are measured from through the contact's,
+// even one past those seconds (a gap in the recording), and both are kept
+// however the rest is thinned. Unlike the gates,
+// not stopped at the neighboring contacts: whatever happened in those
+// seconds (a bounce, a go-around) is evidence for judging this one.
+std::vector<ProfilePoint> series(const ProfileBuilder& builder, const ContactSamples& s, double secondsBefore) {
+	int first = s.ground, last = s.at;
+	// A sample whose time can't be read is taken in, so contactProfile()
+	// drops the trajectory rather than cutting it short there.
+	while (first - 1 >= 0 && !(builder.seconds(first - 1) < -secondsBefore))
+		--first;
+	while (last + 1 < builder.size() && !(builder.seconds(last + 1) > kSeriesSecondsAfter))
+		++last;
+	// decimatedIndices() may add hi to its maxPoints; s.ground and s.at may
+	// add two more.
+	std::vector<int> indices = decimatedIndices(first, last, kMaxSeriesPoints - 3);
+	for (int keep : { s.ground, s.at })
+		if (!std::binary_search(indices.begin(), indices.end(), keep))
+			indices.insert(std::upper_bound(indices.begin(), indices.end(), keep), keep);
 	std::vector<ProfilePoint> out;
-	// decimatedIndices() may add hi to its maxPoints.
-	for (int i : decimatedIndices(lo, hi, kMaxSeriesPoints - 1))
+	for (int i : indices)
 		out.push_back(builder.at(i));
 	return out;
 }
@@ -179,12 +235,7 @@ ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamp
 	ContactProfile profile;
 	for (auto& gate : gates)
 		profile.gates.push_back(gate.second);
-	int first = s.at;
-	// A sample whose time can't be read is taken in, so contactProfile()
-	// drops the trajectory rather than cutting it short there.
-	while (first - 1 >= s.begin && !(builder.seconds(first - 1) < -kTouchdownSeriesSeconds))
-		--first;
-	profile.series = series(builder, first, s.at);
+	profile.series = series(builder, s, kTouchdownSeriesSeconds);
 	builder.highestTerrain(profile, s.ground, s.begin);
 	return profile;
 }
@@ -199,15 +250,7 @@ ContactProfile liftoffProfile(const ProfileBuilder& builder, const ContactSample
 			}
 		}
 	}
-	// From the on-ground sample its heights are measured from, even one past
-	// the 10 s (a gap in the recording).
-	int first = s.ground, last = s.at;
-	// As in touchdownProfile(), a sample without a time is taken in.
-	while (first - 1 >= s.begin && !(builder.seconds(first - 1) < -kLiftoffSeriesSeconds))
-		--first;
-	while (last + 1 < s.end && !(builder.seconds(last + 1) > kLiftoffSeriesSeconds))
-		++last;
-	profile.series = series(builder, first, last);
+	profile.series = series(builder, s, kLiftoffSeriesSeconds);
 	if (s.ground < s.end)
 		builder.highestTerrain(profile, s.ground, s.end - 1);
 	return profile;
@@ -222,6 +265,10 @@ ContactConditions conditionsAt(const std::vector<TripSamplePoint>& points, const
 	c.trackTrue = p.rawNum(TRIP_NUM_gps_ground_true_track);
 	c.magneticVariation = signedAngle(c.headingTrue, c.headingMagnetic);
 	c.crabAngle = signedAngle(c.headingTrue, c.trackTrue);
+	if (contact.runwayHeading >= 0 && !std::isnan(c.magneticVariation)) {
+		const int magnetic = qRound(wrap360(contact.runwayHeading - c.magneticVariation));
+		c.runwayHeadingMagnetic = magnetic == 0 ? 360 : magnetic;
+	}
 	if (s.time.isValid())
 		c.sunElevation = sunElevationDegrees(contact.latitude, contact.longitude, s.time);
 	c.temperatureC = p.rawNum(TRIP_NUM_ambient_temperature);
@@ -384,6 +431,7 @@ std::optional<ContactProfile> contactProfile(const TripDataset& dataset, const R
 		return std::nullopt;
 	const ProfileBuilder builder(dataset.points, contact, *s, touchdown);
 	ContactProfile profile = touchdown ? touchdownProfile(builder, *s) : liftoffProfile(builder, *s);
+	builder.describePower(profile);
 	if (!allTimesKnown(profile))
 		return std::nullopt;
 	return profile;

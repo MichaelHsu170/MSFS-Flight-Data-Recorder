@@ -7,6 +7,7 @@
 
 #include <QtTest>
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 
@@ -151,6 +152,31 @@ private slots:
 		QVERIFY(dataset.touchdowns[0].conditions.precipitation.isEmpty());
 	}
 
+	// The runway's magnetic heading, the one its number matches: its true
+	// heading minus the sample's magnetic variation, in whole degrees 1..360.
+	void runwayHeadingMagneticUsesTheSampleVariation() {
+		auto magneticRunway = [](int runwayTrue, double headingTrue, double headingMagnetic) {
+			TripDataset dataset;
+			TripSamplePoint p = sample(0, 0, 0);
+			p.rawNums[TRIP_NUM_plane_heading_degrees_true] = headingTrue;
+			p.rawNums[TRIP_NUM_plane_heading_degrees_magnetic] = headingMagnetic;
+			dataset.points = { p };
+			TouchdownPoint td = contactAt<TouchdownPoint>(0);
+			td.runwayHeading = runwayTrue;
+			dataset.touchdowns = { td };
+			analyzeContacts(dataset);
+			return dataset.touchdowns[0].conditions.runwayHeadingMagnetic;
+		};
+		QCOMPARE(magneticRunway(62, 65, 77.4), 74.0);   // 12.4° W (Iceland): 74.4 rounds down
+		QCOMPARE(magneticRunway(62, 65, 77.6), 75.0);   // 74.6 rounds up
+		QCOMPARE(magneticRunway(2, 2, 358), 358.0);     // 4° E across north: not -2
+		QCOMPARE(magneticRunway(358, 358, 2), 2.0);     // 4° W across north: not 362
+		QCOMPARE(magneticRunway(4, 4, 0), 360.0);       // north is 360, as runway headings are
+		QCOMPARE(magneticRunway(4, 4, 359.6), 360.0);   // 359.6 rounds to 360, not 0
+		QVERIFY(std::isnan(magneticRunway(-1, 65, 77)));  // no runway heading
+		QVERIFY(std::isnan(magneticRunway(62, std::nan(""), 77)));  // no variation
+	}
+
 	void conditionsComeFromTheContactSample() {
 		TripDataset dataset;
 		TripSamplePoint p = sample(0, 1017, 17);
@@ -284,8 +310,9 @@ private slots:
 		}
 	}
 
-	// A touchdown's approach starts at the previous contact (a touch-and-go's
-	// liftoff), so the circuit before it doesn't count, its terrain neither.
+	// A touchdown's gates and terrain start at the previous contact (a
+	// touch-and-go's liftoff), so the circuit before it doesn't count; its
+	// series still covers the 15 s before it, the liftoff included.
 	void touchdownWindowStartsAtThePreviousContact() {
 		TripDataset dataset = touchdownAfter({ 600, 0, 300, 100, 40, 0 });
 		dataset.points[0].rawNums[TRIP_NUM_plane_alt_above_ground] = 100;  // ground +500 ft, before the liftoff
@@ -295,7 +322,9 @@ private slots:
 		QVERIFY(profile);
 
 		QCOMPARE(gateNames(*profile), QStringList({ "300 ft", "200 ft", "100 ft", "50 ft" }));
-		QCOMPARE(profile->series.front().seconds, -4.0);
+		QCOMPARE(profile->series.size(), size_t(6));
+		QCOMPARE(profile->series.front().seconds, -5.0);
+		QCOMPARE(profile->series.front().heightFt, 600.0);
 		QCOMPARE(profile->series.back().seconds, 0.0);
 		QCOMPARE(profile->highestTerrainFt, 100.0);
 	}
@@ -348,8 +377,9 @@ private slots:
 		QCOMPARE(dataset.liftoffPoints[0].conditions.fieldElevationFt, 500.0);
 	}
 
-	// A liftoff's climb-out ends at the next contact in time, though the trip
-	// lists its liftoffs before its touchdowns; so does its terrain.
+	// A liftoff's gates end at the next contact in time, though the trip
+	// lists its liftoffs before its touchdowns; so does its terrain. Its
+	// series runs on through the 10 s after it: the touchdown and the rest.
 	void liftoffWindowEndsAtTheNextContact() {
 		TripDataset dataset;
 		const double heights[] = { 0, 60, 0, 150, 0 };
@@ -363,13 +393,15 @@ private slots:
 		QVERIFY(profile);
 
 		QCOMPARE(gateNames(*profile), QStringList({ "35 ft" }));
-		QCOMPARE(profile->series.back().seconds, 0.5);
+		QCOMPARE(profile->series.size(), size_t(5));
+		QCOMPARE(profile->series.back().seconds, 3.5);
+		QCOMPARE(profile->series.back().heightFt, 0.0);
 		QCOMPARE(profile->highestTerrainFt, 20.0);
 	}
 
-	// A touch-and-go's liftoff series starts at its touchdown, though that
-	// was less than 10 s before.
-	void liftoffSeriesStartsAtThePreviousContact() {
+	// A touch-and-go's liftoff series reaches back past its touchdown, less
+	// than 10 s before, to the approach.
+	void liftoffSeriesReachesPastThePreviousContact() {
 		TripDataset dataset;
 		const double heights[] = { 50, 20, 0, 0, 0, 60, 150 };
 		for (int i = 0; i < 7; ++i)
@@ -379,7 +411,9 @@ private slots:
 		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
 		QVERIFY(profile);
 
-		QCOMPARE(profile->series.front().seconds, -2.5);
+		QCOMPARE(profile->series.size(), size_t(7));
+		QCOMPARE(profile->series.front().seconds, -4.5);
+		QCOMPARE(profile->series.front().heightFt, 50.0);
 	}
 
 	// A liftoff's series starts at its on-ground sample, the 0 ft its heights
@@ -398,10 +432,10 @@ private slots:
 	}
 
 	// A bounce whose touchdown, liftoff and next touchdown all fall between
-	// two samples: the liftoff's window is just the sample after them, so
-	// nothing from before the bounce or after it is taken in, and there is no
-	// climb-out to find terrain under.
-	void bounceWithinOneSampleTakesOnlyItsSample() {
+	// two samples: the liftoff's gate window is just the sample after them,
+	// so it has no gates and no climb-out to find terrain under; its series
+	// still has every sample of its 10 s each side, measured from that one.
+	void bounceWithinOneSampleHasNoGates() {
 		TripDataset dataset;
 		const double heights[] = { 40, 5, 3, 0 };
 		for (int i = 0; i < 4; ++i)
@@ -412,9 +446,134 @@ private slots:
 		QVERIFY(profile);
 
 		QVERIFY(profile->gates.empty());
-		QCOMPARE(profile->series.size(), size_t(1));
-		QCOMPARE(profile->series[0].seconds, 0.4);
+		QCOMPARE(profile->series.size(), size_t(4));
+		QCOMPARE(profile->series.front().seconds, -1.6);
+		QCOMPARE(profile->series.front().heightFt, 37.0);
+		QCOMPARE(profile->series.back().seconds, 1.4);
 		QVERIFY(std::isnan(profile->highestTerrainFt));
+	}
+
+	// A bounce like trip 25's (a jet airborne again for 3.5 s, samples 0.5 s
+	// apart): the first touchdown's series runs on through the bounce and the
+	// second touchdown to 10 s after it, the on-ground state and height
+	// showing the bounce; the second's reaches back 15 s past the liftoff and
+	// the first touchdown, but its gates stop at that liftoff (no height
+	// gate, the bounce being 8 ft high).
+	void bounceShowsInBothTouchdownsSeries() {
+		TripDataset dataset;
+		// Samples every 0.5 s from -20 s to +12 s; the first touchdown at 0,
+		// airborne from 1.5 to 4.5 s (peaking at 8 ft at 3 s), the second
+		// touchdown at 5 s.
+		for (int i = -40; i <= 24; ++i) {
+			const double t = i / 2.0;
+			const double height = t < 0 ? -t * 15 : t >= 1.5 && t <= 4.5 ? 8 - qAbs(t - 3) * 4 : 0;
+			TripSamplePoint p = sample(t, 1000 + height, height);
+			if (!(t >= 1.5 && t <= 4.5) && t >= 0)
+				p.boolGroups[TripBoolBits::sim_on_ground.group] |= 1u << TripBoolBits::sim_on_ground.bit;
+			dataset.points.push_back(p);
+		}
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0), contactAt<TouchdownPoint>(5) };
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(1.2) };
+
+		const std::optional<ContactProfile> first = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(first);
+		QCOMPARE(first->series.size(), size_t(51));  // -15 s to +10 s
+		QCOMPARE(first->series.front().seconds, -15.0);
+		QCOMPARE(first->series.back().seconds, 10.0);
+		QStringList states;
+		for (const ProfilePoint& p : first->series)
+			if (p.seconds >= 0 && p.seconds <= 5.5)
+				states.append(QStringLiteral("%1%2").arg(p.onGround ? "G" : "A").arg(p.heightFt));
+		QCOMPARE(states, QStringList({ "G0", "G0", "G0", "A2", "A4", "A6", "A8", "A6", "A4", "A2", "G0", "G0" }));
+		QCOMPARE(gateNames(*first), QStringList({ "300 ft", "200 ft", "100 ft", "50 ft" }));
+
+		const std::optional<ContactProfile> second = contactProfile(dataset, dataset.touchdowns[1], true);
+		QVERIFY(second);
+		QCOMPARE(second->series.front().seconds, -15.0);
+		QCOMPARE(second->series.front().heightFt, 150.0);  // the approach, at -10 s from the first
+		QCOMPARE(second->series.back().seconds, 7.0);       // the recording's end
+		QVERIFY(second->gates.empty());
+	}
+
+	// An old trip recorded a bounce with no airborne sample as two
+	// touchdowns 0.3 s apart and no liftoff: each one's series covers the
+	// other's.
+	void touchdownsCloserThanASampleShareTheirSeries() {
+		TripDataset dataset;
+		for (int i = -20; i <= 12; ++i)
+			dataset.points.push_back(sample(i, 1000 + (i < 0 ? -i * 10 : 0), i < 0 ? -i * 10 : 0));
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0), contactAt<TouchdownPoint>(0.3) };
+
+		const std::optional<ContactProfile> first = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(first);
+		QCOMPARE(first->series.front().seconds, -15.0);
+		QCOMPARE(first->series.back().seconds, 10.0);
+		const std::optional<ContactProfile> second = contactProfile(dataset, dataset.touchdowns[1], true);
+		QVERIFY(second);
+		QCOMPARE(second->series.front().seconds, -14.3);
+		QCOMPARE(second->series.back().seconds, 9.7);
+	}
+
+	// Each point carries the on-ground state and, per engine, the throttle
+	// lever (negative in the reverse range) and the power value for the
+	// contact sample's ENGINE TYPE: N1 (%) for a jet, torque (%) for a
+	// turboprop or helicopter turbine, manifold pressure (inHg) for a piston,
+	// none for another type. An engine without its value stays unknown.
+	void pointsCarryOnGroundAndEngineValues() {
+		auto withEngines = [](int engineType) {
+			TripDataset dataset = touchdownAfter({ 50, 0 });
+			for (TripSamplePoint& p : dataset.points) {
+				p.engineType = engineType;
+				p.engineValues.assign(2 * TRIP_ENGINE_FIELD_COUNT, std::nan(""));
+				auto set = [&](int engine, TripEngineField field, double value) {
+					p.engineValues[(size_t)(engine - 1) * TRIP_ENGINE_FIELD_COUNT + field] = value;
+				};
+				set(1, TRIP_ENGINE_general_eng_throttle_lever_position, -4);
+				set(1, TRIP_ENGINE_turb_eng_n1, 53);
+				set(1, TRIP_ENGINE_turb_eng_max_torque_percent, 20);
+				set(1, TRIP_ENGINE_general_eng_rpm, 1800);
+				set(1, TRIP_ENGINE_recip_eng_manifold_pressure, 15);
+			}
+			dataset.points[1].boolGroups[TripBoolBits::sim_on_ground.group] |= 1u << TripBoolBits::sim_on_ground.bit;
+			const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+			return *profile;
+		};
+
+		const ContactProfile jet = withEngines(1);
+		QCOMPARE(jet.powerName, QStringLiteral("N1"));
+		QCOMPARE(jet.powerUnit, QStringLiteral("%"));
+		QCOMPARE(jet.series.size(), size_t(2));
+		QVERIFY(!jet.series[0].onGround);
+		QVERIFY(jet.series[1].onGround);
+		const ProfilePoint& p = jet.series[1];
+		QCOMPARE(p.throttle.size(), size_t(2));
+		QCOMPARE(p.throttle[0], -4.0);
+		QVERIFY(std::isnan(p.throttle[1]));
+		QCOMPARE(p.power.size(), size_t(2));
+		QCOMPARE(p.power[0], 53.0);
+		QVERIFY(std::isnan(p.power[1]));
+		QCOMPARE(gate(jet, QStringLiteral("50 ft"))->power.at(0), 53.0);
+
+		const ContactProfile turboprop = withEngines(5);
+		QCOMPARE(turboprop.powerName, QStringLiteral("torque"));
+		QCOMPARE(turboprop.powerUnit, QStringLiteral("%"));
+		QCOMPARE(turboprop.series[1].power.at(0), 20.0);
+
+		const ContactProfile helicopter = withEngines(3);
+		QCOMPARE(helicopter.powerName, QStringLiteral("torque"));
+		QCOMPARE(helicopter.powerUnit, QStringLiteral("%"));
+		QCOMPARE(helicopter.series[1].power.at(0), 20.0);
+
+		const ContactProfile piston = withEngines(0);
+		QCOMPARE(piston.powerName, QStringLiteral("manifold pressure"));
+		QCOMPARE(piston.powerUnit, QStringLiteral(" inHg"));
+		QCOMPARE(piston.series[1].power.at(0), 15.0);
+
+		const ContactProfile none = withEngines(2);  // ENGINE TYPE 2: none
+		QVERIFY(none.powerName.isEmpty());
+		QVERIFY(none.powerUnit.isEmpty());
+		QVERIFY(none.series[1].power.empty());
+		QCOMPARE(none.series[1].throttle.at(0), -4.0);
 	}
 
 	// A liftoff's series runs from 10 s before it to 10 s after, both ends
@@ -455,19 +614,27 @@ private slots:
 			QVERIFY(p.seconds < 0);
 	}
 
-	// The touchdown series is the last 15 s.
-	void touchdownSeriesCoversTheLast15Seconds() {
+	// The touchdown series runs from 15 s before it to 10 s after, both ends
+	// included (-16 and +11 s left out); when the recording stops sooner
+	// after, at its last sample.
+	void touchdownSeriesCovers15SecondsBeforeTo10After() {
 		std::vector<double> heights;
 		for (int i = 20; i >= 0; --i)
 			heights.push_back(i * 10);
-		TripDataset dataset = touchdownAfter(heights);
+		TripDataset dataset = touchdownAfter(heights);  // samples at -20..0 s
+		for (int i = 1; i <= 12; ++i)
+			dataset.points.push_back(sample(i, 1000, 0));
 		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(profile);
-		const std::vector<ProfilePoint>& series = profile->series;
+		QCOMPARE(profile->series.size(), size_t(26));
+		QCOMPARE(profile->series.front().seconds, -15.0);
+		QCOMPARE(profile->series.back().seconds, 10.0);
 
-		QCOMPARE(series.size(), size_t(16));
-		QCOMPARE(series.front().seconds, -15.0);
-		QCOMPARE(series.back().seconds, 0.0);
+		dataset.points.resize(dataset.points.size() - 9);  // the recording ends at +3 s
+		const std::optional<ContactProfile> cut = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(cut);
+		QCOMPARE(cut->series.size(), size_t(19));
+		QCOMPARE(cut->series.back().seconds, 3.0);
 	}
 
 	// A touchdown after the trip's last sample (the recording stopped first)
@@ -500,6 +667,33 @@ private slots:
 		QVERIFY2(series.size() <= 60, qPrintable(QString::number(series.size())));
 		QCOMPARE(series.front().seconds, -11.9);
 		QCOMPARE(series.back().seconds, 0.0);
+	}
+
+	// Thinned, the series still has the contact's own sample and the
+	// on-ground one its heights are measured from, both mid-series and off
+	// the stride: samples 0.17 s apart give a touchdown's 25 s 147 samples,
+	// every third kept, the touchdown 88 in; a liftoff at 0.1 s has 118, its
+	// on-ground sample (0 s) 58 in and its own (0.17 s) 59 in.
+	void seriesKeepsTheContactAndOnGroundSamples() {
+		auto hasPointAt = [](const std::vector<ProfilePoint>& series, double seconds) {
+			return std::any_of(series.begin(), series.end(), [&](const ProfilePoint& p) { return std::abs(p.seconds - seconds) < 1e-6; });
+		};
+		TripDataset dataset;
+		for (int k = -117; k <= 70; ++k)
+			dataset.points.push_back(sample(k * 0.17, 1000 + std::abs(k) * 10, std::abs(k) * 10));
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+		std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		QVERIFY2(profile->series.size() <= 60, qPrintable(QString::number(profile->series.size())));
+		QVERIFY(hasPointAt(profile->series, 0.0));
+
+		dataset.touchdowns.clear();
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.1) };
+		profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
+		QVERIFY(profile);
+		QVERIFY2(profile->series.size() <= 60, qPrintable(QString::number(profile->series.size())));
+		QVERIFY(hasPointAt(profile->series, -0.1));  // the on-ground sample at 0 s
+		QVERIFY(hasPointAt(profile->series, 0.07));  // the liftoff's, at 0.17 s
 	}
 
 	// Over a 400 ft cliff edge the radio height drops while the descent stays

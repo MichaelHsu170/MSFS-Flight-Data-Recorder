@@ -5,6 +5,9 @@
 #include "logger.h"
 #include "map_script.h"
 
+#include <QClipboard>
+#include <QGuiApplication>
+
 MapBridge::MapBridge(QObject* parent) : QObject(parent) {}
 
 void MapBridge::markerMoved(int index, int version) {
@@ -41,6 +44,10 @@ QVariant MapBridge::liftoffProfile(int rowId) const {
 
 QVariant MapBridge::touchdownProfile(int rowId) const {
 	return dataset_ ? profileJson(*dataset_, dataset_->touchdowns, rowId, true) : QVariant();
+}
+
+void MapBridge::copyText(const QString& text) {
+	QGuiApplication::clipboard()->setText(text);
 }
 
 bool MapBridge::saveLiftoffAnalysisReport(int rowId, const QString& report) {

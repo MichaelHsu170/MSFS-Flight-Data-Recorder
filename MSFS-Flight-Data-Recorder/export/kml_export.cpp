@@ -6,6 +6,7 @@
 #include <QElapsedTimer>
 #include <QSaveFile>
 #include <QIODevice>
+#include <QStringList>
 #include <QtGlobal>
 
 #include <cmath>
@@ -48,6 +49,15 @@ QString descRow(const QString& key, const QString& value) {
 	return QStringLiteral("<b>%1:</b> %2<br/>").arg(xmlEscape(key), xmlEscape(value));
 }
 
+// A runway heading as "74° M, 62° T", each left out when NaN (map.html's
+// magneticTrueLabel(), in the same order).
+QString magneticTrueLabel(double magnetic, double trueHeading) {
+	QStringList parts;
+	if (!std::isnan(magnetic)) parts << QStringLiteral("%1° M").arg(qRound(magnetic));
+	if (!std::isnan(trueHeading)) parts << QStringLiteral("%1° T").arg(qRound(trueHeading));
+	return parts.join(QStringLiteral(", "));
+}
+
 // A liftoff or touchdown placemark's description. gForceRow (touchdowns only)
 // goes right after V/S. The same rows, in the same order and format, as the
 // map's marker popup (runwayContactPopupHtml() in ui/map/map.html), which
@@ -59,7 +69,8 @@ QString runwayContactDescription(const RunwayContactPoint& t, const QString& gFo
 	if (!airport.isEmpty())
 		html += descRow(QStringLiteral("Airport"), airport);
 	if (!t.runway.isEmpty()) {
-		const QString rwy = t.runwayHeading >= 0 ? QStringLiteral("%1 (%2° T)").arg(t.runway).arg(t.runwayHeading) : t.runway;
+		const QString rwy = t.runwayHeading < 0 ? t.runway
+			: QStringLiteral("%1 (%2)").arg(t.runway, magneticTrueLabel(t.conditions.runwayHeadingMagnetic, t.runwayHeading));
 		html += descRow(QStringLiteral("Runway"), rwy);
 	}
 	html += descRow(QStringLiteral("Airspeed"), QStringLiteral("%1 kt").arg(t.airspeed));
@@ -67,11 +78,13 @@ QString runwayContactDescription(const RunwayContactPoint& t, const QString& gFo
 	html += gForceRow;
 	html += descRow(QStringLiteral("Pitch"), QStringLiteral("%1°").arg(t.pitchDegrees, 0, 'f', 1));
 	html += descRow(QStringLiteral("Bank"), QStringLiteral("%1°").arg(t.bankDegrees, 0, 'f', 1));
-	// True from the contact's sample, like the runway and wind, with the stored
-	// magnetic heading alongside; just the magnetic one without a sample.
-	const QString magnetic = QStringLiteral("%1° M").arg(t.headingDegrees);
-	html += descRow(QStringLiteral("Heading"), std::isnan(t.conditions.headingTrue) ? magnetic
-		: QStringLiteral("%1° T (%2)").arg(qRound(t.conditions.headingTrue)).arg(magnetic));
+	// The stored magnetic heading, then in brackets the true one from the
+	// contact's sample (which compares with the runway's and the wind's); just
+	// the magnetic one without a sample (map.html's contactHeadingLabel()).
+	QString heading = QStringLiteral("%1° M").arg(t.headingDegrees);
+	if (!std::isnan(t.conditions.headingTrue))
+		heading += QStringLiteral(" (%1° T)").arg(qRound(t.conditions.headingTrue));
+	html += descRow(QStringLiteral("Heading"), heading);
 	if (!std::isnan(t.conditions.crabAngle)) {
 		const int crab = qRound(qAbs(t.conditions.crabAngle));
 		html += descRow(QStringLiteral("Crab"), crab == 0 ? QStringLiteral("0°")

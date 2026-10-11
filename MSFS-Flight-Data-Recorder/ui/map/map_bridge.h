@@ -20,13 +20,15 @@
 // analysis, into trip_touchdowns.analysis_report. Both return whether the
 // report was saved (false if the database couldn't be opened or written), so
 // the page can tell the user (showSaveResult() in map.html).
-// JS calls liftoffProfile()/touchdownProfile() when an AI analysis starts, for
-// that contact's final trajectory (contactProfile(), mapProfileJson()), built
-// then rather than when the trip loads, as a QVariantMap (QWebChannel hands
-// JS a QJsonValue result as an empty array). Each returns an invalid QVariant
-// (null in JS) when the contact isn't in the dataset MapWidget set
-// (setDataset()) or has no trajectory, and the analysis goes ahead with the
-// contact alone.
+// JS calls liftoffProfile()/touchdownProfile() when an AI analysis starts or
+// its prompt is copied (copyPrompt() in map.html), for that contact's final
+// trajectory (contactProfile(), mapProfileJson()), built then rather than
+// when the trip loads, as a QVariantMap (QWebChannel hands JS a QJsonValue
+// result as an empty array). Each returns an invalid QVariant (null in JS)
+// when the contact isn't in the dataset MapWidget set (setDataset()) or has
+// no trajectory, and the prompt covers the contact alone.
+// JS calls copyText() to put text (an analysis prompt, copyPrompt() in
+// map.html) on the system clipboard.
 // JS calls overviewSegmentClicked() when the user clicks a trip's
 // departure-destination line on the overview map, re-emitted as
 // overviewTripClicked() so MapWidget/TrajectoryView can forward it up to
@@ -48,6 +50,7 @@ public slots:
 	void overviewSegmentClicked(int tripId);
 	QVariant liftoffProfile(int rowId) const;
 	QVariant touchdownProfile(int rowId) const;
+	void copyText(const QString& text);
 
 signals:
 	void cursorIndexChanged(int index, int version);

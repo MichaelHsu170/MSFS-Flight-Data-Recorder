@@ -37,10 +37,14 @@ QString precipitationName(double mask);
 void analyzeContacts(TripDataset& dataset);
 
 // contact's (one of dataset's touchdowns if touchdown, else liftoffs) final
-// trajectory from dataset.points. Its window ends at the trip's neighboring
-// contacts: a touchdown's approach starts at the previous contact, a
-// liftoff's climb-out ends at the next one, so a touch-and-go's circuit or a
-// bounce isn't counted twice. A contact after the trip's last sample is
+// trajectory from dataset.points. Its gates and terrain end at the trip's
+// neighboring contacts: a touchdown's approach starts at the previous
+// contact, a liftoff's climb-out ends at the next one, so a touch-and-go's
+// circuit isn't counted twice. Its series covers fixed seconds around the
+// contact (15 s before a touchdown or 10 s before a liftoff, through 10 s
+// after either), whatever happened in them, so a bounce, a go-around or a
+// touch-and-go shows in its on-ground state, height and engine values for
+// the model to judge. A contact after the trip's last sample is
 // measured from that sample (sampleAtOrAfter()), so its trajectory ends
 // before it. nullopt when none can be built: a trip without samples, or a
 // point whose seconds from the contact can't be read (its sample's or the

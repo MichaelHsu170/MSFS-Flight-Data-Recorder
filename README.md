@@ -183,25 +183,32 @@ Both Debug and Release link dynamically against `SimConnect.dll`. The DLL is cop
 Clicking a liftoff or touchdown marker on the map opens a popup with two panels:
 
 - **Left**: raw telemetry for that liftoff or landing: airport (ICAO code, with its name in parentheses), runway (with its real facility heading in parentheses, when known), coordinate, airspeed, vertical speed, G-force (landings only), pitch/bank, heading, crab angle, threshold distance and centreline offset (when a runway was matched), wind, and Zulu/local time. The KML export's placemark descriptions list the same fields, without the coordinate.
-  - Every heading is marked true (**T**) or magnetic (**M**). The runway and wind headings are true. The aircraft's heading is shown in true too, from the trip's sample at that moment, with the recorded magnetic heading in parentheses (e.g. "338° T (334° M)"), so it compares directly with the runway's. The difference that remains is the **crab** angle: heading minus ground track, "2° R" when the nose points right of the track. A liftoff or touchdown without a matching sample shows only the magnetic heading and no crab.
-- **Right**: an **Analyze Liftoff** / **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API).
+  - Every heading is marked magnetic (**M**) or true (**T**), magnetic first. The runway shows both, e.g. "08 (74° M, 62° T)": the runway number comes from the magnetic heading, and the true one compares with the wind's (true). The magnetic one is the runway's true heading converted with the magnetic variation from the trip's sample at that moment. The aircraft's heading shows the recorded magnetic heading, then in brackets the true one from the same sample (e.g. "334° M (338° T)"), so each compares directly with the runway's. The difference that remains is the **crab** angle: heading minus ground track, "2° R" when the nose points right of the track. A liftoff or touchdown without a matching sample shows only the runway's true heading, the aircraft's magnetic heading, and no crab. The KML export and the AI prompt (as "magnetic"/"true") use the same order.
+- **Right**: an **Analyze Liftoff** / **Analyze Landing** button that streams a graded analysis from the Gemini AI model (`gemma-4-31b-it` via the Google Generative Language API), and a **Copy Prompt** button that copies the prompt Analyze would send, final trajectory included, to the clipboard, to use with another model. Copy Prompt works without an API key.
 
-The prompt sends the popup's values, every heading in true, including the runway's real heading (not just its two-digit number, which can be off by up to ~10°), so the model can calculate an accurate crosswind component. It also sends what the trip's samples show around the liftoff or touchdown, derived from them (`db/contact_analysis.cpp`), so trips recorded before this feature get it too: the conditions when the trip loads, the final trajectory when its Analyze button is clicked.
+The prompt sends the popup's values, every heading in true, including the runway's real heading (not just its two-digit number, which can be off by up to ~10°), so the model can calculate an accurate crosswind component. It also sends what the trip's samples show around the liftoff or touchdown, derived from them (`db/contact_analysis.cpp`), so trips recorded before this feature get it too: the conditions when the trip loads, the final trajectory when its Analyze or Copy Prompt button is clicked.
 
 - **Conditions**: time, the sun's elevation and the light (day, civil/nautical/astronomical twilight, night; computed from the position and time, since at high latitude the same clock time can be midnight sun or polar night), position and magnetic variation, ground elevation, outside air temperature, altimeter setting, station pressure and the actual sea-level pressure (so a wrong altimeter setting shows), pressure and density altitude, visibility, whether the aircraft was in cloud, precipitation and its rate, the wind's range over the 30 s before, and the surface type and condition. Sea-level pressure, cloud and precipitation are recorded only by this version onward, so older trips don't have them.
 - **Runway**, when one was matched: its length, width, displaced threshold at the end used and slope (uphill or downhill in the direction of travel), and the runway remaining ahead of the touchdown or liftoff in ft and % of its length. These come from the simulator's facility data when the contact is recorded, so liftoffs and touchdowns recorded before this feature don't have them.
-- **Final trajectory**:
+- **Final trajectory** (for a liftoff, called the takeoff trajectory):
   - **Gates**: the last crossing before a touchdown of 1000, 500, 300, 200, 100 and 50 ft and of 3, 2 and 1 nm, each distance gate with its path angle; or the first crossing after a liftoff of 35, 100, 200, 500 and 1000 ft. A gate that wasn't crossed is left out.
-  - **Samples**: every sample of the last 15 s before a touchdown, or from 10 s before to 10 s after a liftoff, at most 60.
+  - **Samples**: every sample from 15 s before to 10 s after a touchdown, or from 10 s before to 10 s after a liftoff, at most 60 (evenly thinned when there are more).
+  - Each gate and sample also says whether the simulator has the aircraft on the ground or airborne, and, per engine, the throttle lever position as the aircraft reports it (negative in the reverse range) and its power: N1 (%) for a jet, torque (%) for a turboprop or helicopter turbine, and manifold pressure (inHg) for a piston, which shows its power whether the propeller is fixed-pitch or constant-speed (where the governor holds the RPM). Another engine type gets the throttle only. With these the model can tell a bounce (the throttle at idle) from a touch-and-go or go-around (the throttle forward).
   - **Highest terrain** under the 5 nm before the touchdown or after the liftoff.
   - With the runway data, each gate and sample also gives its distance along the runway from the marked threshold (touchdown) or the runway start (liftoff), negative before it, and its distance right or left of the extended centerline.
   - **Heights are measured from the touchdown or liftoff point, not radio height.** Radio height follows the terrain under the aircraft (a valley, cliff or the sea before the runway), so each point also gives the terrain below it.
-  - The window stops at the trip's previous or next liftoff/touchdown, so a touch-and-go's circuit or a bounce isn't counted twice. Each touchdown of a bounced landing gets its own.
+  - The gates and highest terrain stop at the trip's previous or next liftoff/touchdown, so a touch-and-go's circuit isn't counted twice. The samples don't: they cover their fixed seconds whatever happened in them, so a bounce, go-around or touch-and-go shows in them for the model to judge. Each touchdown of a bounced landing gets its own trajectory.
   - **When it can't be built**, because the trip has no samples, or a time in its window (the contact's or a sample's) can't be read, the analysis covers the liftoff or touchdown itself only. The prompt tells the model so, and a notice under the button tells you.
 
-Until the answer starts, a status line in the result area says what it's waiting for: "Building the approach trajectory…" (or climb-out), "Sending to LLM…", then "Waiting for the model…", counting retries ("Retrying (2/3): …").
+Until the answer starts, a status line in the result area says what it's waiting for: "Building the approach trajectory…" (or climb-out), "Waiting N s for the per-minute token limit…" when it has to (below), "Sending to LLM…", then "Waiting for the model…", counting retries ("Retrying (2/3): …").
 
-A value that wasn't recorded is left out, never sent as 0. The model is also told to describe the airport's terrain, procedures and hazards from its general knowledge, labeled as such. It must check each one against the runway end used and the recorded trajectory before applying it, and say when it doesn't know the airport. The prompt is bounded by construction: under 32,000 characters with every value present.
+**Per-minute token limit**: the API key's free tier takes at most 16,000 prompt tokens per minute, so the app never sends more than that. Before each request, retries included, it adds up the prompts sent in the last 60 s, across all analyses, and if this one doesn't fit, it waits, counting down, until enough of them are a minute old.
+- A prompt's tokens are estimated at 2 characters each before it's sent. The prompts measured 2.2-3.1 characters per token, since Gemma's tokenizer gives each digit its own token.
+- Once the answer starts, the service's own count replaces the estimate, for that prompt and its retries.
+- A rate-limit error (another app using the same key, say) counts as the whole minute used, so its retry waits a minute instead of failing again at once.
+- Only the prompts count: the limit is on input tokens. The count starts over when the map page is reloaded or the app restarts.
+
+A value that wasn't recorded is left out, never sent as 0. The model is also told to describe the airport's terrain, procedures and hazards from its general knowledge, labeled as such. It must check each one against the runway end used and the recorded trajectory before applying it, and say when it doesn't know the airport. The prompt is bounded by construction: at most 32,000 characters with every value present for all 16 engines MSFS reports, the 16,000 tokens of the per-minute limit at the estimate's 2 characters per token, so a prompt always fits it.
 
 The analysis is returned in a fixed structure:
 
@@ -210,13 +217,15 @@ Grade: A+ … F
 Summary: 1-2 sentence overall impression
 Strengths:  • …
 Areas to improve:  • …
-Final segment:  • stability at the gates and the flare/decrab (landing), or the rotation and initial climb (liftoff)
+Final segment:  • stability at the gates, and the flare, decrab, touchdown and
+                  rollout, including any bounce (a landing's), or
+Rotation and climb-out:  • the rotation and initial climb (a liftoff's)
 Environment:  • how the conditions, airport, runway and terrain affected it
 ```
 
 Reports saved before this change keep their old format; analyzing again gives the new one.
 
-While the model is reasoning the toggle label reads **Thinking…** and is non-interactive. When the reasoning phase ends it collapses into a **Show thinking** / **Hide thinking** toggle so the final report is always the first thing visible. A model that answers without reasoning shows just the report, with no toggle. A response counts as complete when the model says it finished and the report isn't empty; if it's cut off or empty, the AI service can't be reached, or it reports a server error or rate limit, the request is made up to three times in all before a plain-language error message is shown. A rejected request (e.g. an invalid API key) is not retried.
+While the model is reasoning the toggle label reads **Thinking…** and is non-interactive. When the reasoning phase ends it collapses into a **Show thinking** / **Hide thinking** toggle so the final report is always the first thing visible. A model that answers without reasoning shows just the report, with no toggle. A response counts as complete when the model says it finished and the report isn't empty; if it's cut off or empty, the AI service can't be reached, or it reports a server error or rate limit (retried after waiting out the minute, above), the request is made up to three times in all before a plain-language error message is shown. A rejected request (e.g. an invalid API key) is not retried.
 
 ### Setup
 
