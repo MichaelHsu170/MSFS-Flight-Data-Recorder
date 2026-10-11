@@ -61,10 +61,12 @@ int startOnRunway(FlightDriver& sim, const RunwaySpec& runway, double distanceM 
 	return sim.startTrip();
 }
 
+// Leaves the ground at `at`, then stays airborne one more frame, 0.5 s later,
+// which confirms the liftoff (see FLIGHT_PHASE::liftoff_pending).
 void liftOff(FlightDriver& sim, const COORDINATE& at) {
 	sim.moveTo(at);
 	sim.setOnGround(false);
-	sim.tick();
+	sim.ticks(2);
 }
 
 void touchDown(FlightDriver& sim, const COORDINATE& at) {
@@ -187,7 +189,9 @@ private slots:
 			if (withAirport)
 				sim.airports = { testAirport(rwy) };
 			startOnRunway(sim, rwy);
-			liftOff(sim, onRunway(rwy, 1800));
+			sim.moveTo(onRunway(rwy, 1800));
+			sim.setOnGround(false);
+			sim.tick();
 			const QString liftoffTime = QString::fromStdString(sim.record.time_local.format_date_time());
 			sim.ticks(20);
 			const QString laterTime = QString::fromStdString(sim.record.time_local.format_date_time());
@@ -721,6 +725,109 @@ private slots:
 		VERIFY_NEAR(touchdowns(tripId)[1]["distance_length"], 600 * kFeetPerMeter, 2);
 		// The departure stays the first liftoff.
 		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
+	}
+
+	// --- Liftoff confirmation ---
+
+	void liftoffCountsOnceAirborneHalfASecondOrRisenHalfAFoot_data() {
+		QTest::addColumn<double>("airborneSeconds"); // first to last airborne frame
+		QTest::addColumn<double>("riseFt");          // above the first airborne frame
+		QTest::addColumn<bool>("recorded");
+		QTest::newRow("0.25 s, level") << 0.25 << 0.0 << false;
+		QTest::newRow("0.45 s, level") << 0.45 << 0.0 << false;
+		QTest::newRow("0.5 s, level") << 0.5 << 0.0 << true;
+		QTest::newRow("0.25 s, risen 0.25 ft") << 0.25 << 0.25 << false;
+		QTest::newRow("0.25 s, risen 0.45 ft") << 0.25 << 0.45 << false;
+		QTest::newRow("0.25 s, risen 0.5 ft") << 0.25 << 0.5 << true;
+	}
+
+	void liftoffCountsOnceAirborneHalfASecondOrRisenHalfAFoot() {
+		// After a landing, the on-ground flag clears and sets again (the gear
+		// skimming the runway, or a bounce). Only a confirmed liftoff records a
+		// liftoff and the touchdown after it.
+		QFETCH(double, airborneSeconds);
+		QFETCH(double, riseFt);
+		QFETCH(bool, recorded);
+		FlightDriver sim;
+		const RunwaySpec rwy = eastWestRunway();
+		const int tripId = startOnRunway(sim, rwy);
+		liftOff(sim, onRunway(rwy, 1800));
+		touchDown(sim, onRunway(rwy, 500));
+		sim.moveTo(onRunway(rwy, 900));
+		sim.record.plane_alt_above_ground = 3;
+		sim.setOnGround(false);
+		sim.tick(0.25);
+		sim.record.plane_alt_above_ground = 3 + riseFt;
+		sim.tick(airborneSeconds);
+		sim.setOnGround(true);
+		sim.tick(0.25);
+		sim.ticks(4);
+		QCOMPARE(liftoffs(tripId).size(), recorded ? 2 : 1);
+		QCOMPARE(touchdowns(tripId).size(), recorded ? 2 : 1);
+	}
+
+	void liftoffIsRecordedWithTheFrameItLeftTheGroundIn() {
+		// Confirmed 0.5 s later, further down the runway and faster: the row
+		// still has where, when and how fast the aircraft left the ground, not
+		// what an earlier, ignored flicker recorded.
+		FlightDriver sim;
+		const RunwaySpec rwy = eastWestRunway();
+		const int tripId = startOnRunway(sim, rwy);
+		sim.moveTo(onRunway(rwy, 1500));
+		sim.setOnGround(false);
+		sim.tick(0.25);
+		sim.setOnGround(true);
+		sim.tick(0.25);
+		const COORDINATE at = onRunway(rwy, 1800);
+		sim.moveTo(at);
+		sim.record.airspeed_indicated = 150;
+		sim.setOnGround(false);
+		sim.tick();
+		const QString liftoffTime = QString::fromStdString(sim.record.time_zulu.format_date_time());
+		QVERIFY(liftoffs(tripId).isEmpty());
+		sim.moveTo(onRunway(rwy, 1900));
+		sim.record.airspeed_indicated = 160;
+		sim.tick();
+		const QList<QVariantMap> rows = liftoffs(tripId);
+		QCOMPARE(rows.size(), 1);
+		QCOMPARE(rows[0]["time_zulu"].toString(), liftoffTime);
+		QCOMPARE(rows[0]["plane_latitude"].toDouble(), at.latitude);
+		QCOMPARE(rows[0]["plane_longitude"].toDouble(), at.longitude);
+		QCOMPARE(rows[0]["airspeed_indicated"].toInt(), 150);
+	}
+
+	void unconfirmedLiftoffDoesNotCarryIntoTheNextTrip() {
+		// The engines stop in the frame the flicker ends, which ends the trip
+		// before its liftoff detection runs: the next trip's departure is its
+		// own liftoff, not that flicker.
+		FlightDriver sim;
+		const RunwaySpec rwy = eastWestRunway();
+		startOnRunway(sim, rwy);
+		sim.moveTo(onRunway(rwy, 1500));
+		sim.setOnGround(false);
+		sim.tick(0.25);
+		sim.endTrip();
+		const int tripId = startOnRunway(sim, rwy);
+		const COORDINATE at = onRunway(rwy, 1800);
+		liftOff(sim, at);
+		const QList<QVariantMap> rows = liftoffs(tripId);
+		QCOMPARE(rows.size(), 1);
+		QCOMPARE(rows[0]["plane_latitude"].toDouble(), at.latitude);
+		QCOMPARE(rows[0]["plane_longitude"].toDouble(), at.longitude);
+	}
+
+	void liftoffConfirmationCountsAcrossMidnight() {
+		// Airborne at 23:59:59.75 zulu, still airborne at 00:00:00.25: 0.5 s.
+		FlightDriver sim;
+		const RunwaySpec rwy = eastWestRunway();
+		const int tripId = startOnRunway(sim, rwy);
+		sim.record.time_zulu.time_day = 86399.5;
+		sim.moveTo(onRunway(rwy, 1800));
+		sim.setOnGround(false);
+		sim.tick(0.25);
+		sim.tick(0.5);
+		QCOMPARE(sim.record.time_zulu.time_day, 0.25);
+		QCOMPARE(liftoffs(tripId).size(), 1);
 	}
 
 	void lookupsQueuedWhileOneIsPendingResolveInOrder() {

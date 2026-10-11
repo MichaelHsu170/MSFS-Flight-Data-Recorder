@@ -662,7 +662,18 @@ struct FLIGHT_PHASE {
 	// queue so the dispatch callback can compute the next sample's delta_s
 	// without touching whatever the DB-write worker is doing.
 	struct FLIGHT_DATA_RECORD* last_sample = NULL;
+	// Since the last recorded liftoff, until the next touchdown. Set only once
+	// a liftoff is confirmed (see liftoff_pending), so a shorter flicker of
+	// the on-ground flag records neither a liftoff nor a touchdown.
 	bool airborne = FALSE;
+	// The on-ground flag has cleared but the liftoff isn't confirmed yet:
+	// the aircraft must stay airborne LIFTOFF_CONFIRM_SECONDS or rise
+	// LIFTOFF_CONFIRM_RISE_FT (flight_phase.cpp). liftoff_candidate is what
+	// the frame it cleared in recorded, and the liftoff is recorded with it;
+	// liftoff_candidate_agl is that frame's height above ground.
+	bool liftoff_pending = FALSE;
+	FLIGHT_DATA liftoff_candidate;
+	double liftoff_candidate_agl = 0;
 	// Every moment this trip's aircraft actually became airborne, as a marker
 	// occurrence (touch-and-goes included), independent of the trip's single
 	// permanent departure_db_id below/STATUS::departure -- see LIFTOFF_DATA. NOT
@@ -679,7 +690,7 @@ struct FLIGHT_PHASE {
 	// at true trip boundaries, same as departure_lookup_initiated.
 	int next_facility_lookup_seq = 0;
 	// trip_liftoffs row ID for this trip's single departure, set after the
-	// immediate INSERT at the moment it becomes airborne (see flight_on_sample()'s
+	// immediate INSERT once its liftoff is confirmed (see flight_on_sample()'s
 	// liftoff detection) and consumed later by on_lookup_resolved()'s
 	// departure UPDATE, same db_id pattern as CONTACT_RECORD::db_id but for
 	// the one-per-trip departure. Reset to -1 at trip start (recording-start
@@ -696,7 +707,7 @@ struct FLIGHT_PHASE {
 	// trip that ends before its retry turn can't be mistakenly fired for
 	// whatever trip is active later.
 	bool departure_lookup_needed = FALSE;
-	// Set the instant this trip's first liftoff is detected (flight_phase.cpp),
+	// Set the instant this trip's first liftoff is confirmed (flight_phase.cpp),
 	// whether or not the resulting lookup fires immediately or is deferred via
 	// departure_lookup_needed above. A trip has exactly one departure
 	// airport -- wherever that first liftoff happened -- so this must stay

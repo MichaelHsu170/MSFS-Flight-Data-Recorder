@@ -172,6 +172,8 @@ trip_history_column_widths=
 
 Recording starts automatically when any of the aircraft's engines is running on the ground (unless automatic recording is disabled via the **Recording** indicator in the Live Status panel) and stops when all of them are shut down on the ground or the simulator leaves the flight. A trip that ends abnormally (simulator crash or process kill before engine shutdown) is marked as **Open** in the UI.
 
+A liftoff is recorded when the simulator's on-ground flag clears and the aircraft then stays airborne for at least 0.5 s, or rises at least 0.5 ft above the height it left the ground at, whichever comes first. The row has the values of the moment it left the ground, not of when it was confirmed. Back on the ground before then, it counts as never having left: no liftoff and no touchdown are recorded. This drops the flicker of the flag when the gear skims the runway (touching down fast, with the wings still carrying most of the weight), which would otherwise record a burst of liftoffs and touchdowns a fraction of a second apart. A real bounce, where the aircraft rises off the runway, is still recorded as a liftoff and a second touchdown. A very short, shallow one (under 0.5 s, rising less than 0.5 ft) counts as part of the same touchdown. Trips recorded before this filter keep the contacts they were recorded with.
+
 ## SimConnect
 
 The app connects to MSFS 2024 via SimConnect and retries every 2 seconds until the simulator accepts the connection. The application name sent to MSFS is `"Flight Data Recorder"`.

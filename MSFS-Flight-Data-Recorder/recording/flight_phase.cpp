@@ -26,6 +26,21 @@ static void fill_contact_flight_data(FLIGHT_DATA& data, const FLIGHT_DATA_RECORD
 	data.time_local = sample.time_local;
 }
 
+// Seconds from one zulu time of day to a later one, across midnight
+// (time_day wraps from 86400 to 0).
+static double seconds_between(double from_day, double to_day) {
+	double seconds = to_day - from_day;
+	return seconds < 0 ? seconds + 86400 : seconds;
+}
+
+// A liftoff counts only once the aircraft has been airborne this long, or has
+// risen this far above the height it left the ground at, whichever comes
+// first. A shorter flicker of the on-ground flag without a rise is the gear
+// skimming the runway (touching down fast, with the wings still carrying
+// the weight), not a bounce -- see flight_on_sample().
+static const double LIFTOFF_CONFIRM_SECONDS = 0.5;
+static const double LIFTOFF_CONFIRM_RISE_FT = 0.5;
+
 // The earliest liftoff/touchdown in list whose airport lookup hasn't
 // resolved yet (runway_act.distances[0] still -1), or NULL. Lookups resolve
 // in order, so this is the record an in-flight lookup of that kind is for.
@@ -80,7 +95,7 @@ const CONTACT_TEXT TOUCHDOWN_TEXT = {
 
 }
 
-// Records a liftoff marker or touchdown from sample: appends it to the list
+// Records a liftoff marker or touchdown with data: appends it to the list
 // head..tail and inserts its row right away, so the row survives a crash
 // before stop_recording. Airport/runway fields stay NULL until its lookup
 // resolves. The record, or NULL if allocation failed; inserted says whether
@@ -90,14 +105,14 @@ const CONTACT_TEXT TOUCHDOWN_TEXT = {
 // corrupting downstream state or leaving lookup.pending stuck.
 template <typename Record>
 static Record* record_contact(struct STATUS* status, Record*& head, Record*& tail, CONTACT_TABLE table,
-	const FLIGHT_DATA_RECORD& sample, const CONTACT_TEXT& text, bool& inserted) {
+	const FLIGHT_DATA& data, const CONTACT_TEXT& text, bool& inserted) {
 	inserted = false;
 	Record* record = append_contact_record(status, head, tail);
 	if (record == NULL) {
 		gui_log_printf(status, GUI_LOG_WARNING, "%s", text.alloc_failed);
 		return NULL;
 	}
-	fill_contact_flight_data(record->flight_data, sample);
+	record->flight_data = data;
 	try {
 		record->db_id = db_insert_contact(status, table, status->id_trip, record->flight_data);
 		gui_log_printf(status, GUI_LOG_TRACE, text.inserted, record->db_id);
@@ -371,6 +386,74 @@ void on_lookup_resolved(struct STATUS* status, AIRPORT* slot, LOOKUP_OUTCOME out
 	}
 }
 
+// Records a confirmed liftoff with data, what the frame it left the ground in
+// recorded: the trip's departure if it is the first, otherwise a liftoff
+// marker.
+static void record_liftoff(struct STATUS* status, const FLIGHT_DATA& data) {
+	// Guarded by departure_lookup_initiated (set right below), not by
+	// departure.runway_act.index == -1 -- that field only flips once the
+	// departure lookup actually *resolves*, so a touch-and-go (or several
+	// full-stop taxi-back-and-liftoffs) occurring before a slow lookup
+	// resolves would otherwise still see -1 and be mistaken for a fresh
+	// departure. See departure_lookup_initiated in types.h.
+	if (!status->flight.departure_lookup_initiated) {
+		status->flight.departure_lookup_initiated = TRUE;
+		status->flight.next_facility_lookup_seq++;
+		// Kept regardless of whether the lookup fires immediately below or is
+		// deferred -- see departure_data in types.h.
+		status->flight.departure_data = data;
+		gui_log_printf(status, GUI_LOG_TRACE, "Liftoff detected (trip %d): lat=%.6f, lon=%.6f, heading=%d",
+			status->id_trip, data.coordinate.latitude, data.coordinate.longitude, data.heading);
+		// Insert immediately so the row survives a crash before stop_recording.
+		// Airport/runway fields are NULL until the facility callback resolves --
+		// same immediate-INSERT-then-async-UPDATE pattern as touchdowns.
+		// Wrapped in its own try/catch (mirroring the trip-creation insert)
+		// so a transient DB failure reverts departure_lookup_initiated
+		// instead of leaving it stuck TRUE with this trip's departure never
+		// resolved or retried -- see departure_lookup_initiated in types.h.
+		try {
+			status->flight.departure_db_id = db_insert_contact(status, CONTACT_TABLE::LIFTOFFS, status->id_trip, data);
+			gui_log_printf(status, GUI_LOG_TRACE, "Liftoff trip_liftoffs row inserted: db_id=%d", status->flight.departure_db_id);
+			if (!status->lookup.pending) {
+				gui_log_printf(status, GUI_LOG_TRACE, "Requesting departure facility lookup (trip %d)", status->id_trip);
+				start_facility_lookup(status, LOOKUP_TARGET::DEPARTURE, data.coordinate, data.heading);
+			} else {
+				// A previous trip's lookup is still draining (see
+				// FLIGHT_PHASE::departure_lookup_needed in types.h) -- this
+				// departure only fires once per trip, so if the request is
+				// skipped now it must be retried later rather than lost.
+				gui_log_printf(status, GUI_LOG_TRACE, "Deferring departure facility lookup (trip %d): another lookup in flight", status->id_trip);
+				status->flight.departure_lookup_needed = TRUE;
+			}
+		} catch (const db_exception& e) {
+			status->flight.departure_lookup_initiated = FALSE;
+			gui_log_printf(status, GUI_LOG_WARNING, "Liftoff detected (trip %d): trip_liftoffs insert failed, will retry on next liftoff: %s",
+				status->id_trip, e.message.c_str());
+		}
+		return;
+	}
+	// Subsequent liftoff (touch-and-go, or a full stop followed by a
+	// taxi-back and another departure -- this code can't and doesn't
+	// try to tell the two apart): this trip's departure is already
+	// locked in (departure_lookup_initiated above), so this is
+	// recorded purely as a liftoff *marker* occurrence -- same
+	// immediate-INSERT-then-async-UPDATE pattern as a touchdown, but
+	// with no trips.* update (a trip has exactly one departure).
+	gui_log_printf(status, GUI_LOG_TRACE, "Liftoff detected (trip %d, subsequent): lat=%.6f, lon=%.6f, heading=%d",
+		status->id_trip, data.coordinate.latitude, data.coordinate.longitude, data.heading);
+	bool inserted = false;
+	record_contact(status, status->flight.liftoff_data, status->flight.liftoff_data_end,
+		CONTACT_TABLE::LIFTOFFS, data, LIFTOFF_TEXT, inserted);
+	if (inserted) {
+		gui_notify_trip_updated(status);
+		// No-op if a previous lookup (departure, an earlier touchdown, or
+		// an earlier liftoff marker) is still resolving -- this liftoff
+		// marker's lookup will be picked up automatically once that one completes,
+		// via request_next_touchdown_facility_lookup().
+		request_next_touchdown_facility_lookup(status);
+	}
+}
+
 // One decoded sample from the simulator (every sim frame): updates the
 // latest flight data, starts/stops the trip, detects liftoffs and
 // touchdowns, and queues the sample for trip_data every sample_interval_ms.
@@ -457,7 +540,10 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 					// never use loc_dh.)
 					status->flight.loc_dh.clear();
 					status->flight.next_facility_lookup_seq = 0;
-					status->flight.airborne = !(bool)tmp.sim_on_ground;
+					// The trip starts on the ground. A liftoff still pending from
+					// the previous trip is discarded by this same on-ground frame
+					// below.
+					status->flight.airborne = FALSE;
 
 					// If this throws, status->id_trip is never assigned -- recording
 					// must not stay TRUE in that case, or every sample from here on
@@ -481,80 +567,41 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 		}
 	}
 	if (status->recording && !status->paused) {
-		// Liftoff
-		// Guarded by departure_lookup_initiated (set right below), not by
-		// departure.runway_act.index == -1 -- that field only flips once the
-		// departure lookup actually *resolves*, so a touch-and-go (or several
-		// full-stop taxi-back-and-liftoffs) occurring before a slow lookup
-		// resolves would otherwise still see -1 and be mistaken for a fresh
-		// departure. See departure_lookup_initiated in types.h.
-		if (!(bool)tmp.sim_on_ground && !status->flight.airborne && !status->flight.departure_lookup_initiated) {
-			status->flight.departure_lookup_initiated = TRUE;
-			status->flight.next_facility_lookup_seq++;
-			// Captured now (the actual liftoff moment) regardless of whether
-			// the lookup fires immediately below or is deferred -- see
-			// departure_data in types.h.
-			fill_contact_flight_data(status->flight.departure_data, tmp);
-			gui_log_printf(status, GUI_LOG_TRACE, "Liftoff detected (trip %d): lat=%.6f, lon=%.6f, heading=%d",
-				status->id_trip, status->flight.departure_data.coordinate.latitude,
-				status->flight.departure_data.coordinate.longitude, status->flight.departure_data.heading);
-			// Insert immediately so the row survives a crash before stop_recording.
-			// Airport/runway fields are NULL until the facility callback resolves --
-			// same immediate-INSERT-then-async-UPDATE pattern as touchdowns below.
-			// Wrapped in its own try/catch (mirroring the trip-creation insert
-			// above) so a transient DB failure reverts departure_lookup_initiated
-			// instead of leaving it stuck TRUE with this trip's departure never
-			// resolved or retried -- see departure_lookup_initiated in types.h.
-			try {
-				status->flight.departure_db_id = db_insert_contact(status, CONTACT_TABLE::LIFTOFFS, status->id_trip, status->flight.departure_data);
-				gui_log_printf(status, GUI_LOG_TRACE, "Liftoff trip_liftoffs row inserted: db_id=%d", status->flight.departure_db_id);
-				if (!status->lookup.pending) {
-					gui_log_printf(status, GUI_LOG_TRACE, "Requesting departure facility lookup (trip %d)", status->id_trip);
-					start_facility_lookup(status, LOOKUP_TARGET::DEPARTURE, status->flight.departure_data.coordinate, status->flight.departure_data.heading);
-				} else {
-					// A previous trip's lookup is still draining (see
-					// FLIGHT_PHASE::departure_lookup_needed in types.h) -- this
-					// departure only fires once per trip, so if the request is
-					// skipped now it must be retried later rather than lost.
-					gui_log_printf(status, GUI_LOG_TRACE, "Deferring departure facility lookup (trip %d): another lookup in flight", status->id_trip);
-					status->flight.departure_lookup_needed = TRUE;
-				}
-			} catch (const db_exception& e) {
-				status->flight.departure_lookup_initiated = FALSE;
-				gui_log_printf(status, GUI_LOG_WARNING, "Liftoff detected (trip %d): trip_liftoffs insert failed, will retry on next liftoff: %s",
-					status->id_trip, e.message.c_str());
+		// Liftoff: held as a candidate from the frame the on-ground flag
+		// clears, and recorded with that frame's data only once confirmed (see
+		// LIFTOFF_CONFIRM_SECONDS). Back on the ground before then, it was
+		// never airborne: no liftoff, and so no touchdown either.
+		if (!(bool)tmp.sim_on_ground && !status->flight.airborne) {
+			if (!status->flight.liftoff_pending) {
+				status->flight.liftoff_pending = TRUE;
+				fill_contact_flight_data(status->flight.liftoff_candidate, tmp);
+				status->flight.liftoff_candidate_agl = tmp.plane_alt_above_ground;
 			}
-		} else if (!(bool)tmp.sim_on_ground && !status->flight.airborne) {
-			// Subsequent liftoff (touch-and-go, or a full stop followed by a
-			// taxi-back and another departure -- this code can't and doesn't
-			// try to tell the two apart): this trip's departure is already
-			// locked in (departure_lookup_initiated above), so this is
-			// recorded purely as a liftoff *marker* occurrence -- same
-			// immediate-INSERT-then-async-UPDATE pattern as a touchdown, but
-			// with no trips.* update (a trip has exactly one departure).
-			gui_log_printf(status, GUI_LOG_TRACE, "Liftoff detected (trip %d, subsequent): lat=%.6f, lon=%.6f, heading=%d",
-				status->id_trip, tmp.plane_coordinate.latitude, tmp.plane_coordinate.longitude,
-				(int)tmp.plane_heading_degrees_magnetic);
-			bool inserted = false;
-			record_contact(status, status->flight.liftoff_data, status->flight.liftoff_data_end,
-				CONTACT_TABLE::LIFTOFFS, tmp, LIFTOFF_TEXT, inserted);
-			if (inserted) {
-				gui_notify_trip_updated(status);
-				// No-op if a previous lookup (departure, an earlier touchdown, or
-				// an earlier liftoff marker) is still resolving -- this liftoff
-				// marker's lookup will be picked up automatically once that one completes,
-				// via request_next_touchdown_facility_lookup().
-				request_next_touchdown_facility_lookup(status);
+			double airborne_s = seconds_between(status->flight.liftoff_candidate.time_zulu.time_day, tmp.time_zulu.time_day);
+			double rise_ft = tmp.plane_alt_above_ground - status->flight.liftoff_candidate_agl;
+			if (airborne_s >= LIFTOFF_CONFIRM_SECONDS || rise_ft >= LIFTOFF_CONFIRM_RISE_FT) {
+				status->flight.liftoff_pending = FALSE;
+				status->flight.airborne = TRUE;
+				gui_log_printf(status, GUI_LOG_TRACE, "Liftoff confirmed (trip %d): airborne %d ms, risen %.1f ft",
+					status->id_trip, (int)(airborne_s * 1000), rise_ft);
+				record_liftoff(status, status->flight.liftoff_candidate);
 			}
+		} else if ((bool)tmp.sim_on_ground && status->flight.liftoff_pending) {
+			status->flight.liftoff_pending = FALSE;
+			gui_log_printf(status, GUI_LOG_TRACE, "Liftoff ignored (trip %d): back on the ground after %d ms without rising %.1f ft",
+				status->id_trip, (int)(seconds_between(status->flight.liftoff_candidate.time_zulu.time_day, tmp.time_zulu.time_day) * 1000),
+				LIFTOFF_CONFIRM_RISE_FT);
 		}
 		// Landing
 		if ((bool)tmp.sim_on_ground && status->flight.airborne) {
+			status->flight.airborne = FALSE;
+			FLIGHT_DATA data;
+			fill_contact_flight_data(data, tmp);
 			gui_log_printf(status, GUI_LOG_TRACE, "Touchdown detected (trip %d): lat=%.6f, lon=%.6f, heading=%d",
-				status->id_trip, tmp.plane_coordinate.latitude, tmp.plane_coordinate.longitude,
-				(int)tmp.plane_heading_degrees_magnetic);
+				status->id_trip, data.coordinate.latitude, data.coordinate.longitude, data.heading);
 			bool touchdown_inserted = false;
 			if (TOUCHDOWN_DATA* touchdown = record_contact(status, status->flight.touchdown_data, status->flight.touchdown_data_end,
-					CONTACT_TABLE::TOUCHDOWNS, tmp, TOUCHDOWN_TEXT, touchdown_inserted)) {
+					CONTACT_TABLE::TOUCHDOWNS, data, TOUCHDOWN_TEXT, touchdown_inserted)) {
 				// Freeze this touchdown's own low-altitude position now -- see
 				// TOUCHDOWN_DATA::loc_dh in types.h for why status->flight.loc_dh itself
 				// can't be trusted once this touchdown's facility lookup is queued.
@@ -584,13 +631,10 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 				}
 			}
 		}
-		status->flight.airborne = !(bool)tmp.sim_on_ground;
 
 		double delta_s = status->sample_interval_ms / 1000.0;
 		if (status->flight.last_sample != NULL)
-			delta_s = tmp.time_zulu.time_day - status->flight.last_sample->time_zulu.time_day;
-		if (delta_s < 0)
-			delta_s += 86400;
+			delta_s = seconds_between(status->flight.last_sample->time_zulu.time_day, tmp.time_zulu.time_day);
 		if (delta_s >= status->sample_interval_ms / 1000.0) {
 			struct FLIGHT_DATA_RECORD* pS = (struct FLIGHT_DATA_RECORD*)malloc(sizeof(struct FLIGHT_DATA_RECORD));
 			if (pS == NULL) {
