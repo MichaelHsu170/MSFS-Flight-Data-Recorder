@@ -332,7 +332,8 @@ struct FLIGHT_DATA {
 	int heading = 0;
 	int altitude = 0;
 	int speed = 0;
-	int vertical_speed = 0;
+	int vertical_speed = 0;      // VERTICAL SPEED: indicated, lags the actual rate
+	int velocity_world_y = 0;    // VELOCITY WORLD Y: the actual vertical speed, ft/min
 	double g_force = 1;
 	double pitch = 0;
 	double bank = 0;

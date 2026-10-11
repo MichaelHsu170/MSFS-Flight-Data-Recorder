@@ -105,7 +105,7 @@ public:
 		out.distanceNm = distance(index);
 		out.terrainFt = groundElevation(p) - groundElevation_;
 		out.airspeed = p.rawNum(TRIP_NUM_airspeed_indicated);
-		out.verticalSpeed = p.rawNum(TRIP_NUM_vertical_speed);
+		out.verticalSpeed = p.verticalSpeed();
 		out.pitch = p.pitchDegrees;
 		out.bank = p.bankDegrees;
 		out.headingTrue = p.rawNum(TRIP_NUM_plane_heading_degrees_true);
@@ -316,6 +316,24 @@ ContactConditions conditionsAt(const std::vector<TripSamplePoint>& points, const
 	return c;
 }
 
+// The touchdown's PLANE TOUCHDOWN NORMAL VELOCITY. The simulator holds each
+// touchdown's value until the next one's, and can set it a sample after its
+// on-ground flag, so the touchdown's own sample may still hold the previous
+// value: the touchdown's is the first value, from its sample through the next
+// contact's, that differs from the sample's before it. NaN without a sample
+// before it, or when none differs.
+double touchdownRate(const std::vector<TripSamplePoint>& points, const ContactSamples& s) {
+	if (s.at == 0)
+		return std::nan("");
+	const double previous = points[s.at - 1].rawNum(TRIP_NUM_plane_touchdown_normal_velocity);
+	for (int i = s.at; i <= s.end && i < (int)points.size(); ++i) {
+		const double value = points[i].rawNum(TRIP_NUM_plane_touchdown_normal_velocity);
+		if (!std::isnan(value) && value != previous)
+			return value;
+	}
+	return std::nan("");
+}
+
 // Whether every point of profile has its time from the contact.
 bool allTimesKnown(const ContactProfile& profile) {
 	for (const std::vector<ProfilePoint>* points : { &profile.gates, &profile.series })
@@ -420,9 +438,12 @@ void analyzeContacts(TripDataset& dataset) {
 	for (LiftoffPoint& p : dataset.liftoffPoints)
 		if (const std::optional<ContactSamples> s = contactSamples(dataset, p, false))
 			p.conditions = conditionsAt(dataset.points, p, *s);
-	for (TouchdownPoint& p : dataset.touchdowns)
-		if (const std::optional<ContactSamples> s = contactSamples(dataset, p, true))
+	for (TouchdownPoint& p : dataset.touchdowns) {
+		if (const std::optional<ContactSamples> s = contactSamples(dataset, p, true)) {
 			p.conditions = conditionsAt(dataset.points, p, *s);
+			p.touchdownRate = touchdownRate(dataset.points, *s);
+		}
+	}
 }
 
 std::optional<ContactProfile> contactProfile(const TripDataset& dataset, const RunwayContactPoint& contact, bool touchdown) {
@@ -432,6 +453,7 @@ std::optional<ContactProfile> contactProfile(const TripDataset& dataset, const R
 	const ProfileBuilder builder(dataset.points, contact, *s, touchdown);
 	ContactProfile profile = touchdown ? touchdownProfile(builder, *s) : liftoffProfile(builder, *s);
 	builder.describePower(profile);
+	profile.indicatedVerticalSpeed = !dataset.points[s->at].hasActualVerticalSpeed();
 	if (!allTimesKnown(profile))
 		return std::nullopt;
 	return profile;

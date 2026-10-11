@@ -121,7 +121,11 @@ private slots:
 			jet.set(e, TRIP_ENGINE_turb_eng_n1, e).set(e, TRIP_ENGINE_turb_eng_n2, 10 + e).set(e, TRIP_ENGINE_prop_rpm, 99);
 		jet.set(3, TRIP_ENGINE_turb_eng_n2, std::nan(""));
 		TripSamplePoint& p = jet.p;
-		p.verticalSpeed = -5; p.airspeed = 6; p.groundSpeed = 7; p.altitude = 8;
+		// The actual vertical speed, not the indicated one.
+		p.rawNums.assign(TRIP_NUM_FIELD_COUNT, std::nan(""));
+		p.rawNums[TRIP_NUM_vertical_speed] = 99;
+		p.rawNums[TRIP_NUM_velocity_world_y] = -5;
+		p.airspeed = 6; p.groundSpeed = 7; p.altitude = 8;
 		p.gearHandlePosition = 9;
 		p.gearPosition[0] = 10; p.gearPosition[1] = 11; p.gearPosition[2] = 12;
 		p.gearOnGround[0] = true; p.gearOnGround[1] = false; p.gearOnGround[2] = true;
@@ -138,6 +142,18 @@ private slots:
 		QCOMPARE((int)std::size(rest), CHART_SERIES_COUNT - CHART_VERTICAL_SPEED);
 		for (int s = CHART_VERTICAL_SPEED; s < CHART_SERIES_COUNT; ++s)
 			QCOMPARE(v[s], rest[s - CHART_VERTICAL_SPEED]);
+	}
+
+	void verticalSpeedIsTheIndicatedOneWithoutTheActual() {
+		// A sample recorded before VELOCITY WORLD Y was: its column is NULL.
+		TripSamplePoint p;
+		p.rawNums.assign(TRIP_NUM_FIELD_COUNT, std::nan(""));
+		p.rawNums[TRIP_NUM_vertical_speed] = -340;
+		QCOMPARE(chartValues(p)[CHART_VERTICAL_SPEED], -340.0);
+
+		// Neither recorded: 0, like any value not recorded.
+		p.rawNums[TRIP_NUM_vertical_speed] = std::nan("");
+		QCOMPARE(chartValues(p)[CHART_VERTICAL_SPEED], 0.0);
 	}
 
 	void engineValuesAreTheOnesTheEngineTypeShows() {

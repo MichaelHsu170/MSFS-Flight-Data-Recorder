@@ -33,7 +33,8 @@ QString surfaceConditionName(double value);
 QString precipitationName(double mask);
 
 // Fills every liftoff's and touchdown's conditions from dataset.points (the
-// sample at or after its zuluTime, sampleAtOrAfter()).
+// sample at or after its zuluTime, sampleAtOrAfter()), and every touchdown's
+// touchdownRate.
 void analyzeContacts(TripDataset& dataset);
 
 // contact's (one of dataset's touchdowns if touchdown, else liftoffs) final

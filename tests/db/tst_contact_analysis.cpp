@@ -262,6 +262,86 @@ private slots:
 			QCOMPARE(point->trackTrue, 268.0);
 		}
 		QVERIFY(std::isnan(profile->series.at(1).airspeed));  // the touchdown sample's, not recorded
+		// Recorded before VELOCITY WORLD Y: the V/S above is the indicated one.
+		QVERIFY(profile->indicatedVerticalSpeed);
+	}
+
+	// With VELOCITY WORLD Y recorded, the points' V/S is the actual one.
+	void pointsShowTheActualVerticalSpeedWhenRecorded() {
+		TripDataset dataset = touchdownAfter({ 50, 0 });
+		dataset.points[0].rawNums[TRIP_NUM_vertical_speed] = -700;
+		dataset.points[0].rawNums[TRIP_NUM_velocity_world_y] = -760;
+		dataset.points[1].rawNums[TRIP_NUM_vertical_speed] = -650;
+		dataset.points[1].rawNums[TRIP_NUM_velocity_world_y] = -20;
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		QCOMPARE(gate(*profile, QStringLiteral("50 ft"))->verticalSpeed, -760.0);
+		QCOMPARE(profile->series.at(0).verticalSpeed, -760.0);
+		QCOMPARE(profile->series.at(1).verticalSpeed, -20.0);
+		QVERIFY(!profile->indicatedVerticalSpeed);
+	}
+
+	// PLANE TOUCHDOWN NORMAL VELOCITY holds the previous touchdown's value
+	// until the simulator sets the new one, which can be a sample after the
+	// touchdown's: the rate is the first value that differs from the
+	// sample's before the touchdown.
+	void touchdownRateIsTheFirstNewValueAfterTheTouchdown() {
+		TripDataset dataset = touchdownAfter({ 20, 10, 0 });
+		dataset.points.push_back(sample(1, 1000, 0));
+		dataset.points.push_back(sample(2, 1000, 0));
+		const double rates[] = { 198, 198, 198, 262, 262 };
+		for (size_t i = 0; i < dataset.points.size(); ++i)
+			dataset.points[i].rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = rates[i];
+		analyzeContacts(dataset);
+		QCOMPARE(dataset.touchdowns[0].touchdownRate, 262.0);
+
+		// Set in the touchdown's own sample.
+		dataset.points[2].rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = 305;
+		analyzeContacts(dataset);
+		QCOMPARE(dataset.touchdowns[0].touchdownRate, 305.0);
+
+		// A sample without the value is skipped, not taken as the new one.
+		dataset.points[2].rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = std::nan("");
+		analyzeContacts(dataset);
+		QCOMPARE(dataset.touchdowns[0].touchdownRate, 262.0);
+	}
+
+	// Unknown when nothing changed, or with no sample before the touchdown to
+	// tell the previous value.
+	void touchdownRateUnknownWithoutANewValue() {
+		TripDataset dataset = touchdownAfter({ 10, 0 });
+		dataset.points.push_back(sample(1, 1000, 0));
+		for (TripSamplePoint& p : dataset.points)
+			p.rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = 198;
+		analyzeContacts(dataset);
+		QVERIFY(std::isnan(dataset.touchdowns[0].touchdownRate));
+
+		dataset.points.erase(dataset.points.begin());
+		dataset.points[1].rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = 262;
+		analyzeContacts(dataset);
+		QVERIFY(std::isnan(dataset.touchdowns[0].touchdownRate));
+	}
+
+	// The search ends at the next contact's sample: a later touchdown's value
+	// isn't taken for this one's.
+	void touchdownRateStopsAtTheNextContact() {
+		TripDataset dataset;
+		const double rates[] = { 198, 198, 262, 262, 300 };
+		for (int i = 0; i < 5; ++i) {
+			dataset.points.push_back(sample(i - 1, 1000, 0));
+			dataset.points.back().rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = rates[i];
+		}
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0), contactAt<TouchdownPoint>(3) };
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.6) };
+		analyzeContacts(dataset);
+		QCOMPARE(dataset.touchdowns[0].touchdownRate, 262.0);  // set in the liftoff's sample
+		QCOMPARE(dataset.touchdowns[1].touchdownRate, 300.0);
+
+		dataset.points[2].rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = 198;
+		dataset.points[3].rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = 198;
+		analyzeContacts(dataset);
+		QVERIFY(std::isnan(dataset.touchdowns[0].touchdownRate));
+		QCOMPARE(dataset.touchdowns[1].touchdownRate, 300.0);
 	}
 
 	// The wind range covers the 30 s up to the contact (30 s before it still

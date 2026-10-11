@@ -20,7 +20,6 @@ struct TripSamplePoint {
 	int altitude = 0;
 	int airspeed = 0;
 	int groundSpeed = 0;
-	int verticalSpeed = 0;
 	int engineType = -1;  // ENGINE TYPE (enginePowerSpec()); -1 if not recorded
 	double gearHandlePosition = 0;
 	int gearPosition[3] = { 0, 0, 0 };
@@ -50,6 +49,15 @@ struct TripSamplePoint {
 	// field's value from rawNums; NaN if not recorded.
 	double rawNum(TripNumField field) const {
 		return field < (int)rawNums.size() ? rawNums[field] : std::nan("");
+	}
+	// Whether the sample recorded the actual vertical speed (VELOCITY WORLD Y):
+	// one recorded before it was added didn't.
+	bool hasActualVerticalSpeed() const { return !std::isnan(rawNum(TRIP_NUM_velocity_world_y)); }
+	// The vertical speed (ft/min) the charts and the AI analysis show: the
+	// actual one when recorded, else the indicated one (VERTICAL SPEED), which
+	// lags it -- a liftoff can still read negative.
+	double verticalSpeed() const {
+		return hasActualVerticalSpeed() ? rawNum(TRIP_NUM_velocity_world_y) : rawNum(TRIP_NUM_vertical_speed);
 	}
 	// Engines 1..engineCount() have room in engineValues.
 	int engineCount() const { return (int)(engineValues.size() / TRIP_ENGINE_FIELD_COUNT); }
@@ -115,7 +123,7 @@ struct ProfilePoint {
 	double distanceNm = std::nan(""); // great-circle distance to the contact position
 	double terrainFt = std::nan("");  // the ground below, relative to the ground at the contact
 	double airspeed = std::nan("");   // kt indicated
-	double verticalSpeed = std::nan(""); // ft/min
+	double verticalSpeed = std::nan(""); // ft/min, TripSamplePoint::verticalSpeed()
 	double pitch = std::nan("");      // degrees, + = nose up
 	double bank = std::nan("");       // degrees
 	double headingTrue = std::nan("");
@@ -158,6 +166,9 @@ struct ContactProfile {
 	// distance from the contact; NaN without samples there.
 	double highestTerrainFt = std::nan("");
 	double highestTerrainNm = std::nan("");
+	// Whether the points' verticalSpeed is the indicated one: the contact's
+	// sample didn't record the actual one (TripSamplePoint::hasActualVerticalSpeed()).
+	bool indicatedVerticalSpeed = false;
 };
 
 // The used runway end's facility data stored with a contact (the runway_*
@@ -183,7 +194,10 @@ struct RunwayContactPoint {
 	QString runway;
 	int runwayHeading = -1;  // real facility heading (1-360) of runway used, -1 = unknown
 	int airspeed = 0;
-	int verticalSpeed = 0;
+	int verticalSpeed = 0;   // ft/min indicated (VERTICAL SPEED), which lags the actual rate
+	// ft/min actual (VELOCITY WORLD Y) in the frame of the contact; NaN for a
+	// contact recorded before it was.
+	double actualVerticalSpeed = std::nan("");
 	double pitchDegrees = 0;
 	double bankDegrees = 0;
 	int headingDegrees = 0;
@@ -214,6 +228,10 @@ struct LiftoffPoint : RunwayContactPoint {};
 // than one touchdown (go-arounds, bounces).
 struct TouchdownPoint : RunwayContactPoint {
 	double gForce = 0;
+	// The sink rate (ft/min, + = into the surface) at which the wheels met the
+	// runway, perpendicular to it: PLANE TOUCHDOWN NORMAL VELOCITY, derived
+	// when the trip loads (analyzeContacts()); NaN when it can't be.
+	double touchdownRate = std::nan("");
 };
 
 // One discrete cockpit event (gear/flaps/spoilers/etc. toggled) logged during

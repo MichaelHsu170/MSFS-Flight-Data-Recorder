@@ -104,7 +104,9 @@ std::string trip_data_insert() {
 // after analysis_report are the used end's facility data (RUNWAY_OPERATION),
 // NULL without a matched runway or for a contact recorded before they were
 // added: length, width and displaced threshold in ft, its physical start,
-// exact true heading, and slope in degrees.
+// exact true heading, and slope in degrees. velocity_world_y is the actual
+// vertical speed (ft/min) at the contact, beside the indicated vertical_speed;
+// NULL for a contact recorded before it was added.
 std::string contact_table_fields(CONTACT_TABLE table) {
 	return std::string(
 		"id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,"
@@ -136,7 +138,8 @@ std::string contact_table_fields(CONTACT_TABLE table) {
 		"runway_start_latitude REAL,"
 		"runway_start_longitude REAL,"
 		"runway_true_heading REAL,"
-		"runway_slope REAL";
+		"runway_slope REAL,"
+		"velocity_world_y INTEGER";
 }
 
 struct TableDef {
@@ -389,8 +392,8 @@ int db_insert_contact(STATUS* status, CONTACT_TABLE table, int trip_id, const FL
 	const std::string stmt_txt = std::string("INSERT INTO ") + contactTableName(table)
 		+ " (trip,airspeed_indicated,vertical_speed," + (touchdown ? "g_force," : "")
 		+ "plane_pitch_degrees,plane_bank_degrees,heading_indicator,plane_latitude,plane_longitude,"
-		  "wind_direction,wind_velocity,time_zulu,time_local"
-		  ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?" + (touchdown ? ",?" : "") + ");";
+		  "wind_direction,wind_velocity,time_zulu,time_local,velocity_world_y"
+		  ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?" + (touchdown ? ",?" : "") + ");";
 	int row_id = -1;
 	db_insert_update_table(status, stmt_txt.c_str(),
 		[&](sqlite3_stmt* stmt, const char* stmt_txt) {
@@ -409,6 +412,7 @@ int db_insert_contact(STATUS* status, CONTACT_TABLE table, int trip_id, const FL
 			db_bind(stmt, stmt_txt, index++, data.wind_velocity);
 			db_bind(stmt, stmt_txt, index++, data.time_zulu.format_date_time().c_str());
 			db_bind(stmt, stmt_txt, index++, data.time_local.format_date_time().c_str());
+			db_bind(stmt, stmt_txt, index++, data.velocity_world_y);
 		},
 		&row_id);
 	return row_id;

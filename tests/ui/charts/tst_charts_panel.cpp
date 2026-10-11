@@ -52,7 +52,9 @@ TripSamplePoint samplePoint(double base, const QString& zulu) {
 	TripSamplePoint p;
 	p.zuluTime = zulu;
 	setPower(p, 1, TRIP_ENGINE_turb_eng_n1, TRIP_ENGINE_turb_eng_n2, { { base, base }, { base, base } });
-	p.verticalSpeed = base; p.airspeed = base; p.groundSpeed = base; p.altitude = base;
+	p.rawNums.assign(TRIP_NUM_FIELD_COUNT, std::nan(""));
+	p.rawNums[TRIP_NUM_velocity_world_y] = base;
+	p.airspeed = base; p.groundSpeed = base; p.altitude = base;
 	p.fuelTotalQuantityWeight = base; p.pitchDegrees = base; p.bankDegrees = base;
 	return p;
 }

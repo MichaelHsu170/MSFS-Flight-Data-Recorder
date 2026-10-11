@@ -172,7 +172,6 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	const int idxAltitude = indexOf("plane_altitude");
 	const int idxGroundSpeed = indexOf("ground_velocity");
 	const int idxAirspeed = indexOf("airspeed_indicated");
-	const int idxVerticalSpeed = indexOf("vertical_speed");
 	const int idxId = indexOf("id");
 	const int idxEngineType = indexOf("engine_type");
 	const int idxBrakeIndicator = indexOf("brake_indicator");
@@ -212,7 +211,6 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 		point.altitude = colInt(idxAltitude);
 		point.groundSpeed = colInt(idxGroundSpeed);
 		point.airspeed = colInt(idxAirspeed);
-		point.verticalSpeed = colInt(idxVerticalSpeed);
 		point.engineType = colInt(idxEngineType);
 		point.brakeIndicator = colInt(idxBrakeIndicator);
 		point.flapsHandleIndex = colDouble(idxFlapsHandleIndex);
@@ -245,7 +243,7 @@ TripDataset queryTripData(sqlite3* sql, int tripId) {
 	"distance_length, distance_width, distance_length_percent, distance_width_percent, " \
 	"wind_direction, wind_velocity, time_zulu, time_local, analysis_report, " \
 	"runway_length, runway_width, threshold_offset, runway_start_latitude, runway_start_longitude, " \
-	"runway_true_heading, runway_slope"
+	"runway_true_heading, runway_slope, velocity_world_y"
 
 namespace {
 
@@ -290,6 +288,7 @@ void readContactPoint(sqlite3_stmt* stmt, RunwayContactPoint& point) {
 	runway.startLongitude       = columnDouble(stmt, 25);
 	runway.trueHeading          = columnDouble(stmt, 26);
 	runway.slopeDegrees         = columnDouble(stmt, 27);
+	point.actualVerticalSpeed   = columnDouble(stmt, 28);
 }
 
 }

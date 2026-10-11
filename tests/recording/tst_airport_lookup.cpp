@@ -134,6 +134,7 @@ private slots:
 		QVERIFY(FakeSim::state().facilitiesListRequests.empty());
 		sim.record.airspeed_indicated = 150;
 		sim.record.vertical_speed = 500;
+		sim.record.velocity_world_y = 620;
 		sim.record.plane_pitch_degrees = -8; // stored as +8 (nose up)
 		sim.record.ambient_wind_direction = 270;
 		sim.record.ambient_wind_velocity = 12;
@@ -143,6 +144,7 @@ private slots:
 		QCOMPARE(rows.size(), 1);
 		QCOMPARE(rows[0]["airspeed_indicated"].toInt(), 150);
 		QCOMPARE(rows[0]["vertical_speed"].toInt(), 500);
+		QCOMPARE(rows[0]["velocity_world_y"].toInt(), 620);
 		QCOMPARE(rows[0]["plane_pitch_degrees"].toDouble(), 8.0);
 		QCOMPARE(rows[0]["heading_indicator"].toInt(), 90);
 		QCOMPARE(rows[0]["wind_direction"].toInt(), 270);
@@ -570,6 +572,7 @@ private slots:
 		sim.ticks(10);
 		sim.record.airspeed_indicated = 130;
 		sim.record.vertical_speed = -180;
+		sim.record.velocity_world_y = -230;
 		sim.record.g_force = 1.3;
 		const COORDINATE tdz = pointOnRunway(rwy, 450);
 		touchDown(sim, tdz);
@@ -577,6 +580,7 @@ private slots:
 		QCOMPARE(rows.size(), 1);
 		QCOMPARE(rows[0]["airspeed_indicated"].toInt(), 130);
 		QCOMPARE(rows[0]["vertical_speed"].toInt(), -180);
+		QCOMPARE(rows[0]["velocity_world_y"].toInt(), -230);
 		QCOMPARE(rows[0]["g_force"].toDouble(), 1.3);
 		const QVariantMap before = tripRow(tripId);
 		QCOMPARE(before["destination_latitude"].toDouble(), tdz.latitude);

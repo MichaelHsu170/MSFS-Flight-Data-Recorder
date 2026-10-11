@@ -159,7 +159,8 @@ inline QString tripFieldLabel(const char* name) {
 	X(electrical_battery_voltage, electrical_battery_voltage, REAL) \
 	X(ambient_precip_state, ambient_precip_state, INTEGER) \
 	X(ambient_precip_rate, ambient_precip_rate, REAL) \
-	X(sea_level_pressure, sea_level_pressure, REAL)
+	X(sea_level_pressure, sea_level_pressure, REAL) \
+	X(velocity_world_y, velocity_world_y, INTEGER)
 
 #define TRIP_DATA_BOOL_FIELDS(X) \
 	X(autopilot_airspeed_hold, 1, 0) \

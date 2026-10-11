@@ -17,6 +17,7 @@ static void fill_contact_flight_data(FLIGHT_DATA& data, const FLIGHT_DATA_RECORD
 	data.bank = sample.plane_bank_degrees;
 	data.speed = (int)sample.airspeed_indicated;
 	data.vertical_speed = (int)sample.vertical_speed;
+	data.velocity_world_y = (int)sample.velocity_world_y;
 	data.g_force = sample.g_force;
 	data.wind_direction = (int)sample.ambient_wind_direction;
 	data.wind_velocity = (int)sample.ambient_wind_velocity;

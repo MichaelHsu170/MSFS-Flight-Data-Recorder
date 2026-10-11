@@ -146,6 +146,24 @@ private slots:
 		QCOMPARE(o.size(), 22);
 	}
 
+	// The actual vertical speed and a touchdown's rate are sent when known.
+	void contactsCarryTheActualVerticalSpeedAndTouchdownRateWhenKnown() {
+		TouchdownPoint td;
+		fillRunwayContact(td);
+		td.actualVerticalSpeed = -95;
+		td.touchdownRate = 262.5;
+		const QJsonObject o = argumentOf(mapSetTouchdownsJs({ td }), QStringLiteral("setTouchdowns")).array().at(0).toObject();
+		QCOMPARE(o["actualVerticalSpeed"].toDouble(), -95.0);
+		QCOMPARE(o["touchdownRate"].toDouble(), 262.5);
+		QCOMPARE(o["verticalSpeed"].toDouble(), -120.0);  // the indicated one, still sent
+
+		LiftoffPoint lo;
+		fillRunwayContact(lo);
+		lo.actualVerticalSpeed = 0;  // known: 0 is sent, not left out
+		const QJsonObject l = argumentOf(mapSetLiftoffsJs({ lo }), QStringLiteral("setLiftoffs")).array().at(0).toObject();
+		QCOMPARE(l["actualVerticalSpeed"], QJsonValue(0.0));
+	}
+
 	// A contact with a sample also carries its conditions, each value only
 	// when known (no NaN reaches the page).
 	void contactsWithASampleCarryConditions() {
@@ -186,8 +204,11 @@ private slots:
 		contactProfile.series = { last };
 		contactProfile.highestTerrainFt = 420;
 		const QJsonObject profile = mapProfileJson(contactProfile);
-		QCOMPARE(profile.keys(), QStringList({ "gates", "highestTerrainFt", "series" }));
+		QCOMPARE(profile.keys(), QStringList({ "gates", "highestTerrainFt", "indicatedVerticalSpeed", "series" }));
 		QCOMPARE(profile["highestTerrainFt"].toDouble(), 420.0);
+		QCOMPARE(profile["indicatedVerticalSpeed"].toBool(), false);
+		contactProfile.indicatedVerticalSpeed = true;
+		QCOMPARE(mapProfileJson(contactProfile)["indicatedVerticalSpeed"].toBool(), true);
 		const QJsonObject g = profile["gates"].toArray().at(0).toObject();
 		QCOMPARE(g.keys(), QStringList({ "gate", "heightFt", "onGround", "seconds" }));
 		QCOMPARE(g["gate"].toString(), QStringLiteral("500 ft"));

@@ -298,6 +298,7 @@ enum DATA_REQUEST_ID {
 	NUM(plane_touchdown_normal_velocity, "PLANE TOUCHDOWN NORMAL VELOCITY", "Feet per minute") \
 	NUM(plane_touchdown_pitch_degrees, "PLANE TOUCHDOWN PITCH DEGREES", "Degrees") \
 	NUM(vertical_speed, "VERTICAL SPEED", "Feet per minute") \
+	NUM(velocity_world_y, "VELOCITY WORLD Y", "Feet per minute") \
 	NUM(airspeed_indicated, "AIRSPEED INDICATED", "Knots") \
 	NUM(airspeed_mach, "AIRSPEED MACH", "Mach") \
 	NUM(airspeed_true, "AIRSPEED TRUE", "Knots") \

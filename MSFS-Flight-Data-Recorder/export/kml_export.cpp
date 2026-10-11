@@ -58,12 +58,13 @@ QString magneticTrueLabel(double magnetic, double trueHeading) {
 	return parts.join(QStringLiteral(", "));
 }
 
-// A liftoff or touchdown placemark's description. gForceRow (touchdowns only)
-// goes right after V/S. The same rows, in the same order and format, as the
-// map's marker popup (runwayContactPopupHtml() in ui/map/map.html), which
-// adds a Coordinate row; keep the two in step (tst_map_widget's
-// touchdownPopupMatchesTheKmlDescription checks it).
-QString runwayContactDescription(const RunwayContactPoint& t, const QString& gForceRow = QString()) {
+// A liftoff or touchdown placemark's description. touchdownRows (touchdowns
+// only: the touchdown rate and G-Force) go right after V/S. The same rows, in
+// the same order and format, as the map's marker popup
+// (runwayContactPopupHtml() in ui/map/map.html), which adds a Coordinate row;
+// keep the two in step (tst_map_widget's touchdownPopupMatchesTheKmlDescription
+// checks it).
+QString runwayContactDescription(const RunwayContactPoint& t, const QString& touchdownRows = QString()) {
 	QString html;
 	const QString airport = airportLabel(t.icao, t.airportName);
 	if (!airport.isEmpty())
@@ -74,8 +75,12 @@ QString runwayContactDescription(const RunwayContactPoint& t, const QString& gFo
 		html += descRow(QStringLiteral("Runway"), rwy);
 	}
 	html += descRow(QStringLiteral("Airspeed"), QStringLiteral("%1 kt").arg(t.airspeed));
-	html += descRow(QStringLiteral("V/S"), QStringLiteral("%1 ft/min").arg(t.verticalSpeed));
-	html += gForceRow;
+	// The actual vertical speed, or the indicated one (which lags it) for a
+	// contact recorded before it was stored (map.html's contactVerticalSpeedLabel()).
+	html += descRow(QStringLiteral("V/S"), std::isnan(t.actualVerticalSpeed)
+		? QStringLiteral("%1 ft/min (indicated)").arg(t.verticalSpeed)
+		: QStringLiteral("%1 ft/min").arg(qRound(t.actualVerticalSpeed)));
+	html += touchdownRows;
 	html += descRow(QStringLiteral("Pitch"), QStringLiteral("%1°").arg(t.pitchDegrees, 0, 'f', 1));
 	html += descRow(QStringLiteral("Bank"), QStringLiteral("%1°").arg(t.bankDegrees, 0, 'f', 1));
 	// The stored magnetic heading, then in brackets the true one from the
@@ -231,7 +236,9 @@ QString buildTripKml(const TripDataset& dataset) {
 		for (const TouchdownPoint& t : dataset.touchdowns)
 			appendPointPlacemark(kml, QStringLiteral("Touchdown"), QStringLiteral("#touchdownStyle"),
 				t.zuluTime, runwayContactDescription(t,
-					descRow(QStringLiteral("G-Force"), QStringLiteral("%1 G").arg(t.gForce, 0, 'f', 2))), t.longitude, t.latitude);
+					(std::isnan(t.touchdownRate) ? QString()
+						: descRow(QStringLiteral("Touchdown rate"), QStringLiteral("%1 ft/min").arg(qRound(t.touchdownRate))))
+					+ descRow(QStringLiteral("G-Force"), QStringLiteral("%1 G").arg(t.gForce, 0, 'f', 2))), t.longitude, t.latitude);
 		kml += QStringLiteral("</Folder>\n");
 	}
 

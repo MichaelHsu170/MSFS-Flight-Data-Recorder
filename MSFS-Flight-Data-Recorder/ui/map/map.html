@@ -278,6 +278,20 @@ function contactCrabLabel(t) {
     return degrees === 0 ? '0°' : degrees + '° ' + (t.conditions.crabAngle > 0 ? 'R' : 'L');
 }
 
+// The contact's vertical speed as "-412 ft/min": the actual one, or for a
+// contact recorded before it was stored the indicated one, which lags it,
+// as "-339 ft/min (indicated)".
+function contactVerticalSpeedLabel(t) {
+    return hasValue(t, 'actualVerticalSpeed') ? roundHalfAwayFromZero(t.actualVerticalSpeed) + ' ft/min'
+        : t.verticalSpeed + ' ft/min (indicated)';
+}
+
+// A touchdown's touchdown rate (trip_dataset.h's TouchdownPoint) as
+// "510 ft/min"; empty when unknown.
+function touchdownRateLabel(t) {
+    return hasValue(t, 'touchdownRate') ? roundHalfAwayFromZero(t.touchdownRate) + ' ft/min' : '';
+}
+
 // The light the sun's elevation gives: day while any of the sun is above the
 // horizon (-0.833° allows for refraction and its radius), then the civil,
 // nautical and astronomical twilight bands.
@@ -433,6 +447,7 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
     function any(key) { return points.some(function(p) { return p[key] !== undefined; }); }
     var powerName = profile.powerName;
     var lines = [title + ' (seconds from the ' + pointName + (any('onGround') ? '; on ground/airborne = as the simulator reports it' : '') + '; height = altitude above the ' + pointName + ', not radio height; distance = to the ' + pointName + '; terrain = ground below relative to the ' + pointName
+        + (any('verticalSpeed') ? (profile.indicatedVerticalSpeed ? '; V/S = indicated vertical speed, which lags the actual rate' : '; V/S = actual vertical speed') : '')
         + (any('thresholdFt') ? '; threshold = along the runway from the ' + thresholdName + ', negative = before it; centerline = from the extended runway centerline' : '')
         + (any('throttle') ? '; throttle = throttle lever position per engine (engine 1 first, ? = not recorded) as the aircraft reports it, negative = reverse range' : '')
         + (powerName && any('power') ? '; ' + powerName + ' = per engine' : '') + '):'];
@@ -538,12 +553,14 @@ function buildTouchdownPrompt(t) {
         'Final segment', 'stability at the gates (speed, sink rate, path angle, alignment), and technique through the flare, decrab, touchdown and rollout, including any bounce',
         'how the conditions, airport, runway and terrain affected this landing',
         'Landing data:', t, aircraft);
-    lines.push('  Vertical speed: ' + t.verticalSpeed + ' ft/min');
+    lines.push('  Vertical speed: ' + contactVerticalSpeedLabel(t) + (hasValue(t, 'actualVerticalSpeed') ? '' : ', which lags the actual rate'));
+    if (touchdownRateLabel(t))
+        lines.push('  Touchdown rate: ' + touchdownRateLabel(t) + ' (the sink rate perpendicular to the runway surface as the wheels touched, as the simulator measured it)');
     lines.push('  G-force: ' + Number(t.gForce).toFixed(2) + ' G');
     lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold', 'landing distance available',
         profilePromptLines(t, 'Final trajectory', 'Final segment', 'touchdown point', 'from 15 s before to 10 s after the touchdown', 'before the touchdown', 'marked threshold'),
-        'Consider: vertical speed & G-force comfort, crosswind component (calculate from the true wind vs the true runway heading), decrab at touchdown (crab angle), centerline tracking, touchdown zone placement and the runway remaining, runway slope, stabilization at the gates, flare technique, density altitude, runway surface condition, gusts, light and visibility, terrain before the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
+        'Consider: touchdown rate, vertical speed & G-force comfort, crosswind component (calculate from the true wind vs the true runway heading), decrab at touchdown (crab angle), centerline tracking, touchdown zone placement and the runway remaining, runway slope, stabilization at the gates, flare technique, density altitude, runway surface condition, gusts, light and visibility, terrain before the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
         'landing');
 }
 
@@ -987,7 +1004,8 @@ function renderStoredReport(id, report) {
 }
 
 // A liftoff or touchdown marker's popup: the details on the left, AI
-// analysis on the right. gForceText (touchdowns only) goes after V/S;
+// analysis on the right. gForceText (touchdowns only) goes after V/S and
+// the touchdown rate;
 // analyzeFn is the global function the Analyze button calls with id.
 // The details are the same rows, in the same order and format, as the KML
 // export's placemark description (runwayContactDescription() in
@@ -1009,7 +1027,8 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
 
     leftHtml += div;
     leftHtml += row('Airspeed', t.airspeed + ' kt');
-    leftHtml += row('V/S', t.verticalSpeed + ' ft/min');
+    leftHtml += row('V/S', contactVerticalSpeedLabel(t));
+    if (touchdownRateLabel(t)) leftHtml += row('Touchdown rate', touchdownRateLabel(t));
     if (gForceText) leftHtml += row('G-Force', gForceText);
     leftHtml += row('Pitch', Number(t.pitchDegrees).toFixed(1) + '°');
     leftHtml += row('Bank', Number(t.bankDegrees).toFixed(1) + '°');

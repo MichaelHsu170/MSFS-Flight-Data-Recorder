@@ -23,6 +23,11 @@ std::array<ChartSeriesDef, CHART_SERIES_COUNT> makeChartSeries() {
 	return series;
 }
 
+// A value not recorded (NaN) charts as 0.
+double chartValue(double raw) {
+	return std::isnan(raw) ? 0.0 : raw;
+}
+
 }
 
 const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES = makeChartSeries();
@@ -30,16 +35,12 @@ const std::array<ChartSeriesDef, CHART_SERIES_COUNT> CHART_SERIES = makeChartSer
 ChartValues chartValues(const TripSamplePoint& p) {
 	ChartValues v{};
 	if (const EnginePowerSpec* spec = enginePowerSpec(p.engineType)) {
-		const auto value = [&p](int engine, TripEngineField field) {
-			const double raw = p.engineValue(engine, field);
-			return std::isnan(raw) ? 0.0 : raw;
-		};
 		for (int i = 0; i < std::min(p.engineCount(), SIM_ENGINE_INDEXES); ++i) {
-			v[CHART_ENG_N1_1 + i] = value(i + 1, spec->n1Field);
-			v[CHART_ENG_N2_1 + i] = value(i + 1, spec->n2Field);
+			v[CHART_ENG_N1_1 + i] = chartValue(p.engineValue(i + 1, spec->n1Field));
+			v[CHART_ENG_N2_1 + i] = chartValue(p.engineValue(i + 1, spec->n2Field));
 		}
 	}
-	v[CHART_VERTICAL_SPEED] = p.verticalSpeed;
+	v[CHART_VERTICAL_SPEED] = chartValue(p.verticalSpeed());
 	v[CHART_AIRSPEED] = p.airspeed;
 	v[CHART_GROUND_SPEED] = p.groundSpeed;
 	v[CHART_ALTITUDE] = p.altitude;

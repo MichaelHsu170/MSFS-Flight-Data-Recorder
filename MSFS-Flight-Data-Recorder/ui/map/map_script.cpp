@@ -103,6 +103,7 @@ QJsonObject runwayContactToJson(const RunwayContactPoint& t) {
 	obj["runwayHeading"] = t.runwayHeading;
 	obj["airspeed"] = t.airspeed;
 	obj["verticalSpeed"] = t.verticalSpeed;
+	setKnown(obj, "actualVerticalSpeed", t.actualVerticalSpeed);
 	obj["pitchDegrees"] = t.pitchDegrees;
 	obj["bankDegrees"] = t.bankDegrees;
 	obj["headingDegrees"] = t.headingDegrees;
@@ -137,6 +138,7 @@ QJsonObject mapProfileJson(const ContactProfile& profile) {
 	setKnown(obj, "highestTerrainNm", profile.highestTerrainNm);
 	setKnown(obj, "powerName", profile.powerName);
 	setKnown(obj, "powerUnit", profile.powerUnit);
+	obj["indicatedVerticalSpeed"] = profile.indicatedVerticalSpeed;
 	return obj;
 }
 
@@ -176,6 +178,7 @@ QString mapSetTouchdownsJs(const std::vector<TouchdownPoint>& touchdowns) {
 	for (const TouchdownPoint& t : touchdowns) {
 		QJsonObject obj = runwayContactToJson(t);
 		obj["gForce"] = t.gForce;
+		setKnown(obj, "touchdownRate", t.touchdownRate);
 		arr.append(obj);
 	}
 	return call("setTouchdowns", QJsonDocument(arr));

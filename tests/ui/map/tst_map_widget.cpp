@@ -110,7 +110,7 @@ QString fullContactJs() {
 	return QStringLiteral(R"js({icao: 'OEMA', airportName: 'Prince Mohammad bin Abdulaziz', runway: '34C', runwayHeading: 340,
 		lat: 24.5528, lng: 39.7051, airspeed: 135, verticalSpeed: -180, pitchDegrees: 3.2, bankDegrees: -1.4,
 		headingDegrees: 334, distanceLength: 1250, distanceWidth: -5.6, distanceLengthPercent: 0.11, distanceWidthPercent: -0.12,
-		windDirection: 299, windVelocity: 12, gForce: 1.21,
+		windDirection: 299, windVelocity: 12, gForce: 1.21, actualVerticalSpeed: -95.4, touchdownRate: 262.5,
 		runwayLengthFt: 10000.4, runwayWidthFt: 150.4, thresholdOffsetFt: 820.4, runwaySlope: -0.314,
 		zuluTime: '2026-06-21T00:00:00.000+00:00_1', localTime: '2026-06-21T03:00:00.000+03:00_1',
 		conditions: {headingTrue: 338.4, trackTrue: 340.6, magneticVariation: 4.4, crabAngle: -2.2, runwayHeadingMagnetic: 336,
@@ -124,7 +124,8 @@ QString fullContactJs() {
 					verticalSpeed: -702.6, pitch: 2.04, bank: -1.26, headingTrue: 338.4, trackTrue: 340.6,
 					thresholdFt: -8640.4, centerlineFt: -12.6},
 				{gate: '1 nm', seconds: -27, heightFt: 318.4, distanceNm: 1.0, pathAngle: 3.04}],
-			series: [{seconds: -0.5, heightFt: 2.4, terrainFt: 30.4}], highestTerrainFt: 612.4, highestTerrainNm: 4.2}})js");
+			series: [{seconds: -0.5, heightFt: 2.4, terrainFt: 30.4}], highestTerrainFt: 612.4, highestTerrainNm: 4.2,
+			indicatedVerticalSpeed: false}})js");
 }
 
 }
@@ -783,6 +784,8 @@ private slots:
 	// line per recorded value, every heading marked true or magnetic.
 	void touchdownPromptCarriesConditionsAndTrajectory() {
 		QCOMPARE(touchdownPromptLacks(QString(), QStringLiteral(R"js([
+				'  Vertical speed: -95 ft/min',
+				'  Touchdown rate: 263 ft/min (the sink rate perpendicular to the runway surface as the wheels touched, as the simulator measured it)',
 				'  Heading: 334° magnetic (338° true); ground track 341° true; crab 2.2° (nose left of the track)',
 				'  Wind: 299° true at 12 kt',
 				'  Runway: 10000 ft long, 150 ft wide, threshold displaced 820 ft at this end, slope 0.31° downhill in the direction of travel',
@@ -800,7 +803,7 @@ private slots:
 				'  Precipitation: rain, rate 2.5 mm of water',
 				'  Wind over the 30 s before the contact: 8-15 kt, direction 350° to 20° true (clockwise)',
 				'  Surface under the aircraft: asphalt, wet',
-				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):',
+				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; V/S = actual vertical speed; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):',
 				'  Gates:',
 				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft left',
 				'    1 nm: -27.0 s, height 318 ft, 1.00 nm, path angle 3.0° from here',
@@ -808,6 +811,40 @@ private slots:
 				'    -0.5 s, height 2 ft, terrain +30 ft',
 				'  Highest terrain within 5 nm before the touchdown: +612 ft, 4.20 nm from the touchdown point (more than 500 ft above it)'
 			])js")), QStringList());
+	}
+
+	// A contact recorded before the actual vertical speed was stored has the
+	// indicated one, which lags it, and says so; the trajectory's header names
+	// which one its points carry. Without a touchdown rate, no line for it.
+	void promptMarksAnIndicatedVerticalSpeed() {
+		QCOMPARE(touchdownPromptLacks(QStringLiteral(
+			"delete t.actualVerticalSpeed; delete t.touchdownRate; t.profile.indicatedVerticalSpeed = true;"),
+			QStringLiteral(R"js([
+				'  Vertical speed: -180 ft/min (indicated), which lags the actual rate',
+				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; V/S = indicated vertical speed, which lags the actual rate; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):'
+			])js")), QStringList());
+		QCOMPARE(evalPageJs(widget_, QStringLiteral("(function () { var t = %1; delete t.touchdownRate;"
+			"  return /Touchdown rate:/.test(buildTouchdownPrompt(t)); })()").arg(fullContactJs())).toBool(), false);
+	}
+
+	// The popup's V/S is the actual vertical speed, or for a contact recorded
+	// before it was stored the indicated one, marked; a touchdown rate row
+	// only when known.
+	void popupVerticalSpeedIsTheActualOrMarkedIndicated() {
+		const QString js = QStringLiteral(
+			"(function (extra) { var t = {icao: '', runway: '', runwayHeading: -1, lat: 1, lng: 2, airspeed: 140,"
+			"    verticalSpeed: -339, pitchDegrees: 0, bankDegrees: 0, headingDegrees: 334, distanceLength: 0, distanceWidth: 0,"
+			"    distanceLengthPercent: 0, distanceWidthPercent: 0, windDirection: 299, windVelocity: 12, zuluTime: 'z'};"
+			"  Object.assign(t, extra);"
+			"  var d = document.createElement('div');"
+			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Touchdown', null, 'f', 'L').html;"
+			"  return Array.prototype.map.call(d.querySelectorAll('.td-row'), function (r) {"
+			"    return r.querySelector('.td-key').textContent + ': ' + r.querySelector('.td-val').textContent; })"
+			"    .filter(function (r) { return /^(V\\/S|Touchdown rate):/.test(r); }).join('|'); })(%1)");
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{}"))).toString(), QStringLiteral("V/S: -339 ft/min (indicated)"));
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{actualVerticalSpeed: -412.5, touchdownRate: 509.6}"))).toString(),
+			QStringLiteral("V/S: -413 ft/min|Touchdown rate: 510 ft/min"));
+		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("{actualVerticalSpeed: 0}"))).toString(), QStringLiteral("V/S: 0 ft/min"));
 	}
 
 	// Each point says whether the aircraft was on the ground and, when
@@ -1056,6 +1093,8 @@ private slots:
 		td.runwayHeading = 270;
 		td.airspeed = 135;
 		td.verticalSpeed = -180;
+		td.actualVerticalSpeed = -182.5;  // halves again
+		td.touchdownRate = 262.5;
 		td.gForce = 1.234;
 		td.pitchDegrees = 3.24;
 		td.bankDegrees = -1.46;
@@ -1096,6 +1135,8 @@ private slots:
 		QVERIFY2(popup.contains(QStringLiteral("Runway: 27L (268° M, 270° T)")), qPrintable(popup.join('|')));
 		QVERIFY2(popup.contains(QStringLiteral("Heading: 271° M (269° T)")), qPrintable(popup.join('|')));
 		QVERIFY2(popup.contains(QStringLiteral("Crab: 3° L")), qPrintable(popup.join('|')));
+		QVERIFY2(popup.contains(QStringLiteral("V/S: -183 ft/min")), qPrintable(popup.join('|')));
+		QVERIFY2(popup.contains(QStringLiteral("Touchdown rate: 263 ft/min")), qPrintable(popup.join('|')));
 
 		QTemporaryDir dir;
 		const QString path = dir.filePath(QStringLiteral("trip.kml"));

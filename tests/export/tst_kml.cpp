@@ -41,6 +41,7 @@ TripDataset fullDataset() {
 	lo.runwayHeading = 91;
 	lo.airspeed = 150;
 	lo.verticalSpeed = 500;
+	lo.actualVerticalSpeed = 519.6;
 	lo.pitchDegrees = 8.5;
 	lo.bankDegrees = -1.5;
 	lo.headingDegrees = 92;
@@ -62,6 +63,7 @@ TripDataset fullDataset() {
 	td.airspeed = 130;
 	td.verticalSpeed = -180;
 	td.gForce = 1.3;
+	td.touchdownRate = 262.5;
 	td.distanceLength = -164;
 	td.distanceWidth = -3.2;
 	td.distanceLengthPercent = -0.02;
@@ -142,7 +144,7 @@ private slots:
 		QVERIFY(kml.contains("<Placemark><name>Liftoff</name><description>"));
 		QVERIFY(kml.contains("<TimeStamp><when>2026-01-02T10:00:00.000Z</when></TimeStamp><styleUrl>#liftoffStyle</styleUrl><Point>"));
 		for (const char* row : { "<b>Airport:</b> TEST (Test Field)<br/>", "<b>Runway:</b> 09 (91° T)<br/>", "<b>Airspeed:</b> 150 kt<br/>",
-				"<b>V/S:</b> 500 ft/min<br/>", "<b>Pitch:</b> 8.5°<br/>", "<b>Bank:</b> -1.5°<br/>", "<b>Heading:</b> 92° M<br/>",
+				"<b>V/S:</b> 520 ft/min<br/>", "<b>Pitch:</b> 8.5°<br/>", "<b>Bank:</b> -1.5°<br/>", "<b>Heading:</b> 92° M<br/>",
 				"<b>Threshold:</b> 5906 ft (60%)<br/>", "<b>Centerline:</b> 10 ft R (14%)<br/>", "<b>Wind:</b> 270° T / 12 kt<br/>",
 				"<b>Zulu:</b> 2026-01-02T10:00:00.000+00:00_5<br/>", "<b>Local:</b> 2026-01-02T11:00:00.000+01:00_5<br/>" })
 			QVERIFY2(kml.contains(QString::fromUtf8(row)), row);
@@ -152,9 +154,15 @@ private slots:
 	void touchdownPlacemark() {
 		const QString kml = exportToString(fullDataset());
 		for (const char* row : { "<b>Airport:</b> DEST<br/>", "<b>Runway:</b> 27<br/>", "<b>G-Force:</b> 1.30 G<br/>",
+				"<b>V/S:</b> -180 ft/min (indicated)<br/>", "<b>Touchdown rate:</b> 263 ft/min<br/>",
 				"<b>Threshold:</b> -164 ft (-2%)<br/>", "<b>Centerline:</b> 3 ft L (4%)<br/>" })
 			QVERIFY2(kml.contains(QString::fromUtf8(row)), row);
 		QVERIFY(!kml.contains("<b>Local:</b> <br/>"));
+		// A liftoff has no touchdown rate; a touchdown without one, no row.
+		QCOMPARE(kml.count(QStringLiteral("<b>Touchdown rate:</b>")), 1);
+		TripDataset dataset = fullDataset();
+		dataset.touchdowns[0].touchdownRate = std::nan("");
+		QVERIFY(!exportToString(dataset).contains(QStringLiteral("<b>Touchdown rate:</b>")));
 	}
 
 	// With the contact's sample the heading shows magnetic, then true in
