@@ -462,7 +462,7 @@ void flight_on_sample(struct STATUS* status, const FLIGHT_DATA_RECORD& tmp) {
 	status->data.altitude = (int)tmp.plane_altitude;
 	status->data.heading = (int)tmp.plane_heading_degrees_magnetic;
 	status->data.speed = (int)tmp.airspeed_indicated;
-	status->data.vertical_speed = (int)tmp.vertical_speed;
+	status->data.velocity_world_y = (int)tmp.velocity_world_y;
 	status->data.bank = tmp.plane_bank_degrees;
 	status->data.pitch = tmp.plane_pitch_degrees;
 	status->data.g_force = tmp.g_force;

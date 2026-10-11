@@ -374,14 +374,15 @@ private slots:
 		QSignalSpy updated(&sim.bridge(), &RecorderBridge::sampleUpdated);
 		sim.record.plane_altitude = 1234.7;
 		sim.record.airspeed_indicated = 140.9;
-		sim.record.vertical_speed = -700;
+		sim.record.vertical_speed = -300;
+		sim.record.velocity_world_y = -700;
 		sim.startTrip();
 		QCOMPARE(updated.count(), 1);
 		const FLIGHT_DATA& data = sim.bridge().currentData();
 		QCOMPARE(data.altitude, 1234);
 		QCOMPARE(data.speed, 140);
 		QCOMPARE(data.heading, 90);
-		QCOMPARE(data.vertical_speed, -700);
+		QCOMPARE(data.velocity_world_y, -700); // the actual one, not the indicated
 	}
 
 	void currentDataUpdatesEvenWithoutATrip() {

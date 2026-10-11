@@ -325,6 +325,6 @@ void LiveStatusPanel::onSampleUpdated() {
 		QString::number(sample.altitude),
 		QString::number(sample.heading),
 		QString::number(sample.speed),
-		QString::number(sample.vertical_speed)));
+		QString::number(sample.velocity_world_y)));
 }
 

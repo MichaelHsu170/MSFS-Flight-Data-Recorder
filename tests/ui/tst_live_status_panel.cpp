@@ -276,7 +276,8 @@ private slots:
 		QVERIFY(labelWithText(panel, "Alt - ft | Hdg -° | Spd - kt | V/S - ft/min"));
 		sim.record.plane_altitude = 1234;
 		sim.record.airspeed_indicated = 140;
-		sim.record.vertical_speed = -700;
+		sim.record.vertical_speed = -300; // indicated, not shown
+		sim.record.velocity_world_y = -700;
 		sim.startTrip();
 		QVERIFY(labelWithText(panel, QString::fromUtf8("Alt 1234 ft | Hdg 90° | Spd 140 kt | V/S -700 ft/min")));
 	}
