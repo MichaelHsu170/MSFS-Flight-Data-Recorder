@@ -593,6 +593,27 @@ private slots:
 		QCOMPARE(queryValue(count).toInt(), 1);
 	}
 
+	// The same when an engine row's insert itself fails (not its prepare):
+	// engine 2's is refused after engine 1's went in, and neither the sample
+	// nor engine 1's row is kept.
+	void aSampleWhoseEngineRowInsertFailsIsRolledBack() {
+		FlightDriver sim;
+		const int tripId = sim.startTrip();
+		const QString count = QStringLiteral("SELECT COUNT(*) FROM trip_data WHERE trip = %1").arg(tripId);
+		QVERIFY(waitFor([&count] { return queryValue(count).toInt() == 1; }));
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_engine_data").toInt(), 2); // one per engine
+		QSignalSpy log(&sim.bridge(), &RecorderBridge::logMessage);
+		exec("CREATE TRIGGER refuse_engine_rows BEFORE INSERT ON trip_engine_data"
+			" WHEN NEW.engine = 2 BEGIN SELECT RAISE(ABORT, 'refused'); END");
+		sim.tick();
+		QVERIFY(waitFor([&log, tripId] {
+			return !lastLogWith(log, { QStringLiteral("db_write_worker"), QStringLiteral("trip %1").arg(tripId) }).isEmpty();
+		}));
+		sim.endTrip();
+		QCOMPARE(queryValue(count).toInt(), 1);
+		QCOMPARE(queryValue("SELECT COUNT(*) FROM trip_engine_data").toInt(), 2); // one per engine
+	}
+
 	// trip_engine_data refers to samples by trip_data's id, which VACUUM
 	// keeps: a trip's engine values still load after an earlier trip is
 	// deleted and the database vacuumed.

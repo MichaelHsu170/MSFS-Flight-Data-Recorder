@@ -252,6 +252,17 @@ static void db_bind_text_or_null(sqlite3_stmt* stmt, const char* stmt_txt, int i
 	check_bind(stmt_txt, sqlite3_bind_null(stmt, index));
 }
 
+// Steps a bound INSERT/UPDATE/DELETE to completion and resets it for its next
+// use (with db_error(); throws if the step failed). The reset's result isn't
+// checked: it repeats a failed step's error and is SQLITE_OK after
+// SQLITE_DONE.
+static void db_step_and_reset(sqlite3_stmt* stmt, const char* stmt_txt) {
+	const int step_ret = sqlite3_step(stmt);
+	sqlite3_reset(stmt);
+	if (step_ret != SQLITE_DONE)
+		db_error(stmt_txt, step_ret, NULL);
+}
+
 // Binds the statement's parameters (with db_bind(); may throw).
 using DbBinder = std::function<void(sqlite3_stmt* stmt, const char* stmt_txt)>;
 
@@ -278,20 +289,16 @@ static void db_insert_update_table(STATUS* status, const char* stmt_txt, const D
 		if (sql_ret)
 			db_error(stmt_txt, sql_ret, NULL);
 		bind(stmt, stmt_txt);
-		sql_ret = sqlite3_step(stmt);
-		if (sql_ret != SQLITE_DONE)
-			db_error(stmt_txt, sql_ret, NULL);
-		sql_ret = sqlite3_reset(stmt);
-		if (sql_ret)
-			db_error(stmt_txt, sql_ret, NULL);
+		db_step_and_reset(stmt, stmt_txt);
 		if (after)
 			after(sql, sqlite3_last_insert_rowid(sql));
 		sql_ret = sqlite3_exec(sql, "COMMIT TRANSACTION", NULL, NULL, &errmsg);
 		if (errmsg != NULL)
 			db_error(stmt_txt, 0, &errmsg);
 		// Only capture the rowid once the transaction is durably committed --
-		// reading it right after sqlite3_step() would give the caller a rowid
-		// for a row that a later reset/commit failure could still roll back.
+		// reading it right after the insert would give the caller a rowid for
+		// a row that a later failure (the after rows or the commit) could
+		// still roll back.
 		if (out_rowid)
 			*out_rowid = (int)sqlite3_last_insert_rowid(sql);
 		// The transaction is durably committed at this point, so a finalize
@@ -574,12 +581,7 @@ static void db_insert_engine_rows(sqlite3* sql, sqlite3_int64 sample, int trip_i
 			else db_bind(stmt, stmt_txt, index++, r.name[engine - 1]);
 			TRIP_ENGINE_FIELDS(TRIP_ENGINE_BIND)
 #undef TRIP_ENGINE_BIND
-			sql_ret = sqlite3_step(stmt);
-			if (sql_ret != SQLITE_DONE)
-				db_error(stmt_txt, sql_ret, NULL);
-			sql_ret = sqlite3_reset(stmt);
-			if (sql_ret)
-				db_error(stmt_txt, sql_ret, NULL);
+			db_step_and_reset(stmt, stmt_txt);
 		}
 	}
 	catch (...) {
