@@ -1,4 +1,5 @@
 #include "db.h"
+#include "db_query.h"
 #include "app_paths.h"
 #include "logger.h"
 #include "simconnect_defs.h"
@@ -741,6 +742,20 @@ static bool exec_sql(sqlite3* sql, const char* stmt_txt) {
 	return sqlite3_exec(sql, stmt_txt, nullptr, nullptr, nullptr) == SQLITE_OK;
 }
 
+// Runs a migration's body as one transaction (inTransaction(), which logs a
+// failed BEGIN or COMMIT with its reason). When body fails, error gets its
+// SQLite error, read before the rollback replaces it; when BEGIN or COMMIT
+// failed instead, error says so.
+static bool in_migration_transaction(sqlite3* sql, std::string& error, const std::function<bool()>& body) {
+	error = "transaction not committed";
+	return inTransaction(sql, QStringLiteral("Schema migration"), [&] {
+		if (body())
+			return true;
+		error = sqlite3_errmsg(sql);
+		return false;
+	});
+}
+
 // For each column in fields_def (comma-separated column definitions) that is
 // absent from table_name, run ALTER TABLE ADD COLUMN. False if the table's
 // columns couldn't be read or one couldn't be added (logged): every write
@@ -1088,24 +1103,25 @@ static bool migrate_trip_engine_data(sqlite3* sql, StepProgress& progress, const
 	const std::string create = "CREATE TABLE trip_data_new (" + definitions + ");";
 	bool stopped = false;
 	const auto keep_going = [&] { return !(stopped = cancelled && cancelled()); };
-	bool ok = exec_sql(sql, "BEGIN TRANSACTION;")
-		&& exec_sql(sql, create.c_str())
-		&& copy_rows_in_batches(sql, copy_stmts, [&](sqlite3_int64 copied, sqlite3_int64 total) {
-			progress.report(kRebuildCopy, (double)copied / total);
-			return keep_going();
-		})
-		&& exec_sql(sql, "DROP TABLE trip_data;"
-			"ALTER TABLE trip_data_new RENAME TO trip_data;");
-	if (ok) {
+	std::string error;
+	const bool ok = in_migration_transaction(sql, error, [&] {
+		const bool copied = exec_sql(sql, create.c_str())
+			&& copy_rows_in_batches(sql, copy_stmts, [&](sqlite3_int64 copied, sqlite3_int64 total) {
+				progress.report(kRebuildCopy, (double)copied / total);
+				return keep_going();
+			})
+			&& exec_sql(sql, "DROP TABLE trip_data;"
+				"ALTER TABLE trip_data_new RENAME TO trip_data;");
+		if (!copied)
+			return false;
 		progress.report(kRebuildDrop);
-		ok = keep_going() && exec_sql(sql, "COMMIT TRANSACTION;");
-	}
+		return keep_going();
+	});
 	if (!ok) {
 		if (stopped)
 			Logger::logf(Logger::Info, "DB", "Schema migration cancelled; trip_data left unchanged");
 		else
-			Logger::logf(Logger::Fatal, "DB", "Schema migration failed (%s); trip_data left unchanged", sqlite3_errmsg(sql));
-		exec_sql(sql, "ROLLBACK TRANSACTION");
+			Logger::logf(Logger::Fatal, "DB", "Schema migration failed (%s); trip_data left unchanged", error.c_str());
 		return false;
 	}
 	progress.report(kRebuildCommit);
@@ -1144,24 +1160,25 @@ static bool migrate_local_time_offsets(sqlite3* sql) {
 		{ contactTableName(CONTACT_TABLE::LIFTOFFS), "time_local" },
 		{ contactTableName(CONTACT_TABLE::TOUCHDOWNS), "time_local" },
 	};
-	bool ok = exec_sql(sql, "BEGIN TRANSACTION;");
-	const int changes_before = sqlite3_total_changes(sql);
-	for (const auto& [table, column] : kLocalTimes) {
-		if (!ok)
-			break;
-		// "YYYY-MM-DDThh:mm:ss.sss" is 23 characters; the sign is the 24th.
-		char stmt_txt[512];
-		snprintf(stmt_txt, sizeof(stmt_txt),
-			"UPDATE %s SET %s = substr(%s,1,23) || CASE substr(%s,24,1) WHEN '+' THEN '-' ELSE '+' END || substr(%s,25)"
-			" WHERE %s GLOB '????-??-??T??:??:??.???[+-]??:??*' AND substr(%s,25,5) <> '00:00';",
-			table, column, column, column, column, column, column);
-		ok = exec_sql(sql, stmt_txt);
-	}
-	const int corrected = sqlite3_total_changes(sql) - changes_before;
-	ok = ok && exec_sql(sql, "PRAGMA user_version = 1;") && exec_sql(sql, "COMMIT TRANSACTION;");
+	int corrected = 0;
+	std::string error;
+	const bool ok = in_migration_transaction(sql, error, [&] {
+		const int changes_before = sqlite3_total_changes(sql);
+		for (const auto& [table, column] : kLocalTimes) {
+			// "YYYY-MM-DDThh:mm:ss.sss" is 23 characters; the sign is the 24th.
+			char stmt_txt[512];
+			snprintf(stmt_txt, sizeof(stmt_txt),
+				"UPDATE %s SET %s = substr(%s,1,23) || CASE substr(%s,24,1) WHEN '+' THEN '-' ELSE '+' END || substr(%s,25)"
+				" WHERE %s GLOB '????-??-??T??:??:??.???[+-]??:??*' AND substr(%s,25,5) <> '00:00';",
+				table, column, column, column, column, column, column);
+			if (!exec_sql(sql, stmt_txt))
+				return false;
+		}
+		corrected = sqlite3_total_changes(sql) - changes_before;
+		return exec_sql(sql, "PRAGMA user_version = 1;");
+	});
 	if (!ok) {
-		Logger::logf(Logger::Fatal, "DB", "Schema migration failed (%s); local times left unchanged", sqlite3_errmsg(sql));
-		exec_sql(sql, "ROLLBACK TRANSACTION");
+		Logger::logf(Logger::Fatal, "DB", "Schema migration failed (%s); local times left unchanged", error.c_str());
 		return false;
 	}
 	Logger::logf(Logger::Info, "DB", "Schema migration: %d local time UTC offset(s) corrected", corrected);

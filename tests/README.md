@@ -202,17 +202,21 @@ make the other's map test time out.
   failures (the count runs after this transaction's `CREATE` took the write
   lock, so nothing can lock it out) and the `engine_value` registration failure (the tested legacy
   migration failure happens after the copy, at the rename);
-  `migrate_trip_engine_data()`'s `BEGIN`, `CREATE TABLE trip_data_new`
-  and `COMMIT` failures, which share the tested rollback path: `BEGIN` fails
-  only inside an open transaction, which nothing leaves; a `CREATE` made to
-  fail by an existing `trip_data_new` still fails at the copy if its check
-  is broken, so no test sees it; and failing `COMMIT` needs another
-  connection's read lock, which makes the column additions before the
-  rebuild fail first; `migrate_local_time_offsets()`'s `PRAGMA user_version`
+  `migrate_trip_engine_data()`'s `CREATE TABLE trip_data_new` failure (a
+  `CREATE` made to fail by an existing `trip_data_new` still fails at the
+  copy if its check is broken, so no test sees it);
+  `in_migration_transaction()`, which both migrations run in (its
+  transaction is `inTransaction()`'s, tested in `tst_db_query`): a failed
+  `BEGIN` or `COMMIT` there (`BEGIN` fails only inside an open transaction,
+  which nothing leaves, and failing `COMMIT` needs another connection's read
+  lock, which makes the column additions before the rebuild fail first), and
+  its saving of the body's SQLite error, which only fills in the reason on
+  the log line; `migrate_local_time_offsets()`'s `PRAGMA user_version`
   read failures (SQLite would have to fail a pragma on a database it
-  opened) and its `ROLLBACK`, which no test can see (`migrate_db()` closes
-  the connection right after, and closing rolls back the open transaction
-  just the same); and `connect_db()`'s open failure, failed
+  opened), its failed `PRAGMA user_version = 1` (it runs after
+  `create_schema()` and the `UPDATE`s in the same transaction succeeded,
+  so the database can be written), and the number of corrected values it
+  logs (only the log line shows it); and `connect_db()`'s open failure, failed
   `create_schema()` and failed read of the last `event_seq`, which call
   `exit(1)`/`exit(2)` -- the app starts the
   bridge only after `migrate_db()` succeeded, so they need the database to

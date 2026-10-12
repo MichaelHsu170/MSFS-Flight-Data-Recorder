@@ -8,8 +8,8 @@ struct sqlite3;
 struct sqlite3_stmt;
 
 // Statement plumbing shared by the UI-side database files (db_history.cpp,
-// db_groups.cpp). context starts every warning these log, e.g.
-// "queryEvents(trip 5)".
+// db_groups.cpp); db.cpp's schema migrations use inTransaction(). context
+// starts every warning these log, e.g. "queryEvents(trip 5)".
 
 // A text column as a QString; empty for NULL.
 QString columnText(sqlite3_stmt* stmt, int column);

@@ -275,7 +275,7 @@ MSFS-Flight-Data-Recorder/
 │   ├── db/                       The SQLite database
 │   │   ├── db.h / .cpp           SQLite write path: schema creation, the recorder's writes, buffered telemetry flush
 │   │   ├── db_connection.h / .cpp  Read-only/read-write connections for the UI and background queries
-│   │   ├── db_query.h / .cpp     Statement helpers shared by the UI-side queries: row loop, single statements, transactions
+│   │   ├── db_query.h / .cpp     Statement helpers shared by the UI-side queries: row loop, single statements, transactions (also the schema migrations')
 │   │   ├── db_history.h / .cpp   Read-only queries: trip list, telemetry, events, liftoff points, touchdowns; trip deletion, AI reports
 │   │   ├── contact_analysis.h / .cpp  Each liftoff's/touchdown's conditions (on load) and final trajectory (on analysis), derived from the trip's samples
 │   │   ├── db_groups.h / .cpp    Trip-group queries: list, add, rename, delete, reorder, assign a trip
