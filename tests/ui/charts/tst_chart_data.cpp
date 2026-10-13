@@ -218,6 +218,7 @@ private slots:
 		QCOMPARE(niceAxisMax(-50), 1.0);
 		QCOMPARE(niceAxisMax(80), 100.0);    // 100 exactly, step 20
 		QCOMPARE(niceAxisMax(100), 150.0);   // 125 -> step 50
+		QCOMPARE(niceAxisMax(18), 25.0);     // 22.5 -> step 5 (raw 4.5)
 		QCOMPARE(niceAxisMax(250), 400.0);   // 312.5 -> step 100
 		QCOMPARE(niceAxisMax(38000), 50000.0);
 	}

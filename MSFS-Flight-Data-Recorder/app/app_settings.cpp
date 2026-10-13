@@ -302,7 +302,6 @@ QString AppSettings::filePath() {
 AppSettings& AppSettings::instance() {
 	static bool _ = (ensureFileExists(), true);
 	static AppSettings settings;
-	(void)_;
 	return settings;
 }
 
