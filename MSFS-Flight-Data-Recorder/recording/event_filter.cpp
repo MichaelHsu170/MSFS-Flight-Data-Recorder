@@ -12,6 +12,16 @@ const std::unordered_set<std::string> EVENT_FLOOD_WHITELIST = {
 	"FLAPS_INCR", "FLAPS_DECR",
 };
 
+// A held brake key repeats BRAKES roughly every frame (about 30 ms
+// observed) for as long as it is held. Only the first occurrence of each
+// burst (repeats less than 500 ms apart) goes on to tier 2, marking when the
+// brakes went on: for a hold long enough to trip tier 1 and for a tap too
+// short to; the repeats are dropped. Braking often enough to trip tier 2 is
+// handled like any other name.
+const std::unordered_set<std::string> EVENT_KEEP_FIRST_OF_BURST = {
+	"BRAKES",
+};
+
 const std::chrono::milliseconds EVENT_TIER1_WINDOW(500);
 // 3, not 2: a single accidental double-fire (switch bounce, a fast
 // double-click) doesn't silence a name. A real flood (observed ~126 ms
@@ -76,8 +86,11 @@ void EventFloodFilter::tier2(const std::string& name, const Occurrence& occurren
 }
 
 void EventFloodFilter::flush_pending(const std::string& name, std::vector<Occurrence>& pending, const Output& out) {
-	for (const Occurrence& occurrence : pending)
-		tier2(name, occurrence, out);
+	if (EVENT_KEEP_FIRST_OF_BURST.count(name))
+		tier2(name, pending.front(), out);
+	else
+		for (const Occurrence& occurrence : pending)
+			tier2(name, occurrence, out);
 	pending.clear();
 }
 
@@ -153,6 +166,10 @@ void EventFloodFilter::record(const std::string& name, int trip_id, const std::s
 			name.c_str(), state.pending.size(), (long long)EVENT_TIER1_WINDOW.count());
 		state.suppressing = true;
 		state.suppressed_count = state.pending.size();
+		if (EVENT_KEEP_FIRST_OF_BURST.count(name)) {
+			tier2(name, state.pending.front(), out);
+			state.suppressed_count--;
+		}
 		state.pending.clear();
 	}
 }

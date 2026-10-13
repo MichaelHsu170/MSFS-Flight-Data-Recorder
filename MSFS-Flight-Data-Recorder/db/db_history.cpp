@@ -373,15 +373,19 @@ std::vector<TripEvent> queryEvents(sqlite3* sql, int tripId) {
 	std::vector<TripEvent> events;
 	Logger::logf(Logger::Trace, "DB", "queryEvents(trip %d): loading events", tripId);
 
-	// BRAKES fires continuously while brakes are applied (taxi/landing roll) and
-	// would swamp the map with noise -- excluded here rather than at recording
-	// time so the raw data stays in the DB if ever needed.
-	// PARKING_BRAKES fires exactly once on set and once on release, so it is
-	// kept; the spatial grouping in map.html coalesces the two events into one
-	// marker since the aircraft is stationary between set and release.
+	// BRAKES repeats while the brakes are held; the flood filter stores each
+	// brake application once (event_filter.h). Rows stored before the filter
+	// existed (event_seq NULL) are every raw repeat and would swamp the map, so
+	// those are still left out. Rows from the v2.1.0 and v2.1.1 releases
+	// (event_seq set) are shown but incomplete: those releases dropped a held
+	// brake entirely and stored only short taps, sometimes twice.
+	// PARKING_BRAKES fires once on set and once on release; the spatial
+	// grouping in map.html coalesces the two into one marker since the
+	// aircraft is stationary between set and release.
 	const QString context = QStringLiteral("queryEvents(trip %1)").arg(tripId);
 	sqlite3_stmt* stmt = prepareStatement(sql,
-		"SELECT event, time_zulu FROM trip_events WHERE trip = ? AND event != 'BRAKES' ORDER BY rowid", context);
+		"SELECT event, time_zulu FROM trip_events WHERE trip = ? "
+		"AND NOT (event = 'BRAKES' AND event_seq IS NULL) ORDER BY rowid", context);
 	if (!stmt)
 		return events;
 	sqlite3_bind_int(stmt, 1, tripId);

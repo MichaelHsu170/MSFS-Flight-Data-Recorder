@@ -136,6 +136,71 @@ private slots:
 		QCOMPARE(h.count("AP_MASTER"), 1);
 	}
 
+	void heldBrakesKeepTheFirstOccurrenceOfEachBurst() {
+		Harness h;
+		// A held brake key: BRAKES every 100 ms for 2 s.
+		for (int i = 0; i < 20; ++i) {
+			h.filter.record("BRAKES", 4, "z" + std::to_string(i), "l" + std::to_string(i), h.out);
+			h.flushStale();
+			h.advance(100);
+		}
+		h.advance(500);
+		h.flushStale();
+		// Only the first press, with its own trip and timestamps.
+		QCOMPARE(h.commits.size(), size_t(1));
+		QCOMPARE(h.commits[0].name, std::string("BRAKES"));
+		QCOMPARE(h.commits[0].tripId, 4);
+		QCOMPARE(h.commits[0].timeZulu, std::string("z0"));
+		QCOMPARE(h.commits[0].timeLocal, std::string("l0"));
+		// Released for 6 s, then held again: a second application, a second event.
+		h.advance(5500);
+		for (int i = 0; i < 5; ++i) {
+			h.record("BRAKES");
+			h.advance(100);
+		}
+		h.advance(500);
+		h.flushStale();
+		QCOMPARE(h.count("BRAKES"), 2);
+		QVERIFY(h.retractions.empty());
+	}
+
+	void briefBrakeTapKeepsOnlyItsFirstOccurrence() {
+		Harness h;
+		// A two-frame tap: too short to trip tier 1.
+		h.filter.record("BRAKES", 2, "z0", "l0", h.out);
+		h.advance(30);
+		h.filter.record("BRAKES", 2, "z1", "l1", h.out);
+		h.advance(500);
+		h.flushStale();
+		QCOMPARE(h.commits.size(), size_t(1));
+		QCOMPARE(h.commits[0].timeZulu, std::string("z0"));
+		QCOMPARE(h.commits[0].timeLocal, std::string("l0"));
+		// Any other name still commits both of a quick double.
+		h.record("GEAR_TOGGLE");
+		h.advance(30);
+		h.record("GEAR_TOGGLE");
+		h.advance(500);
+		h.flushStale();
+		QCOMPARE(h.count("GEAR_TOGGLE"), 2);
+	}
+
+	void frequentBrakeApplicationsTripTier2() {
+		Harness h;
+		// Three holds of 3 occurrences 100 ms apart, starting 1.5 s apart:
+		// each burst's first occurrence reaches tier 2, three within 5 s.
+		for (int hold = 0; hold < 3; ++hold) {
+			for (int i = 0; i < 3; ++i) {
+				h.record("BRAKES");
+				h.advance(100);
+			}
+			h.advance(1200);
+			h.flushStale();
+		}
+		QCOMPARE(h.count("BRAKES"), 3);
+		QCOMPARE(h.retractions.size(), size_t(1));
+		QCOMPARE(h.retractions[0], (std::vector<unsigned long long>{ 1, 2, 3 }));
+	}
+
 	void flapsBypassBothTiers() {
 		Harness h;
 		for (int i = 0; i < 6; ++i) {

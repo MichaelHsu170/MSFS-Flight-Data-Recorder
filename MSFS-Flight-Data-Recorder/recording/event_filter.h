@@ -17,7 +17,9 @@
 // - Tier 1 (fast burst, blocking): occurrences of a name are held back until
 //   a quiet gap of 500 ms. Three occurrences less than 500 ms apart start
 //   suppressing it -- further ones within 500 ms of the previous are dropped
-//   silently; nothing of the burst is committed.
+//   silently; nothing of the burst is committed. BRAKES (a held brake key
+//   repeats) is the exception: only the first occurrence of each burst goes
+//   on to tier 2, whether or not the burst was long enough to suppress.
 // - Tier 2 (slow drip, non-blocking): every occurrence tier 1 lets through is
 //   committed immediately, but three within 5 s confirm a slow flood: those
 //   three are retracted and further ones dropped until 5 s pass quietly.

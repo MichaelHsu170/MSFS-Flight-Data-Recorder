@@ -862,16 +862,32 @@ private slots:
 		QVERIFY(tds.empty());
 	}
 
-	void eventListSkipsBrakesAndKeepsOrder() {
+	void eventListIncludesBrakesAndKeepsOrder() {
 		sqlite3* db = freshDatabase();
 		exec(db, "INSERT INTO trip_events (trip,event,time_zulu,time_local,event_seq) VALUES "
 			"(1,'GEAR_UP','z2','l',1),(1,'BRAKES','z3','l',2),(1,'FLAPS_UP','z1','l',3),(2,'GEAR_DOWN','z1','l',4);");
 		const std::vector<TripEvent> events = queryEvents(db, 1);
 		sqlite3_close(db);
-		QCOMPARE(events.size(), size_t(2));
+		QCOMPARE(events.size(), size_t(3));
 		QCOMPARE(events[0].event, QStringLiteral("GEAR_UP"));
 		QCOMPARE(events[0].zuluTime, QStringLiteral("z2"));
-		QCOMPARE(events[1].event, QStringLiteral("FLAPS_UP"));
+		QCOMPARE(events[1].event, QStringLiteral("BRAKES"));
+		QCOMPARE(events[1].zuluTime, QStringLiteral("z3"));
+		QCOMPARE(events[2].event, QStringLiteral("FLAPS_UP"));
+	}
+
+	void eventListSkipsBrakesStoredBeforeTheFloodFilter() {
+		sqlite3* db = freshDatabase();
+		// Rows from before the flood filter have no event_seq; their BRAKES
+		// are every raw repeat. Other events without one are kept.
+		exec(db, "INSERT INTO trip_events (trip,event,time_zulu,time_local,event_seq) VALUES "
+			"(1,'BRAKES','z1','l',NULL),(1,'GEAR_DOWN','z2','l',NULL),(1,'BRAKES','z3','l',5);");
+		const std::vector<TripEvent> events = queryEvents(db, 1);
+		sqlite3_close(db);
+		QCOMPARE(events.size(), size_t(2));
+		QCOMPARE(events[0].event, QStringLiteral("GEAR_DOWN"));
+		QCOMPARE(events[1].event, QStringLiteral("BRAKES"));
+		QCOMPARE(events[1].zuluTime, QStringLiteral("z3"));
 	}
 
 	void queryEventsReturnsAnEmptyListWhenTheTableIsMissing() {
