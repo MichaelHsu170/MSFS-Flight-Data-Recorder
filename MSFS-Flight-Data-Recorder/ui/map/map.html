@@ -680,13 +680,14 @@ async function reserveTokens(tokens, onWait) {
 
 // Extract complete top-level {...} JSON objects from buf.
 // Calls onChunk(text, isThought) for every text part found,
-// onFinish(reason) for an object carrying the candidate's finishReason, and
-// onUsage(tokens) for one carrying the prompt's token count.
+// onFinish(reason) for an object carrying the candidate's finishReason,
+// onUsage(tokens) for one carrying the prompt's token count, and
+// onError(error) for an error the service sends in place of a chunk.
 // Iterates all parts in each response object (thinking models can emit
 // thought:true parts alongside regular parts in the same chunk). Braces
 // inside JSON strings (the model's own text) don't count.
 // Returns the unconsumed remainder of buf.
-function processStreamBuffer(buf, onChunk, onFinish, onUsage) {
+function processStreamBuffer(buf, onChunk, onFinish, onUsage, onError) {
     var depth = 0, start = -1, lastEnd = 0;
     var inString = false, escaped = false;
     for (var i = 0; i < buf.length; i++) {
@@ -714,6 +715,7 @@ function processStreamBuffer(buf, onChunk, onFinish, onUsage) {
                     }
                     if (candidate && candidate.finishReason) onFinish(candidate.finishReason);
                     if (obj && obj.usageMetadata && obj.usageMetadata.promptTokenCount) onUsage(obj.usageMetadata.promptTokenCount);
+                    if (obj && obj.error) onError(obj.error);
                 } catch (e) { /* incomplete or non-content object */ }
                 lastEnd = i + 1;
                 start = -1;
@@ -825,6 +827,14 @@ function showAnalysisRunning(id, running) {
     if (spinner) spinner.style.display = running ? 'inline-block' : 'none';
 }
 
+// Logs why an AI analysis attempt failed: a warning when another attempt
+// follows (retrying), an error when it was the last (both go to the debug
+// log as WARN).
+function logAttemptFailure(problem, retrying, detail) {
+    if (retrying) console.warn(problem + ', retrying:', detail);
+    else console.error(problem + ':', detail);
+}
+
 // Runs point id's AI analysis: first its final trajectory (trajectoryName,
 // "approach"), from loadProfile(rowId, onLoaded) into t.profile (null when it
 // can't be built: the analysis then covers the contact alone, the prompt and
@@ -856,7 +866,7 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     var statusDiv, thDet, thSum, thArr, thLbl, thBody, finalDiv;
     var sawThinking, thinkingDone;
     var thinkingText, finalText;
-    var finishReason;
+    var finishReason, streamError;
 
     // The thinking panel stays hidden until thinking arrives: a model that
     // answers without it shows just the answer.
@@ -876,6 +886,7 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
         thinkingText = '';
         finalText    = '';
         finishReason = '';
+        streamError  = '';
         // Guard on thinkingDone prevents the browser's spurious initial toggle
         // event (queued when <details open> is created via innerHTML) from
         // overwriting "Thinking…" with "Hide thinking".
@@ -920,6 +931,17 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
         sent.tokens = promptTokens = tokens;
     }
 
+    function onError(error) {
+        streamError = JSON.stringify(error);
+    }
+
+    // How much of the answer the attempt got, and any error the service sent
+    // mid-stream, for its failure's log line.
+    function received() {
+        return thinkingText.length + ' characters of thinking and ' + finalText.length + ' of answer received'
+            + (streamError ? ', stream error ' + streamError : '');
+    }
+
     for (var attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         initAttempt();
         sent = await reserveTokens(promptTokens, function(seconds) {
@@ -950,10 +972,9 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                 // another app with the same key, say): this request counts
                 // as all of them, so the next waits for the minute to pass.
                 if (res.status === 429) sent.tokens = TPM_LIMIT;
-                if ((res.status >= 500 || res.status === 429) && attempt < MAX_ATTEMPTS - 1) {
-                    console.warn('Gemini API error, retrying:', res.status, errBody);
-                    continue;
-                }
+                var retrying = (res.status >= 500 || res.status === 429) && attempt < MAX_ATTEMPTS - 1;
+                logAttemptFailure('Gemini API error', retrying, res.status + ' ' + errBody);
+                if (retrying) continue;
                 var apiMsg = '';
                 try {
                     // The streaming endpoint wraps its error in an array, as
@@ -969,7 +990,6 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                 finalDiv.innerHTML = '<i style="color:#a00">API error ' + res.status
                     + (apiMsg ? ': ' + escapeHtml(apiMsg) : '')
                     + '</i>' + guidance;
-                console.error('Gemini API error:', res.status, errBody);
                 break;
             }
             var reader = res.body.getReader();
@@ -979,12 +999,14 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                 var streamChunk = await reader.read();
                 if (streamChunk.done) break;
                 buf += decoder.decode(streamChunk.value, { stream: true });
-                buf = processStreamBuffer(buf, onChunk, onFinish, onUsage);
+                buf = processStreamBuffer(buf, onChunk, onFinish, onUsage, onError);
             }
             buf += decoder.decode();
-            processStreamBuffer(buf, onChunk, onFinish, onUsage);
+            processStreamBuffer(buf, onChunk, onFinish, onUsage, onError);
         } catch (e) {
-            // Network error -- retry unless this was the last attempt.
+            // Network error, before or during the answer -- retry unless this
+            // was the last attempt.
+            logAttemptFailure('Gemini request failed', attempt < MAX_ATTEMPTS - 1, String(e) + ', ' + received());
             if (attempt === MAX_ATTEMPTS - 1) {
                 finalDiv.innerHTML = '<span style="color:#64748b">Couldn\'t reach the AI service after '
                     + MAX_ATTEMPTS + ' attempts. Check your internet connection and try again.</span>';
@@ -1010,7 +1032,10 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
             break;
         }
 
-        // Incomplete -- retry silently; on last attempt show message.
+        // Incomplete -- retry (the page says so only in its status line); on
+        // the last attempt show a message.
+        logAttemptFailure('Gemini answer incomplete', attempt < MAX_ATTEMPTS - 1,
+            'finish reason ' + (finishReason || 'none') + ', ' + received());
         if (attempt === MAX_ATTEMPTS - 1) {
             finalDiv.innerHTML = '<span style="color:#64748b">The AI didn\'t return a complete analysis. '
                 + 'This can happen occasionally. Click <b>' + retryLabel + '</b> to try again.</span>';

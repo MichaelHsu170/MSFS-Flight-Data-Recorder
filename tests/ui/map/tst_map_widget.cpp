@@ -166,6 +166,8 @@ class TstMapWidget : public QObject {
 	// thinkingPanel (the thinking panel's summary at each read while the
 	// panel shows and no answer has: its pointer-events, arrow and label,
 	// comma-joined, '|'-separated), thinkingSummary (the same, after),
+	// console (the page's console.warn/console.error messages about Gemini,
+	// in order, each after "warn: " or "error: "),
 	// noticeShown (the no-trajectory notice), promptProfile (t.profile
 	// when the prompt was built, as JSON) and fetchedAt (Date.now() at the last
 	// request).
@@ -179,7 +181,15 @@ class TstMapWidget : public QObject {
 			jsonStatuses.append(status);
 		evalPageJs(widget_, QStringLiteral(R"JS(
 			(function (attempts, statuses, profile) {
-			    window._ai = { calls: 0, saved: null, done: false, statuses: [], thinkingPanel: [] };
+			    window._ai = { calls: 0, saved: null, done: false, statuses: [], thinkingPanel: [], console: [] };
+			    var realConsole = { warn: console.warn, error: console.error };
+			    ['warn', 'error'].forEach(function (level) {
+			        console[level] = function () {
+			            var text = Array.prototype.join.call(arguments, ' ');
+			            if (text.indexOf('Gemini') >= 0) window._ai.console.push(level + ': ' + text);
+			            realConsole[level].apply(console, arguments);
+			        };
+			    });
 			    function statusText() { return document.getElementById('td-status-ai').textContent; }
 			    function summaryState() {
 			        if (!document.getElementById('td-th-sum-ai')) return '';
@@ -227,7 +237,12 @@ class TstMapWidget : public QObject {
 			            setTimeout(function () { onLoaded(profile); }, 0);
 			        }, function (t) { window._ai.promptProfile = JSON.stringify(t.profile); return 'prompt'; },
 			        function (rowId, report, onSaved) { window._ai.saved = report; onSaved(%2); }, 'Analyze Liftoff')
-			        .then(function () { window.fetch = realFetch; window._ai.done = true; });
+			        .then(function () {
+			            window.fetch = realFetch;
+			            console.warn = realConsole.warn;
+			            console.error = realConsole.error;
+			            window._ai.done = true;
+			        });
 			})(%1, %3, %4))JS").arg(QString::fromUtf8(QJsonDocument(json).toJson(QJsonDocument::Compact)),
 				saveOk ? QStringLiteral("true") : QStringLiteral("false"),
 				QString::fromUtf8(QJsonDocument(jsonStatuses).toJson(QJsonDocument::Compact)), profile));
@@ -238,11 +253,35 @@ class TstMapWidget : public QObject {
 			"   text: document.getElementById('td-th-final-ai').textContent,"
 			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none',"
 			"   thinkingPanel: window._ai.thinkingPanel.join('|'), thinkingSummary: window._ai.summaryState(),"
+			"   console: window._ai.console,"
 			"   profileRow: window._ai.profileRow, statuses: window._ai.statuses.join('|'), promptProfile: window._ai.promptProfile,"
 			"   fetchedAt: window._ai.fetchedAt,"
 			"   statusShown: document.getElementById('td-status-ai').style.display !== 'none',"
 			"   statusShownAtStreamEnd: window._ai.statusShownAtStreamEnd,"
 			"   noticeShown: document.getElementById('td-note-ai').style.display !== 'none' })")).toMap();
+	}
+
+	// Checks runAiAnalysisWith()'s logged failures, one per failed attempt in
+	// order: retried ones as a warning saying so, the last as an error that
+	// doesn't, each carrying its values (the reason, what was received).
+	struct AttemptLog {
+		bool retried;
+		QStringList values;
+	};
+	// An error object the service can send mid-stream, as JSON, which is how
+	// a failed attempt's log line carries it after "stream error ".
+	static constexpr const char* streamError500 = R"({"code":500,"message":"Internal error encountered.","status":"INTERNAL"})";
+
+	static void verifyAttemptLogs(const QVariantMap& r, const QList<AttemptLog>& expected) {
+		const QStringList lines = r.value("console").toStringList();
+		QCOMPARE(lines.size(), expected.size());
+		for (int i = 0; i < lines.size(); ++i) {
+			const QString& line = lines[i];
+			QVERIFY2(line.startsWith(expected[i].retried ? QStringLiteral("warn: ") : QStringLiteral("error: ")), qPrintable(line));
+			QVERIFY2(line.contains(QStringLiteral("retrying")) == expected[i].retried, qPrintable(line));
+			for (const QString& value : expected[i].values)
+				QVERIFY2(line.contains(value), qPrintable(value + QStringLiteral(" not in: ") + line));
+		}
 	}
 
 	// Records each "Waiting N s for the per-minute token limit…" status
@@ -1333,6 +1372,7 @@ private slots:
 		QCOMPARE(r.value("saved").toString(), QStringLiteral("<thinking>Wind from the left.</thinking>Grade: B"));
 		QCOMPARE(r.value("text").toString(), QStringLiteral("Grade: B"));
 		QCOMPARE(r.value("thinkingShown").toBool(), true);
+		verifyAttemptLogs(r, {});  // nothing failed, nothing logged
 	}
 
 	// While the thinking streams, its panel reads "▾ Thinking…" and its
@@ -1348,7 +1388,8 @@ private slots:
 	}
 
 	// An answer stopped early (token limit), or a stream that ends with no
-	// finish at all, isn't complete even after thinking: it's retried.
+	// finish at all, isn't complete even after thinking: it's retried, each
+	// retry logged with its finish reason and how much had arrived.
 	void anAiAnswerCutOffIsRetried() {
 		const QVariantMap r = runAiAnalysisWith({
 			{ aiStream({ aiChunk({ { "Thought", true }, { "Grade: half", false } }, "MAX_TOKENS") }) },
@@ -1357,16 +1398,40 @@ private slots:
 		QCOMPARE(r.value("calls").toInt(), 3);
 		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: C"));
 		QCOMPARE(r.value("thinkingShown").toBool(), false);
+		verifyAttemptLogs(r, {
+			{ true, { "MAX_TOKENS", "7 characters of thinking", "11 of answer" } },
+			{ true, { "none", "7 characters of thinking", "11 of answer" } } });
+	}
+
+	// An error the service sends mid-stream, after thinking arrived, in place
+	// of the rest of the answer: the attempt is retried, logged with that
+	// error, which the next attempt's log line doesn't repeat.
+	void anErrorMidStreamIsRetriedAndLogged() {
+		const QVariantMap r = runAiAnalysisWith({
+			{ aiStream({ aiChunk({ { "Thought", true } }),
+				QStringLiteral(R"({"error":)") + streamError500 + '}' }) },
+			{ aiStream({ aiChunk({ { "Grade: half", false } }, "MAX_TOKENS") }) },
+			{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } });
+		QCOMPARE(r.value("calls").toInt(), 3);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
+		const QStringList lines = r.value("console").toStringList();
+		verifyAttemptLogs(r, {
+			{ true, { "none", "7 characters of thinking", "0 of answer", QStringLiteral("stream error ") + streamError500 } },
+			{ true, { "MAX_TOKENS", "0 characters of thinking", "11 of answer" } } });
+		QVERIFY2(!lines.value(1).contains(QStringLiteral("stream error")), qPrintable(lines.value(1)));  // not carried into the next attempt
 	}
 
 	// Three incomplete answers in a row: nothing is saved and the message
-	// says so; a finish with no answer text counts as incomplete too.
+	// says so, the last one logged as final; a finish with no answer text
+	// counts as incomplete too.
 	void threeIncompleteAiAnswersSaveNothing() {
 		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Thought", true } }, "STOP") }) } });
 		QCOMPARE(r.value("calls").toInt(), 3);
 		QVERIFY(r.value("saved").isNull());
 		QVERIFY(r.value("text").toString().startsWith(QStringLiteral("The AI didn't return a complete analysis.")));
 		QCOMPARE(r.value("thinkingShown").toBool(), false);
+		const AttemptLog thoughtOnly{ true, { "STOP", "7 characters of thinking", "0 of answer" } };
+		verifyAttemptLogs(r, { thoughtOnly, thoughtOnly, { false, thoughtOnly.values } });
 	}
 
 	// Braces and quotes in the model's text are text, not JSON structure.
@@ -1812,13 +1877,15 @@ private slots:
 	}
 
 	// Three server errors in a row: the last one's message is shown and
-	// nothing is saved.
+	// nothing is saved; each is logged, the last as final.
 	void threeServerErrorsShowTheLastOne() {
 		const QVariantMap r = runAiAnalysisWith({ { QStringLiteral(R"([{"error":{"code":500,"message":"Internal error encountered."}}])") } },
 			true, { 500 });
 		QCOMPARE(r.value("calls").toInt(), 3);
 		QVERIFY(r.value("saved").isNull());
 		QCOMPARE(r.value("text").toString(), QStringLiteral("API error 500: Internal error encountered."));
+		const QStringList body{ R"(500 [{"error":{"code":500,"message":"Internal error encountered."}}])" };
+		verifyAttemptLogs(r, { { true, body }, { true, body }, { false, body } });
 	}
 
 	// A rejected request (bad key, no access) won't change on retry: it's
@@ -1832,10 +1899,12 @@ private slots:
 		QVERIFY2(text.startsWith(QStringLiteral("API error 400: API key not valid.")), qPrintable(text));
 		QVERIFY2(text.contains(QStringLiteral("gemini_api_key")), qPrintable(text));
 		QCOMPARE(r.value("statusShown").toBool(), false);  // no answer came, but it's over
+		verifyAttemptLogs(r, { { false, { R"(400 [{"error":{"code":400,"message":"API key not valid."}}])" } } });
 	}
 
 	// A service that can't be reached (offline) is tried three times, then
-	// the message says so and nothing is saved.
+	// the message says so and nothing is saved; each try is logged with its
+	// error, the last as final.
 	void anUnreachableServiceIsTriedThreeTimesThenSaysSo() {
 		const QVariantMap r = runAiAnalysisWith({ { QString() } }, true, { 0 });
 		QCOMPARE(r.value("calls").toInt(), 3);
@@ -1843,11 +1912,14 @@ private slots:
 		QCOMPARE(r.value("text").toString(), QStringLiteral(
 			"Couldn't reach the AI service after 3 attempts. Check your internet connection and try again."));
 		QCOMPARE(r.value("thinkingShown").toBool(), false);
+		const QStringList values{ "Failed to fetch", "0 characters of thinking", "0 of answer" };
+		verifyAttemptLogs(r, { { true, values }, { true, values }, { false, values } });
 	}
 
 	// A connection that drops mid-answer, after thinking arrived, is retried
-	// the same way; after the third, the message replaces the thinking panel,
-	// whose "Thinking…" would otherwise never finish.
+	// the same way, logged with how much had arrived; after the third, the
+	// message replaces the thinking panel, whose "Thinking…" would otherwise
+	// never finish.
 	void aConnectionDroppedAfterThinkingHidesTheThinkingPanel() {
 		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Thought", true } }) }) } }, true, { -1 });
 		QCOMPARE(r.value("calls").toInt(), 3);
@@ -1855,6 +1927,20 @@ private slots:
 		QCOMPARE(r.value("text").toString(), QStringLiteral(
 			"Couldn't reach the AI service after 3 attempts. Check your internet connection and try again."));
 		QCOMPARE(r.value("thinkingShown").toBool(), false);
+		const QStringList values{ "network error", "7 characters of thinking", "0 of answer" };
+		verifyAttemptLogs(r, { { true, values }, { true, values }, { false, values } });
+	}
+
+	// A connection that drops after the service sent an error mid-stream:
+	// each attempt's log line carries both the connection error and the
+	// service's error.
+	void aConnectionDroppedAfterAStreamErrorLogsBoth() {
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Thought", true } }),
+			QStringLiteral(R"({"error":)") + streamError500 + '}' }) } }, true, { -1 });
+		QCOMPARE(r.value("calls").toInt(), 3);
+		const QStringList values{ "network error", "7 characters of thinking", "0 of answer",
+			QStringLiteral("stream error ") + streamError500 };
+		verifyAttemptLogs(r, { { true, values }, { true, values }, { false, values } });
 	}
 
 	// A touchdown analyzed before shows its saved report when its popup
