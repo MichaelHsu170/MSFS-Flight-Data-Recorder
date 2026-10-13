@@ -982,6 +982,316 @@ private slots:
 		QVERIFY(!contactProfile(dataset, dataset.touchdowns[0], true));
 	}
 
+	// Each gate carries its sample's weather, the wind split along and
+	// across the runway's true heading: 20 kt from 120° on a 090° runway is
+	// 20 cos 30° = 17.32 kt of headwind and 20 sin 30° = 10 kt from the
+	// right; 10 kt from 270° is all tailwind, 10 kt from 360° all from the
+	// left. Without a runway only the wind itself is known.
+	void gatesCarryTheirWeather() {
+		TripDataset dataset = touchdownAfter({ 600, 400, 250, 0 });
+		auto setWind = [&](int index, double direction, double speed) {
+			dataset.points[index].rawNums[TRIP_NUM_ambient_wind_direction] = direction;
+			dataset.points[index].rawNums[TRIP_NUM_ambient_wind_velocity] = speed;
+		};
+		setWind(0, 120, 20);
+		setWind(1, 270, 10);
+		setWind(2, 360, 10);
+		TripSamplePoint& p = dataset.points[0];
+		p.rawNums[TRIP_NUM_ambient_temperature] = -5;
+		p.rawNums[TRIP_NUM_ambient_precip_state] = 8;
+		p.rawNums[TRIP_NUM_structural_ice_pct] = 0.03;
+		p.boolGroups[TripBoolBits::ambient_in_cloud.group] = 1u << TripBoolBits::ambient_in_cloud.bit;
+		dataset.touchdowns[0].runwayHeading = 90;
+		std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+
+		const ProfilePoint* g500 = gate(*profile, QStringLiteral("500 ft"));
+		QVERIFY(g500);
+		QCOMPARE(g500->windDirection, 120.0);
+		QCOMPARE(g500->windSpeedKt, 20.0);
+		QVERIFY(std::abs(g500->headwindKt - 17.3205) < 1e-4);
+		QVERIFY(std::abs(g500->crosswindKt - 10) < 1e-9);
+		QCOMPARE(g500->temperatureC, -5.0);
+		QCOMPARE(g500->inCloud, 1.0);
+		QCOMPARE(g500->precipitation, QStringLiteral("snow"));
+		QCOMPARE(g500->structuralIce, 0.03);
+		const ProfilePoint* g300 = gate(*profile, QStringLiteral("300 ft"));
+		QVERIFY(g300);
+		QVERIFY(std::abs(g300->headwindKt + 10) < 1e-9);
+		QVERIFY(std::abs(g300->crosswindKt) < 1e-9);
+		const ProfilePoint* g200 = gate(*profile, QStringLiteral("200 ft"));
+		QVERIFY(g200);
+		QVERIFY(std::abs(g200->headwindKt) < 1e-9);
+		QVERIFY(std::abs(g200->crosswindKt + 10) < 1e-9);
+
+		dataset.touchdowns[0].runwayHeading = -1;
+		profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		g500 = gate(*profile, QStringLiteral("500 ft"));
+		QVERIFY(g500);
+		QCOMPARE(g500->windSpeedKt, 20.0);
+		QVERIFY(std::isnan(g500->headwindKt));
+		QVERIFY(std::isnan(g500->crosswindKt));
+	}
+
+	// The approach's wind runs from its last crossing of 1000 ft down to the
+	// touchdown (the 40 kt at 1200 ft before it doesn't count). On a 360°
+	// runway the headwinds are 20, 18, 0 (15 kt from 090°, all from the
+	// right), 4 and -6 kt (6 kt from 180°): the largest change is from 20 kt
+	// at 1000 ft to the 6 kt tailwind at the touchdown.
+	void approachSegmentWind() {
+		TripDataset dataset = touchdownAfter({ 1200, 1000, 700, 400, 100, 0 });
+		const double winds[][2] = { { 360, 40 }, { 360, 20 }, { 360, 18 }, { 90, 15 }, { 360, 4 }, { 180, 6 } };
+		for (int i = 0; i < 6; ++i) {
+			dataset.points[i].rawNums[TRIP_NUM_ambient_wind_direction] = winds[i][0];
+			dataset.points[i].rawNums[TRIP_NUM_ambient_wind_velocity] = winds[i][1];
+		}
+		dataset.touchdowns[0].runwayHeading = 360;
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		const SegmentWeather& w = profile->segment;
+		QCOMPARE(w.samples, 5);
+		QCOMPARE(w.windMinKt, 4.0);
+		QCOMPARE(w.windMaxKt, 20.0);
+		QCOMPARE(w.headwindFromKt, 20.0);
+		QCOMPARE(w.headwindFromHeightFt, 1000.0);
+		QCOMPARE(w.headwindToKt, -6.0);
+		QCOMPARE(w.headwindToHeightFt, 0.0);
+		QCOMPARE(w.maxTailwindKt, 6.0);
+		QVERIFY(std::abs(w.maxCrosswindKt - 15) < 1e-9);
+
+		// A headwind that grows toward the ground runs the other way: from
+		// its lowest, earlier, to its highest.
+		dataset.points[5].rawNums[TRIP_NUM_ambient_wind_direction] = 360;
+		dataset.points[5].rawNums[TRIP_NUM_ambient_wind_velocity] = 30;
+		dataset.points[3].rawNums[TRIP_NUM_ambient_wind_direction] = 360;
+		const SegmentWeather grows = contactProfile(dataset, dataset.touchdowns[0], true)->segment;
+		QCOMPARE(grows.headwindFromKt, 4.0);
+		QCOMPARE(grows.headwindFromHeightFt, 100.0);
+		QCOMPARE(grows.headwindToKt, 30.0);
+		QCOMPARE(grows.headwindToHeightFt, 0.0);
+		QCOMPARE(grows.maxTailwindKt, -4.0);  // never a tailwind
+
+		// The strongest crosswind is the largest from either side: 18 kt from
+		// the left (from 270°) over 15 kt from the right (from 090°).
+		dataset.points[2].rawNums[TRIP_NUM_ambient_wind_direction] = 270;
+		dataset.points[3].rawNums[TRIP_NUM_ambient_wind_direction] = 90;
+		dataset.points[3].rawNums[TRIP_NUM_ambient_wind_velocity] = 15;
+		QVERIFY(std::abs(contactProfile(dataset, dataset.touchdowns[0], true)->segment.maxCrosswindKt + 18) < 1e-9);
+
+		// Where the wind holds at an extreme, the change is between the two
+		// closest samples: 20, 20, 5, 5 and 5 kt drop from 700 ft to 400 ft;
+		// 5, 20, 20, 5 and 5 kt rise from 1000 ft to 700 ft (the first of the
+		// two equally close pairs); a steady 7 kt is its first sample at both
+		// ends.
+		auto change = [&](std::initializer_list<double> headwinds) {
+			int i = 1;
+			for (double headwind : headwinds) {
+				dataset.points[i].rawNums[TRIP_NUM_ambient_wind_direction] = 360;
+				dataset.points[i++].rawNums[TRIP_NUM_ambient_wind_velocity] = headwind;
+			}
+			const SegmentWeather s = contactProfile(dataset, dataset.touchdowns[0], true)->segment;
+			return QList<double>({ s.headwindFromKt, s.headwindFromHeightFt, s.headwindToKt, s.headwindToHeightFt });
+		};
+		QCOMPARE(change({ 20, 20, 5, 5, 5 }), QList<double>({ 20, 700, 5, 400 }));
+		QCOMPARE(change({ 5, 20, 20, 5, 5 }), QList<double>({ 5, 1000, 20, 700 }));
+		QCOMPARE(change({ 7, 7, 7, 7, 7 }), QList<double>({ 7, 1000, 7, 1000 }));
+	}
+
+	// Through the same approach: in cloud down to 700 ft (the 1200 ft
+	// sample's cloud is before it), icing conditions at 700 ft (in cloud at
+	// +5 °C) though not at 100 ft (dry at 0 °C), the most structural and
+	// pitot ice, engine anti-ice on (in any engine) in two of the three
+	// samples that recorded it, and the G-force spread of the
+	// airborne samples only (not the touchdown's 1.9 G, nor 2.5 G before the
+	// segment).
+	void approachSegmentCloudIceAndRide() {
+		TripDataset dataset = touchdownAfter({ 1200, 1000, 700, 400, 100, 0 });
+		const TripBoolBit cloud = TripBoolBits::ambient_in_cloud;
+		const double gForces[] = { 2.5, 1.0, 1.3, 0.8, 1.1, 1.9 };
+		for (int i = 0; i < 6; ++i) {
+			TripSamplePoint& p = dataset.points[i];
+			p.rawNums[TRIP_NUM_ambient_precip_state] = 2;
+			p.rawNums[TRIP_NUM_g_force] = gForces[i];
+			if (i <= 2)
+				p.boolGroups[cloud.group] = 1u << cloud.bit;
+		}
+		dataset.points[0].rawNums[TRIP_NUM_structural_ice_pct] = 0.5;
+		dataset.points[2].rawNums[TRIP_NUM_ambient_temperature] = 5;
+		dataset.points[2].rawNums[TRIP_NUM_structural_ice_pct] = 0.02;
+		dataset.points[3].rawNums[TRIP_NUM_structural_ice_pct] = 0.05;
+		dataset.points[4].rawNums[TRIP_NUM_ambient_temperature] = 0;
+		dataset.points[3].rawNums[TRIP_NUM_pitot_ice_pct] = 0.04;
+		dataset.points[4].rawNums[TRIP_NUM_pitot_ice_pct] = 0.1;
+		// The 1000 ft sample's anti-ice is on: engine 1's, though engine 2's is off.
+		dataset.points[1].engineValues.assign(2 * TRIP_ENGINE_FIELD_COUNT, std::nan(""));
+		dataset.points[1].engineValues[TRIP_ENGINE_eng_anti_ice] = 1;
+		dataset.points[1].engineValues[TRIP_ENGINE_FIELD_COUNT + TRIP_ENGINE_eng_anti_ice] = 0;
+		dataset.points[2].engineValues.assign(TRIP_ENGINE_FIELD_COUNT, std::nan(""));
+		dataset.points[2].engineValues[TRIP_ENGINE_eng_anti_ice] = 0;
+		dataset.points[3].engineValues.assign(TRIP_ENGINE_FIELD_COUNT, std::nan(""));
+		dataset.points[3].engineValues[TRIP_ENGINE_eng_anti_ice] = 1;
+		const TripBoolBit ground = TripBoolBits::sim_on_ground;
+		dataset.points[5].boolGroups[ground.group] |= 1u << ground.bit;
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		const SegmentWeather& w = profile->segment;
+		QVERIFY(w.cloudKnown);
+		QCOMPARE(w.lowestInCloudFt, 700.0);
+		QCOMPARE(w.icingConditions, 1.0);
+		QCOMPARE(w.maxStructuralIce, 0.05);
+		QCOMPARE(w.maxPitotIce, 0.1);
+		QCOMPARE(w.engineAntiIceShare, 2.0 / 3);
+		QCOMPARE(w.gForceMin, 0.8);
+		QCOMPARE(w.gForceMax, 1.3);
+
+		// Rain at -20 °C, snow out of cloud at -5 °C and cloud at +10 °C
+		// are icing too; in cloud at +11 °C or -21 °C, or dry at 0 °C, isn't;
+		// in cloud without the temperature is unknown; out of cloud throughout is
+		// known, with no height.
+		auto icing = [&](double temperature, double precipitation, bool inCloud) {
+			for (TripSamplePoint& p : dataset.points) {
+				p.rawNums[TRIP_NUM_ambient_temperature] = temperature;
+				p.rawNums[TRIP_NUM_ambient_precip_state] = precipitation;
+				p.boolGroups[cloud.group] = inCloud ? 1u << cloud.bit : 0;
+			}
+			return contactProfile(dataset, dataset.touchdowns[0], true)->segment.icingConditions;
+		};
+		QCOMPARE(icing(-20, 4, false), 1.0);
+		QCOMPARE(icing(-5, 8, false), 1.0);
+		QCOMPARE(icing(10, 2, true), 1.0);
+		QCOMPARE(icing(11, 2, true), 0.0);
+		QCOMPARE(icing(-21, 2, true), 0.0);
+		QVERIFY(std::isnan(icing(std::nan(""), 2, true)));
+		QCOMPARE(icing(0, 2, false), 0.0);
+		const SegmentWeather clear = contactProfile(dataset, dataset.touchdowns[0], true)->segment;
+		QVERIFY(clear.cloudKnown);
+		QVERIFY(std::isnan(clear.lowestInCloudFt));
+	}
+
+	// The approach's vertical wind range, and its airborne sample closest to
+	// the stall: the 700 ft one (9° vs 14°), though the 100 ft one has the
+	// highest angle of attack (11° vs 18°). Neither the 1200 ft sample (before
+	// the segment), a sample without its stall angle, nor the touchdown's on
+	// the ground counts.
+	void approachSegmentVerticalWindAndStallMargin() {
+		TripDataset dataset = touchdownAfter({ 1200, 1000, 700, 400, 100, 0 });
+		const double verticalWinds[] = { -900, -300, 150, -450, 50, std::nan("") };
+		const double alphas[] = { 14, 5, 9, 14.9, 11, 16 };
+		const double stallAlphas[] = { 15, 15, 14, std::nan(""), 18, 16 };
+		for (int i = 0; i < 6; ++i) {
+			dataset.points[i].rawNums[TRIP_NUM_ambient_wind_y] = verticalWinds[i];
+			dataset.points[i].rawNums[TRIP_NUM_incidence_alpha] = alphas[i];
+			dataset.points[i].rawNums[TRIP_NUM_stall_alpha] = stallAlphas[i];
+		}
+		const TripBoolBit ground = TripBoolBits::sim_on_ground;
+		dataset.points[5].boolGroups[ground.group] |= 1u << ground.bit;
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		const SegmentWeather& w = profile->segment;
+		QCOMPARE(w.verticalWindMinFpm, -450.0);
+		QCOMPARE(w.verticalWindMaxFpm, 150.0);
+		QCOMPARE(w.stallMarginAlphaDeg, 9.0);
+		QCOMPARE(w.stallMarginStallAlphaDeg, 14.0);
+		QCOMPARE(w.stallMarginHeightFt, 700.0);
+	}
+
+	// An approach never 1000 ft high starts at the previous contact (a
+	// touch-and-go's liftoff at -4 s): its 50 kt before that doesn't count.
+	void approachSegmentStartsAtThePreviousContact() {
+		TripDataset dataset = touchdownAfter({ 600, 0, 300, 100, 40, 0 });
+		for (int i = 0; i < 6; ++i)
+			dataset.points[i].rawNums[TRIP_NUM_ambient_wind_velocity] = i == 0 ? 50 : 10 + i;
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(-4) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		QCOMPARE(profile->segment.samples, 5);
+		QCOMPARE(profile->segment.windMinKt, 11.0);
+		QCOMPARE(profile->segment.windMaxKt, 15.0);
+	}
+
+	// A climb-out runs from the liftoff up to its first crossing of 1000 ft:
+	// neither the 30 kt on the runway before it nor the 50 kt above counts.
+	// One cut short by the next contact (a landing at 2 s) ends before it, and
+	// has no samples when that contact comes before the liftoff's next sample.
+	void climbOutSegmentEndsAt1000Ft() {
+		TripDataset dataset;
+		const double heights[] = { 0, 300, 1000, 1500 };
+		const double speeds[] = { 30, 10, 12, 50 };
+		for (int i = 0; i < 4; ++i) {
+			dataset.points.push_back(sample(i, 1000 + heights[i], heights[i]));
+			dataset.points[i].rawNums[TRIP_NUM_ambient_wind_velocity] = speeds[i];
+		}
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(1) };
+		std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
+		QVERIFY(profile);
+		QCOMPARE(profile->segment.samples, 2);
+		QCOMPARE(profile->segment.windMinKt, 10.0);
+		QCOMPARE(profile->segment.windMaxKt, 12.0);
+
+		dataset.touchdowns = { contactAt<TouchdownPoint>(2) };
+		profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
+		QVERIFY(profile);
+		QCOMPARE(profile->segment.samples, 1);
+		QCOMPARE(profile->segment.windMaxKt, 10.0);
+
+		// A landing before the sample after the liftoff leaves no climb-out.
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.5) };
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0.8) };
+		profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
+		QVERIFY(profile);
+		QCOMPARE(profile->segment.samples, 0);
+
+		// 950 ft is still below the top, so the climb-out runs on to 1500 ft;
+		// cut short by a landing at 3 s, it keeps both samples before it.
+		TripDataset circuit;
+		const double circuitHeights[] = { 0, 300, 600, 950, 1500 };
+		const double circuitSpeeds[] = { 30, 10, 20, 40, 50 };
+		for (int i = 0; i < 5; ++i) {
+			circuit.points.push_back(sample(i, 1000 + circuitHeights[i], circuitHeights[i]));
+			circuit.points[i].rawNums[TRIP_NUM_ambient_wind_velocity] = circuitSpeeds[i];
+		}
+		circuit.liftoffPoints = { contactAt<LiftoffPoint>(1) };
+		profile = contactProfile(circuit, circuit.liftoffPoints[0], false);
+		QVERIFY(profile);
+		QCOMPARE(profile->segment.samples, 4);
+		QCOMPARE(profile->segment.windMaxKt, 50.0);
+		circuit.touchdowns = { contactAt<TouchdownPoint>(3) };
+		profile = contactProfile(circuit, circuit.liftoffPoints[0], false);
+		QVERIFY(profile);
+		QCOMPARE(profile->segment.samples, 2);
+		QCOMPARE(profile->segment.windMaxKt, 20.0);
+	}
+
+	// A segment stays within 5 nm of its contact, stopping at the first sample
+	// beyond it: an approach whose 1000 ft crossing is at 4 nm but which went
+	// out to 5.5 nm since starts after that (4.9 nm, 2 nm and the touchdown),
+	// and a climb-out that stays low ends before 5.5 nm (2 nm and 4.9 nm).
+	void segmentStaysWithin5Nm() {
+		const double speeds[] = { 60, 50, 20, 10, 5 };
+		TripDataset approach;
+		approach.points = { sample(-4, 2200, 1200, 4.0), sample(-3, 1500, 500, 5.5), sample(-2, 1400, 400, 4.9),
+			sample(-1, 1200, 200, 2), sample(0, 1000, 0, 0) };
+		for (int i = 0; i < 5; ++i)
+			approach.points[i].rawNums[TRIP_NUM_ambient_wind_velocity] = speeds[i];
+		approach.touchdowns = { contactAt<TouchdownPoint>(0) };
+		std::optional<ContactProfile> profile = contactProfile(approach, approach.touchdowns[0], true);
+		QVERIFY(profile);
+		QCOMPARE(profile->segment.samples, 3);
+		QCOMPARE(profile->segment.windMaxKt, 20.0);
+
+		TripDataset climb;
+		climb.points = { sample(0, 1000, 0, 0), sample(1, 1200, 200, 2), sample(2, 1300, 300, 4.9),
+			sample(3, 1400, 400, 5.5), sample(4, 1500, 500, 4.0) };
+		for (int i = 0; i < 5; ++i)
+			climb.points[i].rawNums[TRIP_NUM_ambient_wind_velocity] = speeds[4 - i];
+		climb.liftoffPoints = { contactAt<LiftoffPoint>(1) };
+		profile = contactProfile(climb, climb.liftoffPoints[0], false);
+		QVERIFY(profile);
+		QCOMPARE(profile->segment.samples, 2);
+		QCOMPARE(profile->segment.windMaxKt, 20.0);
+	}
+
 	// With no samples nothing is derived; with values not recorded, those
 	// stay unknown rather than 0.
 	void missingDataStaysUnknown() {
@@ -1012,6 +1322,16 @@ private slots:
 		const ProfilePoint& at = profile->series.at(0);
 		QVERIFY(std::isnan(at.thresholdFt));
 		QVERIFY(std::isnan(at.centerlineFt));
+		for (double value : { at.windSpeedKt, at.headwindKt, at.temperatureC, at.inCloud, at.structuralIce })
+			QVERIFY(std::isnan(value));
+		QVERIFY(at.precipitation.isEmpty());
+		const SegmentWeather& w = profile->segment;
+		QCOMPARE(w.samples, 1);
+		for (double value : { w.windMinKt, w.headwindFromKt, w.maxTailwindKt, w.maxCrosswindKt, w.lowestInCloudFt,
+				 w.icingConditions, w.maxStructuralIce, w.maxPitotIce, w.engineAntiIceShare, w.gForceMin, w.gForceMax,
+				 w.verticalWindMinFpm, w.stallMarginAlphaDeg, w.stallMarginHeightFt })
+			QVERIFY(std::isnan(value));
+		QVERIFY(!w.cloudKnown);
 	}
 };
 

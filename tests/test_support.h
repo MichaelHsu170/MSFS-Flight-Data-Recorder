@@ -162,7 +162,6 @@ struct AirportSpec {
 	std::string name;
 	double latitude = 0;
 	double longitude = 0;
-	float magvar = 0;
 	std::vector<RunwaySpec> runways;
 };
 
@@ -206,7 +205,9 @@ public:
 	// Sets ENG COMBUSTION of all SIM_ENGINE_INDEXES engines.
 	void setEngines(bool running);
 	void moveTo(const COORDINATE& position);
-	void setHeading(double magneticDegrees);
+	// True and magnetic alike (no magnetic variation); set
+	// record.plane_heading_degrees_magnetic after it for some.
+	void setHeading(double degrees);
 
 	// Engines on while on the ground, one tick: starts a trip. Returns its id.
 	int startTrip();

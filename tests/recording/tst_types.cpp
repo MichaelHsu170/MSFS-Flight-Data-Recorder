@@ -178,7 +178,6 @@ private slots:
 		copy_cstr(src.name, "Test Field");
 		copy_cstr(src.icao, "LFBO");
 		copy_cstr(src.region, "LF");
-		src.magvar = 1.5f;
 		src.n_runways = 1;
 		src.runways = (RUNWAY*)calloc(1, sizeof(RUNWAY));
 		src.runways[0].numbers[0] = 14;

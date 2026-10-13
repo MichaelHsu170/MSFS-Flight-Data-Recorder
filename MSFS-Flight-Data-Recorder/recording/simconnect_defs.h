@@ -350,6 +350,15 @@ enum DATA_REQUEST_ID {
 	NUM(ambient_precip_rate, "AMBIENT PRECIP RATE", "millimeters of water") \
 	NUM(sea_level_pressure, "SEA LEVEL PRESSURE", "Millibars") \
 	NUM(ambient_in_cloud, "AMBIENT IN CLOUD", "Bool") \
+	NUM(structural_ice_pct, "STRUCTURAL ICE PCT", "Percent Over 100") \
+	NUM(ambient_wind_x, "AMBIENT WIND X", "Knots") \
+	NUM(ambient_wind_y, "AMBIENT WIND Y", "Feet per minute") \
+	NUM(ambient_wind_z, "AMBIENT WIND Z", "Knots") \
+	NUM(incidence_alpha, "INCIDENCE ALPHA", "Degrees") \
+	NUM(incidence_beta, "INCIDENCE BETA", "Degrees") \
+	NUM(stall_alpha, "STALL ALPHA", "Degrees") \
+	NUM(max_g_force, "MAX G FORCE", "GForce") \
+	NUM(min_g_force, "MIN G FORCE", "GForce") \
 	STR(title, "TITLE", 256) \
 	STR(atc_airline, "ATC AIRLINE", 64) \
 	STR(atc_flight_number, "ATC FLIGHT NUMBER", 8) \

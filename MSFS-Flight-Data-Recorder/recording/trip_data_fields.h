@@ -160,7 +160,16 @@ inline QString tripFieldLabel(const char* name) {
 	X(ambient_precip_state, ambient_precip_state, INTEGER) \
 	X(ambient_precip_rate, ambient_precip_rate, REAL) \
 	X(sea_level_pressure, sea_level_pressure, REAL) \
-	X(velocity_world_y, velocity_world_y, INTEGER)
+	X(velocity_world_y, velocity_world_y, INTEGER) \
+	X(structural_ice_pct, structural_ice_pct, REAL) \
+	X(ambient_wind_x, ambient_wind_x, REAL) \
+	X(ambient_wind_y, ambient_wind_y, REAL) \
+	X(ambient_wind_z, ambient_wind_z, REAL) \
+	X(incidence_alpha, incidence_alpha, REAL) \
+	X(incidence_beta, incidence_beta, REAL) \
+	X(stall_alpha, stall_alpha, REAL) \
+	X(max_g_force, max_g_force, REAL) \
+	X(min_g_force, min_g_force, REAL)
 
 #define TRIP_DATA_BOOL_FIELDS(X) \
 	X(autopilot_airspeed_hold, 1, 0) \

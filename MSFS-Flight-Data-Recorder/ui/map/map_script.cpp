@@ -84,11 +84,46 @@ QJsonArray profilePointsToJson(const std::vector<ProfilePoint>& points) {
 		setKnown(obj, "centerlineFt", p.centerlineFt);
 		setKnown(obj, "pathAngle", p.pathAngle);
 		obj["onGround"] = p.onGround;
+		setKnown(obj, "windDirection", p.windDirection);
+		setKnown(obj, "windSpeedKt", p.windSpeedKt);
+		setKnown(obj, "headwindKt", p.headwindKt);
+		setKnown(obj, "crosswindKt", p.crosswindKt);
+		setKnown(obj, "temperatureC", p.temperatureC);
+		setKnown(obj, "inCloud", p.inCloud);
+		setKnown(obj, "precipitation", p.precipitation);
+		setKnown(obj, "structuralIce", p.structuralIce);
 		setKnown(obj, "throttle", p.throttle);
 		setKnown(obj, "power", p.power);
 		arr.append(obj);
 	}
 	return arr;
+}
+
+QJsonObject segmentWeatherToJson(const SegmentWeather& w) {
+	QJsonObject obj;
+	obj["samples"] = w.samples;
+	setKnown(obj, "windMinKt", w.windMinKt);
+	setKnown(obj, "windMaxKt", w.windMaxKt);
+	setKnown(obj, "headwindFromKt", w.headwindFromKt);
+	setKnown(obj, "headwindFromHeightFt", w.headwindFromHeightFt);
+	setKnown(obj, "headwindToKt", w.headwindToKt);
+	setKnown(obj, "headwindToHeightFt", w.headwindToHeightFt);
+	setKnown(obj, "maxTailwindKt", w.maxTailwindKt);
+	setKnown(obj, "maxCrosswindKt", w.maxCrosswindKt);
+	obj["cloudKnown"] = w.cloudKnown;
+	setKnown(obj, "lowestInCloudFt", w.lowestInCloudFt);
+	setKnown(obj, "icingConditions", w.icingConditions);
+	setKnown(obj, "maxStructuralIce", w.maxStructuralIce);
+	setKnown(obj, "maxPitotIce", w.maxPitotIce);
+	setKnown(obj, "engineAntiIceShare", w.engineAntiIceShare);
+	setKnown(obj, "gForceMin", w.gForceMin);
+	setKnown(obj, "gForceMax", w.gForceMax);
+	setKnown(obj, "verticalWindMinFpm", w.verticalWindMinFpm);
+	setKnown(obj, "verticalWindMaxFpm", w.verticalWindMaxFpm);
+	setKnown(obj, "stallMarginAlphaDeg", w.stallMarginAlphaDeg);
+	setKnown(obj, "stallMarginStallAlphaDeg", w.stallMarginStallAlphaDeg);
+	setKnown(obj, "stallMarginHeightFt", w.stallMarginHeightFt);
+	return obj;
 }
 
 // The fields liftoff and touchdown markers share (their popups show the same
@@ -134,6 +169,8 @@ QJsonObject mapProfileJson(const ContactProfile& profile) {
 	QJsonObject obj;
 	obj["gates"] = profilePointsToJson(profile.gates);
 	obj["series"] = profilePointsToJson(profile.series);
+	if (profile.segment.samples > 0)
+		obj["segment"] = segmentWeatherToJson(profile.segment);
 	setKnown(obj, "highestTerrainFt", profile.highestTerrainFt);
 	setKnown(obj, "highestTerrainNm", profile.highestTerrainNm);
 	setKnown(obj, "powerName", profile.powerName);

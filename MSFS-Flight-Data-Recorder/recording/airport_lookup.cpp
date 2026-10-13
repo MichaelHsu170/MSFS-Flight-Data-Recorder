@@ -75,7 +75,6 @@ static void facility_lookup_request_candidate(struct STATUS* status, int idx) {
 		status->lookup.runway_definition_added = TRUE;
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN AIRPORT");
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "NAME64");
-		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "MAGVAR");
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "N_RUNWAYS");
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "OPEN RUNWAY");
 		SimConnect_AddToFacilityDefinition(status->hSimConnect, DEFINITION_RUNWAYS, "LENGTH");
@@ -239,7 +238,7 @@ void lookup_on_facility_data(struct STATUS* status, SIMCONNECT_RECV_FACILITY_DAT
 	case SIMCONNECT_FACILITY_DATA_AIRPORT:
 	{
 		AIRPORT* tmp = facility_lookup_target(status);
-		memcpy(tmp, &pWxData->Data, sizeof(tmp->name) + sizeof(tmp->magvar) + sizeof(tmp->n_runways));
+		memcpy(tmp, &pWxData->Data, sizeof(tmp->name) + sizeof(tmp->n_runways));
 		if (tmp->n_runways < 0) {
 			gui_log_printf(status, GUI_LOG_WARNING, "FACILITY_DATA_AIRPORT: negative n_runways=%d from sim; treating as 0 runways", tmp->n_runways);
 			tmp->n_runways = 0;
@@ -373,7 +372,10 @@ void lookup_on_facility_data_end(struct STATUS* status) {
 	}
 	gui_log_printf(status, GUI_LOG_TRACE, "FACILITY_DATA_END: %s slot, icao=%s, n_runways=%d",
 		facility_lookup_target_label(status, rep), rep->icao, rep->n_runways);
-	double bearing_tra = wrap_bearing((double)status->lookup.heading - rep->magvar);
+	// True, like the runways' facility headings. Not the magnetic heading
+	// converted with the facility's MAGVAR: an airport without that data
+	// reports 0, which would leave the bearing off by the whole variation.
+	double bearing_tra = status->lookup.heading;
 	// Ground-track refinement only applies to a touchdown/destination
 	// lookup: the aircraft can still be crabbed into wind right up to the
 	// moment of touchdown, so the bearing from that touchdown's own frozen

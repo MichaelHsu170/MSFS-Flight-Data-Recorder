@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -25,8 +27,18 @@ constexpr double kLiftoffSeriesSeconds = 10;
 constexpr double kSeriesSecondsAfter = 10;
 constexpr int kMaxSeriesPoints = 60;
 
-constexpr double kTerrainRangeNm = 5;     // ContactProfile's highest terrain
+constexpr double kTerrainRangeNm = 5;     // ContactProfile's highest terrain and SegmentWeather's segment
 constexpr double kWindRangeSeconds = 30;  // ContactConditions' wind range
+constexpr double kSegmentTopFt = 1000;    // SegmentWeather's segment
+
+// The outside air temperatures (°C) at which visible moisture is taken as
+// icing conditions (SegmentWeather::icingConditions).
+constexpr double kIcingWarmestC = 10;
+constexpr double kIcingColdestC = -20;
+
+// AMBIENT PRECIP STATE's rain and snow bits (precipitationName()).
+constexpr int kPrecipitationRain = 4;
+constexpr int kPrecipitationSnow = 8;
 
 // a - b in degrees, wrapped to -180..180; NaN if either is.
 double signedAngle(double a, double b) {
@@ -53,6 +65,51 @@ double distanceNm(double lat1, double lon1, double lat2, double lon2) {
 // ground, both measured at the aircraft's reference point.
 double groundElevation(const TripSamplePoint& point) {
 	return point.rawNum(TRIP_NUM_plane_altitude) - point.rawNum(TRIP_NUM_plane_alt_above_ground);
+}
+
+// Lowers lowest to value / raises highest to it, ignoring a NaN value; a NaN
+// lowest/highest takes any value.
+void keepLowest(double& lowest, double value) {
+	if (!std::isnan(value) && !(lowest <= value))
+		lowest = value;
+}
+void keepHighest(double& highest, double value) {
+	if (!std::isnan(value) && !(highest >= value))
+		highest = value;
+}
+
+// point's in-cloud bit as 1 or 0; NaN unless point also recorded the
+// precipitation state: samples recorded before the bit have it cleared, not
+// unknown.
+double inCloud(const TripSamplePoint& point) {
+	if (std::isnan(point.rawNum(TRIP_NUM_ambient_precip_state)))
+		return std::nan("");
+	return TripBoolBits::ambient_in_cloud.isSet(point.boolGroups) ? 1 : 0;
+}
+
+// 1 when point was in visible moisture (in cloud, or in rain or snow) at an
+// outside air temperature of kIcingColdestC..kIcingWarmestC, else 0; NaN
+// without its cloud state or temperature.
+double icingConditions(const TripSamplePoint& point) {
+	const double cloud = inCloud(point);
+	const double temperature = point.rawNum(TRIP_NUM_ambient_temperature);
+	if (std::isnan(cloud) || std::isnan(temperature))
+		return std::nan("");
+	const bool moisture = cloud == 1
+		|| ((int)point.rawNum(TRIP_NUM_ambient_precip_state) & (kPrecipitationRain | kPrecipitationSnow)) != 0;
+	return moisture && temperature >= kIcingColdestC && temperature <= kIcingWarmestC ? 1 : 0;
+}
+
+// 1 when point has ENG ANTI ICE on for any engine, 0 when off for every
+// engine that recorded it; NaN when none did.
+double engineAntiIce(const TripSamplePoint& point) {
+	double on = std::nan("");
+	for (int engine = 1; engine <= point.engineCount(); ++engine) {
+		const double value = point.engineValue(engine, TRIP_ENGINE_eng_anti_ice);
+		if (!std::isnan(value))
+			keepHighest(on, value != 0 ? 1 : 0);
+	}
+	return on;
 }
 
 // The samples a contact is measured from: [begin, end) is its gates' and
@@ -124,6 +181,16 @@ public:
 		out.thresholdFt = offsets.along_ft - (touchdown_ ? runway.thresholdOffsetFt : 0);
 		out.centerlineFt = offsets.cross_ft;
 		out.onGround = TripBoolBits::sim_on_ground.isSet(p.boolGroups);
+		out.windDirection = p.rawNum(TRIP_NUM_ambient_wind_direction);
+		out.windSpeedKt = p.rawNum(TRIP_NUM_ambient_wind_velocity);
+		const double runwayHeading = contact_.runwayHeading >= 0 ? contact_.runwayHeading : std::nan("");
+		const double windAngle = (out.windDirection - runwayHeading) * DEG_2_RAD;
+		out.headwindKt = out.windSpeedKt * std::cos(windAngle);
+		out.crosswindKt = out.windSpeedKt * std::sin(windAngle);
+		out.temperatureC = p.rawNum(TRIP_NUM_ambient_temperature);
+		out.inCloud = inCloud(p);
+		out.precipitation = precipitationName(p.rawNum(TRIP_NUM_ambient_precip_state));
+		out.structuralIce = p.rawNum(TRIP_NUM_structural_ice_pct);
 		for (int engine = 1; engine <= p.engineCount(); ++engine) {
 			out.throttle.push_back(p.engineValue(engine, TRIP_ENGINE_general_eng_throttle_lever_position));
 			if (power_)
@@ -139,6 +206,7 @@ public:
 		}
 	}
 	int size() const { return (int)points_.size(); }
+	const TripSamplePoint& sample(int index) const { return points_[index]; }
 	double height(int index) const { return points_[index].rawNum(TRIP_NUM_plane_altitude) - groundAltitude_; }
 	double distance(int index) const {
 		return distanceNm(points_[index].latitude, points_[index].longitude, contact_.latitude, contact_.longitude);
@@ -201,6 +269,90 @@ std::vector<ProfilePoint> series(const ProfileBuilder& builder, const ContactSam
 	return out;
 }
 
+// The weather and the ride (SegmentWeather) through the samples from..to
+// (inclusive, from first); empty when to is from - 1 (a liftoff whose next
+// contact falls before its sample after it).
+SegmentWeather segmentWeather(const ProfileBuilder& builder, int from, int to) {
+	SegmentWeather w;
+	w.samples = to - from + 1;
+	// Each sample's headwind and height, in time order, for the change.
+	std::vector<std::pair<double, double>> headwinds;
+	double lowestHeadwind = std::nan(""), highestHeadwind = std::nan("");
+	int antiIceOn = 0, antiIceKnown = 0;
+	for (int i = from; i <= to; ++i) {
+		const ProfilePoint p = builder.at(i);
+		const TripSamplePoint& sample = builder.sample(i);
+		keepLowest(w.windMinKt, p.windSpeedKt);
+		keepHighest(w.windMaxKt, p.windSpeedKt);
+		if (!std::isnan(p.headwindKt))
+			headwinds.emplace_back(p.headwindKt, p.heightFt);
+		keepLowest(lowestHeadwind, p.headwindKt);
+		keepHighest(highestHeadwind, p.headwindKt);
+		keepHighest(w.maxTailwindKt, -p.headwindKt);
+		if (!std::isnan(p.crosswindKt) && !(std::abs(w.maxCrosswindKt) >= std::abs(p.crosswindKt)))
+			w.maxCrosswindKt = p.crosswindKt;
+		if (!std::isnan(p.inCloud)) {
+			w.cloudKnown = true;
+			if (p.inCloud == 1)
+				keepLowest(w.lowestInCloudFt, p.heightFt);
+		}
+		keepHighest(w.icingConditions, icingConditions(sample));
+		keepHighest(w.maxStructuralIce, p.structuralIce);
+		keepHighest(w.maxPitotIce, sample.rawNum(TRIP_NUM_pitot_ice_pct));
+		const double antiIce = engineAntiIce(sample);
+		if (!std::isnan(antiIce)) {
+			++antiIceKnown;
+			antiIceOn += antiIce == 1;
+		}
+		keepLowest(w.verticalWindMinFpm, sample.rawNum(TRIP_NUM_ambient_wind_y));
+		keepHighest(w.verticalWindMaxFpm, sample.rawNum(TRIP_NUM_ambient_wind_y));
+		if (!p.onGround) {
+			keepLowest(w.gForceMin, sample.rawNum(TRIP_NUM_g_force));
+			keepHighest(w.gForceMax, sample.rawNum(TRIP_NUM_g_force));
+			const double alpha = sample.rawNum(TRIP_NUM_incidence_alpha);
+			const double stallAlpha = sample.rawNum(TRIP_NUM_stall_alpha);
+			const double margin = stallAlpha - alpha;
+			if (!std::isnan(margin) && !(w.stallMarginStallAlphaDeg - w.stallMarginAlphaDeg <= margin)) {
+				w.stallMarginAlphaDeg = alpha;
+				w.stallMarginStallAlphaDeg = stallAlpha;
+				w.stallMarginHeightFt = p.heightFt;
+			}
+		}
+	}
+	if (!headwinds.empty()) {
+		// The closest pair in time with one at each extreme, so the change's
+		// heights show where it happened: the last sample at the earlier
+		// extreme and the first at the later one. A steady headwind is its
+		// first sample at both ends.
+		std::size_t first = 0, second = 0;
+		if (lowestHeadwind < highestHeadwind) {
+			std::optional<std::size_t> lastLowest, lastHighest;
+			std::size_t gap = headwinds.size();
+			for (std::size_t k = 0; k < headwinds.size(); ++k) {
+				const double headwind = headwinds[k].first;
+				const std::optional<std::size_t> other = headwind == lowestHeadwind ? lastHighest
+					: headwind == highestHeadwind ? lastLowest : std::nullopt;
+				if (other && k - *other < gap) {
+					first = *other;
+					second = k;
+					gap = k - *other;
+				}
+				if (headwind == lowestHeadwind)
+					lastLowest = k;
+				if (headwind == highestHeadwind)
+					lastHighest = k;
+			}
+		}
+		w.headwindFromKt = headwinds[first].first;
+		w.headwindFromHeightFt = headwinds[first].second;
+		w.headwindToKt = headwinds[second].first;
+		w.headwindToHeightFt = headwinds[second].second;
+	}
+	if (antiIceKnown > 0)
+		w.engineAntiIceShare = (double)antiIceOn / antiIceKnown;
+	return w;
+}
+
 ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamples& s) {
 	// Scanning back from the contact, the first sample at or above a gate is
 	// its last crossing: an earlier descent (a go-around's) doesn't count.
@@ -236,6 +388,13 @@ ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamp
 	for (auto& gate : gates)
 		profile.gates.push_back(gate.second);
 	profile.series = series(builder, s, kTouchdownSeriesSeconds);
+	// Scanning back from the touchdown, the segment starts at the last
+	// crossing of the top, but no further out than kTerrainRangeNm.
+	const int top = lastAtOrAbove([&](int j) { return builder.height(j); }, kSegmentTopFt);
+	int from = s.ground;
+	while (from > (top >= 0 ? top : s.begin) && builder.distance(from - 1) <= kTerrainRangeNm)
+		--from;
+	profile.segment = segmentWeather(builder, from, s.ground);
 	builder.highestTerrain(profile, s.ground, s.begin);
 	return profile;
 }
@@ -251,6 +410,10 @@ ContactProfile liftoffProfile(const ProfileBuilder& builder, const ContactSample
 		}
 	}
 	profile.series = series(builder, s, kLiftoffSeriesSeconds);
+	int top = s.at;
+	while (top < s.end - 1 && !(builder.height(top) >= kSegmentTopFt) && builder.distance(top + 1) <= kTerrainRangeNm)
+		++top;
+	profile.segment = segmentWeather(builder, s.at, (std::min)(top, s.end - 1));
 	if (s.ground < s.end)
 		builder.highestTerrain(profile, s.ground, s.end - 1);
 	return profile;
@@ -279,11 +442,9 @@ ContactConditions conditionsAt(const std::vector<TripSamplePoint>& points, const
 	c.densityAltitudeFt = densityAltitudeFeet(c.pressureAltitudeFt, c.temperatureC);
 	c.visibilityM = p.rawNum(TRIP_NUM_ambient_visibility);
 	c.seaLevelPressureMb = p.rawNum(TRIP_NUM_sea_level_pressure);
-	const double precipitationState = p.rawNum(TRIP_NUM_ambient_precip_state);
-	c.precipitation = precipitationName(precipitationState);
+	c.precipitation = precipitationName(p.rawNum(TRIP_NUM_ambient_precip_state));
 	c.precipitationRate = p.rawNum(TRIP_NUM_ambient_precip_rate);
-	if (!std::isnan(precipitationState))
-		c.inCloud = TripBoolBits::ambient_in_cloud.isSet(p.boolGroups) ? 1 : 0;
+	c.inCloud = inCloud(p);
 	c.fieldElevationFt = groundElevation(points[s.ground]);
 	c.surfaceType = surfaceTypeName(p.rawNum(TRIP_NUM_surface_type));
 	c.surfaceCondition = surfaceConditionName(p.rawNum(TRIP_NUM_surface_condition));
@@ -300,15 +461,11 @@ ContactConditions conditionsAt(const std::vector<TripSamplePoint>& points, const
 				break;
 		}
 		const double speed = points[i].rawNum(TRIP_NUM_ambient_wind_velocity);
-		if (!std::isnan(speed)) {
-			c.windMinKt = std::isnan(c.windMinKt) ? speed : (std::min)(c.windMinKt, speed);
-			c.windMaxKt = std::isnan(c.windMaxKt) ? speed : (std::max)(c.windMaxKt, speed);
-		}
+		keepLowest(c.windMinKt, speed);
+		keepHighest(c.windMaxKt, speed);
 		const double offset = signedAngle(points[i].rawNum(TRIP_NUM_ambient_wind_direction), direction);
-		if (!std::isnan(offset)) {
-			lowOffset = (std::min)(lowOffset, offset);
-			highOffset = (std::max)(highOffset, offset);
-		}
+		keepLowest(lowOffset, offset);
+		keepHighest(highOffset, offset);
 	}
 	// Unknown (NaN) without the contact's own direction.
 	c.windDirectionFrom = wrap360(direction + lowOffset);
@@ -425,11 +582,12 @@ QString precipitationName(double mask) {
 	if (std::isnan(mask))
 		return QString();
 	const int bits = (int)mask;
-	if ((bits & 4) && (bits & 8))
+	const bool rain = bits & kPrecipitationRain, snow = bits & kPrecipitationSnow;
+	if (rain && snow)
 		return QStringLiteral("rain and snow");
-	if (bits & 4)
+	if (rain)
 		return QStringLiteral("rain");
-	if (bits & 8)
+	if (snow)
 		return QStringLiteral("snow");
 	return bits & 2 ? QStringLiteral("none") : QString();
 }

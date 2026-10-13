@@ -32,11 +32,13 @@ QString mapSetTouchdownsJs(const std::vector<TouchdownPoint>& touchdowns);
 QString mapSetEventsJs(const std::vector<TripEvent>& events);
 QString mapSetEventsVisibleJs(bool visible);
 // A contact's final trajectory (contactProfile()) as the page's t.profile
-// for buildLiftoffPrompt()/buildTouchdownPrompt(): {gates, series,
-// highestTerrainFt, highestTerrainNm, powerName, powerUnit}, each point's
-// and the terrain's unrecorded values absent (a point's throttle/power
-// array absent unless one engine's is recorded, an unrecorded engine's
-// null). Returned by MapBridge::liftoffProfile()/touchdownProfile().
+// for buildLiftoffPrompt()/buildTouchdownPrompt(): {gates, series, segment,
+// highestTerrainFt, highestTerrainNm, powerName, powerUnit,
+// indicatedVerticalSpeed}, each point's, the segment's and the terrain's
+// unrecorded values absent (a point's throttle/power array absent unless
+// one engine's is recorded, an unrecorded engine's null), and the segment
+// (SegmentWeather) absent when it has no samples. Returned by
+// MapBridge::liftoffProfile()/touchdownProfile().
 QJsonObject mapProfileJson(const ContactProfile& profile);
 // setOverview([...]): one departure->destination segment per trip, with its
 // group ("Ungrouped" for group 0) for the legend and colors.

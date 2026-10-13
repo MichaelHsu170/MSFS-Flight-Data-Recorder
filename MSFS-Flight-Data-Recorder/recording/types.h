@@ -273,7 +273,6 @@ struct RUNWAY_OPERATION {
 class AIRPORT {
 public:
 	char name[64];
-	float magvar;
 	int n_runways;
 	RUNWAY* runways;
 	struct RUNWAY_OPERATION runway_act;
@@ -291,7 +290,6 @@ public:
 		memset(icao, 0, sizeof(icao));
 		memset(region, 0, sizeof(region));
 		memset(name, 0, sizeof(name));
-		magvar = 0;
 		n_runways = 0;
 		if (runways != NULL)
 			free(runways);
@@ -303,7 +301,6 @@ public:
 		memcpy(name, src->name, sizeof(src->name));
 		memcpy(icao, src->icao, sizeof(src->icao));
 		memcpy(region, src->region, sizeof(src->region));
-		magvar = src->magvar;
 		// Free any buffer this AIRPORT already owns before reassigning, so a
 		// copy() onto an already-populated AIRPORT doesn't leak it.
 		if (runways != NULL) {
@@ -329,7 +326,8 @@ public:
 };
 
 struct FLIGHT_DATA {
-	int heading = 0;
+	int heading = 0;             // PLANE HEADING DEGREES MAGNETIC: stored with a liftoff/touchdown
+	int heading_true = 0;        // PLANE HEADING DEGREES TRUE: matched against the runways' (true) headings
 	int altitude = 0;
 	int speed = 0;
 	int vertical_speed = 0;      // VERTICAL SPEED: indicated, lags the actual rate
@@ -606,8 +604,8 @@ struct AIRPORT_LOOKUP {
 	// the aircraft's heading at the moment FACILITY_DATA_END arrives, which can
 	// be well after the actual touchdown/liftoff (e.g. queued behind an earlier
 	// lookup, or the aircraft has already turned off the runway). Set alongside
-	// coordinate from the same historical source (magnetic
-	// heading, matching STATUS::data.heading's units) each time that field is.
+	// coordinate from the same historical source (its true heading,
+	// FLIGHT_DATA::heading_true, like the runways') each time that field is.
 	int heading = 0;
 	// Running top-N nearest airports across every chunk of the current
 	// AIRPORT_LIST response. SimConnect splits a large facility list (e.g.

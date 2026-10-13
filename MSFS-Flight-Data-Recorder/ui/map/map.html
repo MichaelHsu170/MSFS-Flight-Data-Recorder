@@ -426,7 +426,71 @@ function profilePointText(p, profile) {
     add('pathAngle', function(v) { return 'path angle ' + v.toFixed(1) + '° from here'; });
     engines('throttle', 'throttle', '%');
     engines('power', profile.powerName, profile.powerUnit);
+    // Only the height gates ("500 ft") carry the weather: a distance gate
+    // ("2 nm") passes through nearly the same air as a height gate (3/2/1 nm
+    // are about 950/640/320 ft on a 3° path), and repeating it would push
+    // the worst-case prompt past its token limit.
+    if (/ ft$/.test(p.gate)) parts = parts.concat(gateWeatherParts(p));
     return parts.join(', ');
+}
+
+// A wind component (kt, trip_dataset.h's ProfilePoint/SegmentWeather) as
+// "headwind 8 kt" / "tailwind 3 kt" (one rounding to 0 a headwind), and a crosswind
+// one as "6 kt from the right" / "from the left" ("0 kt" alone).
+function headwindText(kt) {
+    var rounded = Math.round(Math.abs(kt));
+    return (kt >= 0 || rounded === 0 ? 'headwind ' : 'tailwind ') + rounded + ' kt';
+}
+function crosswindText(kt) {
+    return Math.round(Math.abs(kt)) + ' kt' + (Math.round(Math.abs(kt)) === 0 ? '' : ' from the ' + (kt > 0 ? 'right' : 'left'));
+}
+
+// A gate's weather (trip_dataset.h's ProfilePoint): the wind and its
+// components along and across the runway, the outside air, cloud,
+// precipitation and structural ice, each left out when not recorded.
+function gateWeatherParts(p) {
+    var parts = [];
+    if (hasValue(p, 'windSpeedKt')) {
+        // The direction comes with the speed: both recorded since the first version.
+        var wind = 'wind ' + roundHalfAwayFromZero(p.windDirection) + '° T ' + roundHalfAwayFromZero(p.windSpeedKt) + ' kt';
+        if (hasValue(p, 'headwindKt')) wind += ' (' + headwindText(p.headwindKt) + ', crosswind ' + crosswindText(p.crosswindKt) + ')';
+        parts.push(wind);
+    }
+    if (hasValue(p, 'temperatureC')) parts.push('OAT ' + p.temperatureC.toFixed(1) + ' °C');
+    if (hasValue(p, 'inCloud')) parts.push(p.inCloud ? 'in cloud' : 'not in cloud');
+    if (p.precipitation) parts.push('precipitation ' + p.precipitation);
+    if (hasValue(p, 'structuralIce')) parts.push('structural ice ' + roundHalfAwayFromZero(p.structuralIce * 100) + '%');
+    return parts;
+}
+
+// The segment's weather and ride (trip_dataset.h's SegmentWeather) under
+// title ("Approach weather and ride (...)"), one line per value recorded;
+// none without the segment. A headwind change of 15 kt or more is marked as
+// wind shear.
+function segmentPromptLines(w, title) {
+    if (!w) return [];
+    var lines = [];
+    function add(label, text) { lines.push('    ' + label + ': ' + text); }
+    if (hasValue(w, 'windMinKt')) add('Wind speed', roundHalfAwayFromZero(w.windMinKt) + '-' + roundHalfAwayFromZero(w.windMaxKt) + ' kt');
+    if (hasValue(w, 'headwindFromKt')) {
+        var change = w.headwindToKt - w.headwindFromKt;
+        var changeKt = Math.round(Math.abs(change));
+        add('Largest headwind change', headwindText(w.headwindFromKt) + ' at height ' + roundHalfAwayFromZero(w.headwindFromHeightFt) + ' ft to ' + headwindText(w.headwindToKt) + ' at height ' + roundHalfAwayFromZero(w.headwindToHeightFt) + ' ft ('
+            + (change >= 0 || changeKt === 0 ? 'a gain' : 'a loss') + ' of ' + changeKt + ' kt' + (changeKt >= 15 ? ': wind shear' : '') + ')');
+    }
+    if (hasValue(w, 'maxTailwindKt')) add('Strongest tailwind', Math.round(w.maxTailwindKt) > 0 ? Math.round(w.maxTailwindKt) + ' kt' : 'none');
+    if (hasValue(w, 'maxCrosswindKt')) add('Strongest crosswind', crosswindText(w.maxCrosswindKt));
+    if (w.cloudKnown) add('Cloud', hasValue(w, 'lowestInCloudFt') ? 'in cloud down to height ' + roundHalfAwayFromZero(w.lowestInCloudFt) + ' ft' : 'not in cloud');
+    if (hasValue(w, 'icingConditions')) add('Icing conditions (in cloud or precipitation at -20 to +10 °C)', w.icingConditions ? 'yes' : 'no');
+    if (hasValue(w, 'maxStructuralIce')) add('Most structural ice', roundHalfAwayFromZero(w.maxStructuralIce * 100) + '%');
+    if (hasValue(w, 'maxPitotIce')) add('Most pitot ice', roundHalfAwayFromZero(w.maxPitotIce * 100) + '%');
+    if (hasValue(w, 'engineAntiIceShare')) add('Engine anti-ice', 'on for ' + roundHalfAwayFromZero(w.engineAntiIceShare * 100) + '% of the samples');
+    if (hasValue(w, 'gForceMin'))
+        add('G-force while airborne', w.gForceMin.toFixed(2) + '-' + w.gForceMax.toFixed(2) + ' G (its spread shows turbulence; a bump between samples is missed)');
+    if (hasValue(w, 'verticalWindMinFpm')) add('Vertical wind (+ up)', roundHalfAwayFromZero(w.verticalWindMinFpm) + ' to ' + roundHalfAwayFromZero(w.verticalWindMaxFpm) + ' ft/min');
+    if (hasValue(w, 'stallMarginAlphaDeg'))
+        add('Closest to the stall while airborne', 'angle of attack ' + w.stallMarginAlphaDeg.toFixed(1) + '° vs stall ' + w.stallMarginStallAlphaDeg.toFixed(1) + '° at height ' + roundHalfAwayFromZero(w.stallMarginHeightFt) + ' ft');
+    return lines.length ? ['  ' + title + ':'].concat(lines) : [];
 }
 
 // The trajectory block, titled title ("Final trajectory"; trip_dataset.h's
@@ -438,7 +502,10 @@ function profilePointText(p, profile) {
 // engine values are explained only when recorded. None without any of them;
 // a line saying it's unavailable when t.profile is null (MapBridge couldn't
 // build it, runAiAnalysis()), for the answer's segment section to say so.
-function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpan, thresholdName) {
+// The segment's weather and ride follow under segmentTitle
+// (segmentPromptLines()); a segment never comes without the series, which
+// always holds the contact's own samples.
+function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpan, thresholdName, segmentTitle) {
     var profile = t.profile;
     if (!profile)
         return [title + ': not available (it could not be built from the recorded samples). Judge the ' + pointName + ' from the data above alone, and in the ' + segment + ' section say that the trajectory was not available instead of describing it.'];
@@ -459,6 +526,7 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
         lines.push('  Samples, ' + seriesSpan + ':');
         profile.series.forEach(function(p) { lines.push('    ' + profilePointText(p, profile)); });
     }
+    lines = lines.concat(segmentPromptLines(profile.segment, segmentTitle));
     if (hasValue(profile, 'highestTerrainFt'))
         lines.push('  Highest terrain within 5 nm ' + terrainSpan + ': ' + (profile.highestTerrainFt > 0 ? '+' : '') + roundHalfAwayFromZero(profile.highestTerrainFt) + ' ft, ' + profile.highestTerrainNm.toFixed(2) + ' nm from the ' + pointName + (profile.highestTerrainFt > 500 ? ' (more than 500 ft above it)' : ''));
     return lines;
@@ -526,7 +594,7 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, c
 function buildLiftoffPrompt(t) {
     var aircraft = window._aircraftTitle || '';
     var lines = startAnalysisPrompt('You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.',
-        'Rotation and climb-out', 'the rotation and initial climb: pitch, speed, bank and track through the gates',
+        'Rotation and climb-out', 'the rotation and initial climb: pitch, speed, bank and track through the gates; judge the crab after the liftoff against the crosswind, the rotation and climb speed against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall',
         'how the conditions, airport, runway and terrain affected this liftoff',
         'Liftoff data:', t, aircraft);
     // Deliberately no vertical-speed line here, unlike buildTouchdownPrompt()
@@ -542,15 +610,16 @@ function buildLiftoffPrompt(t) {
     // real signal (dropped wing, crosswind technique), not a mid-ramp snapshot.
     lines.push('  Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold at liftoff', 'runway',
-        profilePromptLines(t, 'Takeoff trajectory', 'Rotation and climb-out', 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff', 'runway start'),
-        'Consider: crosswind component (calculate from the true wind vs the true runway heading), centerline tracking during the takeoff roll, use of available runway length and the runway remaining, runway slope, rotation and climb-out attitude and speed, density altitude, runway surface condition, gusts, light and visibility, terrain after the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
+        profilePromptLines(t, 'Takeoff trajectory', 'Rotation and climb-out', 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff', 'runway start',
+            'Climb-out weather and ride (from the liftoff up to the first crossing of 1000 ft above the liftoff point, or to the next contact or 5 nm from the liftoff point if sooner)'),
+        'Consider: crosswind component (calculate from the true wind vs the true runway heading), centerline tracking during the takeoff roll, use of available runway length and the runway remaining, runway slope, rotation and climb-out attitude and speed, density altitude, runway surface condition, gusts, wind shear, turbulence, cloud and icing, light and visibility, terrain after the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
         'liftoff');
 }
 
 function buildTouchdownPrompt(t) {
     var aircraft = window._aircraftTitle || '';
     var lines = startAnalysisPrompt('You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 landing.',
-        'Final segment', 'stability at the gates (speed, sink rate, path angle, alignment), and technique through the flare, decrab, touchdown and rollout, including any bounce',
+        'Final segment', 'stability at the gates (speed, sink rate, path angle, alignment), and technique through the flare, decrab, touchdown and rollout, including any bounce; judge the crab and decrab against the crosswind, the speed additive against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall',
         'how the conditions, airport, runway and terrain affected this landing',
         'Landing data:', t, aircraft);
     lines.push('  Vertical speed: ' + contactVerticalSpeedLabel(t) + (hasValue(t, 'actualVerticalSpeed') ? '' : ', which lags the actual rate'));
@@ -559,8 +628,9 @@ function buildTouchdownPrompt(t) {
     lines.push('  G-force: ' + Number(t.gForce).toFixed(2) + ' G');
     lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold', 'landing distance available',
-        profilePromptLines(t, 'Final trajectory', 'Final segment', 'touchdown point', 'from 15 s before to 10 s after the touchdown', 'before the touchdown', 'marked threshold'),
-        'Consider: touchdown rate, vertical speed & G-force comfort, crosswind component (calculate from the true wind vs the true runway heading), decrab at touchdown (crab angle), centerline tracking, touchdown zone placement and the runway remaining, runway slope, stabilization at the gates, flare technique, density altitude, runway surface condition, gusts, light and visibility, terrain before the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
+        profilePromptLines(t, 'Final trajectory', 'Final segment', 'touchdown point', 'from 15 s before to 10 s after the touchdown', 'before the touchdown', 'marked threshold',
+            'Approach weather and ride (from the last crossing of 1000 ft above the touchdown point down to it, or from 5 nm out, the previous contact or the start of the recording if closer)'),
+        'Consider: touchdown rate, vertical speed & G-force comfort, crosswind component (calculate from the true wind vs the true runway heading), decrab at touchdown (crab angle), centerline tracking, touchdown zone placement and the runway remaining, runway slope, stabilization at the gates, flare technique, density altitude, runway surface condition, gusts, wind shear, turbulence, cloud and icing, light and visibility, terrain before the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
         'landing');
 }
 

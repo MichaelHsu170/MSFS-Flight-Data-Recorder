@@ -138,11 +138,81 @@ struct ProfilePoint {
 	// next closer one, or to the contact after the last.
 	double pathAngle = std::nan("");
 	bool onGround = false;  // SIM ON GROUND
+	// The weather at this point: the wind (from, degrees true; kt) and its
+	// components along the contact's runway (true heading; + = headwind, - =
+	// tailwind) and across it (+ = from the right; both NaN without a
+	// runway), the outside air (°C), inCloud like ContactConditions', the
+	// precipitation like its (precipitationName()) and the structural ice
+	// (STRUCTURAL ICE PCT, 0..1).
+	double windDirection = std::nan("");
+	double windSpeedKt = std::nan("");
+	double headwindKt = std::nan("");
+	double crosswindKt = std::nan("");
+	double temperatureC = std::nan("");
+	double inCloud = std::nan("");
+	QString precipitation;
+	double structuralIce = std::nan("");
 	// Per engine, engine 1 first (NaN where not recorded): the throttle lever
 	// position as the aircraft reports it (%, negative = reverse range), and
 	// the value ContactProfile::powerName names (empty without one).
 	std::vector<double> throttle;
 	std::vector<double> power;
+};
+
+// The weather and the ride through a contact's final segment
+// (ContactProfile::segment): the approach's samples from its last crossing
+// of 1000 ft above the touchdown point (or, never that high, its first since
+// the previous contact) down to the touchdown, or the climb-out's from the
+// liftoff up to its first crossing of 1000 ft (or the last before the next
+// contact); either only within 5 nm of the contact, stopping at the first
+// sample beyond it, so one that stays low isn't the whole flight. A value is NaN when none of the samples recorded it; the wind
+// components also without the runway's heading.
+struct SegmentWeather {
+	int samples = 0;                      // 0 when the segment is empty: then nothing else is set
+	double windMinKt = std::nan("");
+	double windMaxKt = std::nan("");
+	// The lowest and highest headwind component, in time order: from
+	// headwindFromKt at headwindFromHeightFt to headwindToKt at
+	// headwindToHeightFt, the largest change of the headwind through the
+	// segment (wind shear). Where several samples share an extreme, the two
+	// closest in time (the first such pair), so the heights show where the
+	// change happened; a steady headwind is its first sample at both ends.
+	double headwindFromKt = std::nan("");
+	double headwindFromHeightFt = std::nan("");
+	double headwindToKt = std::nan("");
+	double headwindToHeightFt = std::nan("");
+	double maxTailwindKt = std::nan("");  // the most negative headwind, negated (<= 0: no tailwind)
+	double maxCrosswindKt = std::nan(""); // the strongest crosswind, signed like ProfilePoint's
+	// Whether any sample recorded the cloud state (ContactConditions::inCloud),
+	// and the lowest height at which the aircraft was in cloud: on an approach
+	// where it broke out of the cloud base, on a climb-out where it entered it
+	// (NaN when never in cloud).
+	bool cloudKnown = false;
+	double lowestInCloudFt = std::nan("");
+	// 1 when a sample was in visible moisture (cloud or precipitation) at an
+	// outside air temperature of -20..+10 °C, 0 when none was; NaN when no
+	// sample recorded both.
+	double icingConditions = std::nan("");
+	double maxStructuralIce = std::nan("");  // STRUCTURAL ICE PCT, 0..1
+	double maxPitotIce = std::nan("");       // PITOT ICE PCT, 0..1
+	// The share (0..1) of the samples with ENG ANTI ICE on for any engine,
+	// among those that recorded it.
+	double engineAntiIceShare = std::nan("");
+	// The lowest and highest G FORCE among the airborne samples: their spread
+	// shows turbulence, but each is the instant of its sample, so a bump
+	// between two samples is missed.
+	double gForceMin = std::nan("");
+	double gForceMax = std::nan("");
+	// The lowest and highest vertical wind (AMBIENT WIND Y, ft/min; + = up):
+	// a downdraft or updraft through the segment.
+	double verticalWindMinFpm = std::nan("");
+	double verticalWindMaxFpm = std::nan("");
+	// The airborne sample closest to the stall: the smallest margin of its
+	// angle of attack (INCIDENCE ALPHA, degrees) below the stall's (STALL
+	// ALPHA, the angle of the maximum lift), at its height.
+	double stallMarginAlphaDeg = std::nan("");
+	double stallMarginStallAlphaDeg = std::nan("");
+	double stallMarginHeightFt = std::nan("");
 };
 
 // A liftoff's/touchdown's final trajectory (contactProfile() in
@@ -154,6 +224,7 @@ struct ProfilePoint {
 struct ContactProfile {
 	std::vector<ProfilePoint> gates;   // in time order
 	std::vector<ProfilePoint> series;  // every sample near the contact (capped), in time order
+	SegmentWeather segment;            // the approach's or climb-out's weather and ride
 	// What each point's power values are, by the contact sample's ENGINE TYPE,
 	// and their unit: "N1" for a jet and "torque" for a turboprop or helicopter
 	// turbine, in "%"; "manifold pressure" for a piston, in " inHg" (it shows

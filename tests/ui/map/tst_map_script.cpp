@@ -298,8 +298,39 @@ private slots:
 		p.onGround = true;
 		p.throttle = { -4, 30 };
 		p.power = { 53, 54 };
+		p.windDirection = 250;
+		p.windSpeedKt = 12;
+		p.headwindKt = 10.4;
+		p.crosswindKt = -6;
+		p.temperatureC = 4.5;
+		p.inCloud = 0;
+		p.precipitation = QStringLiteral("rain");
+		p.structuralIce = 0.02;
 		ContactProfile contactProfile;
 		contactProfile.gates = { p };
+		SegmentWeather& w = contactProfile.segment;
+		w.samples = 30;
+		w.windMinKt = 1;
+		w.windMaxKt = 2;
+		w.headwindFromKt = 3;
+		w.headwindFromHeightFt = 4;
+		w.headwindToKt = 5;
+		w.headwindToHeightFt = 6;
+		w.maxTailwindKt = 7;
+		w.maxCrosswindKt = 8;
+		w.cloudKnown = true;
+		w.lowestInCloudFt = 9;
+		w.icingConditions = 1;
+		w.maxStructuralIce = 0.1;
+		w.maxPitotIce = 0.2;
+		w.engineAntiIceShare = 0.3;
+		w.gForceMin = 0.9;
+		w.gForceMax = 1.1;
+		w.verticalWindMinFpm = -400;
+		w.verticalWindMaxFpm = 120;
+		w.stallMarginAlphaDeg = 9.5;
+		w.stallMarginStallAlphaDeg = 15;
+		w.stallMarginHeightFt = 60;
 		contactProfile.highestTerrainFt = 420;
 		contactProfile.powerName = QStringLiteral("N1");
 		contactProfile.powerUnit = QStringLiteral("%");
@@ -309,7 +340,15 @@ private slots:
 			{ "heightFt", 640 }, { "distanceNm", 2 }, { "terrainFt", 30 }, { "airspeed", 135 }, { "verticalSpeed", -720 },
 			{ "pitch", 1.5 }, { "bank", -3 }, { "headingTrue", 271 }, { "trackTrue", 268 }, { "thresholdFt", -12000 },
 			{ "centerlineFt", 25 }, { "pathAngle", 3.1 }, { "onGround", true }, { "throttle", QJsonArray{ -4, 30 } },
-			{ "power", QJsonArray{ 53, 54 } } }));
+			{ "power", QJsonArray{ 53, 54 } }, { "windDirection", 250 }, { "windSpeedKt", 12 }, { "headwindKt", 10.4 },
+			{ "crosswindKt", -6 }, { "temperatureC", 4.5 }, { "inCloud", 0 }, { "precipitation", "rain" },
+			{ "structuralIce", 0.02 } }));
+		QCOMPARE(profile["segment"].toObject(), (QJsonObject{ { "samples", 30 }, { "windMinKt", 1 }, { "windMaxKt", 2 },
+			{ "headwindFromKt", 3 }, { "headwindFromHeightFt", 4 }, { "headwindToKt", 5 }, { "headwindToHeightFt", 6 },
+			{ "maxTailwindKt", 7 }, { "maxCrosswindKt", 8 }, { "cloudKnown", true }, { "lowestInCloudFt", 9 },
+			{ "icingConditions", 1 }, { "maxStructuralIce", 0.1 }, { "maxPitotIce", 0.2 }, { "engineAntiIceShare", 0.3 },
+			{ "gForceMin", 0.9 }, { "gForceMax", 1.1 }, { "verticalWindMinFpm", -400 }, { "verticalWindMaxFpm", 120 },
+			{ "stallMarginAlphaDeg", 9.5 }, { "stallMarginStallAlphaDeg", 15 }, { "stallMarginHeightFt", 60 } }));
 		QCOMPARE(profile["powerName"].toString(), QStringLiteral("N1"));
 		QCOMPARE(profile["powerUnit"].toString(), QStringLiteral("%"));
 		QCOMPARE(profile["highestTerrainFt"].toDouble(), 420.0);

@@ -87,7 +87,7 @@ private slots:
 		TRIP_DATA_BOOL_FIELDS(ADD_BOOL)
 #undef ADD_BOOL
 		QCOMPARE(names.size(), count);
-		QCOMPARE(count, 114 + 71);
+		QCOMPARE(count, 123 + 71);
 
 		QSet<QString> engineNames;
 #define ADD_ENGINE(name, sqlType, onOff) engineNames.insert(QStringLiteral(#name));

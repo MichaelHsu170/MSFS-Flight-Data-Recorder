@@ -24,7 +24,8 @@ enum class LOOKUP_OUTCOME {
 	FAILED,     // SimConnect rejected a request (lookup_on_exception())
 };
 
-// Starts a lookup for target at position (where it happened) and heading.
+// Starts a lookup for target at position (where it happened) and heading
+// (true, FLIGHT_DATA::heading_true).
 // approach, for a touchdown, is its final-approach position (see
 // AIRPORT_LOOKUP::approach); nullptr otherwise. Only one lookup is in flight
 // at a time: callers check STATUS::lookup.pending first.

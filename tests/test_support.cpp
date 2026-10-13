@@ -360,6 +360,7 @@ FLIGHT_DATA_RECORD makeRecord() {
 	r.plane_coordinate.latitude = 43.0;
 	r.plane_coordinate.longitude = 1.0;
 	r.plane_heading_degrees_magnetic = 90;
+	r.plane_heading_degrees_true = 90;
 	for (DATETIME* t : { &r.time_zulu, &r.time_local }) {
 		t->year = 2026;
 		t->month_of_year = 1;
@@ -465,12 +466,11 @@ static void appendBytes(std::vector<char>& out, const T& value) {
 }
 
 std::vector<char> facilityAirportPacket(const AirportSpec& airport) {
-	// Field order of facility_lookup_request_candidate(): NAME64, MAGVAR, N_RUNWAYS.
+	// Field order of facility_lookup_request_candidate(): NAME64, N_RUNWAYS.
 	std::vector<char> payload;
 	char name[64] = {};
 	copy_cstr(name, airport.name.c_str());
 	payload.insert(payload.end(), name, name + sizeof(name));
-	appendBytes(payload, airport.magvar);
 	appendBytes(payload, static_cast<int>(airport.runways.size()));
 	return facilityDataPacket(SIMCONNECT_FACILITY_DATA_AIRPORT, 1, 0, 0, payload);
 }
@@ -573,8 +573,9 @@ void FlightDriver::moveTo(const COORDINATE& position) {
 	record.plane_coordinate.longitude = position.longitude;
 }
 
-void FlightDriver::setHeading(double magneticDegrees) {
-	record.plane_heading_degrees_magnetic = magneticDegrees;
+void FlightDriver::setHeading(double degrees) {
+	record.plane_heading_degrees_true = degrees;
+	record.plane_heading_degrees_magnetic = degrees;
 }
 
 int FlightDriver::startTrip() {

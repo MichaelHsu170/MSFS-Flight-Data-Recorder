@@ -122,9 +122,16 @@ QString fullContactJs() {
 		profile: {gates: [
 				{gate: '500 ft', seconds: -42.5, heightFt: 512.4, distanceNm: 1.61, terrainFt: -20.4, airspeed: 131.4,
 					verticalSpeed: -702.6, pitch: 2.04, bank: -1.26, headingTrue: 338.4, trackTrue: 340.6,
-					thresholdFt: -8640.4, centerlineFt: -12.6},
-				{gate: '1 nm', seconds: -27, heightFt: 318.4, distanceNm: 1.0, pathAngle: 3.04}],
-			series: [{seconds: -0.5, heightFt: 2.4, terrainFt: 30.4}], highestTerrainFt: 612.4, highestTerrainNm: 4.2,
+					thresholdFt: -8640.4, centerlineFt: -12.6, windDirection: 299.4, windSpeedKt: 12.4, headwindKt: 6.04,
+					crosswindKt: -10.6, temperatureC: 31.46, inCloud: 1, precipitation: 'rain', structuralIce: 0.024},
+				{gate: '1 nm', seconds: -27, heightFt: 318.4, distanceNm: 1.0, pathAngle: 3.04, windSpeedKt: 9, inCloud: 0}],
+			series: [{seconds: -0.5, heightFt: 2.4, terrainFt: 30.4, windSpeedKt: 9, inCloud: 0}],
+			segment: {samples: 60, windMinKt: 8.4, windMaxKt: 22.6, headwindFromKt: 18.4, headwindFromHeightFt: 980.4,
+				headwindToKt: 2.6, headwindToHeightFt: 120.4, maxTailwindKt: -2.6, maxCrosswindKt: -11.4, cloudKnown: true,
+				lowestInCloudFt: 640.4, icingConditions: 0, maxStructuralIce: 0.024, maxPitotIce: 0.034, engineAntiIceShare: 0.25,
+				gForceMin: 0.874, gForceMax: 1.236, verticalWindMinFpm: -420.4, verticalWindMaxFpm: 130.6,
+				stallMarginAlphaDeg: 9.46, stallMarginStallAlphaDeg: 14.04, stallMarginHeightFt: 60.4},
+			highestTerrainFt: 612.4, highestTerrainNm: 4.2,
 			indicatedVerticalSpeed: false}})js");
 }
 
@@ -818,10 +825,23 @@ private slots:
 				'  Surface under the aircraft: asphalt, wet',
 				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; V/S = actual vertical speed; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):',
 				'  Gates:',
-				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft left',
+				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft left, wind 299° T 12 kt (headwind 6 kt, crosswind 11 kt from the left), OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%',
 				'    1 nm: -27.0 s, height 318 ft, 1.00 nm, path angle 3.0° from here',
 				'  Samples, from 15 s before to 10 s after the touchdown:',
 				'    -0.5 s, height 2 ft, terrain +30 ft',
+				'  Approach weather and ride (from the last crossing of 1000 ft above the touchdown point down to it, or from 5 nm out, the previous contact or the start of the recording if closer):',
+				'    Wind speed: 8-23 kt',
+				'    Largest headwind change: headwind 18 kt at height 980 ft to headwind 3 kt at height 120 ft (a loss of 16 kt: wind shear)',
+				'    Strongest tailwind: none',
+				'    Strongest crosswind: 11 kt from the left',
+				'    Cloud: in cloud down to height 640 ft',
+				'    Icing conditions (in cloud or precipitation at -20 to +10 °C): no',
+				'    Most structural ice: 2%',
+				'    Most pitot ice: 3%',
+				'    Engine anti-ice: on for 25% of the samples',
+				'    G-force while airborne: 0.87-1.24 G (its spread shows turbulence; a bump between samples is missed)',
+				'    Vertical wind (+ up): -420 to 131 ft/min',
+				'    Closest to the stall while airborne: angle of attack 9.5° vs stall 14.0° at height 60 ft',
 				'  Highest terrain within 5 nm before the touchdown: +612 ft, 4.20 nm from the touchdown point (more than 500 ft above it)'
 			])js")), QStringList());
 	}
@@ -902,13 +922,74 @@ private slots:
 	void touchdownPromptNamesTheOtherSides() {
 		QCOMPARE(touchdownPromptLacks(QStringLiteral(
 			"Object.assign(t.conditions, {crabAngle: 2.2, sunElevation: 10, magneticVariation: -4.4});"
-			"t.profile.gates[0].centerlineFt = 12.6; t.profile.highestTerrainFt = 500;"), QStringLiteral(R"js([
+			"t.profile.gates[0].centerlineFt = 12.6; t.profile.highestTerrainFt = 500;"
+			"Object.assign(t.profile.gates[0], {headwindKt: -3.4, crosswindKt: 4.6, inCloud: 0});"
+			"Object.assign(t.profile.segment, {headwindFromKt: 2, headwindToKt: 17, maxTailwindKt: 4.4, maxCrosswindKt: 0.3,"
+			"  icingConditions: 1}); delete t.profile.segment.lowestInCloudFt;"), QStringLiteral(R"js([
 				'  Heading: 334° magnetic (338° true); ground track 341° true; crab 2.2° (nose right of the track)',
 				'  Sun: 10.0° above the horizon (day)',
 				'  Position: 24.5528° N, 39.7051° E; magnetic variation 4.4° W',
-				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft right',
+				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft right, wind 299° T 12 kt (tailwind 3 kt, crosswind 5 kt from the right), OAT 31.5 °C, not in cloud, precipitation rain, structural ice 2%',
+				'    Largest headwind change: headwind 2 kt at height 980 ft to headwind 17 kt at height 120 ft (a gain of 15 kt: wind shear)',
+				'    Strongest tailwind: 4 kt',
+				'    Strongest crosswind: 0 kt',
+				'    Cloud: not in cloud',
+				'    Icing conditions (in cloud or precipitation at -20 to +10 °C): yes',
 				'  Highest terrain within 5 nm before the touchdown: +500 ft, 4.20 nm from the touchdown point'
 			])js")), QStringList());
+	}
+
+	// Without the runway's heading (a contact off a matched runway), a gate's
+	// wind has no headwind/crosswind components.
+	void gateWindWithoutRunwayHasNoComponents() {
+		QCOMPARE(touchdownPromptLacks(QStringLiteral(
+			"delete t.profile.gates[0].headwindKt; delete t.profile.gates[0].crosswindKt;"), QStringLiteral(R"js([
+				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft left, wind 299° T 12 kt, OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%'
+			])js")), QStringList());
+	}
+
+	// A headwind change under 15 kt isn't marked as wind shear, and one
+	// rounding to 0 is a gain between headwinds (a headwind rounding to 0 is
+	// one, not a tailwind); a tailwind rounding to 0 is none;
+	// a segment whose cloud wasn't recorded has no cloud line, and one with
+	// nothing recorded no block at all. The liftoff's block covers its climb-out.
+	void segmentLinesMarkShearAndLeaveOutTheUnknown() {
+		const QString js = QStringLiteral(
+			"(function (build, segment) { var t = %1; t.profile.segment = segment;"
+			"  return build(t).split('\\n').filter(function (l) { return /^  [\\w-]+ weather and ride|^    (Largest|Strongest tailwind|Cloud)/.test(l); }).join('|'); })")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, {samples: 3, headwindFromKt: 20.4, headwindFromHeightFt: 900,"
+			"headwindToKt: 6, headwindToHeightFt: 50, cloudKnown: false})")).toString(), QStringLiteral(
+			"  Approach weather and ride (from the last crossing of 1000 ft above the touchdown point down to it, or from 5 nm out, the "
+			"previous contact or the start of the recording if closer):"
+			"|    Largest headwind change: headwind 20 kt at height 900 ft to headwind 6 kt at height 50 ft (a loss of 14 kt)"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildLiftoffPrompt, {samples: 3, cloudKnown: true})")).toString(), QStringLiteral(
+			"  Climb-out weather and ride (from the liftoff up to the first crossing of 1000 ft above the liftoff point, or to the next "
+			"contact or 5 nm from the liftoff point if sooner):"
+			"|    Cloud: not in cloud"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, {samples: 3, headwindFromKt: 0, headwindFromHeightFt: 900,"
+			"headwindToKt: -0.3, headwindToHeightFt: 50, maxTailwindKt: 0.3, cloudKnown: false})")).toString(), QStringLiteral(
+			"  Approach weather and ride (from the last crossing of 1000 ft above the touchdown point down to it, or from 5 nm out, the "
+			"previous contact or the start of the recording if closer):"
+			"|    Largest headwind change: headwind 0 kt at height 900 ft to headwind 0 kt at height 50 ft (a gain of 0 kt)"
+			"|    Strongest tailwind: none"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, {samples: 3, cloudKnown: false})")).toString(), QString());
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, undefined)")).toString(), QString());
+	}
+
+	// Each prompt has the model judge its segment against the weather: the
+	// crab against the crosswind, the speed against the gusts, excursions
+	// against shear, vertical wind and turbulence, and the margin to the
+	// stall; and consider shear, turbulence, cloud and icing.
+	void analysisPromptsJudgeTheSegmentAgainstTheWeather() {
+		const QString js = QStringLiteral(
+			"(function () { var t = %1;"
+			"  return [buildLiftoffPrompt(t), buildTouchdownPrompt(t)].map(function (p) {"
+			"    return p.split('\\n').filter(function (l) { return /^• \\[(the rotation|stability)|^Consider:/.test(l); })"
+			"      .map(function (l) { return /against the crosswind.*against the gusts.*against the wind shear, vertical wind and turbulence, and the margin to the stall/.test(l)"
+			"        || /gusts, wind shear, turbulence, cloud and icing,/.test(l); }).join(); }).join('|'); })()")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral("true,true|true,true"));
 	}
 
 	// Before the data, each prompt asks for its answer's sections, ending in
@@ -1057,9 +1138,11 @@ private slots:
 
 	// The prompt is bounded whatever the trip: with every value recorded,
 	// every gate crossed with all SIM_ENGINE_INDEXES engines' values and the
-	// series at its 60-sample cap, both prompts stay within 32,000 characters,
-	// the per-minute limit's 16,000 tokens at the 2 characters per token
-	// map.html estimates, so neither is ever held back for good. The power
+	// series at its 60-sample cap (a path angle only on the distance gates,
+	// the only points contact_analysis.cpp gives one), both prompts stay
+	// within 32,000 characters, the per-minute limit's 16,000 tokens at the 2
+	// characters per token map.html estimates, so neither is ever held back
+	// for good. The power
 	// is each name at its widest value: a turbine's three-digit torque (N1 is
 	// shorter), and a piston's manifold pressure under 100 inHg, which no
 	// engine reaches (the most boosted run at about 80-90 inHg).
@@ -1071,14 +1154,20 @@ private slots:
 			"  function point(gate) { var p = {seconds: -123.456, heightFt: -12345.678, distanceNm: 12.3456, terrainFt: -12345.678,"
 			"      airspeed: 123.456, verticalSpeed: -12345.678, pitch: -12.345, bank: -123.456, headingTrue: 359.6, trackTrue: 359.6,"
 			"      thresholdFt: -123456.789, centerlineFt: -12345.678, pathAngle: -12.345, onGround: false,"
-			"      throttle: [], power: []};"
+			"      windDirection: 359.4, windSpeedKt: 123.4, headwindKt: -123.4, crosswindKt: -123.4, temperatureC: -12.34,"
+			"      inCloud: 0, precipitation: 'rain and snow', structuralIce: 1, throttle: [], power: []};"
 			"    for (var e = 0; e < %2; ++e) { p.throttle.push(-123.456); p.power.push(power); }"
-			"    if (gate) p.gate = gate; return p; }"
+			"    if (gate) p.gate = gate; if (!/ nm$/.test(gate)) delete p.pathAngle; return p; }"
 			"  var power, lengths = [];"
 			"  [['torque', '%', 123.456], ['manifold pressure', ' inHg', 99.4]].forEach(function (c) {"
 			"    power = c[2];"
 			"    t.profile = {gates: ['1000 ft', '500 ft', '300 ft', '200 ft', '100 ft', '50 ft', '3 nm', '2 nm', '1 nm'].map(point),"
-			"      series: [], highestTerrainFt: 12345.678, highestTerrainNm: 4.999, powerName: c[0], powerUnit: c[1]};"
+			"      series: [], highestTerrainFt: 12345.678, highestTerrainNm: 4.999, powerName: c[0], powerUnit: c[1],"
+			"      segment: {samples: 999, windMinKt: 123.4, windMaxKt: 123.4, headwindFromKt: -123.4, headwindFromHeightFt: -1234.5,"
+			"        headwindToKt: -123.4, headwindToHeightFt: -1234.5, maxTailwindKt: 123.4, maxCrosswindKt: -123.4, cloudKnown: true,"
+			"        lowestInCloudFt: -1234.5, icingConditions: 1, maxStructuralIce: 1, maxPitotIce: 1, engineAntiIceShare: 1,"
+			"        gForceMin: -12.345, gForceMax: -12.345, verticalWindMinFpm: -12345.6, verticalWindMaxFpm: -12345.6,"
+			"        stallMarginAlphaDeg: -12.34, stallMarginStallAlphaDeg: -12.34, stallMarginHeightFt: -1234.5}};"
 			"    for (var i = 0; i < 60; ++i) t.profile.series.push(point());"
 			"    lengths.push(buildLiftoffPrompt(t).length, buildTouchdownPrompt(t).length); });"
 			"  window._aircraftTitle = '';"

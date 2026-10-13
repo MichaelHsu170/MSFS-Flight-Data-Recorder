@@ -13,6 +13,7 @@
 // sample it happened in.
 static void fill_contact_flight_data(FLIGHT_DATA& data, const FLIGHT_DATA_RECORD& sample) {
 	data.heading = (int)sample.plane_heading_degrees_magnetic;
+	data.heading_true = (int)sample.plane_heading_degrees_true;
 	data.pitch = sample.plane_pitch_degrees;
 	data.bank = sample.plane_bank_degrees;
 	data.speed = (int)sample.airspeed_indicated;
@@ -215,7 +216,7 @@ void request_next_touchdown_facility_lookup(struct STATUS* status) {
 	if (status->flight.departure_lookup_needed) {
 		gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up deferred departure lookup (trip %d)", status->id_trip);
 		status->flight.departure_lookup_needed = FALSE;
-		start_facility_lookup(status, LOOKUP_TARGET::DEPARTURE, status->flight.departure_data.coordinate, status->flight.departure_data.heading);
+		start_facility_lookup(status, LOOKUP_TARGET::DEPARTURE, status->flight.departure_data.coordinate, status->flight.departure_data.heading_true);
 		return;
 	}
 	struct TOUCHDOWN_DATA* next_td = first_unresolved(status->flight.touchdown_data);
@@ -232,7 +233,7 @@ void request_next_touchdown_facility_lookup(struct STATUS* status) {
 	gui_log_printf(status, GUI_LOG_TRACE, "Facility lookup slot free: picking up queued %s lookup (trip %d)",
 		pick_liftoff ? "liftoff" : "touchdown", status->id_trip);
 	const FLIGHT_DATA& next = pick_liftoff ? next_lo->flight_data : next_td->flight_data;
-	start_facility_lookup(status, pick_liftoff ? LOOKUP_TARGET::LIFTOFF : LOOKUP_TARGET::TOUCHDOWN, next.coordinate, next.heading,
+	start_facility_lookup(status, pick_liftoff ? LOOKUP_TARGET::LIFTOFF : LOOKUP_TARGET::TOUCHDOWN, next.coordinate, next.heading_true,
 		pick_liftoff ? nullptr : &next_td->loc_dh);
 }
 
@@ -417,7 +418,7 @@ static void record_liftoff(struct STATUS* status, const FLIGHT_DATA& data) {
 			gui_log_printf(status, GUI_LOG_TRACE, "Liftoff trip_liftoffs row inserted: db_id=%d", status->flight.departure_db_id);
 			if (!status->lookup.pending) {
 				gui_log_printf(status, GUI_LOG_TRACE, "Requesting departure facility lookup (trip %d)", status->id_trip);
-				start_facility_lookup(status, LOOKUP_TARGET::DEPARTURE, data.coordinate, data.heading);
+				start_facility_lookup(status, LOOKUP_TARGET::DEPARTURE, data.coordinate, data.heading_true);
 			} else {
 				// A previous trip's lookup is still draining (see
 				// FLIGHT_PHASE::departure_lookup_needed in types.h) -- this

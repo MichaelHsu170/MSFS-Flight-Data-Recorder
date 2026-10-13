@@ -497,27 +497,27 @@ private slots:
 		VERIFY_NEAR(lo["distance_width_percent"], 10 / 22.5, 0.01);
 	}
 
-	void magneticVariationIsAppliedToHeading() {
-		// Aircraft heading is magnetic; runway heading true; the sim's MAGVAR
-		// is negative for east variation. With 10°E variation the aircraft's
-		// magnetic 175° is true 185°: more than 90° off runway 09's true 90°,
-		// so the secondary end. Ignoring the variation, or applying it the
-		// wrong way, gives 175° or 165° -- the primary end.
+	void trueHeadingIsMatchedNotMagnetic() {
+		// Runway headings are true, so the aircraft's true heading is matched
+		// against them. With 10°W variation the aircraft's true 175° is
+		// magnetic 185°: true is less than 90° off runway 09's true 90°, so
+		// the primary end; magnetic would give the secondary end. The row
+		// still stores the magnetic heading.
 		FlightDriver sim;
 		const RunwaySpec rwy = eastWestRunway();
-		AirportSpec airport = testAirport(rwy);
-		airport.magvar = -10;
-		sim.airports = { airport };
+		sim.airports = { testAirport(rwy) };
 		const int tripId = startOnRunway(sim, rwy, 50, 175);
+		sim.record.plane_heading_degrees_magnetic = 185;
 		liftOff(sim, onRunway(rwy, 1500));
 		sim.serviceLookups();
-		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("27"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
+		QCOMPARE(liftoffs(tripId).value(0)["heading_indicator"].toInt(), 185);
 	}
 
 	void trueHeadingPastNorthIsCompared() {
-		// Magnetic 359° with 6°E variation is true 365°, i.e. 5°. Of two
-		// runways crossing at the liftoff point, true 8° (3° off) is better
-		// aligned than true 0.5° (4.5° off).
+		// True 5° (magnetic 359° with 6°E variation). Of two runways crossing
+		// at the liftoff point, true 8° (3° off) is better aligned than true
+		// 0.5° (4.5° off); magnetic 359° would pick 0.5° instead.
 		FlightDriver sim;
 		RunwaySpec a = eastWestRunway();
 		a.heading = 0.5f;
@@ -529,12 +529,12 @@ private slots:
 		b.secondaryNumber = 19;
 		AirportSpec airport = testAirport(a);
 		airport.runways = { a, b };
-		airport.magvar = -6;
 		sim.airports = { airport };
 		COORDINATE center;
 		center.latitude = 43.0;
 		center.longitude = 1.0;
-		const int tripId = startOnRunway(sim, a, 50, 359);
+		const int tripId = startOnRunway(sim, a, 50, 5);
+		sim.record.plane_heading_degrees_magnetic = 359;
 		liftOff(sim, center);
 		sim.serviceLookups();
 		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("01"));
@@ -839,6 +839,9 @@ private slots:
 		const RunwaySpec rwy = eastWestRunway();
 		sim.airports = { testAirport(rwy) };
 		const int tripId = startOnRunway(sim, rwy);
+		// Matched by their true heading: the magnetic one would give the
+		// other end (variation that large only near the magnetic pole).
+		sim.record.plane_heading_degrees_magnetic = 270;
 		// Nothing is answered until all four events have happened.
 		liftOff(sim, onRunway(rwy, 1800));
 		touchDown(sim, onRunway(rwy, 500));
@@ -856,6 +859,8 @@ private slots:
 		VERIFY_NEAR(tds[0]["distance_length"], 500 * kFeetPerMeter, 2);
 		VERIFY_NEAR(los[1]["distance_length"], 1500 * kFeetPerMeter, 2);
 		VERIFY_NEAR(tds[1]["distance_length"], 700 * kFeetPerMeter, 2);
+		for (const QVariantMap& contact : los + tds)
+			QCOMPARE(contact["runway"].toString(), QStringLiteral("09"));
 	}
 
 	void runwayDefinitionIsRegisteredOncePerConnection() {
@@ -1101,6 +1106,9 @@ private slots:
 		touchDown(sim, onRunway(rwy, 500));
 		sim.endTrip(); // first trip's departure lookup still in flight
 		const int second = startOnRunway(sim, rwy);
+		// Matched by its true heading: the magnetic one would give the
+		// other end (variation that large only near the magnetic pole).
+		sim.record.plane_heading_degrees_magnetic = 270;
 		liftOff(sim, onRunway(rwy, 1700));
 		QVERIFY(sim.status().flight.departure_lookup_needed);
 		sim.serviceLookups();
