@@ -160,6 +160,18 @@ private slots:
 		QVERIFY(beside.any_margin_hit);
 	}
 
+	void sideEdgeIsHalfTheWidthFromTheCenterline() {
+		// The 45 m wide runway's edge is 22.5 m from its centerline, halfway
+		// down it: 20 m right is on the runway, 25 m right is only a margin
+		// hit (the margin reaches 22.5 + 60 m).
+		TestAirport a({ eastWest() });
+		const RUNWAY_MATCH inside = match(a.airport, pointOnRunway(eastWest(), 1500, 20), 90, false);
+		QCOMPARE(inside.candidates.size(), size_t(1));
+		const RUNWAY_MATCH outside = match(a.airport, pointOnRunway(eastWest(), 1500, 25), 90, false);
+		QVERIFY(outside.candidates.empty());
+		QVERIFY(outside.any_margin_hit);
+	}
+
 	void farAwayIsNoHitAtAll() {
 		TestAirport a({ eastWest() });
 		const RUNWAY_MATCH m = match(a.airport, pointOnRunway(eastWest(), 1500, 500), 90, false);

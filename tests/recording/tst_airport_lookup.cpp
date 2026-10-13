@@ -683,10 +683,17 @@ private slots:
 		QCOMPARE(touchdowns(tripId).value(0)["runway"].toString(), QStringLiteral("27"));
 	}
 
+	void climbingAboveTheBandForgetsTheApproachPosition_data() {
+		QTest::addColumn<double>("climbFt");
+		QTest::newRow("100 ft, the band's top") << 100.0;
+		QTest::newRow("1500 ft") << 1500.0;
+	}
+
 	void climbingAboveTheBandForgetsTheApproachPosition() {
-		// An eastbound low pass (75 ft) is followed by a climb above 100 ft,
-		// then a westbound landing that skips the band: the stale eastbound
-		// position must not decide the direction.
+		// An eastbound low pass (75 ft) is followed by a climb to 100 ft or
+		// more, then a westbound landing that skips the band: the stale
+		// eastbound position must not decide the direction.
+		QFETCH(double, climbFt);
 		FlightDriver sim;
 		const RunwaySpec rwy = eastWestRunway();
 		sim.airports = { testAirport(rwy) };
@@ -696,7 +703,7 @@ private slots:
 		sim.moveTo(pointOnRunway(rwy, -800));
 		sim.record.radio_height = 75;
 		sim.tick();
-		sim.record.radio_height = 1500;
+		sim.record.radio_height = climbFt;
 		sim.tick();
 		sim.record.radio_height = 20;
 		sim.setHeading(270);

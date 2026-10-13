@@ -861,17 +861,7 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     // The thinking panel stays hidden until thinking arrives: a model that
     // answers without it shows just the answer.
     function initAttempt() {
-        result.innerHTML =
-            '<div class="td-status" id="td-status-' + id + '"></div>'
-          + '<details class="td-think-det" id="td-th-det-' + id + '" open style="display:none">'
-          +   '<summary class="td-think-sum" id="td-th-sum-' + id + '"'
-          +     ' style="pointer-events:none;opacity:0.55;cursor:default">'
-          +     '<span id="td-th-arr-' + id + '">▾</span>'
-          +     '<span id="td-th-lbl-' + id + '">Thinking…</span>'
-          +   '</summary>'
-          +   '<div class="td-think-body" id="td-th-body-' + id + '"></div>'
-          + '</details>'
-          + '<div id="td-th-final-' + id + '"></div>';
+        result.innerHTML = '<div class="td-status" id="td-status-' + id + '"></div>' + thinkingPanelHtml(id, true);
         // Looked up in result, not the document: a popup closed mid-analysis
         // is no longer in the document, but its attempts still run here.
         statusDiv = result.querySelector('#td-status-'  + id);
@@ -1040,6 +1030,22 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
 
 // ── Popup builders ───────────────────────────────────────────────────────────
 
+// The thinking panel (collapsible thinking text) and the answer div after
+// it. live: for an analysis running now -- open but hidden until thinking
+// arrives, its summary not clickable until the thinking is done; otherwise
+// for a stored report, closed behind "Show thinking".
+function thinkingPanelHtml(id, live) {
+    return '<details class="td-think-det" id="td-th-det-' + id + '"' + (live ? ' open style="display:none"' : '') + '>'
+      +   '<summary class="td-think-sum" id="td-th-sum-' + id + '"'
+      +     (live ? ' style="pointer-events:none;opacity:0.55;cursor:default"' : '') + '>'
+      +     '<span id="td-th-arr-' + id + '">' + (live ? '▾' : '▸') + '</span>'
+      +     '<span id="td-th-lbl-' + id + '">' + (live ? 'Thinking…' : ' Show thinking') + '</span>'
+      +   '</summary>'
+      +   '<div class="td-think-body" id="td-th-body-' + id + '"></div>'
+      + '</details>'
+      + '<div id="td-th-final-' + id + '"></div>';
+}
+
 // Renders a stored analysis report (loaded from the DB) into the result div.
 // Parses the stored format: '<thinking>TEXT</thinking>FINAL' for reports from
 // a thinking model, or plain text for non-thinking models.
@@ -1052,15 +1058,7 @@ function renderStoredReport(id, report) {
     if (thinkMatch) {
         var storedThinking = thinkMatch[1];
         var storedFinal    = thinkMatch[2].replace(/^\n/, '');
-        result.innerHTML =
-            '<details class="td-think-det" id="td-th-det-' + id + '">'
-          +   '<summary class="td-think-sum" id="td-th-sum-' + id + '">'
-          +     '<span id="td-th-arr-' + id + '">▸</span>'
-          +     '<span id="td-th-lbl-' + id + '"> Show thinking</span>'
-          +   '</summary>'
-          +   '<div class="td-think-body" id="td-th-body-' + id + '"></div>'
-          + '</details>'
-          + '<div id="td-th-final-' + id + '"></div>';
+        result.innerHTML = thinkingPanelHtml(id, false);
         appendHtml(document.getElementById('td-th-body-'  + id), storedThinking);
         appendHtml(document.getElementById('td-th-final-' + id), storedFinal);
         var det = document.getElementById('td-th-det-' + id);

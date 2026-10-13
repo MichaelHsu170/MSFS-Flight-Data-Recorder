@@ -163,6 +163,9 @@ class TstMapWidget : public QObject {
 	// result area's text while the trajectory loaded, then the status line's
 	// at each request and each attempt's first read), statusShown (after),
 	// statusShownAtStreamEnd (when the last attempt's stream ended),
+	// thinkingPanel (the thinking panel's summary at each read while the
+	// panel shows and no answer has: its pointer-events, arrow and label,
+	// comma-joined, '|'-separated), thinkingSummary (the same, after),
 	// noticeShown (the no-trajectory notice), promptProfile (t.profile
 	// when the prompt was built, as JSON) and fetchedAt (Date.now() at the last
 	// request).
@@ -176,8 +179,20 @@ class TstMapWidget : public QObject {
 			jsonStatuses.append(status);
 		evalPageJs(widget_, QStringLiteral(R"JS(
 			(function (attempts, statuses, profile) {
-			    window._ai = { calls: 0, saved: null, done: false, statuses: [] };
+			    window._ai = { calls: 0, saved: null, done: false, statuses: [], thinkingPanel: [] };
 			    function statusText() { return document.getElementById('td-status-ai').textContent; }
+			    function summaryState() {
+			        if (!document.getElementById('td-th-sum-ai')) return '';
+			        return [document.getElementById('td-th-sum-ai').style.pointerEvents,
+			                document.getElementById('td-th-arr-ai').textContent,
+			                document.getElementById('td-th-lbl-ai').textContent].join(',');
+			    }
+			    window._ai.summaryState = summaryState;
+			    function recordThinkingPanel() {
+			        var det = document.getElementById('td-th-det-ai');
+			        if (det && det.style.display !== 'none' && !document.getElementById('td-th-final-ai').textContent)
+			            window._ai.thinkingPanel.push(summaryState());
+			    }
 			    var realFetch = window.fetch;
 			    window.fetch = function (url, init) {
 			        window._ai.url = url;
@@ -193,6 +208,7 @@ class TstMapWidget : public QObject {
 			        var firstRead = true;
 			        var reader = { read: function () {
 			            if (firstRead) { firstRead = false; window._ai.statuses.push(statusText()); }
+			            recordThinkingPanel();
 			            if (pieces.length) return Promise.resolve({ done: false, value: new TextEncoder().encode(pieces.shift()) });
 			            window._ai.statusShownAtStreamEnd = document.getElementById('td-status-ai').style.display !== 'none';
 			            return drops ? Promise.reject(new TypeError('network error')) : Promise.resolve({ done: true });
@@ -221,6 +237,7 @@ class TstMapWidget : public QObject {
 			"({ calls: window._ai.calls, saved: window._ai.saved, url: window._ai.url, apiKey: window._ai.apiKey,"
 			"   text: document.getElementById('td-th-final-ai').textContent,"
 			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none',"
+			"   thinkingPanel: window._ai.thinkingPanel.join('|'), thinkingSummary: window._ai.summaryState(),"
 			"   profileRow: window._ai.profileRow, statuses: window._ai.statuses.join('|'), promptProfile: window._ai.promptProfile,"
 			"   fetchedAt: window._ai.fetchedAt,"
 			"   statusShown: document.getElementById('td-status-ai').style.display !== 'none',"
@@ -1318,6 +1335,18 @@ private slots:
 		QCOMPARE(r.value("thinkingShown").toBool(), true);
 	}
 
+	// While the thinking streams, its panel reads "▾ Thinking…" and its
+	// summary can't be clicked; once the answer starts, the panel closes
+	// behind a clickable "▸ Show thinking".
+	void theThinkingPanelIsClickableOnlyOnceTheAnswerStarts() {
+		const QString thought = aiChunk({ { "Wind from the left.", true } });
+		const QVariantMap r = runAiAnalysisWith({ { QLatin1Char('[') + thought + QStringLiteral(",\r\n"),
+			aiChunk({ { "Grade: B", false } }, "STOP") + QLatin1Char(']') } });
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("<thinking>Wind from the left.</thinking>Grade: B"));
+		QCOMPARE(r.value("thinkingPanel").toString(), QStringLiteral("none,▾,Thinking…"));
+		QCOMPARE(r.value("thinkingSummary").toString(), QStringLiteral(",▸,Show thinking"));
+	}
+
 	// An answer stopped early (token limit), or a stream that ends with no
 	// finish at all, isn't complete even after thinking: it's retried.
 	void anAiAnswerCutOffIsRetried() {
@@ -1830,12 +1859,12 @@ private slots:
 
 	// A touchdown analyzed before shows its saved report when its popup
 	// opens, with or without an API key: the answer, and the thinking behind
-	// a closed "Show thinking" panel only if the report has some.
+	// a closed "▸ Show thinking" panel only if the report has some.
 	void aSavedReportIsShownWhenThePopupOpens_data() {
 		QTest::addColumn<QString>("report");
 		QTest::addColumn<QString>("shown");
 		QTest::newRow("with thinking") << QStringLiteral("<thinking>Wind from the left.</thinking>\nGrade: B")
-			<< QStringLiteral("Grade: B|Wind from the left.|closed");
+			<< QStringLiteral("Grade: B|Wind from the left.|closed|▸|Show thinking");
 		QTest::newRow("without thinking") << QStringLiteral("Grade: A") << QStringLiteral("Grade: A||none");
 	}
 	void aSavedReportIsShownWhenThePopupOpens() {
@@ -1856,7 +1885,11 @@ private slots:
 			    var det = document.getElementById('td-th-det-' + id);
 			    var body = document.getElementById('td-th-body-' + id);
 			    var shown = [document.getElementById('td-th-final-' + id).textContent, body ? body.textContent : '',
-			                 det ? (det.open ? 'open' : 'closed') : 'none'].join('|');
+			                 det ? (det.open ? 'open' : 'closed') : 'none'];
+			    if (det)
+			        shown.push(document.getElementById('td-th-arr-' + id).textContent,
+			                   document.getElementById('td-th-lbl-' + id).textContent.trim());
+			    shown = shown.join('|');
 			    marker.closePopup();
 			    return shown;
 			})())JS")).toString();
