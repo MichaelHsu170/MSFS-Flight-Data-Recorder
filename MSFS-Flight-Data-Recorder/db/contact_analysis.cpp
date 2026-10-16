@@ -183,8 +183,7 @@ public:
 		out.onGround = TripBoolBits::sim_on_ground.isSet(p.boolGroups);
 		out.windDirection = p.rawNum(TRIP_NUM_ambient_wind_direction);
 		out.windSpeedKt = p.rawNum(TRIP_NUM_ambient_wind_velocity);
-		const double runwayHeading = contact_.runwayHeading >= 0 ? contact_.runwayHeading : std::nan("");
-		const double windAngle = (out.windDirection - runwayHeading) * DEG_2_RAD;
+		const double windAngle = (out.windDirection - contact_.runwayTrueHeading()) * DEG_2_RAD;
 		out.headwindKt = out.windSpeedKt * std::cos(windAngle);
 		out.crosswindKt = out.windSpeedKt * std::sin(windAngle);
 		out.temperatureC = p.rawNum(TRIP_NUM_ambient_temperature);
@@ -428,8 +427,8 @@ ContactConditions conditionsAt(const std::vector<TripSamplePoint>& points, const
 	c.trackTrue = p.rawNum(TRIP_NUM_gps_ground_true_track);
 	c.magneticVariation = signedAngle(c.headingTrue, c.headingMagnetic);
 	c.crabAngle = signedAngle(c.headingTrue, c.trackTrue);
-	if (contact.runwayHeading >= 0 && !std::isnan(c.magneticVariation)) {
-		const int magnetic = qRound(wrap360(contact.runwayHeading - c.magneticVariation));
+	if (!std::isnan(contact.runwayTrueHeading()) && !std::isnan(c.magneticVariation)) {
+		const int magnetic = qRound(wrap360(contact.runwayTrueHeading() - c.magneticVariation));
 		c.runwayHeadingMagnetic = magnetic == 0 ? 360 : magnetic;
 	}
 	if (s.time.isValid())

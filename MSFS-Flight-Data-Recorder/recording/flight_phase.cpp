@@ -5,23 +5,25 @@
 #include "gui_notify.h"
 #include "simconnect_defs.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <string>
 
 // What a liftoff/touchdown row records (see db_insert_contact()), from the
-// sample it happened in.
+// sample it happened in. Its whole-number columns are rounded, as the AI
+// prompt and the trip's sample lines show the same sample's values.
 static void fill_contact_flight_data(FLIGHT_DATA& data, const FLIGHT_DATA_RECORD& sample) {
-	data.heading = (int)sample.plane_heading_degrees_magnetic;
+	data.heading = (int)std::lround(sample.plane_heading_degrees_magnetic);
 	data.heading_true = (int)sample.plane_heading_degrees_true;
 	data.pitch = sample.plane_pitch_degrees;
 	data.bank = sample.plane_bank_degrees;
-	data.speed = (int)sample.airspeed_indicated;
-	data.vertical_speed = (int)sample.vertical_speed;
-	data.velocity_world_y = (int)sample.velocity_world_y;
+	data.speed = (int)std::lround(sample.airspeed_indicated);
+	data.vertical_speed = (int)std::lround(sample.vertical_speed);
+	data.velocity_world_y = (int)std::lround(sample.velocity_world_y);
 	data.g_force = sample.g_force;
-	data.wind_direction = (int)sample.ambient_wind_direction;
-	data.wind_velocity = (int)sample.ambient_wind_velocity;
+	data.wind_direction = (int)std::lround(sample.ambient_wind_direction);
+	data.wind_velocity = (int)std::lround(sample.ambient_wind_velocity);
 	data.coordinate.latitude = sample.plane_coordinate.latitude;
 	data.coordinate.longitude = sample.plane_coordinate.longitude;
 	data.time_zulu = sample.time_zulu;

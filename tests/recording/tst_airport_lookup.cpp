@@ -132,12 +132,14 @@ private slots:
 		const RunwaySpec rwy = eastWestRunway();
 		const int tripId = startOnRunway(sim, rwy);
 		QVERIFY(FakeSim::state().facilitiesListRequests.empty());
-		sim.record.airspeed_indicated = 150;
-		sim.record.vertical_speed = 500;
-		sim.record.velocity_world_y = 620;
+		// The whole-number columns are rounded, not truncated.
+		sim.record.airspeed_indicated = 149.6;
+		sim.record.vertical_speed = 499.5;
+		sim.record.velocity_world_y = 619.7;
 		sim.record.plane_pitch_degrees = -8; // stored as +8 (nose up)
-		sim.record.ambient_wind_direction = 270;
-		sim.record.ambient_wind_velocity = 12;
+		sim.record.plane_heading_degrees_magnetic = 89.6;
+		sim.record.ambient_wind_direction = 269.8;
+		sim.record.ambient_wind_velocity = 11.6;
 		liftOff(sim, onRunway(rwy, 1800));
 		QCOMPARE(FakeSim::state().facilitiesListRequests.size(), size_t(1));
 		const QList<QVariantMap> rows = liftoffs(tripId);
@@ -571,8 +573,8 @@ private slots:
 		sim.serviceLookups();
 		sim.ticks(10);
 		sim.record.airspeed_indicated = 130;
-		sim.record.vertical_speed = -180;
-		sim.record.velocity_world_y = -230;
+		sim.record.vertical_speed = -179.6; // rounded to -180, not truncated to -179
+		sim.record.velocity_world_y = -230.6;
 		sim.record.g_force = 1.3;
 		const COORDINATE tdz = pointOnRunway(rwy, 450);
 		touchDown(sim, tdz);
@@ -580,7 +582,7 @@ private slots:
 		QCOMPARE(rows.size(), 1);
 		QCOMPARE(rows[0]["airspeed_indicated"].toInt(), 130);
 		QCOMPARE(rows[0]["vertical_speed"].toInt(), -180);
-		QCOMPARE(rows[0]["velocity_world_y"].toInt(), -230);
+		QCOMPARE(rows[0]["velocity_world_y"].toInt(), -231);
 		QCOMPARE(rows[0]["g_force"].toDouble(), 1.3);
 		const QVariantMap before = tripRow(tripId);
 		QCOMPARE(before["destination_latitude"].toDouble(), tdz.latitude);

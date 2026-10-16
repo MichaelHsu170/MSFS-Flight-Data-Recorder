@@ -154,9 +154,12 @@ class TstMapWidget : public QObject {
 	// gets attempts[n] (the last one repeated), each delivered in the given
 	// pieces with HTTP status statuses[n] (the last one repeated; 200 if
 	// none; 0 for a request that never reaches the service, as when offline;
-	// -1 for a 200 whose connection drops after its pieces); saving the
-	// report succeeds if saveOk; the trajectory loaded first is profile (JS,
-	// "null" for none). Returns what it did: calls (fetches made), saved (the
+	// -1 for a 200 whose connection drops after its pieces; -2 for a request
+	// that gets no response until it's aborted). A piece "<pause N>" delays
+	// the next by N ms; "<hang>" is a read that never returns until the
+	// request is aborted. The page's inactivity timeout is 1 s meanwhile.
+	// Saving the report succeeds if saveOk; the trajectory loaded first is
+	// profile (JS, "null" for none). Returns what it did: calls (fetches made), saved (the
 	// report saved, null if none), text (the answer shown), thinkingShown,
 	// the last request's url and apiKey (its x-goog-api-key header),
 	// profileRow (the row whose trajectory was asked for), statuses (the
@@ -167,7 +170,8 @@ class TstMapWidget : public QObject {
 	// panel shows and no answer has: its pointer-events, arrow and label,
 	// comma-joined, '|'-separated), thinkingSummary (the same, after),
 	// console (the page's console.warn/console.error messages about Gemini,
-	// in order, each after "warn: " or "error: "),
+	// in order, each after "warn: " or "error: "), info (its console.log
+	// messages about Gemini, each after "log: "),
 	// noticeShown (the no-trajectory notice), promptProfile (t.profile
 	// when the prompt was built, as JSON) and fetchedAt (Date.now() at the last
 	// request).
@@ -181,15 +185,17 @@ class TstMapWidget : public QObject {
 			jsonStatuses.append(status);
 		evalPageJs(widget_, QStringLiteral(R"JS(
 			(function (attempts, statuses, profile) {
-			    window._ai = { calls: 0, saved: null, done: false, statuses: [], thinkingPanel: [], console: [] };
-			    var realConsole = { warn: console.warn, error: console.error };
-			    ['warn', 'error'].forEach(function (level) {
+			    window._ai = { calls: 0, saved: null, done: false, statuses: [], thinkingPanel: [], console: [], info: [] };
+			    var realConsole = { log: console.log, warn: console.warn, error: console.error };
+			    ['log', 'warn', 'error'].forEach(function (level) {
 			        console[level] = function () {
 			            var text = Array.prototype.join.call(arguments, ' ');
-			            if (text.indexOf('Gemini') >= 0) window._ai.console.push(level + ': ' + text);
+			            if (text.indexOf('Gemini') >= 0) window._ai[level === 'log' ? 'info' : 'console'].push(level + ': ' + text);
 			            realConsole[level].apply(console, arguments);
 			        };
 			    });
+			    var realIdleTimeout = AI_IDLE_TIMEOUT_MS;
+			    AI_IDLE_TIMEOUT_MS = 1000;
 			    function statusText() { return document.getElementById('td-status-ai').textContent; }
 			    function summaryState() {
 			        if (!document.getElementById('td-th-sum-ai')) return '';
@@ -211,15 +217,35 @@ class TstMapWidget : public QObject {
 			        window._ai.statuses.push(statusText());
 			        var n = window._ai.calls++;
 			        var status = statuses.length ? statuses[Math.min(n, statuses.length - 1)] : 200;
+			        // Never settles until the request is aborted, then rejects as the browser does.
+			        function untilAborted() {
+			            return new Promise(function (resolve, reject) {
+			                init.signal.addEventListener('abort', function () {
+			                    reject(new DOMException('signal is aborted without reason', 'AbortError'));
+			                });
+			            });
+			        }
 			        if (status === 0) return Promise.reject(new TypeError('Failed to fetch'));
+			        if (status === -2) return untilAborted();
 			        var drops = status === -1;
 			        if (drops) status = 200;
 			        var pieces = attempts[Math.min(n, attempts.length - 1)].slice();
 			        var firstRead = true;
+			        function serve() {
+			            if (pieces[0] === '<hang>') return untilAborted();
+			            var pause = /^<pause (\d+)>$/.exec(pieces[0] || '');
+			            if (pause) {
+			                pieces.shift();
+			                return new Promise(function (resolve) { setTimeout(function () { resolve(serve()); }, Number(pause[1])); });
+			            }
+			            if (pieces.length) return Promise.resolve({ done: false, value: new TextEncoder().encode(pieces.shift()) });
+			            return null;
+			        }
 			        var reader = { read: function () {
 			            if (firstRead) { firstRead = false; window._ai.statuses.push(statusText()); }
 			            recordThinkingPanel();
-			            if (pieces.length) return Promise.resolve({ done: false, value: new TextEncoder().encode(pieces.shift()) });
+			            var served = serve();
+			            if (served) return served;
 			            window._ai.statusShownAtStreamEnd = document.getElementById('td-status-ai').style.display !== 'none';
 			            return drops ? Promise.reject(new TypeError('network error')) : Promise.resolve({ done: true });
 			        } };
@@ -239,21 +265,23 @@ class TstMapWidget : public QObject {
 			        function (rowId, report, onSaved) { window._ai.saved = report; onSaved(%2); }, 'Analyze Liftoff')
 			        .then(function () {
 			            window.fetch = realFetch;
+			            console.log = realConsole.log;
 			            console.warn = realConsole.warn;
 			            console.error = realConsole.error;
+			            AI_IDLE_TIMEOUT_MS = realIdleTimeout;
 			            window._ai.done = true;
 			        });
 			})(%1, %3, %4))JS").arg(QString::fromUtf8(QJsonDocument(json).toJson(QJsonDocument::Compact)),
 				saveOk ? QStringLiteral("true") : QStringLiteral("false"),
 				QString::fromUtf8(QJsonDocument(jsonStatuses).toJson(QJsonDocument::Compact)), profile));
-		if (!QTest::qWaitFor([this] { return evalPageJs(widget_, QStringLiteral("window._ai.done")).toBool(); }, 5000))
+		if (!QTest::qWaitFor([this] { return evalPageJs(widget_, QStringLiteral("window._ai.done")).toBool(); }, 10000))
 			return {};
 		return evalPageJs(widget_, QStringLiteral(
 			"({ calls: window._ai.calls, saved: window._ai.saved, url: window._ai.url, apiKey: window._ai.apiKey,"
 			"   text: document.getElementById('td-th-final-ai').textContent,"
 			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none',"
 			"   thinkingPanel: window._ai.thinkingPanel.join('|'), thinkingSummary: window._ai.summaryState(),"
-			"   console: window._ai.console,"
+			"   console: window._ai.console, info: window._ai.info,"
 			"   profileRow: window._ai.profileRow, statuses: window._ai.statuses.join('|'), promptProfile: window._ai.promptProfile,"
 			"   fetchedAt: window._ai.fetchedAt,"
 			"   statusShown: document.getElementById('td-status-ai').style.display !== 'none',"
@@ -879,7 +907,7 @@ private slots:
 				'  Precipitation: rain, rate 2.5 mm of water',
 				'  Wind over the 30 s before the contact: 8-15 kt, direction 350° to 20° true (clockwise)',
 				'  Surface under the aircraft: asphalt, wet',
-				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; V/S = actual vertical speed; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):',
+				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; V/S = actual vertical speed; wind components = relative to the runway, not the aircraft\'s heading; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):',
 				'  Gates:',
 				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft left, wind 299° T 12 kt (headwind 6 kt, crosswind 11 kt from the left), OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%',
 				'    1 nm: -27.0 s, height 318 ft, 1.00 nm, path angle 3.0° from here',
@@ -910,7 +938,7 @@ private slots:
 			"delete t.actualVerticalSpeed; delete t.touchdownRate; t.profile.indicatedVerticalSpeed = true;"),
 			QStringLiteral(R"js([
 				'  Vertical speed: -180 ft/min (indicated), which lags the actual rate',
-				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; V/S = indicated vertical speed, which lags the actual rate; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):'
+				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; V/S = indicated vertical speed, which lags the actual rate; wind components = relative to the runway, not the aircraft\'s heading; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):'
 			])js")), QStringList());
 		QCOMPARE(evalPageJs(widget_, QStringLiteral("(function () { var t = %1; delete t.touchdownRate;"
 			"  return /Touchdown rate:/.test(buildTouchdownPrompt(t)); })()").arg(fullContactJs())).toBool(), false);
@@ -1002,6 +1030,29 @@ private slots:
 			"delete t.profile.gates[0].headwindKt; delete t.profile.gates[0].crosswindKt;"), QStringLiteral(R"js([
 				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338° T, track 341° T, threshold -8640 ft, centerline 13 ft left, wind 299° T 12 kt, OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%'
 			])js")), QStringList());
+	}
+
+	// The trajectory's header says the wind components are relative to the
+	// runway, not the aircraft's heading, whenever a height gate or the segment
+	// shows one, in both prompts; without any (no runway heading), or with
+	// them only on a sample or a distance gate, which don't show them, it doesn't.
+	void trajectoryHeaderNamesTheWindComponentsReference() {
+		const QString js = QStringLiteral(
+			"(function (build, add) { var t = %1, p = t.profile;"
+			"  p.gates.concat(p.series).forEach(function (q) { delete q.headwindKt; delete q.crosswindKt; });"
+			"  delete p.segment.headwindFromKt; delete p.segment.maxCrosswindKt; add(p);"
+			"  return build(t).indexOf(\"; wind components = relative to the runway, not the aircraft's heading\") >= 0; })")
+			.arg(fullContactJs());
+		for (const char* build : {"buildTouchdownPrompt", "buildLiftoffPrompt"}) {
+			const QString call = js + QStringLiteral("(%1, ").arg(QLatin1String(build));
+			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function () {})")).toBool(), false);
+			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function (p) { p.gates[0].headwindKt = -3.4; })")).toBool(), true);
+			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function (p) { p.series[0].headwindKt = -3.4; })")).toBool(), false);
+			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function (p) {"
+				"  p.gates.filter(function (g) { return / nm$/.test(g.gate); })[0].headwindKt = -3.4; })")).toBool(), false);
+			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function (p) { p.segment.headwindFromKt = 2; })")).toBool(), true);
+			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function (p) { p.segment.maxCrosswindKt = 0.3; })")).toBool(), true);
+		}
 	}
 
 	// A headwind change under 15 kt isn't marked as wind shear, and one
@@ -1432,6 +1483,112 @@ private slots:
 		QCOMPARE(r.value("thinkingShown").toBool(), false);
 		const AttemptLog thoughtOnly{ true, { "STOP", "7 characters of thinking", "0 of answer" } };
 		verifyAttemptLogs(r, { thoughtOnly, thoughtOnly, { false, thoughtOnly.values } });
+	}
+
+	// The seconds after `label` (e.g. "longest silence 1.0 s") in a log line,
+	// -1 if it isn't there.
+	static double loggedSeconds(const QString& line, const QString& label) {
+		const QRegularExpressionMatch m = QRegularExpression(QRegularExpression::escape(label) + QStringLiteral(R"( (\d+\.\d) s)")).match(line);
+		return m.hasMatch() ? m.captured(1).toDouble() : -1;
+	}
+
+	// An attempt that receives nothing for the inactivity timeout, whether
+	// mid-answer or waiting for the response, is abandoned and retried as an
+	// incomplete answer, logged as stalled with how long it went silent.
+	void aStalledAiAnswerIsRetried() {
+		const QVariantMap r = runAiAnalysisWith({
+			{ aiStream({ aiChunk({ { "Thought", true } }) }).chopped(1), QStringLiteral("<hang>") },
+			{},
+			{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } }, true, { 200, -2, 200 });
+		QCOMPARE(r.value("calls").toInt(), 3);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
+		verifyAttemptLogs(r, {
+			{ true, { "Gemini answer incomplete", "none", "7 characters of thinking", "stalled", "first data after" } },
+			{ true, { "Gemini answer incomplete", "0 characters of thinking", "stalled", "no data" } } });
+		for (const QString& line : r.value("console").toStringList()) {
+			const double silence = loggedSeconds(line, QStringLiteral("longest silence"));
+			QVERIFY2(silence >= 1.0 && silence < 2.0, qPrintable(line));
+		}
+	}
+
+	// Three stalled attempts in a row: nothing is saved and the message says
+	// the answer was incomplete, the last stall logged as final.
+	void threeStalledAiAnswersSaveNothing() {
+		const QVariantMap r = runAiAnalysisWith({ { QStringLiteral("<hang>") } });
+		QCOMPARE(r.value("calls").toInt(), 3);
+		QVERIFY(r.value("saved").isNull());
+		QVERIFY(r.value("text").toString().startsWith(QStringLiteral("The AI didn't return a complete analysis.")));
+		const AttemptLog stall{ true, { "Gemini answer incomplete", "stalled", "no data" } };
+		verifyAttemptLogs(r, { stall, stall, { false, stall.values } });
+	}
+
+	// A stalled request is abandoned after 3 minutes of silence (README).
+	void theAiInactivityTimeoutIsThreeMinutes() {
+		QCOMPARE(evalPageJs(widget_, QStringLiteral("AI_IDLE_TIMEOUT_MS")).toInt(), 180000);
+	}
+
+	// An answer that finished before its connection stalled is saved, not
+	// retried: the stall is no failure, so it's logged as complete.
+	void anAiAnswerStalledAfterItsEndIsSaved() {
+		const QVariantMap r = runAiAnalysisWith({
+			{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }).chopped(1), QStringLiteral("<hang>") } });
+		QCOMPARE(r.value("calls").toInt(), 1);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
+		QVERIFY(r.value("console").toStringList().isEmpty());
+		const QStringList info = r.value("info").toStringList();
+		QCOMPARE(info.size(), 1);
+		QVERIFY2(info[0].startsWith(QStringLiteral("log: Gemini answer complete")), qPrintable(info[0]));
+	}
+
+	// A network error after a stall is still a connection failure: not marked
+	// as stalled, and the last attempt's message says the service couldn't be
+	// reached.
+	void aNetworkErrorAfterAStallIsNotLoggedAsStalled() {
+		const QVariantMap r = runAiAnalysisWith({ { QStringLiteral("<hang>") } }, true, { 200, 0 });
+		QCOMPARE(r.value("calls").toInt(), 3);
+		QVERIFY(r.value("text").toString().startsWith(QStringLiteral("Couldn't reach the AI service")));
+		const QStringList console = r.value("console").toStringList();
+		QCOMPARE(console.size(), 3);
+		QVERIFY2(console[0].contains(QStringLiteral("stalled")), qPrintable(console[0]));
+		for (int i = 1; i < 3; ++i) {
+			QVERIFY2(console[i].contains(QStringLiteral("Gemini request failed")), qPrintable(console[i]));
+			QVERIFY2(!console[i].contains(QStringLiteral("stalled")), qPrintable(console[i]));
+		}
+	}
+
+	// Each attempt's timing is its own: a first attempt whose data comes
+	// late and then stalls (1 s from its last piece to the retry) doesn't
+	// carry its silence, send time or last piece's time into the retry's log.
+	void eachAiAttemptLogsItsOwnTiming() {
+		const QVariantMap r = runAiAnalysisWith({
+			{ QStringLiteral("<pause 600>"), aiStream({ aiChunk({ { "Thought", true } }) }).chopped(1), QStringLiteral("<hang>") },
+			{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } });
+		QCOMPARE(r.value("calls").toInt(), 2);
+		const QStringList info = r.value("info").toStringList();
+		QCOMPARE(info.size(), 1);
+		QVERIFY2(loggedSeconds(info[0], QStringLiteral("first data after")) < 0.4, qPrintable(info[0]));
+		QVERIFY2(loggedSeconds(info[0], QStringLiteral("longest silence")) < 0.4, qPrintable(info[0]));
+	}
+
+	// An answer that keeps arriving, each piece within the timeout, isn't cut
+	// off however long it takes in all, nor by the clock of an attempt
+	// before it; its timing is logged when it completes.
+	void aSlowlyStreamingAiAnswerIsNotCutOff() {
+		const QString pause = QStringLiteral("<pause 400>");
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Grade: half", false } }, "MAX_TOKENS") }) },
+			{ pause, QLatin1Char('[') + aiChunk({ { "Thought", true } }) + QStringLiteral(",\r\n"),
+			pause, aiChunk({ { "Grade: ", false } }) + QStringLiteral(",\r\n"),
+			pause, aiChunk({ { "B", false } }, "STOP") + QLatin1Char(']') } });
+		QCOMPARE(r.value("calls").toInt(), 2);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("<thinking>Thought</thinking>Grade: B"));
+		verifyAttemptLogs(r, { { true, { "MAX_TOKENS" } } });
+		const QStringList info = r.value("info").toStringList();
+		QCOMPARE(info.size(), 1);
+		QVERIFY2(info[0].startsWith(QStringLiteral("log: Gemini answer complete")), qPrintable(info[0]));
+		const double first = loggedSeconds(info[0], QStringLiteral("first data after"));
+		const double silence = loggedSeconds(info[0], QStringLiteral("longest silence"));
+		QVERIFY2(first >= 0.4 && first < 0.9, qPrintable(info[0]));
+		QVERIFY2(silence >= 0.4 && silence < 0.9, qPrintable(info[0]));
 	}
 
 	// Braces and quotes in the model's text are text, not JSON structure.

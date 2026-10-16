@@ -513,8 +513,15 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
     var points = profile.gates.concat(profile.series);
     function any(key) { return points.some(function(p) { return p[key] !== undefined; }); }
     var powerName = profile.powerName;
+    // Wind components come only with the runway's heading (trip_dataset.h's
+    // ProfilePoint), which the Runway line gives; not repeated here, as the
+    // worst-case prompt has no room for it. Only the height gates show them
+    // (profilePointText()), and the segment's lines.
+    var runwayWind = profile.gates.some(function(p) { return / ft$/.test(p.gate) && hasValue(p, 'headwindKt'); })
+        || hasValue(profile.segment, 'headwindFromKt') || hasValue(profile.segment, 'maxCrosswindKt');
     var lines = [title + ' (seconds from the ' + pointName + (any('onGround') ? '; on ground/airborne = as the simulator reports it' : '') + '; height = altitude above the ' + pointName + ', not radio height; distance = to the ' + pointName + '; terrain = ground below relative to the ' + pointName
         + (any('verticalSpeed') ? (profile.indicatedVerticalSpeed ? '; V/S = indicated vertical speed, which lags the actual rate' : '; V/S = actual vertical speed') : '')
+        + (runwayWind ? '; wind components = relative to the runway, not the aircraft\'s heading' : '')
         + (any('thresholdFt') ? '; threshold = along the runway from the ' + thresholdName + ', negative = before it; centerline = from the extended runway centerline' : '')
         + (any('throttle') ? '; throttle = throttle lever position per engine (engine 1 first, ? = not recorded) as the aircraft reports it, negative = reverse range' : '')
         + (powerName && any('power') ? '; ' + powerName + ' = per engine' : '') + '):'];
@@ -638,6 +645,12 @@ function buildTouchdownPrompt(t) {
 // kept by every analysis on the page together (runAiAnalysis()). Only the
 // prompts count: the answers' tokens don't.
 var TPM_LIMIT = 16000;
+// How long (ms) an attempt may go without receiving any of its answer (since
+// it was sent, or since the last piece) before it's abandoned as stalled and
+// retried:
+// the model can think for minutes before it answers, but it streams its
+// thinking as it goes, so a long silence means a stuck request.
+var AI_IDLE_TIMEOUT_MS = 180000;
 // The prompts sent in the last minute, oldest first: { time (ms), tokens }.
 var _tpmLedger = [];
 
@@ -867,6 +880,12 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     var sawThinking, thinkingDone;
     var thinkingText, finalText;
     var finishReason, streamError;
+    // The attempt's inactivity watchdog (AI_IDLE_TIMEOUT_MS) and timing:
+    // when it was sent and last received a piece, when its first data
+    // arrived (-1: none yet), its longest wait before the current one, all
+    // in ms.
+    var controller, watchdog, stalled;
+    var sentAt, lastHeard, firstData, longestGap;
 
     // The thinking panel stays hidden until thinking arrives: a model that
     // answers without it shows just the answer.
@@ -935,11 +954,34 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
         streamError = JSON.stringify(error);
     }
 
-    // How much of the answer the attempt got, and any error the service sent
-    // mid-stream, for its failure's log line.
+    // A piece of the answer arrived (or the request was just sent): restarts
+    // the inactivity clock, which aborts the attempt's fetch or read if
+    // nothing more arrives in time. It's left running when the attempt ends:
+    // the next attempt's restart clears it, and after the last one it can
+    // only abort a request already done.
+    function heard() {
+        var now = Date.now();
+        longestGap = Math.max(longestGap, now - lastHeard);
+        lastHeard = now;
+        clearTimeout(watchdog);
+        watchdog = setTimeout(function() { stalled = true; controller.abort(); }, AI_IDLE_TIMEOUT_MS);
+    }
+
+    function seconds(ms) { return (ms / 1000).toFixed(1) + ' s'; }
+
+    // When the attempt's first data arrived and its longest wait for the
+    // next, the current one included.
+    function timing() {
+        return (firstData < 0 ? 'no data' : 'first data after ' + seconds(firstData))
+            + ', longest silence ' + seconds(Math.max(longestGap, Date.now() - lastHeard));
+    }
+
+    // How much of the answer the attempt got, any error the service sent
+    // mid-stream, whether it stalled, and its timing, for its log line.
     function received() {
         return thinkingText.length + ' characters of thinking and ' + finalText.length + ' of answer received'
-            + (streamError ? ', stream error ' + streamError : '');
+            + (streamError ? ', stream error ' + streamError : '')
+            + (stalled ? ', stalled' : '') + ', ' + timing();
     }
 
     for (var attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -948,6 +990,12 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
             showStatus('Waiting ' + seconds + ' s for the per-minute token limit…');
         });
         showStatus('Sending to LLM…');
+        controller = new AbortController();
+        stalled = false;
+        sentAt = lastHeard = Date.now();
+        firstData = -1;
+        longestGap = 0;
+        heard();
 
         try {
             // The key goes in a header, not the URL: the browser's console
@@ -959,7 +1007,8 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
                     body: JSON.stringify({
                         contents: [{ role: 'user', parts: [{ text: prompt }] }]
-                    })
+                    }),
+                    signal: controller.signal
                 }
             );
             if (res.ok) showStatus('Waiting for the model…');
@@ -998,6 +1047,8 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
             while (true) {
                 var streamChunk = await reader.read();
                 if (streamChunk.done) break;
+                heard();
+                if (firstData < 0) firstData = lastHeard - sentAt;
                 buf += decoder.decode(streamChunk.value, { stream: true });
                 buf = processStreamBuffer(buf, onChunk, onFinish, onUsage, onError);
             }
@@ -1005,20 +1056,24 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
             processStreamBuffer(buf, onChunk, onFinish, onUsage, onError);
         } catch (e) {
             // Network error, before or during the answer -- retry unless this
-            // was the last attempt.
-            logAttemptFailure('Gemini request failed', attempt < MAX_ATTEMPTS - 1, String(e) + ', ' + received());
-            if (attempt === MAX_ATTEMPTS - 1) {
-                finalDiv.innerHTML = '<span style="color:#64748b">Couldn\'t reach the AI service after '
-                    + MAX_ATTEMPTS + ' attempts. Check your internet connection and try again.</span>';
-                thDet.style.display = 'none';
+            // was the last attempt. A stall is handled below, as an
+            // incomplete answer (or a complete one, if it stalled after it).
+            if (!stalled) {
+                logAttemptFailure('Gemini request failed', attempt < MAX_ATTEMPTS - 1, String(e) + ', ' + received());
+                if (attempt === MAX_ATTEMPTS - 1) {
+                    finalDiv.innerHTML = '<span style="color:#64748b">Couldn\'t reach the AI service after '
+                        + MAX_ATTEMPTS + ' attempts. Check your internet connection and try again.</span>';
+                    thDet.style.display = 'none';
+                }
+                continue;
             }
-            continue;
         }
 
         // Success: the model finished ("STOP", not cut off by a token limit,
         // a safety stop or a dropped stream) with an answer. Thinking is
         // optional, and stored only when there was some.
         if (finishReason === 'STOP' && finalText.trim()) {
+            console.log('Gemini answer complete:', timing());
             if (t.rowId) {
                 var stored = sawThinking ? '<thinking>' + thinkingText + '</thinking>' + finalText : finalText;
                 // Mirror the DB write into the in-memory store (t is the same

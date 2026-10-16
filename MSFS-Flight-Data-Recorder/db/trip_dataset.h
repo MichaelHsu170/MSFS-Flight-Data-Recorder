@@ -79,9 +79,10 @@ struct ContactConditions {
 	double trackTrue = std::nan("");        // ground track, degrees
 	double magneticVariation = std::nan(""); // headingTrue - headingMagnetic, -180..180 (+ = east)
 	double crabAngle = std::nan("");        // headingTrue - trackTrue, -180..180 (+ = nose right of the track)
-	// The runway's heading converted to magnetic with magneticVariation, in
-	// whole degrees 1..360; NaN without either. Runway numbers come from the
-	// magnetic heading, so this is the one the number matches.
+	// The runway's true heading (RunwayContactPoint::runwayTrueHeading())
+	// converted to magnetic with magneticVariation, in whole degrees 1..360;
+	// NaN without either. Runway numbers come from the magnetic heading, so
+	// this is the one the number matches.
 	double runwayHeadingMagnetic = std::nan("");
 	// Degrees above the horizon (sunElevationDegrees()); NaN when the
 	// contact's time can't be read.
@@ -139,7 +140,7 @@ struct ProfilePoint {
 	double pathAngle = std::nan("");
 	bool onGround = false;  // SIM ON GROUND
 	// The weather at this point: the wind (from, degrees true; kt) and its
-	// components along the contact's runway (true heading; + = headwind, - =
+	// components along the contact's runway (runwayTrueHeading(); + = headwind, - =
 	// tailwind) and across it (+ = from the right; both NaN without a
 	// runway), the outside air (°C), inCloud like ContactConditions', the
 	// precipitation like its (precipitationName()) and the structural ice
@@ -287,6 +288,13 @@ struct RunwayContactPoint {
 	QString analysisReport;  // stored AI analysis text, empty if never analyzed
 	ContactRunway runwayData;
 	ContactConditions conditions;
+
+	// The used runway's true heading in degrees: the exact one when stored
+	// (runwayData), else the whole-degree runwayHeading; NaN when unknown.
+	double runwayTrueHeading() const {
+		if (!std::isnan(runwayData.trueHeading)) return runwayData.trueHeading;
+		return runwayHeading >= 0 ? runwayHeading : std::nan("");
+	}
 };
 
 // One moment the aircraft became airborne during the trip (trip_liftoffs):

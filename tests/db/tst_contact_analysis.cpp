@@ -153,9 +153,10 @@ private slots:
 	}
 
 	// The runway's magnetic heading, the one its number matches: its true
-	// heading minus the sample's magnetic variation, in whole degrees 1..360.
+	// heading minus the sample's magnetic variation, in whole degrees 1..360;
+	// from the exact true heading when stored, else the whole-degree one.
 	void runwayHeadingMagneticUsesTheSampleVariation() {
-		auto magneticRunway = [](int runwayTrue, double headingTrue, double headingMagnetic) {
+		auto magneticRunway = [](int runwayTrue, double headingTrue, double headingMagnetic, double exactTrue = std::nan("")) {
 			TripDataset dataset;
 			TripSamplePoint p = sample(0, 0, 0);
 			p.rawNums[TRIP_NUM_plane_heading_degrees_true] = headingTrue;
@@ -163,6 +164,7 @@ private slots:
 			dataset.points = { p };
 			TouchdownPoint td = contactAt<TouchdownPoint>(0);
 			td.runwayHeading = runwayTrue;
+			td.runwayData.trueHeading = exactTrue;
 			dataset.touchdowns = { td };
 			analyzeContacts(dataset);
 			return dataset.touchdowns[0].conditions.runwayHeadingMagnetic;
@@ -175,6 +177,8 @@ private slots:
 		QCOMPARE(magneticRunway(4, 4, 359.6), 360.0);   // 359.6 rounds to 360, not 0
 		QVERIFY(std::isnan(magneticRunway(-1, 65, 77)));  // no runway heading
 		QVERIFY(std::isnan(magneticRunway(62, std::nan(""), 77)));  // no variation
+		QCOMPARE(magneticRunway(148, 0, 12.6, 147.82), 160.0);  // 160.42 exact, not 160.6 from 148
+		QCOMPARE(magneticRunway(-1, 0, 12.6, 147.82), 160.0);   // the exact one alone is enough
 	}
 
 	void conditionsComeFromTheContactSample() {
@@ -1024,6 +1028,17 @@ private slots:
 		QVERIFY(std::abs(g200->headwindKt) < 1e-9);
 		QVERIFY(std::abs(g200->crosswindKt + 10) < 1e-9);
 
+		// The exact stored true heading takes precedence: on a 060° runway the
+		// 20 kt from 120° is 10 kt of headwind and 17.32 kt from the right.
+		dataset.touchdowns[0].runwayData.trueHeading = 60;
+		profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		g500 = gate(*profile, QStringLiteral("500 ft"));
+		QVERIFY(g500);
+		QVERIFY(std::abs(g500->headwindKt - 10) < 1e-9);
+		QVERIFY(std::abs(g500->crosswindKt - 17.3205) < 1e-4);
+
+		dataset.touchdowns[0].runwayData.trueHeading = std::nan("");
 		dataset.touchdowns[0].runwayHeading = -1;
 		profile = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(profile);
