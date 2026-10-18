@@ -1,4 +1,5 @@
 #include "map_bridge.h"
+#include "app_settings.h"
 #include "contact_analysis.h"
 #include "db_connection.h"
 #include "db_history.h"
@@ -48,6 +49,16 @@ QVariant MapBridge::touchdownProfile(int rowId) const {
 
 void MapBridge::copyText(const QString& text) {
 	QGuiApplication::clipboard()->setText(text);
+}
+
+void MapBridge::saveAiModel(const QString& model, const QString& customModel) {
+	AppSettings& settings = AppSettings::instance();
+	settings.setAiModel(model);
+	settings.setAiCustomModel(customModel);
+}
+
+void MapBridge::saveAiProgressEvaluation(bool progress) {
+	AppSettings::instance().setAiProgressEvaluation(progress);
 }
 
 bool MapBridge::saveLiftoffAnalysisReport(int rowId, const QString& report) {

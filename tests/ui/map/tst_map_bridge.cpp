@@ -3,6 +3,7 @@
 // contact's final trajectory for its analysis.
 #include "test_support.h"
 
+#include "app_settings.h"
 #include "db.h"
 #include "map_bridge.h"
 #include "trip_data_fields.h"
@@ -109,6 +110,26 @@ private slots:
 		QVERIFY(bridge.touchdownProfile(6).isNull());
 		bridge.setDataset(nullptr);
 		QVERIFY(bridge.liftoffProfile(5).isNull());
+	}
+
+	// The popup's model choice goes to settings.ini, both values.
+	void savesTheAiModelChoice() {
+		MapBridge bridge;
+		bridge.saveAiModel(QStringLiteral("other"), QStringLiteral("gemini-3-pro"));
+		QCOMPARE(AppSettings::instance().aiModel(), QStringLiteral("other"));
+		QCOMPARE(AppSettings::instance().aiCustomModel(), QStringLiteral("gemini-3-pro"));
+		bridge.saveAiModel(QStringLiteral("gemma-4-26b-a4b-it"), QString());
+		QCOMPARE(AppSettings::instance().aiModel(), QStringLiteral("gemma-4-26b-a4b-it"));
+		QCOMPARE(AppSettings::instance().aiCustomModel(), QString());
+	}
+
+	// So does its evaluation choice.
+	void savesTheAiProgressEvaluationChoice() {
+		MapBridge bridge;
+		bridge.saveAiProgressEvaluation(false);
+		QCOMPARE(AppSettings::instance().aiProgressEvaluation(), false);
+		bridge.saveAiProgressEvaluation(true);
+		QCOMPARE(AppSettings::instance().aiProgressEvaluation(), true);
 	}
 
 	// Reported as not saved, so the page can say so.

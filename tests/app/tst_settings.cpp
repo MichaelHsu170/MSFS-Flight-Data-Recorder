@@ -43,7 +43,7 @@ private slots:
 		QVERIFY(!QFile::exists(AppSettings::filePath()));
 		AppSettings::instance();
 		const QString text = readSettingsFile();
-		for (const char* line : { "[ai]", "gemini_api_key=", "[recording]", "sample_interval_ms=500", "enabled=true",
+		for (const char* line : { "[ai]", "gemini_api_key=", "model=gemma-4-31b-it", "custom_model=", "[recording]", "sample_interval_ms=500", "enabled=true",
 				"[logging]", "verbose=INFO", "[layout]", "right_panel_width=260", "charts_panel_height=400",
 				"[data_table]", "hidden_fields=", "[table_column_width]", "data_table_field_column_width=140",
 				"trip_history_column_widths=" })
@@ -75,6 +75,10 @@ private slots:
 		QCOMPARE(s.chartsPanelHeight(), 400);
 		QVERIFY(s.tripHistoryColumnWidths().isEmpty());
 		QCOMPARE(s.geminiApiKey(), QString());
+		QCOMPARE(s.aiModel(), QStringLiteral("gemma-4-31b-it"));
+		QCOMPARE(s.aiCustomModel(), QString());
+		QCOMPARE(s.aiProgressEvaluation(), true);
+		QVERIFY(readSettingsFile().contains(QStringLiteral("\nprogress_evaluation=true\n")));
 		QCOMPARE(s.sampleIntervalMs(), 500);
 		QCOMPARE(s.recordingEnabled(), true);
 	}
@@ -87,6 +91,7 @@ private slots:
 		QCOMPARE(s.chartsPanelHeight(), 400);
 		QCOMPARE(s.sampleIntervalMs(), 500);
 		QCOMPARE(s.recordingEnabled(), true);
+		QCOMPARE(s.aiProgressEvaluation(), true);
 	}
 
 	void invalidNumbersFallBackToDefaults() {
@@ -149,6 +154,9 @@ private slots:
 			{ [&s] { s.setDataTableFieldColumnWidth(180); }, columnWidths + "[table_column_width]\n" },
 			{ [&s] { s.setTripHistoryColumnWidths({ { "TitleColumn", 120 } }); }, columnWidths + "[table_column_width]\n" },
 			{ [&s] { s.setRecordingEnabled(false); }, QStringLiteral("[recording]\n") },
+			{ [&s] { s.setAiModel(QStringLiteral("other")); }, QStringLiteral("[ai]\n") },
+			{ [&s] { s.setAiCustomModel(QStringLiteral("gemini-3-pro")); }, QStringLiteral("[ai]\n") },
+			{ [&s] { s.setAiProgressEvaluation(false); }, QStringLiteral("[ai]\n") },
 		};
 		for (const auto& [set, header] : cases) {
 			removeSettings();
@@ -212,6 +220,41 @@ private slots:
 		QCOMPARE(AppSettings::logLevel(), QStringLiteral("trace"));
 		removeSettings();
 		QCOMPARE(AppSettings::logLevel(), QStringLiteral("INFO"));
+	}
+
+	// The model choice is saved into [ai] next to the key, each with its
+	// comment when the key is new, and read back verbatim.
+	void aiModelRoundTrip() {
+		writeSettingsFile("[ai]\ngemini_api_key=KEY123\n\n[other]\nkeep=me\n");
+		AppSettings& s = AppSettings::instance();
+		s.setAiModel(QStringLiteral("other"));
+		s.setAiCustomModel(QStringLiteral("gemini-3-pro"));
+		const QString text = readSettingsFile();
+		QVERIFY2(text.startsWith(QStringLiteral("[ai]\ngemini_api_key=KEY123\n")), qPrintable(text));
+		QVERIFY2(text.contains(QStringLiteral("; Auto-managed by the app. The model the AI analysis uses")), qPrintable(text));
+		QVERIFY2(text.contains(QStringLiteral("; Auto-managed by the app. The model name entered for the drop-down's Other")), qPrintable(text));
+		QVERIFY2(text.indexOf(QStringLiteral("custom_model=gemini-3-pro\n")) < text.indexOf(QStringLiteral("[other]")), qPrintable(text));
+		QVERIFY2(text.endsWith(QStringLiteral("[other]\nkeep=me\n")), qPrintable(text));
+		QCOMPARE(s.aiModel(), QStringLiteral("other"));
+		QCOMPARE(s.aiCustomModel(), QStringLiteral("gemini-3-pro"));
+		s.setAiModel(QStringLiteral("gemma-4-26b-a4b-it"));
+		QCOMPARE(s.aiModel(), QStringLiteral("gemma-4-26b-a4b-it"));
+		QCOMPARE(s.aiCustomModel(), QStringLiteral("gemini-3-pro"));
+	}
+
+	// The evaluation choice is saved into [ai] with its comment when the key
+	// is new, and read back.
+	void aiProgressEvaluationRoundTrip() {
+		writeSettingsFile("[ai]\ngemini_api_key=KEY123\n");
+		AppSettings& s = AppSettings::instance();
+		s.setAiProgressEvaluation(false);
+		const QString text = readSettingsFile();
+		QVERIFY2(text.contains(QStringLiteral("; Auto-managed by the app. Whether the AI analysis is a progress evaluation\n")),
+			qPrintable(text));
+		QVERIFY2(text.contains(QStringLiteral("\nprogress_evaluation=false\n")), qPrintable(text));
+		QCOMPARE(s.aiProgressEvaluation(), false);
+		s.setAiProgressEvaluation(true);
+		QCOMPARE(s.aiProgressEvaluation(), true);
 	}
 
 	void recordingEnabledRoundTrip() {

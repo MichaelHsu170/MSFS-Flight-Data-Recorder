@@ -348,6 +348,268 @@ private slots:
 		QCOMPARE(dataset.touchdowns[1].touchdownRate, 300.0);
 	}
 
+	// MSFS's reset after a crash (here 656 ft up within 0.5 s of the
+	// touchdown, at 600 ft/min) ends what the touchdown is judged by: its
+	// series stops at its own sample, and its touchdown rate isn't a value set
+	// after the reset's sample (here the 500 after it). The liftoff the recorder logs at the reset (whose sample, the
+	// first at or after it, is the reset's) is dropped as no takeoff, though a
+	// touchdown follows after the reset (1 s); one whose sample is the
+	// touchdown's or after the reset's is kept.
+	void aResetEndsTheTouchdownsSamples() {
+		TripDataset dataset = touchdownAfter({ 20, 10, 0 });
+		dataset.points.push_back(sample(0.5, 1656, 656));
+		dataset.points.push_back(sample(1, 1661, 661));
+		for (TripSamplePoint& p : dataset.points) {
+			p.rawNums[TRIP_NUM_velocity_world_y] = 600;
+			p.rawNums[TRIP_NUM_ground_velocity] = 50;
+			p.rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = 198;
+		}
+		dataset.points[4].rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = 500;
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(-0.5), contactAt<LiftoffPoint>(0.25),
+			contactAt<LiftoffPoint>(0.5), contactAt<LiftoffPoint>(0.75) };
+		dataset.touchdowns.push_back(contactAt<TouchdownPoint>(1));
+		analyzeContacts(dataset);
+		QCOMPARE(dataset.liftoffPoints.size(), size_t(2));
+		QCOMPARE(dataset.liftoffPoints[0].zuluTime, zulu(-0.5));
+		QCOMPARE(dataset.liftoffPoints[1].zuluTime, zulu(0.75));
+		QVERIFY(dataset.touchdowns[0].crashed);
+		QVERIFY(std::isnan(dataset.touchdowns[0].touchdownRate));
+		const std::optional<ContactProfile> touchdown = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(touchdown);
+		QCOMPARE(touchdown->series.size(), size_t(3));
+		QCOMPARE(touchdown->series.back().seconds, 0.0);
+	}
+
+	// A crash the simulator reset before the next sample: the touchdown's
+	// first sample at or after it is the reset's (0.4 s later, 656 ft up), so
+	// it's measured from the one before, 0.5 s before it. It's still a crash,
+	// its conditions and series are that sample's and the ones before (not the
+	// reset's 40 kt wind), its heights are from the ground under that sample,
+	// and its touchdown rate is the one the simulator set in the reset's
+	// sample.
+	void aResetAtTheTouchdownsSampleIsMeasuredFromTheOneBefore() {
+		TripDataset dataset;
+		dataset.points = { sample(-1, 1010, 10), sample(-0.5, 1005, 5), sample(0.4, 1656, 656) };
+		for (TripSamplePoint& p : dataset.points) {
+			p.rawNums[TRIP_NUM_velocity_world_y] = -600;
+			p.rawNums[TRIP_NUM_ground_velocity] = 50;
+			p.rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = 198;
+			p.rawNums[TRIP_NUM_ambient_wind_velocity] = 12;
+		}
+		dataset.points[2].rawNums[TRIP_NUM_plane_touchdown_normal_velocity] = 2461;
+		dataset.points[2].rawNums[TRIP_NUM_ambient_wind_velocity] = 40;
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+		analyzeContacts(dataset);
+		QVERIFY(dataset.touchdowns[0].crashed);
+		QCOMPARE(dataset.touchdowns[0].touchdownRate, 2461.0);
+		QCOMPARE(dataset.touchdowns[0].conditions.windMaxKt, 12.0);
+		const std::optional<ContactProfile> touchdown = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(touchdown);
+		QCOMPARE(touchdown->series.size(), size_t(2));
+		QCOMPARE(touchdown->series.back().seconds, -0.5);
+		// Its heights are from the ground under that airborne sample (5 ft
+		// above it), not from the sample's own altitude.
+		QCOMPARE(touchdown->series.back().heightFt, 5.0);
+		QCOMPARE(touchdown->series.front().heightFt, 10.0);
+	}
+
+	// A crash's last airborne sample before the reset (70 ft above the ground
+	// under it, 0.5 s before the touchdown) is still flown, so it's the 50 ft
+	// gate's crossing rather than the 210 ft one before it. At 12000 ft/min
+	// (200 ft/s), only the 586 ft climb to the reset's sample is a reset.
+	void aCrashsLastAirborneSampleCrossesItsGate() {
+		TripDataset dataset;
+		dataset.points = { sample(-1, 1210, 210), sample(-0.5, 1070, 70), sample(0.4, 1656, 656) };
+		for (TripSamplePoint& p : dataset.points)
+			p.rawNums[TRIP_NUM_velocity_world_y] = -12000;
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		QCOMPARE(gateNames(*profile), QStringList({ "200 ft", "100 ft", "50 ft" }));
+		QCOMPARE(profile->gates.back().seconds, -0.5);
+		QCOMPARE(profile->gates.back().heightFt, 70.0);
+	}
+
+	// A bounce just before a crash, both between the last sample (0 s) and
+	// the reset's (0.5 s): the touchdown at 0 s has the bounce's liftoff
+	// (0.15 s) and touchdown (0.3 s, or at the reset's 0.5 s, still before
+	// it) before the reset, so only the second is a crash, and the bounce's liftoff, which maps to the reset's sample, is
+	// kept, without conditions or trajectory: nothing of it was recorded.
+	// The second touchdown has no highest terrain, not the ground under the
+	// reset's sample (here 1000 ft above the field).
+	void aBounceJustBeforeACrashIsNoCrash() {
+		for (double bounceTouchdown : { 0.3, 0.5 }) {
+			TripDataset dataset = touchdownAfter({ 20, 10, 0 });
+			dataset.points.push_back(sample(0.5, 2656, 656));
+			for (TripSamplePoint& p : dataset.points) {
+				p.rawNums[TRIP_NUM_velocity_world_y] = 600;
+				p.rawNums[TRIP_NUM_ground_velocity] = 50;
+			}
+			dataset.touchdowns.push_back(contactAt<TouchdownPoint>(bounceTouchdown));
+			dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.15) };
+			analyzeContacts(dataset);
+			QCOMPARE(dataset.touchdowns[0].crashed, false);
+			QCOMPARE(dataset.touchdowns[1].crashed, true);
+			QCOMPARE(dataset.liftoffPoints.size(), size_t(1));
+			QVERIFY(!dataset.liftoffPoints[0].conditions.fromSample);
+			QVERIFY(!contactProfile(dataset, dataset.liftoffPoints[0], false));
+			const std::optional<ContactProfile> crash = contactProfile(dataset, dataset.touchdowns[1], true);
+			QVERIFY(crash);
+			QVERIFY(std::isnan(crash->highestTerrainFt));
+		}
+	}
+
+	// A touchdown is a crash when the simulator's reset (here 656 ft up at
+	// 600 ft/min) comes within 10 s after it with no other contact first: 10 s
+	// is one, 10.5 s isn't; of a bounce at 0 s and 5 s, or at 0 s and the
+	// reset's 10 s, only the second is; a
+	// touchdown with no reset after it, or whose time can't be read, isn't.
+	void aTouchdownTheResetFollowsIsACrash() {
+		const auto crashes = [](double resetSeconds, std::vector<double> touchdowns, QString lastTime = QString()) {
+			TripDataset dataset = touchdownAfter({ 20, 10, 0 });
+			dataset.points.push_back(sample(5, 1000, 0));
+			if (resetSeconds > 0)
+				dataset.points.push_back(sample(resetSeconds, 1656, 656));
+			for (TripSamplePoint& p : dataset.points) {
+				p.rawNums[TRIP_NUM_velocity_world_y] = 600;
+				p.rawNums[TRIP_NUM_ground_velocity] = 50;
+			}
+			dataset.touchdowns.clear();
+			for (double t : touchdowns)
+				dataset.touchdowns.push_back(contactAt<TouchdownPoint>(t));
+			if (!lastTime.isEmpty())
+				dataset.touchdowns.back().zuluTime = lastTime;
+			analyzeContacts(dataset);
+			QList<bool> result;
+			for (const TouchdownPoint& t : dataset.touchdowns)
+				result.append(t.crashed);
+			return result;
+		};
+		QCOMPARE(crashes(10, { 0 }), QList<bool>({ true }));
+		QCOMPARE(crashes(10.5, { 0 }), QList<bool>({ false }));
+		QCOMPARE(crashes(10, { 0, 5 }), QList<bool>({ false, true }));
+		QCOMPARE(crashes(10, { 0, 10 }), QList<bool>({ false, true }));
+		QCOMPARE(crashes(0, { 0 }), QList<bool>({ false }));
+		// Sorts with 0 s but doesn't parse.
+		QCOMPARE(crashes(10, { 0 }, zulu(0).replace(QStringLiteral(".000"), QStringLiteral(".0zz"))), QList<bool>({ false }));
+	}
+
+	// The reset's own liftoff, with a touchdown logged at the same time (the
+	// reset's 0.5 s), is still dropped: that touchdown isn't after it, so
+	// nothing was flown between them.
+	void aTouchdownAtTheResetsLiftoffKeepsNoLiftoff() {
+		TripDataset dataset = touchdownAfter({ 20, 10, 0 });
+		dataset.points.push_back(sample(0.5, 2656, 656));
+		for (TripSamplePoint& p : dataset.points) {
+			p.rawNums[TRIP_NUM_velocity_world_y] = 600;
+			p.rawNums[TRIP_NUM_ground_velocity] = 50;
+		}
+		dataset.touchdowns.push_back(contactAt<TouchdownPoint>(0.5));
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.5) };
+		analyzeContacts(dataset);
+		QVERIFY(dataset.liftoffPoints.empty());
+	}
+
+	// A crash soon after a liftoff: its climb-out's gates stop at the reset
+	// (1500 ft up within 1 s, at 1200 ft/min), so the reset's height isn't
+	// taken for a climb through 100-1000 ft.
+	void aResetEndsTheLiftoffsClimbOut() {
+		TripDataset dataset;
+		dataset.points = { sample(-1, 1000, 0), sample(0, 1020, 20), sample(1, 1040, 40), sample(2, 2540, 1540) };
+		for (TripSamplePoint& p : dataset.points)
+			p.rawNums[TRIP_NUM_velocity_world_y] = 1200;
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
+		QVERIFY(profile);
+		QCOMPARE(gateNames(*profile), QStringList({ "35 ft" }));
+	}
+
+	// A reset before a touchdown (a teleport onto the final) starts its
+	// window: no gate, series or wind before it. At 600 ft/min (10 ft/s) 1 s
+	// apart, dropping 600 ft is one.
+	void aResetStartsTheTouchdownsSamples() {
+		TripDataset dataset = touchdownAfter({ 900, 300, 200, 100, 0 });
+		for (TripSamplePoint& p : dataset.points) {
+			p.rawNums[TRIP_NUM_velocity_world_y] = -600;
+			p.rawNums[TRIP_NUM_ambient_wind_velocity] = 10;
+		}
+		dataset.points[0].rawNums[TRIP_NUM_ambient_wind_velocity] = 40;
+		analyzeContacts(dataset);
+		QCOMPARE(dataset.touchdowns[0].conditions.windMaxKt, 10.0);
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		QCOMPARE(gateNames(*profile), QStringList({ "300 ft", "200 ft", "100 ft", "50 ft" }));
+		QCOMPARE(profile->series.front().seconds, -3.0);
+	}
+
+	// A move is a reset only past twice what the faster of the two samples'
+	// speeds covers between them, plus 100 ft. 1 s apart at 600 ft/min
+	// (10 ft/s), climbing or descending: 120 ft up or down isn't, 121 ft is.
+	// At 60 kt (101.3 ft/s, so 302.5 ft): 0.04 nm (243 ft) and 0.0495 nm
+	// (301 ft on the 6371 km sphere) across aren't, 0.0503 nm (306 ft) and
+	// 0.06 nm (365 ft) are. Without either sample's speed, it isn't.
+	void aResetIsAMoveFasterThanTheSpeedsAllow() {
+		// The series' size: 2 when the contact's sample isn't a reset, 1 when it is.
+		const auto seriesSize = [](double climbFt, double nm, double verticalSpeedBefore, double verticalSpeed,
+			double groundSpeedBefore, double groundSpeed) {
+			TripDataset dataset;
+			dataset.points = { sample(-1, 1000, 0), sample(0, 1000 + climbFt, 0, nm) };
+			dataset.points[0].rawNums[TRIP_NUM_velocity_world_y] = verticalSpeedBefore;
+			dataset.points[1].rawNums[TRIP_NUM_velocity_world_y] = verticalSpeed;
+			dataset.points[0].rawNums[TRIP_NUM_ground_velocity] = groundSpeedBefore;
+			dataset.points[1].rawNums[TRIP_NUM_ground_velocity] = groundSpeed;
+			dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+			const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+			return profile ? (int)profile->series.size() : -1;
+		};
+		const double nan = std::nan("");
+		QCOMPARE(seriesSize(120, 0, 300, 600, 0, 0), 2);
+		QCOMPARE(seriesSize(121, 0, 300, 600, 0, 0), 1);
+		QCOMPARE(seriesSize(120, 0, 600, 300, 0, 0), 2);
+		QCOMPARE(seriesSize(-120, 0, -300, -600, 0, 0), 2);
+		QCOMPARE(seriesSize(-121, 0, -300, -600, 0, 0), 1);
+		QCOMPARE(seriesSize(0, 0.04, 0, 0, 30, 60), 2);
+		QCOMPARE(seriesSize(0, 0.04, 0, 0, 60, 30), 2);
+		QCOMPARE(seriesSize(0, 0.0495, 0, 0, 60, 30), 2);
+		QCOMPARE(seriesSize(0, 0.0503, 0, 0, 60, 30), 1);
+		QCOMPARE(seriesSize(0, 0.06, 0, 0, 60, 30), 1);
+		QCOMPARE(seriesSize(1000, 0, 600, nan, 0, 0), 2);
+		QCOMPARE(seriesSize(1000, 0, nan, 600, 0, 0), 2);
+		QCOMPARE(seriesSize(0, 1, 0, 0, 60, nan), 2);
+		QCOMPARE(seriesSize(0, 1, 0, 0, nan, 60), 2);
+	}
+
+	// A sample whose time can't be read isn't judged a reset, however far it
+	// moved: the 570 ft drop to it doesn't cut the approach, whose gates are
+	// all the descent's from 600 ft, 40 s out.
+	void aMoveWithoutItsTimeIsNoReset() {
+		TripDataset dataset = touchdownAfter({ 0, 0, 0, 0 });
+		dataset.points[0] = sample(-40, 1600, 600);
+		dataset.points[1] = sample(-30, 1030, 30);
+		dataset.points[1].zuluTime = QStringLiteral("not a time");
+		dataset.points[2] = sample(-20, 1030, 30);
+		for (TripSamplePoint& p : dataset.points)
+			p.rawNums[TRIP_NUM_velocity_world_y] = -600;
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		QCOMPARE(gateNames(*profile), QStringList({ "500 ft", "300 ft", "200 ft", "100 ft", "50 ft" }));
+	}
+
+	// A move while the simulator's clock is set back, or holds still, isn't
+	// judged a reset: 200 ft on at 120 kt but 0.5 s earlier, or at the same
+	// time, 1 s after the touchdown, doesn't make it a crash.
+	void aMoveBackInTimeIsNoReset() {
+		for (double seconds : { 0.5, 1.0 }) {
+			TripDataset dataset = touchdownAfter({ 20, 10, 0 });
+			dataset.points.push_back(sample(1, 1000, 0, 0.0167));
+			dataset.points.push_back(sample(seconds, 1000, 0, 0.0167 + 0.033));
+			for (TripSamplePoint& p : dataset.points)
+				p.rawNums[TRIP_NUM_ground_velocity] = 120;
+			analyzeContacts(dataset);
+			QVERIFY2(!dataset.touchdowns[0].crashed, qPrintable(QString::number(seconds)));
+		}
+	}
+
 	// The wind range covers the 30 s up to the contact (30 s before it still
 	// in, 31 s out), its directions one range across north.
 	void windRangeCoversTheLast30Seconds() {
@@ -737,9 +999,9 @@ private slots:
 		QVERIFY(dataset.touchdowns[0].conditions.fromSample);
 	}
 
-	// However dense the samples, the series is at most 60 lines and keeps
+	// However dense the samples, the series is at most 58 lines and keeps
 	// both ends.
-	void seriesIsCappedAt60() {
+	void seriesIsCappedAt58() {
 		TripDataset dataset;
 		for (int i = 119; i >= 0; --i)
 			dataset.points.push_back(sample(-i / 10.0, 1000 + i, i));
@@ -748,9 +1010,21 @@ private slots:
 		QVERIFY(profile);
 		const std::vector<ProfilePoint>& series = profile->series;
 
-		QVERIFY2(series.size() <= 60, qPrintable(QString::number(series.size())));
+		QVERIFY2(series.size() <= 58, qPrintable(QString::number(series.size())));
 		QCOMPARE(series.front().seconds, -11.9);
 		QCOMPARE(series.back().seconds, 0.0);
+
+		// The densest the thinning gets: a liftoff's 20 s holding 167 samples
+		// 0.12 s apart, its on-ground sample and its own both off the stride
+		// and the last one too (a cap of 59 would give 59 lines here).
+		dataset.points.clear();
+		for (int k = -90; k <= 90; ++k)
+			dataset.points.push_back(sample(k * 0.12, 1000 + std::abs(k), std::abs(k)));
+		dataset.touchdowns.clear();
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.108) };
+		const std::optional<ContactProfile> liftoff = contactProfile(dataset, dataset.liftoffPoints[0], false);
+		QVERIFY(liftoff);
+		QVERIFY2(liftoff->series.size() <= 58, qPrintable(QString::number(liftoff->series.size())));
 	}
 
 	// Thinned, the series still has the contact's own sample and the
@@ -768,14 +1042,14 @@ private slots:
 		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
 		std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(profile);
-		QVERIFY2(profile->series.size() <= 60, qPrintable(QString::number(profile->series.size())));
+		QVERIFY2(profile->series.size() <= 58, qPrintable(QString::number(profile->series.size())));
 		QVERIFY(hasPointAt(profile->series, 0.0));
 
 		dataset.touchdowns.clear();
 		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.1) };
 		profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
 		QVERIFY(profile);
-		QVERIFY2(profile->series.size() <= 60, qPrintable(QString::number(profile->series.size())));
+		QVERIFY2(profile->series.size() <= 58, qPrintable(QString::number(profile->series.size())));
 		QVERIFY(hasPointAt(profile->series, -0.1));  // the on-ground sample at 0 s
 		QVERIFY(hasPointAt(profile->series, 0.07));  // the liftoff's, at 0.17 s
 	}
@@ -861,6 +1135,34 @@ private slots:
 		}
 		// Height gates have no path angle.
 		QVERIFY(std::isnan(gate(*profile, QStringLiteral("500 ft"))->pathAngle));
+	}
+
+	// On a curved approach each distance gate's path angle is over the
+	// distance flown to the next one, or for the 1 nm gate to the touchdown
+	// point, not the straight line: from (1.0 N, 1.8 E, 2.06 nm out) to 1.0 nm
+	// east is 1.281 nm flown, then through (0.7 N, 0.6 E) and 0.5 nm north
+	// 0.806 + 0.632 + 0.5 = 1.938 nm, on an exact 3-degree path along it. The
+	// straight lines (1.06 nm and 1.0 nm) would give 3.6 and 5.8 degrees.
+	void pathAngleIsOverTheDistanceFlown() {
+		TripDataset dataset;
+		const double feetPerNm = 6076.12 * std::tan(3 * std::acos(-1.0) / 180);
+		const struct { double north, east, flownToGo; } path[] = { { 1.0, 1.8, 3.219 }, { 0, 1.0, 1.938 }, { 0.7, 0.6, 1.132 },
+			{ 0.5, 0, 0.5 } };
+		for (int i = 0; i < 4; ++i) {
+			TripSamplePoint p = sample(-40 + i * 10.0, 100 + path[i].flownToGo * feetPerNm, path[i].flownToGo * feetPerNm, path[i].north);
+			p.longitude = path[i].east / 60;
+			dataset.points.push_back(p);
+		}
+		dataset.points.push_back(sample(0, 100, 0));
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+
+		for (const char* name : { "2 nm", "1 nm" }) {
+			const ProfilePoint* g = gate(*profile, QString::fromLatin1(name));
+			QVERIFY2(g, qPrintable(gateNames(*profile).join('|')));
+			QVERIFY2(qAbs(g->pathAngle - 3.0) < 0.05, qPrintable(QStringLiteral("%1: %2").arg(name).arg(g->pathAngle)));
+		}
 	}
 
 	// With the contact's runway end stored, each point is placed along and
@@ -1211,6 +1513,43 @@ private slots:
 		QCOMPARE(w.stallMarginHeightFt, 700.0);
 	}
 
+	// A stalled approach reports the first sample at or past the stall angle
+	// (the 400 ft one, at it: 14° vs 14°, at 52 kt and 30° of bank), not the
+	// deeper stall after it (the 100 ft one's 22° vs 13°), and its G-force and
+	// vertical wind stop there: the 100 ft sample's tumble (3.5 G, a
+	// 2100 ft/min "updraft") isn't the air it flew through.
+	void aStalledApproachStopsAtTheStallsStart() {
+		TripDataset dataset = touchdownAfter({ 1000, 700, 400, 100, 0 });
+		const double alphas[] = { 5, 9, 14, 22, 16 };
+		const double stallAlphas[] = { 15, 15, 14, 13, 16 };
+		const double gForces[] = { 1.1, 0.9, 1.2, 3.5, 1 };
+		const double verticalWinds[] = { -300, 200, -400, 2100, 0 };
+		const double airspeeds[] = { 70, 60, 52, 38, 30 };
+		const double banks[] = { 0, 5, 30, -110, 0 };
+		for (int i = 0; i < 5; ++i) {
+			dataset.points[i].rawNums[TRIP_NUM_incidence_alpha] = alphas[i];
+			dataset.points[i].rawNums[TRIP_NUM_stall_alpha] = stallAlphas[i];
+			dataset.points[i].rawNums[TRIP_NUM_g_force] = gForces[i];
+			dataset.points[i].rawNums[TRIP_NUM_ambient_wind_y] = verticalWinds[i];
+			dataset.points[i].rawNums[TRIP_NUM_airspeed_indicated] = airspeeds[i];
+			dataset.points[i].bankDegrees = banks[i];
+		}
+		const TripBoolBit ground = TripBoolBits::sim_on_ground;
+		dataset.points[4].boolGroups[ground.group] |= 1u << ground.bit;
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		const SegmentWeather& w = profile->segment;
+		QCOMPARE(w.stallMarginAlphaDeg, 14.0);
+		QCOMPARE(w.stallMarginStallAlphaDeg, 14.0);
+		QCOMPARE(w.stallMarginHeightFt, 400.0);
+		QCOMPARE(w.stallMarginAirspeedKt, 52.0);
+		QCOMPARE(w.stallMarginBankDeg, 30.0);
+		QCOMPARE(w.gForceMin, 0.9);
+		QCOMPARE(w.gForceMax, 1.2);
+		QCOMPARE(w.verticalWindMinFpm, -400.0);
+		QCOMPARE(w.verticalWindMaxFpm, 200.0);
+	}
+
 	// An approach never 1000 ft high starts at the previous contact (a
 	// touch-and-go's liftoff at -4 s): its 50 kt before that doesn't count.
 	void approachSegmentStartsAtThePreviousContact() {
@@ -1344,7 +1683,7 @@ private slots:
 		QCOMPARE(w.samples, 1);
 		for (double value : { w.windMinKt, w.headwindFromKt, w.maxTailwindKt, w.maxCrosswindKt, w.lowestInCloudFt,
 				 w.icingConditions, w.maxStructuralIce, w.maxPitotIce, w.engineAntiIceShare, w.gForceMin, w.gForceMax,
-				 w.verticalWindMinFpm, w.stallMarginAlphaDeg, w.stallMarginHeightFt })
+				 w.verticalWindMinFpm, w.stallMarginAlphaDeg, w.stallMarginHeightFt, w.stallMarginAirspeedKt, w.stallMarginBankDeg })
 			QVERIFY(std::isnan(value));
 		QVERIFY(!w.cloudKnown);
 	}

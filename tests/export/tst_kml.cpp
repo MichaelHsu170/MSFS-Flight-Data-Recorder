@@ -165,6 +165,17 @@ private slots:
 		QVERIFY(!exportToString(dataset).contains(QStringLiteral("<b>Touchdown rate:</b>")));
 	}
 
+	// A crashed touchdown's placemark is named "Crash", as its map popup is
+	// titled; any other is "Touchdown".
+	void aCrashedTouchdownsPlacemarkIsNamedCrash() {
+		TripDataset dataset = fullDataset();
+		QVERIFY(exportToString(dataset).contains(QStringLiteral("<Placemark><name>Touchdown</name><description>")));
+		dataset.touchdowns[0].crashed = true;
+		const QString kml = exportToString(dataset);
+		QVERIFY(kml.contains(QStringLiteral("<Placemark><name>Crash</name><description>")));
+		QVERIFY(!kml.contains(QStringLiteral("<Placemark><name>Touchdown</name>")));
+	}
+
 	// With the contact's sample the heading shows magnetic, then true in
 	// brackets, and the runway heading magnetic, then true (the true ones
 	// compare with the wind).

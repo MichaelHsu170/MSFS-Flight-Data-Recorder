@@ -146,6 +146,15 @@ private slots:
 		QCOMPARE(o.size(), 22);
 	}
 
+	// A crash is marked; a touchdown that wasn't one leaves the mark out.
+	void aCrashedTouchdownIsMarked() {
+		TouchdownPoint landed, crash;
+		crash.crashed = true;
+		const QJsonArray arr = argumentOf(mapSetTouchdownsJs({ landed, crash }), QStringLiteral("setTouchdowns")).array();
+		QVERIFY(!arr.at(0).toObject().contains("crashed"));
+		QCOMPARE(arr.at(1).toObject()["crashed"], QJsonValue(true));
+	}
+
 	// The actual vertical speed and a touchdown's rate are sent when known.
 	void contactsCarryTheActualVerticalSpeedAndTouchdownRateWhenKnown() {
 		TouchdownPoint td;
@@ -331,6 +340,8 @@ private slots:
 		w.stallMarginAlphaDeg = 9.5;
 		w.stallMarginStallAlphaDeg = 15;
 		w.stallMarginHeightFt = 60;
+		w.stallMarginAirspeedKt = 48;
+		w.stallMarginBankDeg = -12;
 		contactProfile.highestTerrainFt = 420;
 		contactProfile.powerName = QStringLiteral("N1");
 		contactProfile.powerUnit = QStringLiteral("%");
@@ -348,7 +359,8 @@ private slots:
 			{ "maxTailwindKt", 7 }, { "maxCrosswindKt", 8 }, { "cloudKnown", true }, { "lowestInCloudFt", 9 },
 			{ "icingConditions", 1 }, { "maxStructuralIce", 0.1 }, { "maxPitotIce", 0.2 }, { "engineAntiIceShare", 0.3 },
 			{ "gForceMin", 0.9 }, { "gForceMax", 1.1 }, { "verticalWindMinFpm", -400 }, { "verticalWindMaxFpm", 120 },
-			{ "stallMarginAlphaDeg", 9.5 }, { "stallMarginStallAlphaDeg", 15 }, { "stallMarginHeightFt", 60 } }));
+			{ "stallMarginAlphaDeg", 9.5 }, { "stallMarginStallAlphaDeg", 15 }, { "stallMarginHeightFt", 60 },
+			{ "stallMarginAirspeedKt", 48 }, { "stallMarginBankDeg", -12 } }));
 		QCOMPARE(profile["powerName"].toString(), QStringLiteral("N1"));
 		QCOMPARE(profile["powerUnit"].toString(), QStringLiteral("%"));
 		QCOMPARE(profile["highestTerrainFt"].toDouble(), 420.0);

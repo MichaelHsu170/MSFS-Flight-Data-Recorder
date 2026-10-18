@@ -63,6 +63,20 @@ public:
 	// Set manually under [ai] gemini_api_key in settings.ini.
 	QString geminiApiKey() const;
 
+	// The AI analysis model as the map popup's drop-down left it, under [ai]
+	// in settings.ini: model is gemma-4-31b-it, gemma-4-26b-a4b-it or other
+	// (the name in custom_model). Read verbatim: the page (map.html) owns the
+	// choices and treats an empty or unknown model as its default.
+	QString aiModel() const;
+	void setAiModel(const QString& model);
+	QString aiCustomModel() const;
+	void setAiCustomModel(const QString& name);
+	// Whether the AI analysis is a progress evaluation (with the trajectory)
+	// or a contact evaluation, as the popup's checkbox left it: [ai]
+	// progress_evaluation in settings.ini. Default: true.
+	bool aiProgressEvaluation() const;
+	void setAiProgressEvaluation(bool progress);
+
 	// Maximum milliseconds between telemetry samples written to trip_data.
 	// Read from [recording] sample_interval_ms in settings.ini.
 	// If unset, empty, or not a positive integer, defaults to 500.

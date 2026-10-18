@@ -123,6 +123,8 @@ QJsonObject segmentWeatherToJson(const SegmentWeather& w) {
 	setKnown(obj, "stallMarginAlphaDeg", w.stallMarginAlphaDeg);
 	setKnown(obj, "stallMarginStallAlphaDeg", w.stallMarginStallAlphaDeg);
 	setKnown(obj, "stallMarginHeightFt", w.stallMarginHeightFt);
+	setKnown(obj, "stallMarginAirspeedKt", w.stallMarginAirspeedKt);
+	setKnown(obj, "stallMarginBankDeg", w.stallMarginBankDeg);
 	return obj;
 }
 
@@ -216,6 +218,8 @@ QString mapSetTouchdownsJs(const std::vector<TouchdownPoint>& touchdowns) {
 		QJsonObject obj = runwayContactToJson(t);
 		obj["gForce"] = t.gForce;
 		setKnown(obj, "touchdownRate", t.touchdownRate);
+		if (t.crashed)
+			obj["crashed"] = true;
 		arr.append(obj);
 	}
 	return call("setTouchdowns", QJsonDocument(arr));

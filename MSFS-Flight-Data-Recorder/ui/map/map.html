@@ -19,6 +19,21 @@
   }
   .liftoff-icon { background: #86efac; border: 1.5px solid #16a34a; }
   .touchdown-icon { background: #fdba74; border: 1.5px solid #ea580c; }
+  .touchdown-icon.crash-icon { background: #ef4444; border-color: #991b1b; }
+  /* A crash: the airplane of the liftoff/touchdown emoji nose-down into
+     a runway drawn like theirs. */
+  .crash-plane {
+    position: absolute; left: 5px; top: 3px;
+    font-size: 10px; line-height: 10px; transform: rotate(115deg);
+  }
+  .crash-runway {
+    position: absolute; left: 3px; right: 3px; bottom: 4px; height: 2.5px;
+    background: #6b7280; border-radius: 1px;
+  }
+  .crash-runway::after {
+    content: ''; position: absolute; left: 1.5px; right: 1.5px; top: 1px; height: 0.6px;
+    background: repeating-linear-gradient(90deg, #e5e7eb 0 1.6px, transparent 1.6px 3px);
+  }
   .marker-index-badge {
     position: absolute; top: -6px; right: -6px;
     background: #fff; color: #111;
@@ -54,6 +69,7 @@
     font-size: 14px;
     line-height: 1;
     vertical-align: middle;
+    align-self: center;
     margin-left: 7px;
     color: #7c3aed;
   }
@@ -61,15 +77,18 @@
   .td-status { color: #7c3aed; font-style: italic; }
   .td-note { margin-top: 6px; font-size: 11px; line-height: 1.5; color: #92400e; }
 
+  /* As wide as it was when it read "Analyze Landing". */
   .td-analyze-btn {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    min-width: 130px;
     gap: 5px;
     background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
     color: #fff;
     border: none;
     border-radius: 7px;
-    padding: 6px 14px;
+    padding: 6px 8px;
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.3px;
@@ -100,7 +119,7 @@
     color: #6366f1;
     border: 1px solid #c7d2fe;
     border-radius: 7px;
-    padding: 5px 12px;
+    padding: 5px 8px;
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -108,6 +127,71 @@
     user-select: none;
   }
   .td-copy-btn:hover { background: #eef2ff; }
+  /* The checkbox over the drop-down, between the two buttons, each a row:
+     the buttons are as tall as both. */
+  .td-ai-choices {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    margin-left: 6px;
+  }
+  .td-model-select {
+    max-width: 130px;
+    font-size: 11px;
+    color: #1e293b;
+    border: 1px solid #c7d2fe;
+    border-radius: 7px;
+    padding: 4px 4px;
+    background: #fff;
+    outline: none;
+  }
+  .td-model-select:disabled { color: #888; border-color: #e5e7eb; }
+  .td-progress-option {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #1e293b;
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+  }
+  .td-progress-option input { margin: 0; cursor: pointer; }
+  /* The checkbox's tooltip, shown as soon as the mouse is over it: a native
+     title tooltip only shows after the browser's delay. */
+  .td-tip {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 1000;
+    width: 300px;
+    margin-top: 4px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: #1e293b;
+    color: #fff;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: normal;
+    pointer-events: none;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+  .td-progress-option:hover .td-tip { display: block; }
+  .td-custom-model { margin-top: 6px; font-size: 11px; line-height: 1.5; }
+  .td-custom-model input {
+    box-sizing: border-box;
+    width: 100%;
+    font-size: 11px;
+    padding: 4px 6px;
+    border: 1px solid #c7d2fe;
+    border-radius: 6px;
+    outline: none;
+  }
+  .td-hint { color: #64748b; margin-top: 3px; }
+  .td-model-problem { color: #a00; }
+  .td-model-problem:empty { display: none; }
   .td-analyze-label {
     font-size: 10px;
     font-weight: 700;
@@ -226,6 +310,33 @@ function roundHalfAwayFromZero(x) {
     return Math.sign(x) * Math.round(Math.abs(x));
 }
 
+// x with digits decimals (toFixed()), without the sign of one that rounds
+// to 0 ("0.0", not "-0.0").
+function fixedText(x, digits) {
+    var text = Number(x).toFixed(digits);
+    return Number(text) === 0 ? (0).toFixed(digits) : text;
+}
+
+// A recorded range as "low-high" (separator between), or the one value
+// when both read the same ("7", not "7-7").
+function rangeText(low, high, separator) {
+    return low === high ? low : low + separator + high;
+}
+
+// A sideways offset (ft, + right) as "12 ft right" / "3 ft left" ("0 ft"
+// alone).
+function sideOffsetText(ft) {
+    var rounded = Math.round(Math.abs(ft));
+    return rounded + ' ft' + (rounded === 0 ? '' : ft > 0 ? ' right' : ' left');
+}
+
+// A height relative to a reference (ft) with its sign ("+120 ft", "-30 ft",
+// "0 ft").
+function signedFeetText(ft) {
+    var rounded = roundHalfAwayFromZero(ft);
+    return (rounded > 0 ? '+' : '') + rounded + ' ft';
+}
+
 // Whether t's derived conditions (map_script.cpp) or profile (MapBridge),
 // absent for a value that wasn't recorded, have key.
 function hasValue(obj, key) {
@@ -306,9 +417,10 @@ function sunLightLabel(elevation) {
 // ── Gemini analysis helpers ──────────────────────────────────────────────────
 
 // The start of an analysis prompt, shared by liftoffs and touchdowns: the
-// instructions, the answer structure (its last two sections: segment, the
-// trajectory's, "Final segment", with its bullet segmentBullet, and
-// Environment, with environment), then dataTitle and the airport, runway and
+// instructions, the answer structure (for a progress evaluation, its last two
+// sections: segment, the trajectory's, "Final segment", with its bullet
+// segmentBullet, and Environment, with environment; a contact evaluation,
+// segment null, has neither), then dataTitle and the airport, runway and
 // airspeed. The caller adds its own lines and finishes with
 // finishAnalysisPrompt().
 function startAnalysisPrompt(intro, segment, segmentBullet, environment, dataTitle, t, aircraft) {
@@ -328,12 +440,14 @@ function startAnalysisPrompt(intro, segment, segmentBullet, environment, dataTit
     lines.push('Areas to improve:');
     lines.push('• [one brief point per bullet]');
     lines.push('');
-    lines.push(segment + ':');
-    lines.push('• [' + segmentBullet + ']');
-    lines.push('');
-    lines.push('Environment:');
-    lines.push('• [' + environment + ']');
-    lines.push('');
+    if (segment) {
+        lines.push(segment + ':');
+        lines.push('• [' + segmentBullet + ']');
+        lines.push('');
+        lines.push('Environment:');
+        lines.push('• [' + environment + ']');
+        lines.push('');
+    }
     lines.push('---');
     lines.push(dataTitle);
     if (aircraft) lines.push('  Aircraft: ' + aircraft);
@@ -375,7 +489,7 @@ function conditionsPromptLines(t) {
     add('Position', position);
     if (!c) return lines;
     if (hasValue(c, 'fieldElevationFt')) add('Ground elevation at the contact', roundHalfAwayFromZero(c.fieldElevationFt) + ' ft');
-    if (hasValue(c, 'temperatureC')) add('Outside air temperature', c.temperatureC.toFixed(1) + ' °C');
+    if (hasValue(c, 'temperatureC')) add('Outside air temperature', fixedText(c.temperatureC, 1) + ' °C');
     var pressure = [];
     if (hasValue(c, 'altimeterHg')) pressure.push('altimeter setting ' + c.altimeterHg.toFixed(2) + ' inHg' + (hasValue(c, 'altimeterMb') ? ' (' + roundHalfAwayFromZero(c.altimeterMb) + ' mb)' : ''));
     if (hasValue(c, 'stationPressureHg')) pressure.push('station pressure ' + c.stationPressureHg.toFixed(2) + ' inHg');
@@ -390,9 +504,12 @@ function conditionsPromptLines(t) {
     if (c.precipitation)
         add('Precipitation', c.precipitation + (c.precipitation !== 'none' && hasValue(c, 'precipitationRate') ? ', rate ' + c.precipitationRate.toFixed(1) + ' mm of water' : ''));
     if (hasValue(c, 'windMinKt')) {
-        var wind = roundHalfAwayFromZero(c.windMinKt) + '-' + roundHalfAwayFromZero(c.windMaxKt) + ' kt';
-        if (hasValue(c, 'windDirectionFrom'))
-            wind += ', direction ' + roundHalfAwayFromZero(c.windDirectionFrom) + '° to ' + roundHalfAwayFromZero(c.windDirectionTo) + '° true (clockwise)';
+        var wind = rangeText(roundHalfAwayFromZero(c.windMinKt), roundHalfAwayFromZero(c.windMaxKt), '-') + ' kt';
+        // Not for a wind calm throughout, whose direction is noise.
+        if (hasValue(c, 'windDirectionFrom') && roundHalfAwayFromZero(c.windMaxKt) !== 0) {
+            var from = roundHalfAwayFromZero(c.windDirectionFrom), to = roundHalfAwayFromZero(c.windDirectionTo);
+            wind += ', direction ' + (from === to ? from + '° true' : from + '° to ' + to + '° true (clockwise)');
+        }
         add('Wind over the 30 s before the contact', wind);
     }
     if (c.surfaceType || c.surfaceCondition)
@@ -405,7 +522,7 @@ function conditionsPromptLines(t) {
 // recorded; its power values are profile.powerName's ("N1"), in
 // profile.powerUnit ("%").
 function profilePointText(p, profile) {
-    var parts = [p.seconds.toFixed(1) + ' s'];
+    var parts = [fixedText(p.seconds, 1) + ' s'];
     function add(key, text) { if (hasValue(p, key)) parts.push(text(p[key])); }
     function engines(key, name, unit) {
         if (p[key])
@@ -414,16 +531,17 @@ function profilePointText(p, profile) {
     if (typeof p.onGround === 'boolean') parts.push(p.onGround ? 'on ground' : 'airborne');
     add('heightFt', function(v) { return 'height ' + roundHalfAwayFromZero(v) + ' ft'; });
     add('distanceNm', function(v) { return v.toFixed(2) + ' nm'; });
-    add('terrainFt', function(v) { return 'terrain ' + (v > 0 ? '+' : '') + roundHalfAwayFromZero(v) + ' ft'; });
+    add('terrainFt', function(v) { return 'terrain ' + signedFeetText(v); });
     add('airspeed', function(v) { return 'IAS ' + roundHalfAwayFromZero(v) + ' kt'; });
     add('verticalSpeed', function(v) { return 'V/S ' + roundHalfAwayFromZero(v) + ' ft/min'; });
-    add('pitch', function(v) { return 'pitch ' + v.toFixed(1) + '°'; });
-    add('bank', function(v) { return 'bank ' + v.toFixed(1) + '°'; });
-    add('headingTrue', function(v) { return 'heading ' + roundHalfAwayFromZero(v) + '° T'; });
-    add('trackTrue', function(v) { return 'track ' + roundHalfAwayFromZero(v) + '° T'; });
+    add('pitch', function(v) { return 'pitch ' + fixedText(v, 1) + '°'; });
+    add('bank', function(v) { return 'bank ' + fixedText(v, 1) + '°'; });
+    // True, as the trajectory header says once (profilePromptLines()).
+    add('headingTrue', function(v) { return 'heading ' + roundHalfAwayFromZero(v) + '°'; });
+    add('trackTrue', function(v) { return 'track ' + roundHalfAwayFromZero(v) + '°'; });
     add('thresholdFt', function(v) { return 'threshold ' + roundHalfAwayFromZero(v) + ' ft'; });
-    add('centerlineFt', function(v) { return 'centerline ' + Math.round(Math.abs(v)) + ' ft ' + (v >= 0 ? 'right' : 'left'); });
-    add('pathAngle', function(v) { return 'path angle ' + v.toFixed(1) + '° from here'; });
+    add('centerlineFt', function(v) { return 'centerline ' + sideOffsetText(v); });
+    add('pathAngle', function(v) { return 'path angle ' + fixedText(v, 1) + '° from here'; });
     engines('throttle', 'throttle', '%');
     engines('power', profile.powerName, profile.powerUnit);
     // Only the height gates ("500 ft") carry the weather: a distance gate
@@ -451,12 +569,14 @@ function crosswindText(kt) {
 function gateWeatherParts(p) {
     var parts = [];
     if (hasValue(p, 'windSpeedKt')) {
-        // The direction comes with the speed: both recorded since the first version.
-        var wind = 'wind ' + roundHalfAwayFromZero(p.windDirection) + '° T ' + roundHalfAwayFromZero(p.windSpeedKt) + ' kt';
-        if (hasValue(p, 'headwindKt')) wind += ' (' + headwindText(p.headwindKt) + ', crosswind ' + crosswindText(p.crosswindKt) + ')';
+        // The direction comes with the speed: both recorded since the first
+        // version. A calm wind has neither a direction nor components.
+        var speed = roundHalfAwayFromZero(p.windSpeedKt);
+        var wind = speed === 0 ? 'wind calm' : 'wind ' + roundHalfAwayFromZero(p.windDirection) + '° T ' + speed + ' kt';
+        if (speed !== 0 && hasValue(p, 'headwindKt')) wind += ' (' + headwindText(p.headwindKt) + ', crosswind ' + crosswindText(p.crosswindKt) + ')';
         parts.push(wind);
     }
-    if (hasValue(p, 'temperatureC')) parts.push('OAT ' + p.temperatureC.toFixed(1) + ' °C');
+    if (hasValue(p, 'temperatureC')) parts.push('OAT ' + fixedText(p.temperatureC, 1) + ' °C');
     if (hasValue(p, 'inCloud')) parts.push(p.inCloud ? 'in cloud' : 'not in cloud');
     if (p.precipitation) parts.push('precipitation ' + p.precipitation);
     if (hasValue(p, 'structuralIce')) parts.push('structural ice ' + roundHalfAwayFromZero(p.structuralIce * 100) + '%');
@@ -465,13 +585,21 @@ function gateWeatherParts(p) {
 
 // The segment's weather and ride (trip_dataset.h's SegmentWeather) under
 // title ("Approach weather and ride (...)"), one line per value recorded;
-// none without the segment. A headwind change of 15 kt or more is marked as
-// wind shear.
+// none without the segment. Marked for the model, so it can't pass over
+// them: a headwind change of 15 kt or more as wind shear, a vertical wind
+// beyond STRONG_VERTICAL_WIND_FPM either way as strong, an airborne G-force
+// 0.5 G or more from 1 G as moderate turbulence and 1.0 G or more as severe
+// (the turbulence scale's load-factor changes), and an angle of attack at or
+// past the stall angle as a stall. The vertical wind also carries
+// VERTICAL_WIND_CAVEAT: the simulator's value can swing while the aircraft
+// pitches or rolls fast, so the model doesn't take such a swing for the air.
+var STRONG_VERTICAL_WIND_FPM = 1000;
+var VERTICAL_WIND_CAVEAT = "; a swing while the aircraft pitches or rolls fast may be the simulator's reading, not the air";
 function segmentPromptLines(w, title) {
     if (!w) return [];
     var lines = [];
     function add(label, text) { lines.push('    ' + label + ': ' + text); }
-    if (hasValue(w, 'windMinKt')) add('Wind speed', roundHalfAwayFromZero(w.windMinKt) + '-' + roundHalfAwayFromZero(w.windMaxKt) + ' kt');
+    if (hasValue(w, 'windMinKt')) add('Wind speed', rangeText(roundHalfAwayFromZero(w.windMinKt), roundHalfAwayFromZero(w.windMaxKt), '-') + ' kt');
     if (hasValue(w, 'headwindFromKt')) {
         var change = w.headwindToKt - w.headwindFromKt;
         var changeKt = Math.round(Math.abs(change));
@@ -484,12 +612,21 @@ function segmentPromptLines(w, title) {
     if (hasValue(w, 'icingConditions')) add('Icing conditions (in cloud or precipitation at -20 to +10 °C)', w.icingConditions ? 'yes' : 'no');
     if (hasValue(w, 'maxStructuralIce')) add('Most structural ice', roundHalfAwayFromZero(w.maxStructuralIce * 100) + '%');
     if (hasValue(w, 'maxPitotIce')) add('Most pitot ice', roundHalfAwayFromZero(w.maxPitotIce * 100) + '%');
-    if (hasValue(w, 'engineAntiIceShare')) add('Engine anti-ice', 'on for ' + roundHalfAwayFromZero(w.engineAntiIceShare * 100) + '% of the samples');
-    if (hasValue(w, 'gForceMin'))
-        add('G-force while airborne', w.gForceMin.toFixed(2) + '-' + w.gForceMax.toFixed(2) + ' G (its spread shows turbulence; a bump between samples is missed)');
-    if (hasValue(w, 'verticalWindMinFpm')) add('Vertical wind (+ up)', roundHalfAwayFromZero(w.verticalWindMinFpm) + ' to ' + roundHalfAwayFromZero(w.verticalWindMaxFpm) + ' ft/min');
+    if (hasValue(w, 'engineAntiIceShare')) add('Engine anti-ice (carburetor heat on a piston engine)','on for ' + roundHalfAwayFromZero(w.engineAntiIceShare * 100) + '% of the samples');
+    if (hasValue(w, 'gForceMin')) {
+        var gFromOne = Math.max(w.gForceMax - 1, 1 - w.gForceMin);
+        add('G-force while airborne', rangeText(fixedText(w.gForceMin, 2), fixedText(w.gForceMax, 2), '-') + ' G (its spread shows turbulence; a bump between samples is missed'
+            + (gFromOne >= 1 ? '; severe turbulence or hard maneuvering' : gFromOne >= 0.5 ? '; moderate turbulence or maneuvering' : '') + ')');
+    }
+    if (hasValue(w, 'verticalWindMinFpm'))
+        add('Vertical wind (+ up)', rangeText(roundHalfAwayFromZero(w.verticalWindMinFpm), roundHalfAwayFromZero(w.verticalWindMaxFpm), ' to ') + ' ft/min'
+            + (Math.max(-w.verticalWindMinFpm, w.verticalWindMaxFpm) > STRONG_VERTICAL_WIND_FPM ? ' (strong)' : '') + VERTICAL_WIND_CAVEAT);
     if (hasValue(w, 'stallMarginAlphaDeg'))
-        add('Closest to the stall while airborne', 'angle of attack ' + w.stallMarginAlphaDeg.toFixed(1) + '° vs stall ' + w.stallMarginStallAlphaDeg.toFixed(1) + '° at height ' + roundHalfAwayFromZero(w.stallMarginHeightFt) + ' ft');
+        add('Closest to the stall while airborne', 'angle of attack ' + fixedText(w.stallMarginAlphaDeg, 1) + '° vs stall ' + fixedText(w.stallMarginStallAlphaDeg, 1) + '° at height ' + roundHalfAwayFromZero(w.stallMarginHeightFt) + ' ft'
+            + (hasValue(w, 'stallMarginAirspeedKt') ? ', IAS ' + roundHalfAwayFromZero(w.stallMarginAirspeedKt) + ' kt' : '')
+            + (hasValue(w, 'stallMarginBankDeg') ? ', bank ' + fixedText(w.stallMarginBankDeg, 1) + '°' : '')
+            + (w.stallMarginAlphaDeg >= w.stallMarginStallAlphaDeg
+                ? ' (stalled; where the stall began, and the G-force and vertical wind above stop there, as the aircraft may then have been out of control)' : ''));
     return lines.length ? ['  ' + title + ':'].concat(lines) : [];
 }
 
@@ -520,6 +657,9 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
     var runwayWind = profile.gates.some(function(p) { return / ft$/.test(p.gate) && hasValue(p, 'headwindKt'); })
         || hasValue(profile.segment, 'headwindFromKt') || hasValue(profile.segment, 'maxCrosswindKt');
     var lines = [title + ' (seconds from the ' + pointName + (any('onGround') ? '; on ground/airborne = as the simulator reports it' : '') + '; height = altitude above the ' + pointName + ', not radio height; distance = to the ' + pointName + '; terrain = ground below relative to the ' + pointName
+        // Said once here, not "° T" on every point: the worst-case prompt
+        // has no room for 67 of them (58 series points and 9 gates).
+        + (any('headingTrue') || any('trackTrue') ? '; heading/track = true' : '')
         + (any('verticalSpeed') ? (profile.indicatedVerticalSpeed ? '; V/S = indicated vertical speed, which lags the actual rate' : '; V/S = actual vertical speed') : '')
         + (runwayWind ? '; wind components = relative to the runway, not the aircraft\'s heading' : '')
         + (any('thresholdFt') ? '; threshold = along the runway from the ' + thresholdName + ', negative = before it; centerline = from the extended runway centerline' : '')
@@ -534,8 +674,11 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
         profile.series.forEach(function(p) { lines.push('    ' + profilePointText(p, profile)); });
     }
     lines = lines.concat(segmentPromptLines(profile.segment, segmentTitle));
+    // Highest at or below the point (rounded) is the point itself, so its
+    // distance says nothing.
     if (hasValue(profile, 'highestTerrainFt'))
-        lines.push('  Highest terrain within 5 nm ' + terrainSpan + ': ' + (profile.highestTerrainFt > 0 ? '+' : '') + roundHalfAwayFromZero(profile.highestTerrainFt) + ' ft, ' + profile.highestTerrainNm.toFixed(2) + ' nm from the ' + pointName + (profile.highestTerrainFt > 500 ? ' (more than 500 ft above it)' : ''));
+        lines.push('  Highest terrain within 5 nm ' + terrainSpan + ': ' + (roundHalfAwayFromZero(profile.highestTerrainFt) <= 0 ? 'none above the ' + pointName
+            : signedFeetText(profile.highestTerrainFt) + ', ' + profile.highestTerrainNm.toFixed(2) + ' nm from the ' + pointName + (profile.highestTerrainFt > 500 ? ' (more than 500 ft above it)' : '')));
     return lines;
 }
 
@@ -544,6 +687,13 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
 // admitted when missing.
 function airportKnowledgeLine(subject) {
     return 'Airport: from your general knowledge of this airport (by ICAO code, name and position), describe in the Environment section any terrain, approach or departure procedure, or hazard that affected this ' + subject + ', labeled as general knowledge rather than recorded data. Before using a characteristic, check that it applies to this flight: it must belong to the runway end used, and the recorded gates (heading and track) must show it was flown; when the recording contradicts a published procedure, say so instead of assuming it was flown. If you do not know the airport, say so rather than guess.';
+}
+
+// What the model is told about the recorded weather: every significant
+// condition cited with its value, and what it caused kept apart from the
+// pilot's technique.
+function weatherRuleLine(subject) {
+    return 'Weather: in the Environment section, cite each significant recorded condition, including those marked above, with its value and its effect on this ' + subject + '; elsewhere keep what the conditions caused apart from technique, neither faulting the pilot for it nor excusing technique by it.';
 }
 
 // The used runway end's dimensions and the runway left ahead of the contact,
@@ -556,8 +706,10 @@ function runwayPromptLines(t, touchdown) {
     if (hasValue(t, 'runwayWidthFt')) parts.push(roundHalfAwayFromZero(t.runwayWidthFt) + ' ft wide');
     if (hasValue(t, 'thresholdOffsetFt'))
         parts.push(t.thresholdOffsetFt > 0 ? 'threshold displaced ' + roundHalfAwayFromZero(t.thresholdOffsetFt) + ' ft at this end' : 'no displaced threshold at this end');
-    if (hasValue(t, 'runwaySlope'))
-        parts.push('slope ' + Math.abs(t.runwaySlope).toFixed(2) + '° ' + (t.runwaySlope > 0 ? 'uphill' : t.runwaySlope < 0 ? 'downhill' : 'level') + ' in the direction of travel');
+    if (hasValue(t, 'runwaySlope')) {
+        var slope = fixedText(Math.abs(t.runwaySlope), 2);
+        parts.push(Number(slope) === 0 ? 'level' : 'slope ' + slope + '° ' + (t.runwaySlope > 0 ? 'uphill' : 'downhill') + ' in the direction of travel');
+    }
     var lines = ['  Runway: ' + parts.join(', ')];
     var start = touchdown ? (hasValue(t, 'thresholdOffsetFt') ? t.thresholdOffsetFt : 0) : 0;
     var remaining = t.runwayLengthFt - start - t.distanceLength;
@@ -565,14 +717,53 @@ function runwayPromptLines(t, touchdown) {
     return lines;
 }
 
+// How to compare the headings, given with a runway heading to compare
+// with: the magnetic and true values differ by the magnetic variation,
+// which the model must not read as a misalignment. Without the contact's
+// true heading (no sample) only the aircraft's magnetic one is there, so
+// it's told not to judge the alignment from it at all.
+function headingRulePromptLine(t) {
+    return 'Headings: a difference between a magnetic and a true heading is the magnetic variation, not a misalignment; '
+        + (hasValue(t.conditions, 'headingTrue')
+            ? "judge the alignment and crab only from the aircraft's true heading and true ground track against the runway's true heading."
+            : "no true aircraft heading was recorded, so don't judge the alignment from the aircraft's heading.");
+}
+
+// The "Consider:" items that need the runway's data: the crosswind (its true
+// heading, which a contact recorded before it was stored lacks), and with the
+// trajectory (not contactOnly) the runway remaining (its length) and slope.
+// placement is what the runway position is judged as.
+function runwayConsiderItems(t, contactOnly, placement) {
+    return {
+        crosswind: t.runwayHeading >= 0 ? ['crosswind component (calculate from the true wind vs the true runway heading)'] : [],
+        placement: placement + (!contactOnly && hasValue(t, 'runwayLengthFt') ? ' and the runway remaining' : ''),
+        slope: !contactOnly && hasValue(t, 'runwaySlope') ? ['runway slope'] : []
+    };
+}
+
+// The closing "Consider:" line listing items, plus the aircraft's own
+// handling when its type is known (aircraft), or null when there's nothing
+// to list.
+function considerPromptLine(items, aircraft) {
+    if (aircraft) items = items.concat(['aircraft-type-specific handling']);
+    return items.length ? 'Consider: ' + items.join(', ') + '.' : null;
+}
+
 // Adds heading, wind, the runway position (distanceLabel: ... ft (N% lengthOf))
-// and dimensions (runwayPromptLines(), touchdown for a landing), the
+// and dimensions (runwayPromptLines(), touchdown for a landing), or without a
+// matched runway a line saying there are no wind components, the
 // Conditions and trajectory blocks (profileLines), the closing
-// "Consider:" line and the airport-knowledge instruction for subject
-// ("landing"), and returns the prompt text.
+// "Consider:" line (consider, left out when null), the heading rule
+// (headingRulePromptLine(), with a runway heading) and the airport-knowledge
+// and weather instructions for subject ("landing"), and returns the prompt
+// text. A contact evaluation (profileLines null) has no dimensions,
+// Conditions, trajectory, airport or weather instruction: the answer has no
+// Environment section for them.
 function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, consider, subject) {
+    var progress = profileLines !== null;
     lines.push(headingPromptLine(t));
-    lines.push('  Wind: ' + t.windDirection + '° true at ' + t.windVelocity + ' kt');
+    // A calm wind's direction is noise, so it's left out.
+    lines.push('  Wind: ' + (t.windVelocity === 0 ? 'calm (0 kt)' : t.windDirection + '° true at ' + t.windVelocity + ' kt'));
     // Gated on t.runway (a runway was matched), not "distanceLength >= 0":
     // a NULL distance_length column (no runway matched, never written) reads
     // back as 0 via sqlite3_column_double, which would pass ">= 0" and show
@@ -581,27 +772,38 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, c
     // negative distance, which is real data and so can't mark "unknown" either.
     if (t.runway) {
         lines.push('  ' + distanceLabel + ': ' + roundHalfAwayFromZero(t.distanceLength) + ' ft (' + roundHalfAwayFromZero(t.distanceLengthPercent * 100) + '% of ' + lengthOf + ') [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
-        var side = t.distanceWidth >= 0 ? 'right' : 'left';
-        lines.push('  Centerline offset: ' + Math.round(Math.abs(t.distanceWidth)) + ' ft ' + side + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
-        lines = lines.concat(runwayPromptLines(t, subject === 'landing'));
+        lines.push('  Centerline offset: ' + sideOffsetText(t.distanceWidth) + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
+        if (progress) lines = lines.concat(runwayPromptLines(t, subject === 'landing'));
+    } else {
+        lines.push('  Runway: none matched (not on a known runway), so there are no headwind or crosswind components; judge the wind against the aircraft\'s true ground track instead');
     }
-    lines.push('');
-    lines.push('Conditions:');
-    lines = lines.concat(conditionsPromptLines(t));
-    if (profileLines.length) {
+    if (progress) {
+        lines.push('');
+        lines.push('Conditions:');
+        lines = lines.concat(conditionsPromptLines(t));
+    }
+    if (progress && profileLines.length) {
         lines.push('');
         lines = lines.concat(profileLines);
     }
-    lines.push('');
-    lines.push(consider);
-    lines.push(airportKnowledgeLine(subject));
+    if (consider) {
+        lines.push('');
+        lines.push(consider);
+    }
+    if (t.runway && t.runwayHeading >= 0) lines.push(headingRulePromptLine(t));
+    if (progress) {
+        lines.push(airportKnowledgeLine(subject));
+        lines.push(weatherRuleLine(subject));
+    }
     return lines.join('\n');
 }
 
-function buildLiftoffPrompt(t) {
+// The prompt of a liftoff's progress evaluation (with its climb-out,
+// t.profile), or with contactOnly its contact evaluation (the liftoff alone).
+function buildLiftoffPrompt(t, contactOnly) {
     var aircraft = window._aircraftTitle || '';
     var lines = startAnalysisPrompt('You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.',
-        'Rotation and climb-out', 'the rotation and initial climb: pitch, speed, bank and track through the gates; judge the crab after the liftoff against the crosswind, the rotation and climb speed against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall',
+        contactOnly ? null : 'Rotation and climb-out', 'the rotation and initial climb: pitch, speed, bank and track through the gates; judge the crab after the liftoff against the crosswind, the rotation and climb speed against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall',
         'how the conditions, airport, runway and terrain affected this liftoff',
         'Liftoff data:', t, aircraft);
     // Deliberately no vertical-speed line here, unlike buildTouchdownPrompt()
@@ -615,92 +817,103 @@ function buildLiftoffPrompt(t) {
     // number the model would still comment on. Bank is kept: a normal takeoff
     // holds it near zero throughout, so a nonzero reading here is itself a
     // real signal (dropped wing, crosswind technique), not a mid-ramp snapshot.
-    lines.push('  Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
+    lines.push('  Bank: ' + fixedText(t.bankDegrees, 1) + '°');
+    var runway = runwayConsiderItems(t, contactOnly, 'use of available runway length');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold at liftoff', 'runway',
-        profilePromptLines(t, 'Takeoff trajectory', 'Rotation and climb-out', 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff', 'runway start',
+        contactOnly ? null : profilePromptLines(t, 'Takeoff trajectory', 'Rotation and climb-out', 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff', 'runway start',
             'Climb-out weather and ride (from the liftoff up to the first crossing of 1000 ft above the liftoff point, or to the next contact or 5 nm from the liftoff point if sooner)'),
-        'Consider: crosswind component (calculate from the true wind vs the true runway heading), centerline tracking during the takeoff roll, use of available runway length and the runway remaining, runway slope, rotation and climb-out attitude and speed, density altitude, runway surface condition, gusts, wind shear, turbulence, cloud and icing, light and visibility, terrain after the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
+        // Without a matched runway, nothing that needs one.
+        considerPromptLine((t.runway ? runway.crosswind.concat(['centerline tracking during the takeoff roll', runway.placement], runway.slope) : [])
+            .concat(contactOnly ? [] : ['rotation and climb-out attitude and speed', 'density altitude',
+                (t.runway ? 'runway ' : '') + 'surface condition', 'gusts', 'wind shear', 'turbulence', 'cloud and icing',
+                'light and visibility', 'terrain after the ' + (t.runway ? 'runway' : 'liftoff point')]), aircraft),
         'liftoff');
 }
 
-function buildTouchdownPrompt(t) {
+// The prompt of a touchdown's progress evaluation (with its approach,
+// t.profile), or with contactOnly its contact evaluation (the touchdown alone).
+function buildTouchdownPrompt(t, contactOnly) {
     var aircraft = window._aircraftTitle || '';
     var lines = startAnalysisPrompt('You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 landing.',
-        'Final segment', 'stability at the gates (speed, sink rate, path angle, alignment), and technique through the flare, decrab, touchdown and rollout, including any bounce; judge the crab and decrab against the crosswind, the speed additive against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall',
+        contactOnly ? null : 'Final segment', 'stability at the gates (speed, sink rate, path angle, alignment), and technique through the flare, decrab, touchdown and rollout, including any bounce; judge the crab and decrab against the crosswind, the speed additive against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall',
         'how the conditions, airport, runway and terrain affected this landing',
         'Landing data:', t, aircraft);
-    lines.push('  Vertical speed: ' + contactVerticalSpeedLabel(t) + (hasValue(t, 'actualVerticalSpeed') ? '' : ', which lags the actual rate'));
+    // A crash's sample after the contact has stopped (0 ft/min), so its
+    // vertical speed would contradict the touchdown rate.
+    if (!t.crashed)
+        lines.push('  Vertical speed: ' + contactVerticalSpeedLabel(t) + (hasValue(t, 'actualVerticalSpeed') ? '' : ', which lags the actual rate'));
     if (touchdownRateLabel(t))
         lines.push('  Touchdown rate: ' + touchdownRateLabel(t) + ' (the sink rate perpendicular to the runway surface as the wheels touched, as the simulator measured it)');
-    lines.push('  G-force: ' + Number(t.gForce).toFixed(2) + ' G');
-    lines.push('  Pitch: ' + Number(t.pitchDegrees).toFixed(1) + '°   Bank: ' + Number(t.bankDegrees).toFixed(1) + '°');
+    lines.push('  G-force: ' + fixedText(t.gForce, 2) + ' G');
+    if (t.crashed) lines.push('  Outcome: the aircraft crashed here; the simulator then reset the flight, so nothing after the crash was flown');
+    lines.push('  Pitch: ' + fixedText(t.pitchDegrees, 1) + '°   Bank: ' + fixedText(t.bankDegrees, 1) + '°');
+    var runway = runwayConsiderItems(t, contactOnly, 'touchdown zone placement');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold', 'landing distance available',
-        profilePromptLines(t, 'Final trajectory', 'Final segment', 'touchdown point', 'from 15 s before to 10 s after the touchdown', 'before the touchdown', 'marked threshold',
+        contactOnly ? null : profilePromptLines(t, 'Final trajectory', 'Final segment', 'touchdown point', 'from 15 s before to 10 s after the touchdown', 'before the touchdown', 'marked threshold',
             'Approach weather and ride (from the last crossing of 1000 ft above the touchdown point down to it, or from 5 nm out, the previous contact or the start of the recording if closer)'),
-        'Consider: touchdown rate, vertical speed & G-force comfort, crosswind component (calculate from the true wind vs the true runway heading), decrab at touchdown (crab angle), centerline tracking, touchdown zone placement and the runway remaining, runway slope, stabilization at the gates, flare technique, density altitude, runway surface condition, gusts, wind shear, turbulence, cloud and icing, light and visibility, terrain before the runway' + (aircraft ? ', aircraft-type-specific handling' : '') + '.',
+        // Without a matched runway, nothing that needs one.
+        // A crash has no comfort to judge.
+        considerPromptLine(['touchdown rate'].concat(t.crashed ? [] : ['vertical speed & G-force comfort'])
+            .concat(t.runway ? runway.crosswind : [],
+                ['decrab at touchdown (crab angle)'],
+                t.runway ? ['centerline tracking', runway.placement].concat(runway.slope) : [],
+                contactOnly ? [] : ['stabilization at the gates', 'flare technique', 'density altitude',
+                    (t.runway ? 'runway ' : '') + 'surface condition', 'gusts', 'wind shear', 'turbulence', 'cloud and icing',
+                    'light and visibility', 'terrain before the ' + (t.runway ? 'runway' : 'touchdown point')]), aircraft),
         'landing');
 }
 
-// Gemini's limit on the prompt tokens sent per minute with one API key,
-// kept by every analysis on the page together (runAiAnalysis()). Only the
-// prompts count: the answers' tokens don't.
-var TPM_LIMIT = 16000;
 // How long (ms) an attempt may go without receiving any of its answer (since
 // it was sent, or since the last piece) before it's abandoned as stalled and
 // retried:
 // the model can think for minutes before it answers, but it streams its
 // thinking as it goes, so a long silence means a stuck request.
 var AI_IDLE_TIMEOUT_MS = 180000;
-// The prompts sent in the last minute, oldest first: { time (ms), tokens }.
-var _tpmLedger = [];
 
-// text's prompt tokens before the service has counted them, rounded up to
-// be safe: Gemma's tokenizer gives each digit a token of its own, and the
-// prompts, mostly numbers, measured 2.2-3.1 characters per token.
-function estimatePromptTokens(text) { return Math.ceil(text.length / 2); }
-
-// How long (ms) after now until tokens more fit within TPM_LIMIT with the
-// prompts in ledger: 0 when they fit now. Each prompt frees its tokens 60 s
-// after it was sent, oldest first. A prompt over the limit on its own waits
-// for the minute to be empty (none is: worstCasePromptFitsTheTokenLimit()).
-function tpmWaitMs(ledger, now, tokens) {
-    var recent = ledger.filter(function(e) { return now - e.time < 60000; });
-    var used = recent.reduce(function(sum, e) { return sum + e.tokens; }, 0);
-    var wait = 0;
-    for (var i = 0; i < recent.length && used + tokens > TPM_LIMIT; i++) {
-        used -= recent[i].tokens;
-        wait = recent[i].time + 60000 - now;
-    }
-    return wait;
+// The error object in a failed request's body (the streaming endpoint wraps
+// it in an array, as it does its chunks), or {} if it has none.
+function apiErrorOf(body) {
+    try {
+        var json = JSON.parse(body);
+        if (Array.isArray(json)) json = json[0] || {};
+        return (json && json.error) || {};
+    } catch (e) { return {}; }
 }
 
-// Waits until tokens fit within TPM_LIMIT, calling onWait(seconds left)
-// each second meanwhile, then records them as sent now. Returns their
-// ledger entry, for the service's own count to replace the estimate.
-async function reserveTokens(tokens, onWait) {
-    for (;;) {
-        var now = Date.now();
-        var wait = tpmWaitMs(_tpmLedger, now, tokens);
-        if (!wait) break;
-        onWait(Math.ceil(wait / 1000));
-        await new Promise(function(resolve) { setTimeout(resolve, Math.min(wait, 1000)); });
+// The longest rate-limit wait a retry waits out: the per-minute limits'.
+// A longer one (a per-day quota used up, say) is the final error instead.
+var AI_RATE_LIMIT_MAX_WAIT_MS = 60000;
+
+// How long (ms) to wait before retrying a request the service rate-limited
+// (HTTP 429), from its error body: the delay its RetryInfo detail asks for
+// ("34s", say), rounded up to a whole second, else a minute, when the
+// per-minute limits have reset.
+function rateLimitDelayMs(body) {
+    var details = apiErrorOf(body).details;
+    for (var i = 0; Array.isArray(details) && i < details.length; i++) {
+        var delay = /^(\d+(?:\.\d+)?)s$/.exec((details[i] && details[i].retryDelay) || '');
+        if (delay) return Math.ceil(Number(delay[1])) * 1000;
     }
-    _tpmLedger = _tpmLedger.filter(function(e) { return now - e.time < 60000; });
-    var entry = { time: now, tokens: tokens };
-    _tpmLedger.push(entry);
-    return entry;
+    return 60000;
+}
+
+// Waits ms, calling onWait(seconds left, rounded up) each second meanwhile.
+async function waitOut(ms, onWait) {
+    for (var end = Date.now() + ms, left; (left = end - Date.now()) > 0;) {
+        onWait(Math.ceil(left / 1000));
+        await new Promise(function(resolve) { setTimeout(resolve, Math.min(left, 1000)); });
+    }
 }
 
 // Extract complete top-level {...} JSON objects from buf.
 // Calls onChunk(text, isThought) for every text part found,
-// onFinish(reason) for an object carrying the candidate's finishReason,
-// onUsage(tokens) for one carrying the prompt's token count, and
+// onFinish(reason) for an object carrying the candidate's finishReason, and
 // onError(error) for an error the service sends in place of a chunk.
 // Iterates all parts in each response object (thinking models can emit
 // thought:true parts alongside regular parts in the same chunk). Braces
 // inside JSON strings (the model's own text) don't count.
 // Returns the unconsumed remainder of buf.
-function processStreamBuffer(buf, onChunk, onFinish, onUsage, onError) {
+function processStreamBuffer(buf, onChunk, onFinish, onError) {
     var depth = 0, start = -1, lastEnd = 0;
     var inString = false, escaped = false;
     for (var i = 0; i < buf.length; i++) {
@@ -727,7 +940,6 @@ function processStreamBuffer(buf, onChunk, onFinish, onUsage, onError) {
                         }
                     }
                     if (candidate && candidate.finishReason) onFinish(candidate.finishReason);
-                    if (obj && obj.usageMetadata && obj.usageMetadata.promptTokenCount) onUsage(obj.usageMetadata.promptTokenCount);
                     if (obj && obj.error) onError(obj.error);
                 } catch (e) { /* incomplete or non-content object */ }
                 lastEnd = i + 1;
@@ -773,6 +985,9 @@ function showSaveResult(el, ok) {
 // Each Analyze handler's final trajectory, by the handler's name: for its
 // status line and its popup's can't-be-built notice.
 var TRAJECTORY_NAMES = { analyzeLiftoff: 'climb-out', analyzeTouchdown: 'approach' };
+// Each Analyze handler's contact, by the handler's name: for the tooltip of
+// its popup's evaluation checkbox.
+var CONTACT_NAMES = { analyzeLiftoff: 'liftoff', analyzeTouchdown: 'touchdown' };
 // Each Analyze handler's Copy Prompt handler, by the handler's name.
 var COPY_PROMPT_FNS = { analyzeLiftoff: 'copyLiftoffPrompt', analyzeTouchdown: 'copyTouchdownPrompt' };
 
@@ -789,14 +1004,14 @@ async function analyzeLiftoff(id) {
     return runAiAnalysis(id, _liftoffStore[id], TRAJECTORY_NAMES.analyzeLiftoff, loadLiftoffProfile,
         buildLiftoffPrompt, function(rowId, report, onSaved) {
         if (mapBridge) mapBridge.saveLiftoffAnalysisReport(rowId, report, onSaved);
-    }, 'Analyze Liftoff');
+    });
 }
 
 async function analyzeTouchdown(id) {
     return runAiAnalysis(id, _touchdownStore[id], TRAJECTORY_NAMES.analyzeTouchdown, loadTouchdownProfile,
         buildTouchdownPrompt, function(rowId, report, onSaved) {
         if (mapBridge) mapBridge.saveTouchdownAnalysisReport(rowId, report, onSaved);
-    }, 'Analyze Landing');
+    });
 }
 
 async function copyLiftoffPrompt(id) {
@@ -809,14 +1024,17 @@ async function copyTouchdownPrompt(id) {
 
 // Copies the prompt point id's Analyze button sends (runAiAnalysis()) to the
 // clipboard, with its final trajectory loaded the same way, then shows
-// "Copied" on its Copy Prompt button for a moment. t itself is left as it is:
+// "Copied" on its Copy Prompt button for a moment. While its analysis runs,
+// that's the evaluation the analysis started with, which its popup shows
+// (showAiChoices()). t itself is left as it is:
 // its profile and the popup's notice belong to its last analysis. Nothing
 // before the page's bridge is connected; a popup closed while the trajectory
 // loads still gets its prompt copied.
 async function copyPrompt(id, t, loadProfile, buildPrompt) {
     if (!mapBridge) return;
-    var profile = await new Promise(function(resolve) { loadProfile(t.rowId, resolve); });
-    mapBridge.copyText(buildPrompt(Object.assign({}, t, { profile: profile })));
+    var progress = t.analyzing ? t.analysisChoices.progress : aiProgressEvaluation();
+    var profile = progress ? await new Promise(function(resolve) { loadProfile(t.rowId, resolve); }) : undefined;
+    mapBridge.copyText(buildPrompt(Object.assign({}, t, { profile: profile }), !progress));
     var btn = document.getElementById('td-copy-' + id);
     if (!btn) return;
     btn.textContent = '✓ Copied';
@@ -833,11 +1051,135 @@ function showProfileNotice(id, t) {
 
 // Shows point id's analysis as running (button disabled, spinner) or not, in
 // its popup as it is now: Leaflet rebuilds a popup's DOM each time it opens.
+// While it runs, the evaluation checkbox and the model choice are disabled
+// too, as what it was started with; after, they're enabled again (a popup
+// an analysis runs in was built with an API key, so with them enabled).
 function showAnalysisRunning(id, running) {
+    var spinner = document.getElementById('td-spin-' + id);
+    if (spinner) spinner.style.display = running ? 'inline-block' : 'none';
+    ['td-progress-', 'td-model-', 'td-custom-name-'].forEach(function(prefix) {
+        var choice = document.getElementById(prefix + id);
+        if (choice) choice.disabled = running;
+    });
+    updateAnalyzeButton(id);
+}
+
+// Enables point id's Analyze button, in its popup as it is now, unless its
+// analysis is running (its spinner shown, showAnalysisRunning()) or the model
+// choice can't be analyzed with (aiModelProblem()). A button built without an
+// API key (no onclick) stays disabled.
+function updateAnalyzeButton(id) {
     var btn     = document.getElementById('td-btn-'  + id);
     var spinner = document.getElementById('td-spin-' + id);
-    if (btn) btn.disabled = running;
-    if (spinner) spinner.style.display = running ? 'inline-block' : 'none';
+    if (!btn || !btn.hasAttribute('onclick')) return;
+    btn.disabled = (spinner && spinner.style.display !== 'none') || aiModelProblem() !== '';
+}
+
+// The models the drop-down beside the Analyze button offers, the first the
+// default; after them it offers Other (AI_MODEL_OTHER), for a model named in
+// the field under it.
+var AI_MODELS = ['gemma-4-31b-it', 'gemma-4-26b-a4b-it'];
+var AI_MODEL_OTHER = 'other';
+
+// The drop-down's choice, window._aiModel (settings.ini's [ai] model, from
+// MapWidget, saved by saveAiModel()): one of AI_MODELS or AI_MODEL_OTHER, the
+// default when it's neither (unset, or edited by hand).
+function aiModelChoice() {
+    var m = window._aiModel;
+    return AI_MODELS.indexOf(m) >= 0 || m === AI_MODEL_OTHER ? m : AI_MODELS[0];
+}
+
+// The model name entered for Other, window._aiCustomModel ([ai]
+// custom_model), trimmed.
+function aiCustomModelName() {
+    return String(window._aiCustomModel || '').trim();
+}
+
+// Why the model choice can't be analyzed with, '' when it can: Other needs a
+// name, and not one of AI_MODELS, which are chosen from the list.
+function aiModelProblem() {
+    if (aiModelChoice() !== AI_MODEL_OTHER) return '';
+    var name = aiCustomModelName();
+    if (!name) return 'Enter a model name to analyze with it.';
+    if (AI_MODELS.indexOf(name) >= 0) return name + ' is in the list: choose it there.';
+    return '';
+}
+
+// The model an analysis started with choices (its analysisChoices) asks: the
+// drop-down's, or the one named for Other.
+function aiAnalysisModel(choices) {
+    return choices.model === AI_MODEL_OTHER ? choices.customModel : choices.model;
+}
+
+// Whether an analysis is a progress evaluation (the contact with its final
+// trajectory, the checkbox above the drop-down checked; the default) or a
+// contact evaluation (the contact alone), for every popup: window._aiProgress
+// (from settings.ini, set by MapWidget, saved by aiProgressChosen()).
+function aiProgressEvaluation() {
+    return window._aiProgress !== false;
+}
+
+// The checkbox in a popup was changed to checked; saved straight away, for
+// the next time the app starts.
+function aiProgressChosen(checked) {
+    window._aiProgress = checked;
+    if (mapBridge) mapBridge.saveAiProgressEvaluation(checked);
+}
+
+// The checkbox's tooltip for a popup analyzed by analyzeFn, as HTML: what
+// each evaluation covers, and why to choose it.
+function aiProgressTooltip(analyzeFn) {
+    var contact = CONTACT_NAMES[analyzeFn], trajectory = TRAJECTORY_NAMES[analyzeFn];
+    return 'Checked, a progress evaluation: grades the ' + contact + ' together with the ' + trajectory + '. '
+        + 'The prompt adds the conditions, the runway data and the ' + trajectory + ' trajectory (gates, samples, '
+        + 'weather and ride), so the model can judge how the ' + trajectory + ' was flown and how the conditions '
+        + 'affected it, and the answer adds a section for each. '
+        + 'The prompt is longer: it uses more of the per-minute token limit, and the answer takes longer.'
+        + '<br><br>Unchecked, a contact evaluation: grades the ' + contact + ' alone, from the values in this popup. '
+        + 'The prompt is short and the answer quick, for when only the ' + contact + ' itself matters.';
+}
+
+// Shows the analysis choices in point id's popup as it is now (its DOM is
+// rebuilt from the same HTML each time it opens): the evaluation checkbox
+// (aiProgressEvaluation()), the drop-down's model, the Other field with the
+// name entered, shown only for Other, and what's wrong with it. With running
+// (the point's analysisChoices, while its analysis runs) it shows those
+// instead, the ones the analysis was started with, since another popup may
+// have changed the choices since; nothing is wrong with them.
+function showAiChoices(id, running) {
+    var choices = running || { progress: aiProgressEvaluation(), model: aiModelChoice(), customModel: aiCustomModelName() };
+    document.getElementById('td-progress-' + id).checked = choices.progress;
+    document.getElementById('td-model-' + id).value = choices.model;
+    document.getElementById('td-custom-' + id).style.display = choices.model === AI_MODEL_OTHER ? '' : 'none';
+    document.getElementById('td-custom-name-' + id).value = choices.customModel;
+    if (running) document.getElementById('td-model-problem-' + id).textContent = '';
+    else showAiModelProblem(id);
+}
+
+function showAiModelProblem(id) {
+    document.getElementById('td-model-problem-' + id).textContent = aiModelProblem();
+    updateAnalyzeButton(id);
+}
+
+// The drop-down in point id's popup changed to choice; saved straight away.
+function aiModelChosen(id, choice) {
+    window._aiModel = choice;
+    showAiChoices(id);
+    saveAiModel();
+}
+
+// The Other field in point id's popup was edited to name; saved on each
+// edit, since the field's change event doesn't fire when the popup closes
+// while it has the focus (Escape).
+function aiCustomModelEdited(id, name) {
+    window._aiCustomModel = name;
+    showAiModelProblem(id);
+    saveAiModel();
+}
+
+// Keeps the model choice in settings.ini for the next time the app starts.
+function saveAiModel() {
+    if (mapBridge) mapBridge.saveAiModel(aiModelChoice(), aiCustomModelName());
 }
 
 // Logs why an AI analysis attempt failed: a warning when another attempt
@@ -848,13 +1190,18 @@ function logAttemptFailure(problem, retrying, detail) {
     else console.error(problem + ':', detail);
 }
 
-// Runs point id's AI analysis: first its final trajectory (trajectoryName,
-// "approach"), from loadProfile(rowId, onLoaded) into t.profile (null when it
-// can't be built: the analysis then covers the contact alone, the prompt and
-// a notice under the button say so), then the model's streamed answer, with a
-// status line in the result area until the first of it arrives. Each attempt
-// first waits for its prompt to fit within TPM_LIMIT.
-async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, saveReport, retryLabel) {
+// Runs point id's AI analysis: for a progress evaluation (aiProgressEvaluation())
+// first its final trajectory (trajectoryName, "approach"), from
+// loadProfile(rowId, onLoaded) into t.profile (null when it can't be built:
+// the analysis then covers the contact alone, the prompt and a notice under
+// the button say so; a contact evaluation leaves it undefined, unbuilt), then
+// the model's streamed answer to buildPrompt(t, contactOnly), with a status
+// line in the result area until the first of it arrives. The choices it was
+// started with are kept in t.analysisChoices (showAiChoices()). A retry after
+// a rate limit (HTTP 429) first waits out the delay the service asked for
+// (rateLimitDelayMs()), and isn't made when that's over
+// AI_RATE_LIMIT_MAX_WAIT_MS; any other retry is sent at once.
+async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, saveReport) {
     var result  = document.getElementById('td-result-' + id);
     // t.analyzing: already running for this point, from a popup since closed
     // and reopened.
@@ -863,16 +1210,26 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     t.analyzing = true;
     showAnalysisRunning(id, true);
 
-    result.innerHTML = '<div class="td-status">Building the ' + trajectoryName + ' trajectory…</div>';
-    t.profile = await new Promise(function(resolve) { loadProfile(t.rowId, resolve); });
+    var progress = aiProgressEvaluation();
+    t.analysisChoices = { progress: progress, model: aiModelChoice(), customModel: aiCustomModelName() };
+    if (progress) {
+        result.innerHTML = '<div class="td-status">Building the ' + trajectoryName + ' trajectory…</div>';
+        t.profile = await new Promise(function(resolve) { loadProfile(t.rowId, resolve); });
+    } else {
+        t.profile = undefined;
+    }
     showProfileNotice(id, t);
 
     var key = window._geminiApiKey || '';
+    // From the choices it started with: another popup may have changed them
+    // while the trajectory loaded.
+    var model = aiAnalysisModel(t.analysisChoices);
     var MAX_ATTEMPTS = 3;
-    var prompt = buildPrompt(t);
-    // The prompt's tokens: estimated until an attempt's answer counts them.
-    var promptTokens = estimatePromptTokens(prompt);
-    var sent; // the attempt's TPM ledger entry
+    var prompt = buildPrompt(t, !progress);
+    // Why the previous attempt failed ("got error 500", say), for the
+    // retry's status line, and how long (ms) the service asked the retry to
+    // wait (a rate limit's, rateLimitDelayMs()).
+    var lastFailure = '', retryWaitMs = 0;
 
     // Per-attempt DOM refs and state -- function-scoped so onChunk can close
     // over them; initAttempt() reassigns them before each attempt.
@@ -916,9 +1273,9 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     }
 
     // Until the first chunk: what's being waited for, with the attempt
-    // number on a retry.
+    // number and why the previous one failed on a retry.
     function showStatus(text) {
-        statusDiv.textContent = (attempt > 0 ? 'Retrying (' + (attempt + 1) + '/' + MAX_ATTEMPTS + '): ' : '') + text;
+        statusDiv.textContent = (attempt > 0 ? 'Retry ' + (attempt + 1) + '/' + MAX_ATTEMPTS + ' (' + lastFailure + '): ' : '') + text;
     }
 
     function onChunk(text, isThought) {
@@ -944,10 +1301,6 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
 
     function onFinish(reason) {
         finishReason = reason;
-    }
-
-    function onUsage(tokens) {
-        sent.tokens = promptTokens = tokens;
     }
 
     function onError(error) {
@@ -986,10 +1339,9 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
 
     for (var attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         initAttempt();
-        sent = await reserveTokens(promptTokens, function(seconds) {
-            showStatus('Waiting ' + seconds + ' s for the per-minute token limit…');
-        });
-        showStatus('Sending to LLM…');
+        await waitOut(retryWaitMs, function(seconds) { showStatus('Waiting ' + seconds + ' s for the rate limit…'); });
+        retryWaitMs = 0;
+        showStatus('Sending to ' + model + '…');
         controller = new AbortController();
         stalled = false;
         sentAt = lastHeard = Date.now();
@@ -1001,7 +1353,7 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
             // The key goes in a header, not the URL: the browser's console
             // messages (copied into the log) can quote a failed request's URL.
             var res = await fetch(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:streamGenerateContent',
+                'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':streamGenerateContent',
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
@@ -1017,24 +1369,24 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                 // A server error (5xx) or rate limit (429) is often gone a
                 // moment later: retry it like a network error. Any other HTTP
                 // error (bad key, model issue) won't change, so it's final.
-                // A rate limit means the minute's tokens are used up (by
-                // another app with the same key, say): this request counts
-                // as all of them, so the next waits for the minute to pass.
-                if (res.status === 429) sent.tokens = TPM_LIMIT;
-                var retrying = (res.status >= 500 || res.status === 429) && attempt < MAX_ATTEMPTS - 1;
+                // A rate limit is retried only after the wait it asks for:
+                // a per-minute limit, used up by this page or another app
+                // with the same key, lasts until its minute has passed.
+                if (res.status === 429) retryWaitMs = rateLimitDelayMs(errBody);
+                var tooLong = retryWaitMs > AI_RATE_LIMIT_MAX_WAIT_MS;
+                var retrying = (res.status >= 500 || res.status === 429) && !tooLong && attempt < MAX_ATTEMPTS - 1;
                 logAttemptFailure('Gemini API error', retrying, res.status + ' ' + errBody);
+                lastFailure = 'got error ' + res.status;
                 if (retrying) continue;
-                var apiMsg = '';
-                try {
-                    // The streaming endpoint wraps its error in an array, as
-                    // it does its chunks.
-                    var errJson = JSON.parse(errBody);
-                    if (Array.isArray(errJson)) errJson = errJson[0] || {};
-                    apiMsg = (errJson.error && errJson.error.message) ? errJson.error.message : '';
-                } catch (e2) {}
+                var apiMsg = apiErrorOf(errBody).message || '';
                 var guidance = '';
                 if (res.status === 400 || res.status === 401 || res.status === 403) {
                     guidance = '<br><span style="color:#555">Check that <code>gemini_api_key</code> under <code>[ai]</code> in settings.ini is correct and has Gemini API access enabled.</span>';
+                } else if (res.status === 404) {
+                    guidance = '<br><span style="color:#555">Check the model name: <code>' + escapeHtml(model) + '</code> wasn\'t found.</span>';
+                } else if (tooLong) {
+                    guidance = '<br><span style="color:#555">The service asks to wait ' + Math.round(retryWaitMs / 1000)
+                        + ' s before the next request (a daily quota used up, maybe). Try again later.</span>';
                 }
                 finalDiv.innerHTML = '<i style="color:#a00">API error ' + res.status
                     + (apiMsg ? ': ' + escapeHtml(apiMsg) : '')
@@ -1050,16 +1402,17 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                 heard();
                 if (firstData < 0) firstData = lastHeard - sentAt;
                 buf += decoder.decode(streamChunk.value, { stream: true });
-                buf = processStreamBuffer(buf, onChunk, onFinish, onUsage, onError);
+                buf = processStreamBuffer(buf, onChunk, onFinish, onError);
             }
             buf += decoder.decode();
-            processStreamBuffer(buf, onChunk, onFinish, onUsage, onError);
+            processStreamBuffer(buf, onChunk, onFinish, onError);
         } catch (e) {
             // Network error, before or during the answer -- retry unless this
             // was the last attempt. A stall is handled below, as an
             // incomplete answer (or a complete one, if it stalled after it).
             if (!stalled) {
                 logAttemptFailure('Gemini request failed', attempt < MAX_ATTEMPTS - 1, String(e) + ', ' + received());
+                lastFailure = 'network error';
                 if (attempt === MAX_ATTEMPTS - 1) {
                     finalDiv.innerHTML = '<span style="color:#64748b">Couldn\'t reach the AI service after '
                         + MAX_ATTEMPTS + ' attempts. Check your internet connection and try again.</span>';
@@ -1091,9 +1444,10 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
         // the last attempt show a message.
         logAttemptFailure('Gemini answer incomplete', attempt < MAX_ATTEMPTS - 1,
             'finish reason ' + (finishReason || 'none') + ', ' + received());
+        lastFailure = stalled ? 'stalled' : 'answer incomplete';
         if (attempt === MAX_ATTEMPTS - 1) {
             finalDiv.innerHTML = '<span style="color:#64748b">The AI didn\'t return a complete analysis. '
-                + 'This can happen occasionally. Click <b>' + retryLabel + '</b> to try again.</span>';
+                + 'This can happen occasionally. Click <b>Analyze</b> to try again.</span>';
             thDet.style.display = 'none';
         }
     }
@@ -1101,6 +1455,9 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     statusDiv.style.display = 'none';
     t.analyzing = false;
     showAnalysisRunning(id, false);
+    // A popup open now (reopened while running) showed the choices the run
+    // started with; it shows the current ones again.
+    if (document.getElementById('td-progress-' + id)) showAiChoices(id);
     result.scrollTop = 0;
     // Reopened while running: the answer streamed into the old popup's DOM.
     var liveResult = document.getElementById('td-result-' + id);
@@ -1159,7 +1516,7 @@ function renderStoredReport(id, report) {
 // export's placemark description (runwayContactDescription() in
 // kml_export.cpp) plus a Coordinate row; keep the two in step
 // (tst_map_widget's touchdownPopupMatchesTheKmlDescription checks it).
-function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabel) {
+function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn) {
     function row(key, val) {
         return '<div class="td-row"><span class="td-key">' + key + '</span><span class="td-val">' + escapeHtml(val) + '</span></div>';
     }
@@ -1200,10 +1557,17 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
     leftHtml += '</div>';
     var left = leftHtml;
 
-    // Right column: Analyze and Copy Prompt buttons + result area (pre-filled
-    // from DB if available). Copy Prompt works without an API key.
+    // Right column: the Analyze button, the evaluation checkbox
+    // (aiProgressEvaluation()) over the model drop-down, and the Copy Prompt
+    // button, both buttons as tall as the two; the Other model field,
+    // and the result area (pre-filled from DB if available). The choices are
+    // shown once the popup opens (showAiChoices()). Copy Prompt, and so the
+    // checkbox, works without an API key.
     var hasKey = !!(window._geminiApiKey && window._geminiApiKey.trim().length > 0);
     var disabledAttr = hasKey ? '' : ' disabled title="Set gemini_api_key in settings.ini to enable"';
+    var modelDisabledAttr = hasKey ? '' : ' disabled';
+    var modelOptions = AI_MODELS.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('')
+        + '<option value="' + AI_MODEL_OTHER + '">Other…</option>';
     var clickAttr = hasKey ? ' onclick="' + analyzeFn + '(\'' + id + '\')"' : '';
     var initialResult = hasKey ? '' :
         '<span style="color:#aaa;font-size:11px;line-height:1.6">To enable AI analysis,<br>'
@@ -1211,15 +1575,29 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
         + '<code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;color:#555">[ai]<br>gemini_api_key=YOUR_KEY</code><br>'
         + 'then restart the app.</span>';
     var right = [
-        '<div style="border-left:1px solid #e5e7eb;padding-left:14px;min-width:360px">',
+        '<div style="border-left:1px solid #e5e7eb;padding-left:14px;min-width:380px">',
         '  <div class="td-analyze-label">✦ AI Analysis</div>',
-        '  <div style="display:flex;align-items:center">',
+        '  <div style="display:flex">',
         '    <button class="td-analyze-btn" id="td-btn-' + id + '"' + disabledAttr + clickAttr + '>',
-        '      ✦ ' + analyzeLabel,
+        '      ✦ Analyze',
         '    </button>',
+        '    <div class="td-ai-choices">',
+        '      <label class="td-progress-option">'
+            + '<input type="checkbox" id="td-progress-' + id + '" onchange="aiProgressChosen(this.checked)">'
+            + ' Progress evaluation<span class="td-tip" id="td-progress-tip-' + id + '">' + aiProgressTooltip(analyzeFn) + '</span></label>',
+        '      <select class="td-model-select" id="td-model-' + id + '" title="The model the analysis uses"' + modelDisabledAttr
+            + ' onchange="aiModelChosen(\'' + id + '\', this.value)">' + modelOptions + '</select>',
+        '    </div>',
         '    <span id="td-spin-' + id + '" class="td-spinner" style="display:none">↻</span>',
         '    <button class="td-copy-btn" id="td-copy-' + id + '" title="Copy the prompt Analyze sends to the clipboard"'
             + ' onclick="' + COPY_PROMPT_FNS[analyzeFn] + '(\'' + id + '\')">Copy Prompt</button>',
+        '  </div>',
+        '  <div id="td-custom-' + id + '" class="td-custom-model" style="display:none">',
+        '    <input type="text" id="td-custom-name-' + id + '" placeholder="Model name" spellcheck="false"' + modelDisabledAttr
+            + ' oninput="aiCustomModelEdited(\'' + id + '\', this.value)">',
+        '    <div class="td-hint">To avoid typos, copy the name with the <b>Copy to clipboard</b> button in'
+            + ' Google AI Studio\'s model selection dialog and paste it here.</div>',
+        '    <div id="td-model-problem-' + id + '" class="td-model-problem"></div>',
         '  </div>',
         '  <div id="td-note-' + id + '" class="td-note" style="display:none">',
         '    The ' + TRAJECTORY_NAMES[analyzeFn] + ' trajectory couldn\'t be built from this trip\'s',
@@ -1239,13 +1617,13 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, analyzeLabe
 function liftoffPopupHtml(t) {
     var id = 'lo' + (++_loIdx);
     _liftoffStore[id] = t;
-    return runwayContactPopupHtml(id, t, 'Liftoff', null, 'analyzeLiftoff', 'Analyze Liftoff');
+    return runwayContactPopupHtml(id, t, 'Liftoff', null, 'analyzeLiftoff');
 }
 
 function touchdownPopupHtml(t) {
     var id = 'td' + (++_tdIdx);
     _touchdownStore[id] = t;
-    return runwayContactPopupHtml(id, t, 'Touchdown', Number(t.gForce).toFixed(2) + ' G', 'analyzeTouchdown', 'Analyze Landing');
+    return runwayContactPopupHtml(id, t, t.crashed ? 'Crash' : 'Touchdown', Number(t.gForce).toFixed(2) + ' G', 'analyzeTouchdown');
 }
 
 function eventPopupHtml(events) {
@@ -1605,11 +1983,12 @@ function initLeafletProvider() {
     });
 
     // One marker per liftoff/touchdown point: emoji plus its 1-based index,
-    // with popupHtml(t)'s popup. Returns the markers.
+    // with popupHtml(t)'s popup; a crashed touchdown's is an airplane
+    // nose-down into the runway, in red, instead. Returns the markers.
     function addContactMarkers(points, emoji, className, popupHtml, currentStore) {
         return points.map(function (t, idx) {
-            var html = '<div style="position:relative;width:100%;height:100%">' + emoji + '<span class="marker-index-badge">' + (idx + 1) + '</span></div>';
-            var icon = L.divIcon({ className: className, html: html, iconSize: [20, 20], iconAnchor: [10, 10] });
+            var html = '<div style="position:relative;width:100%;height:100%">' + (t.crashed ? '<span class="crash-plane">\u2708\uFE0F</span><span class="crash-runway"></span>' : emoji) + '<span class="marker-index-badge">' + (idx + 1) + '</span></div>';
+            var icon = L.divIcon({ className: className + (t.crashed ? ' crash-icon' : ''), html: html, iconSize: [20, 20], iconAnchor: [10, 10] });
             var m = L.marker([t.lat, t.lng], { icon: icon }).addTo(map);
             var popup = popupHtml(t);
             m.bindPopup(popup.html, { maxWidth: 700 });
@@ -1621,6 +2000,7 @@ function initLeafletProvider() {
             m.on('popupopen', function () {
                 var stored = currentStore()[popup.id];
                 if (stored && stored.analysisReport) renderStoredReport(popup.id, stored.analysisReport);
+                if (stored) showAiChoices(popup.id, stored.analyzing ? stored.analysisChoices : undefined);
                 if (stored && stored.analyzing) showAnalysisRunning(popup.id, true);
                 if (stored) showProfileNotice(popup.id, stored);
             });

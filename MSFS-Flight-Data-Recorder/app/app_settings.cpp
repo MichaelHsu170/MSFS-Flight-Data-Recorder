@@ -71,6 +71,23 @@ QString recordingEnabledComment() {
 	                      "progress. Default: true.");
 }
 
+QString aiModelComment() {
+	return QStringLiteral("Auto-managed by the app. The model the AI analysis uses, chosen in the\n"
+	                      "drop-down beside the Analyze button: gemma-4-31b-it, gemma-4-26b-a4b-it,\n"
+	                      "or other for the one named in custom_model. Default: gemma-4-31b-it.");
+}
+
+QString aiCustomModelComment() {
+	return QStringLiteral("Auto-managed by the app. The model name entered for the drop-down's Other\n"
+	                      "choice (model=other).");
+}
+
+QString aiProgressEvaluationComment() {
+	return QStringLiteral("Auto-managed by the app. Whether the AI analysis is a progress evaluation\n"
+	                      "(the whole climb-out or approach) or, false, a contact evaluation (the\n"
+	                      "liftoff or touchdown alone), as the popup's checkbox left it. Default: true.");
+}
+
 QString chartsPanelHeightComment() {
 	return QStringLiteral("Height in pixels of the Charts panel (below the map). The map takes the\n"
 	                      "remaining vertical space. Default: %1.").arg(kDefaultChartsPanelHeight);
@@ -249,8 +266,14 @@ void AppSettings::ensureFileExists() {
 		"; Gemini API key for the AI liftoff/landing analysis feature.\n"
 		"; Obtain a free key from Google AI Studio (aistudio.google.com), then paste it\n"
 		"; here and restart the app. The app never writes this value.\n"
-		"; Without a key the Analyze Liftoff and Analyze Landing buttons are disabled.\n"
+		"; Without a key the Analyze buttons are disabled.\n"
 		"gemini_api_key=\n"
+		<< commentLines(aiModelComment()).join('\n') << "\n"
+		"model=gemma-4-31b-it\n"
+		<< commentLines(aiCustomModelComment()).join('\n') << "\n"
+		"custom_model=\n"
+		<< commentLines(aiProgressEvaluationComment()).join('\n') << "\n"
+		"progress_evaluation=true\n"
 		"\n"
 		<< header("recording") << "\n"
 		"; Maximum time between telemetry samples written to trip_data, in milliseconds.\n"
@@ -390,6 +413,31 @@ QString AppSettings::logLevel() {
 
 QString AppSettings::geminiApiKey() const {
 	return makeSettings().value(QStringLiteral("ai/gemini_api_key")).toString();
+}
+
+QString AppSettings::aiModel() const {
+	return makeSettings().value(QStringLiteral("ai/model")).toString();
+}
+
+void AppSettings::setAiModel(const QString& model) {
+	writeIniValue(QStringLiteral("ai"), QStringLiteral("model"), model, aiModelComment());
+}
+
+QString AppSettings::aiCustomModel() const {
+	return makeSettings().value(QStringLiteral("ai/custom_model")).toString();
+}
+
+void AppSettings::setAiCustomModel(const QString& name) {
+	writeIniValue(QStringLiteral("ai"), QStringLiteral("custom_model"), name, aiCustomModelComment());
+}
+
+bool AppSettings::aiProgressEvaluation() const {
+	return makeSettings().value(QStringLiteral("ai/progress_evaluation"), true).toBool();
+}
+
+void AppSettings::setAiProgressEvaluation(bool progress) {
+	writeIniValue(QStringLiteral("ai"), QStringLiteral("progress_evaluation"),
+		progress ? QStringLiteral("true") : QStringLiteral("false"), aiProgressEvaluationComment());
 }
 
 int AppSettings::sampleIntervalMs() const {

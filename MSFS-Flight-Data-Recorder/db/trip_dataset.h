@@ -136,7 +136,8 @@ struct ProfilePoint {
 	double thresholdFt = std::nan("");
 	double centerlineFt = std::nan("");
 	// Distance gates only: the descent angle (degrees) from this gate to the
-	// next closer one, or to the contact after the last.
+	// next closer one, or to the contact after the last, over the distance
+	// flown between them (not the straight line, shorter on a curved path).
 	double pathAngle = std::nan("");
 	bool onGround = false;  // SIM ON GROUND
 	// The weather at this point: the wind (from, degrees true; kt) and its
@@ -201,7 +202,9 @@ struct SegmentWeather {
 	double engineAntiIceShare = std::nan("");
 	// The lowest and highest G FORCE among the airborne samples: their spread
 	// shows turbulence, but each is the instant of its sample, so a bump
-	// between two samples is missed.
+	// between two samples is missed. Like the vertical wind, only up to the
+	// stall sample below when it stalled: after it, the aircraft may be out of
+	// control (a crash's tumble), and neither shows the air any more.
 	double gForceMin = std::nan("");
 	double gForceMax = std::nan("");
 	// The lowest and highest vertical wind (AMBIENT WIND Y, ft/min; + = up):
@@ -210,10 +213,14 @@ struct SegmentWeather {
 	double verticalWindMaxFpm = std::nan("");
 	// The airborne sample closest to the stall: the smallest margin of its
 	// angle of attack (INCIDENCE ALPHA, degrees) below the stall's (STALL
-	// ALPHA, the angle of the maximum lift), at its height.
+	// ALPHA, the angle of the maximum lift), at its height, airspeed (kt
+	// indicated) and bank (degrees); when it stalled (no margin left), the
+	// first such sample, where the stall began.
 	double stallMarginAlphaDeg = std::nan("");
 	double stallMarginStallAlphaDeg = std::nan("");
 	double stallMarginHeightFt = std::nan("");
+	double stallMarginAirspeedKt = std::nan("");
+	double stallMarginBankDeg = std::nan("");
 };
 
 // A liftoff's/touchdown's final trajectory (contactProfile() in
@@ -311,6 +318,9 @@ struct TouchdownPoint : RunwayContactPoint {
 	// runway, perpendicular to it: PLANE TOUCHDOWN NORMAL VELOCITY, derived
 	// when the trip loads (analyzeContacts()); NaN when it can't be.
 	double touchdownRate = std::nan("");
+	// Whether the aircraft crashed here: the simulator's reset after a crash
+	// followed it, derived when the trip loads (analyzeContacts()).
+	bool crashed = false;
 };
 
 // One discrete cockpit event (gear/flaps/spoilers/etc. toggled) logged during

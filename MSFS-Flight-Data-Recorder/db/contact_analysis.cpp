@@ -25,7 +25,17 @@ constexpr double kLiftoffHeightGates[] = { 35, 100, 200, 500, 1000 };
 constexpr double kTouchdownSeriesSeconds = 15;
 constexpr double kLiftoffSeriesSeconds = 10;
 constexpr double kSeriesSecondsAfter = 10;
-constexpr int kMaxSeriesPoints = 60;
+constexpr int kMaxSeriesPoints = 58;
+
+// A reset (resetIndices()): a sample further from the one before it, up or
+// down or across, than kResetSpeedFactor times the faster of the two's
+// speeds over the time between them, plus kResetMarginFt.
+constexpr double kResetSpeedFactor = 2;
+constexpr double kResetMarginFt = 100;
+constexpr double kFeetPerSecondPerKt = 1.68781;
+// A touchdown is a crash (crashed()) when a reset comes within this long
+// after it.
+constexpr double kCrashResetSeconds = 10;
 
 constexpr double kTerrainRangeNm = 5;     // ContactProfile's highest terrain and SegmentWeather's segment
 constexpr double kWindRangeSeconds = 30;  // ContactConditions' wind range
@@ -112,17 +122,61 @@ double engineAntiIce(const TripSamplePoint& point) {
 	return on;
 }
 
-// The samples a contact is measured from: [begin, end) is its gates' and
-// terrain's window (from the previous contact to the next), at is the
-// sample at or after the contact, and ground the on-ground sample its
-// heights are measured from (at for a touchdown; the last one before a
-// liftoff, since at is airborne).
+// The indices of the samples the aircraft jumped to rather than flew to: the
+// simulator's reset after a crash (which can't be turned off), a teleport or
+// slew. Each is further from the sample before it (kResetSpeedFactor,
+// kResetMarginFt) than the speeds of both allow. None without both
+// samples' times, or when the time doesn't move forward between them (the
+// simulator's clock set back); up or down isn't judged without both's altitudes and
+// vertical speeds, nor across without both's ground speeds.
+std::vector<int> resetIndices(const std::vector<TripSamplePoint>& points) {
+	// The faster of two speeds; NaN if either is (std::max's NaN depends on
+	// the order).
+	const auto faster = [](double a, double b) { return std::isnan(a) || std::isnan(b) ? std::nan("") : (std::max)(a, b); };
+	std::vector<int> resets;
+	for (int i = 1; i < (int)points.size(); ++i) {
+		const TripSamplePoint& before = points[i - 1];
+		const TripSamplePoint& p = points[i];
+		const double climbFt = std::abs(p.rawNum(TRIP_NUM_plane_altitude) - before.rawNum(TRIP_NUM_plane_altitude));
+		const double movedFt = distanceNm(before.latitude, before.longitude, p.latitude, p.longitude) * kFeetPerNm;
+		// Only a move past the margin needs the times, read only then.
+		if (!(climbFt > kResetMarginFt) && !(movedFt > kResetMarginFt))
+			continue;
+		// msecsTo() is 0 when either time can't be read, so that isn't judged either.
+		const double seconds = parseZuluTime(before.zuluTime).msecsTo(parseZuluTime(p.zuluTime)) / 1000.0;
+		if (!(seconds > 0))
+			continue;
+		const double verticalFps = faster(std::abs(before.verticalSpeed()), std::abs(p.verticalSpeed())) / 60;
+		const double groundFps = faster(before.rawNum(TRIP_NUM_ground_velocity), p.rawNum(TRIP_NUM_ground_velocity))
+			* kFeetPerSecondPerKt;
+		if (climbFt > kResetSpeedFactor * verticalFps * seconds + kResetMarginFt
+			|| movedFt > kResetSpeedFactor * groundFps * seconds + kResetMarginFt)
+			resets.push_back(i);
+	}
+	return resets;
+}
+
+// The samples a contact is measured from: [runBegin, runEnd) are the ones
+// flown continuously into and out of it, between the resets around it
+// (resetIndices()), and every window below stays within them. [begin, end)
+// is its gates' and terrain's window (from the previous contact to the next),
+// at is the sample at or after the contact (before it, for a touchdown whose
+// sample at or after it is a reset), and ground the on-ground sample
+// its heights are measured from (at for a touchdown; the last one before a
+// liftoff, since at is airborne). beforeReset says at is that touchdown's
+// sample before the reset: still airborne, so its heights are measured from
+// the ground under it instead. nextContact is the next contact's time
+// (invalid without one), which can fall between two samples.
 struct ContactSamples {
+	int runBegin = 0;
+	int runEnd = 0;
 	int begin = 0;
 	int end = 0;
 	int at = 0;
 	int ground = 0;
+	bool beforeReset = false;
 	QDateTime time;
+	QDateTime nextContact;
 };
 
 // The engine value ContactProfile::powerName/powerUnit describe.
@@ -149,7 +203,8 @@ public:
 	ProfileBuilder(const std::vector<TripSamplePoint>& points, const RunwayContactPoint& contact, const ContactSamples& samples,
 		bool touchdown)
 		: points_(points), contact_(contact), samples_(samples), touchdown_(touchdown),
-		groundAltitude_(points[samples.ground].rawNum(TRIP_NUM_plane_altitude)),
+		groundAltitude_(samples.beforeReset ? groundElevation(points[samples.ground])
+			: points[samples.ground].rawNum(TRIP_NUM_plane_altitude)),
 		groundElevation_(groundElevation(points[samples.ground])),
 		power_(powerField(points[samples.at].engineType)) {}
 
@@ -210,6 +265,14 @@ public:
 	double distance(int index) const {
 		return distanceNm(points_[index].latitude, points_[index].longitude, contact_.latitude, contact_.longitude);
 	}
+	// The distance flown (nm) from sample from to sample to (from <= to),
+	// through the samples between.
+	double flownNm(int from, int to) const {
+		double nm = 0;
+		for (int i = from; i < to; ++i)
+			nm += distanceNm(points_[i].latitude, points_[i].longitude, points_[i + 1].latitude, points_[i + 1].longitude);
+		return nm;
+	}
 	// Seconds from the contact (negative before it); NaN for an unparsable time.
 	double seconds(int index) const {
 		const QDateTime time = parseZuluTime(points_[index].zuluTime);
@@ -247,14 +310,16 @@ QString nmGate(double nm) { return QStringLiteral("%1 nm").arg(nm); }
 // even one past those seconds (a gap in the recording), and both are kept
 // however the rest is thinned. Unlike the gates,
 // not stopped at the neighboring contacts: whatever happened in those
-// seconds (a bounce, a go-around) is evidence for judging this one.
+// seconds (a bounce, a go-around) is evidence for judging this one. Stopped
+// at a reset, though: what follows one (the simulator's after a crash) was
+// never flown.
 std::vector<ProfilePoint> series(const ProfileBuilder& builder, const ContactSamples& s, double secondsBefore) {
 	int first = s.ground, last = s.at;
 	// A sample whose time can't be read is taken in, so contactProfile()
 	// drops the trajectory rather than cutting it short there.
-	while (first - 1 >= 0 && !(builder.seconds(first - 1) < -secondsBefore))
+	while (first - 1 >= s.runBegin && !(builder.seconds(first - 1) < -secondsBefore))
 		--first;
-	while (last + 1 < builder.size() && !(builder.seconds(last + 1) > kSeriesSecondsAfter))
+	while (last + 1 < s.runEnd && !(builder.seconds(last + 1) > kSeriesSecondsAfter))
 		++last;
 	// decimatedIndices() may add hi to its maxPoints; s.ground and s.at may
 	// add two more.
@@ -278,6 +343,10 @@ SegmentWeather segmentWeather(const ProfileBuilder& builder, int from, int to) {
 	std::vector<std::pair<double, double>> headwinds;
 	double lowestHeadwind = std::nan(""), highestHeadwind = std::nan("");
 	int antiIceOn = 0, antiIceKnown = 0;
+	// Past the first airborne sample at or beyond the stall angle, the aircraft
+	// may be out of control (a crash's tumble), so the G-force and vertical
+	// wind no longer show the air it flew through.
+	bool stalled = false;
 	for (int i = from; i <= to; ++i) {
 		const ProfilePoint p = builder.at(i);
 		const TripSamplePoint& sample = builder.sample(i);
@@ -303,6 +372,8 @@ SegmentWeather segmentWeather(const ProfileBuilder& builder, int from, int to) {
 			++antiIceKnown;
 			antiIceOn += antiIce == 1;
 		}
+		if (stalled)
+			continue;
 		keepLowest(w.verticalWindMinFpm, sample.rawNum(TRIP_NUM_ambient_wind_y));
 		keepHighest(w.verticalWindMaxFpm, sample.rawNum(TRIP_NUM_ambient_wind_y));
 		if (!p.onGround) {
@@ -315,6 +386,9 @@ SegmentWeather segmentWeather(const ProfileBuilder& builder, int from, int to) {
 				w.stallMarginAlphaDeg = alpha;
 				w.stallMarginStallAlphaDeg = stallAlpha;
 				w.stallMarginHeightFt = p.heightFt;
+				w.stallMarginAirspeedKt = p.airspeed;
+				w.stallMarginBankDeg = p.bank;
+				stalled = margin <= 0;
 			}
 		}
 	}
@@ -353,10 +427,13 @@ SegmentWeather segmentWeather(const ProfileBuilder& builder, int from, int to) {
 }
 
 ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamples& s) {
+	// The last sample flown before the contact: the one before the on-ground
+	// sample, or a crash's airborne one (beforeReset) itself.
+	const int lastFlown = s.beforeReset ? s.ground : s.ground - 1;
 	// Scanning back from the contact, the first sample at or above a gate is
 	// its last crossing: an earlier descent (a go-around's) doesn't count.
 	auto lastAtOrAbove = [&](auto value, double gate) {
-		for (int i = s.ground - 1; i >= s.begin; --i)
+		for (int i = lastFlown; i >= s.begin; --i)
 			if (value(i) >= gate)
 				return i;
 		return -1;
@@ -368,17 +445,23 @@ ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamp
 			gates.push_back({ i, builder.at(i, feetGate(feet)) });
 	}
 	// Each distance gate's path angle is down to the next closer one, the
-	// closest's down to the contact (height 0, distance 0).
-	double nextHeight = 0, nextDistance = 0;
+	// closest's down to the contact (height 0), over the distance flown
+	// between them: the straight line would make a curved approach (a turn
+	// onto a short final) look steeper than it was. To the contact, that's
+	// through lastFlown (lastAtOrAbove() picks none later), then straight to
+	// it.
+	double nextHeight = 0;
+	int next = -1;  // the contact
 	for (int k = (int)std::size(kTouchdownDistanceGates) - 1; k >= 0; --k) {
 		const double nm = kTouchdownDistanceGates[k];
 		const int i = lastAtOrAbove([&](int j) { return builder.distance(j); }, nm);
 		if (i < 0)
 			continue;
 		ProfilePoint gate = builder.at(i, nmGate(nm));
-		gate.pathAngle = std::atan2(gate.heightFt - nextHeight, (gate.distanceNm - nextDistance) * kFeetPerNm) / DEG_2_RAD;
+		const double flown = next < 0 ? builder.flownNm(i, lastFlown) + builder.distance(lastFlown) : builder.flownNm(i, next);
+		gate.pathAngle = std::atan2(gate.heightFt - nextHeight, flown * kFeetPerNm) / DEG_2_RAD;
 		nextHeight = gate.heightFt;
-		nextDistance = gate.distanceNm;
+		next = i;
 		gates.push_back({ i, gate });
 	}
 	std::stable_sort(gates.begin(), gates.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
@@ -394,7 +477,10 @@ ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamp
 	while (from > (top >= 0 ? top : s.begin) && builder.distance(from - 1) <= kTerrainRangeNm)
 		--from;
 	profile.segment = segmentWeather(builder, from, s.ground);
-	builder.highestTerrain(profile, s.ground, s.begin);
+	// None when the window is empty: a bounce just before a crash, whose
+	// previous contact maps to the reset's sample, after this one's.
+	if (s.begin <= s.ground)
+		builder.highestTerrain(profile, s.ground, s.begin);
 	return profile;
 }
 
@@ -453,7 +539,7 @@ ContactConditions conditionsAt(const std::vector<TripSamplePoint>& points, const
 	// stays one range.
 	const double direction = p.rawNum(TRIP_NUM_ambient_wind_direction);
 	double lowOffset = 0, highOffset = 0;
-	for (int i = s.at; i >= 0; --i) {
+	for (int i = s.at; i >= s.runBegin; --i) {
 		if (i != s.at) {
 			const QDateTime time = parseZuluTime(points[i].zuluTime);
 			if (!time.isValid() || !s.time.isValid() || time.msecsTo(s.time) > kWindRangeSeconds * 1000)
@@ -476,8 +562,9 @@ ContactConditions conditionsAt(const std::vector<TripSamplePoint>& points, const
 // touchdown's value until the next one's, and can set it a sample after its
 // on-ground flag, so the touchdown's own sample may still hold the previous
 // value: the touchdown's is the first value, from its sample through the next
-// contact's, that differs from the sample's before it. NaN without a sample
-// before it, or when none differs.
+// contact's, that differs from the sample's before it. That can be the reset's
+// that ends its run (a crash's: the simulator sets it as it resets). NaN
+// without a sample before it, or when none differs.
 double touchdownRate(const std::vector<TripSamplePoint>& points, const ContactSamples& s) {
 	if (s.at == 0)
 		return std::nan("");
@@ -499,12 +586,24 @@ bool allTimesKnown(const ContactProfile& profile) {
 	return true;
 }
 
-// contact's samples in dataset; nullopt without any samples.
-std::optional<ContactSamples> contactSamples(const TripDataset& dataset, const RunwayContactPoint& contact, bool touchdown) {
+// contact's samples in dataset, whose resetIndices() are resets; nullopt
+// without any samples, or for a liftoff whose sample is a reset (a bounce's
+// just before a crash, between the last sample and the reset's: nothing of
+// it was recorded, and the reset's sample was never flown).
+std::optional<ContactSamples> contactSamples(const TripDataset& dataset, const std::vector<int>& resets,
+	const RunwayContactPoint& contact, bool touchdown) {
 	const std::vector<TripSamplePoint>& points = dataset.points;
-	const int at = sampleAtOrAfter(points, contact.zuluTime);
+	int at = sampleAtOrAfter(points, contact.zuluTime);
 	if (at < 0)
 		return std::nullopt;
+	// A touchdown whose sample at or after it is a reset (a crash the
+	// simulator reset before the next sample) is measured from the one before:
+	// the reset's was never flown.
+	const bool atReset = std::binary_search(resets.begin(), resets.end(), at);
+	if (atReset && !touchdown)
+		return std::nullopt;
+	if (atReset)
+		--at;
 	std::vector<QString> contactTimes;
 	for (const LiftoffPoint& p : dataset.liftoffPoints)
 		contactTimes.push_back(p.zuluTime);
@@ -515,12 +614,35 @@ std::optional<ContactSamples> contactSamples(const TripDataset& dataset, const R
 	// The neighboring contacts: strictly before and after this one's time.
 	const auto previous = std::lower_bound(contactTimes.begin(), contactTimes.end(), contact.zuluTime);
 	const auto next = std::upper_bound(contactTimes.begin(), contactTimes.end(), contact.zuluTime);
-	s.begin = previous == contactTimes.begin() ? 0 : sampleAtOrAfter(points, *(previous - 1));
-	s.end = next == contactTimes.end() ? (int)points.size() : sampleAtOrAfter(points, *next);
+	// The resets around at: the last at or before it (so at itself can be
+	// one), the first after it.
+	const auto resetAfter = std::upper_bound(resets.begin(), resets.end(), at);
+	s.runBegin = resetAfter == resets.begin() ? 0 : *(resetAfter - 1);
+	s.runEnd = resetAfter == resets.end() ? (int)points.size() : *resetAfter;
+	s.begin = (std::max)(s.runBegin, previous == contactTimes.begin() ? 0 : sampleAtOrAfter(points, *(previous - 1)));
+	s.end = (std::min)(s.runEnd, next == contactTimes.end() ? (int)points.size() : sampleAtOrAfter(points, *next));
 	s.at = at;
+	s.beforeReset = atReset;
 	s.ground = !touchdown && at > s.begin ? at - 1 : at;
 	s.time = parseZuluTime(contact.zuluTime);
+	if (next != contactTimes.end())
+		s.nextContact = parseZuluTime(*next);
 	return s;
+}
+
+// Whether the touchdown s is was a crash: the simulator reset the flight
+// (s.runEnd, a reset) within kCrashResetSeconds after it, with no other
+// contact at or before the reset (s.nextContact, whether at a sample before
+// it or a bounce between the last sample and it; a touchdown at the reset's
+// sample is one before it, contactSamples()). False when the touchdown's time
+// can't be read (a reset's always can, resetIndices()).
+bool crashed(const std::vector<TripSamplePoint>& points, const ContactSamples& s) {
+	if (s.runEnd >= (int)points.size() || !s.time.isValid())
+		return false;
+	const QDateTime reset = parseZuluTime(points[s.runEnd].zuluTime);
+	if (s.nextContact.isValid() && s.nextContact <= reset)
+		return false;
+	return s.time.msecsTo(reset) <= kCrashResetSeconds * 1000;
 }
 
 }
@@ -592,19 +714,38 @@ QString precipitationName(double mask) {
 }
 
 void analyzeContacts(TripDataset& dataset) {
+	const std::vector<int> resets = resetIndices(dataset.points);
+	// A liftoff at a reset is the simulator moving the aircraft into the air
+	// (its reset after a crash), not a takeoff; dropped before any contact's
+	// window is measured against it. One with a touchdown after it, at or
+	// before the reset (a bounce just before a crash; contactSamples() takes a
+	// touchdown at the reset's sample as the one before it), was flown, and is
+	// kept.
+	std::vector<LiftoffPoint>& liftoffs = dataset.liftoffPoints;
+	liftoffs.erase(std::remove_if(liftoffs.begin(), liftoffs.end(), [&](const LiftoffPoint& p) {
+		const int at = sampleAtOrAfter(dataset.points, p.zuluTime);
+		if (!std::binary_search(resets.begin(), resets.end(), at))
+			return false;
+		const QDateTime liftoff = parseZuluTime(p.zuluTime), reset = parseZuluTime(dataset.points[at].zuluTime);
+		return std::none_of(dataset.touchdowns.begin(), dataset.touchdowns.end(), [&](const TouchdownPoint& t) {
+			const QDateTime touchdown = parseZuluTime(t.zuluTime);
+			return touchdown > liftoff && touchdown <= reset;
+		});
+	}), liftoffs.end());
 	for (LiftoffPoint& p : dataset.liftoffPoints)
-		if (const std::optional<ContactSamples> s = contactSamples(dataset, p, false))
+		if (const std::optional<ContactSamples> s = contactSamples(dataset, resets, p, false))
 			p.conditions = conditionsAt(dataset.points, p, *s);
 	for (TouchdownPoint& p : dataset.touchdowns) {
-		if (const std::optional<ContactSamples> s = contactSamples(dataset, p, true)) {
+		if (const std::optional<ContactSamples> s = contactSamples(dataset, resets, p, true)) {
 			p.conditions = conditionsAt(dataset.points, p, *s);
 			p.touchdownRate = touchdownRate(dataset.points, *s);
+			p.crashed = crashed(dataset.points, *s);
 		}
 	}
 }
 
 std::optional<ContactProfile> contactProfile(const TripDataset& dataset, const RunwayContactPoint& contact, bool touchdown) {
-	const std::optional<ContactSamples> s = contactSamples(dataset, contact, touchdown);
+	const std::optional<ContactSamples> s = contactSamples(dataset, resetIndices(dataset.points), contact, touchdown);
 	if (!s)
 		return std::nullopt;
 	const ProfileBuilder builder(dataset.points, contact, *s, touchdown);

@@ -29,6 +29,10 @@
 // no trajectory, and the prompt covers the contact alone.
 // JS calls copyText() to put text (an analysis prompt, copyPrompt() in
 // map.html) on the system clipboard.
+// JS calls saveAiModel() when the AI analysis popup's model drop-down or its
+// Other model name changes, to keep both in settings.ini for the next time
+// (AppSettings::aiModel()/aiCustomModel()); saveAiProgressEvaluation() when
+// its progress-evaluation checkbox changes (AppSettings::aiProgressEvaluation()).
 // JS calls overviewSegmentClicked() when the user clicks a trip's
 // departure-destination line on the overview map, re-emitted as
 // overviewTripClicked() so MapWidget/TrajectoryView can forward it up to
@@ -51,6 +55,8 @@ public slots:
 	QVariant liftoffProfile(int rowId) const;
 	QVariant touchdownProfile(int rowId) const;
 	void copyText(const QString& text);
+	void saveAiModel(const QString& model, const QString& customModel);
+	void saveAiProgressEvaluation(bool progress);
 
 signals:
 	void cursorIndexChanged(int index, int version);

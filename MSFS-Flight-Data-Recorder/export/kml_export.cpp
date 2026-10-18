@@ -234,7 +234,7 @@ QString buildTripKml(const TripDataset& dataset) {
 	if (!dataset.touchdowns.empty()) {
 		kml += QStringLiteral("<Folder><name>Touchdowns</name>\n");
 		for (const TouchdownPoint& t : dataset.touchdowns)
-			appendPointPlacemark(kml, QStringLiteral("Touchdown"), QStringLiteral("#touchdownStyle"),
+			appendPointPlacemark(kml, t.crashed ? QStringLiteral("Crash") : QStringLiteral("Touchdown"), QStringLiteral("#touchdownStyle"),
 				t.zuluTime, runwayContactDescription(t,
 					(std::isnan(t.touchdownRate) ? QString()
 						: descRow(QStringLiteral("Touchdown rate"), QStringLiteral("%1 ft/min").arg(qRound(t.touchdownRate))))
