@@ -435,8 +435,9 @@ private slots:
 	// (0.15 s) and touchdown (0.3 s, or at the reset's 0.5 s, still before
 	// it) before the reset, so only the second is a crash, and the bounce's liftoff, which maps to the reset's sample, is
 	// kept, without conditions or trajectory: nothing of it was recorded.
-	// The second touchdown has no highest terrain, not the ground under the
-	// reset's sample (here 1000 ft above the field).
+	// The second touchdown's highest terrain is the samples' before the reset
+	// (0 ft), not the ground under the reset's sample (here 1000 ft above the
+	// field).
 	void aBounceJustBeforeACrashIsNoCrash() {
 		for (double bounceTouchdown : { 0.3, 0.5 }) {
 			TripDataset dataset = touchdownAfter({ 20, 10, 0 });
@@ -455,7 +456,7 @@ private slots:
 			QVERIFY(!contactProfile(dataset, dataset.liftoffPoints[0], false));
 			const std::optional<ContactProfile> crash = contactProfile(dataset, dataset.touchdowns[1], true);
 			QVERIFY(crash);
-			QVERIFY(std::isnan(crash->highestTerrainFt));
+			QCOMPARE(crash->highestTerrainFt, 0.0);  // the samples' before the reset, not the reset's +1000 ft
 		}
 	}
 
@@ -512,27 +513,36 @@ private slots:
 
 	// A crash soon after a liftoff: its climb-out's gates stop at the reset
 	// (1500 ft up within 1 s, at 1200 ft/min), so the reset's height isn't
-	// taken for a climb through 100-1000 ft.
+	// taken for a climb through 100-1000 ft; nor is the ground under it (+1000
+	// ft, 1 nm out) for the climb-out's terrain, whose search reached 0.2 nm.
 	void aResetEndsTheLiftoffsClimbOut() {
 		TripDataset dataset;
-		dataset.points = { sample(-1, 1000, 0), sample(0, 1020, 20), sample(1, 1040, 40), sample(2, 2540, 1540) };
+		dataset.points = { sample(-1, 1000, 0), sample(0, 1020, 20, 0.1), sample(1, 1040, 40, 0.2),
+			sample(2, 2540, 540, 1.0) };
 		for (TripSamplePoint& p : dataset.points)
 			p.rawNums[TRIP_NUM_velocity_world_y] = 1200;
 		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0) };
 		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
 		QVERIFY(profile);
 		QCOMPARE(gateNames(*profile), QStringList({ "35 ft" }));
+		QCOMPARE(profile->highestTerrainFt, 0.0);
+		QVERIFY(qAbs(profile->terrainRangeNm - 0.2) < 0.01);
 	}
 
 	// A reset before a touchdown (a teleport onto the final) starts its
-	// window: no gate, series or wind before it. At 600 ft/min (10 ft/s) 1 s
-	// apart, dropping 600 ft is one.
+	// window: no gate, series, wind or terrain before it (+400 ft, 1 nm out),
+	// the terrain search reaching only the reset's sample 0.5 nm out. At 600
+	// ft/min (10 ft/s) 1 s apart, dropping 600 ft is one.
 	void aResetStartsTheTouchdownsSamples() {
 		TripDataset dataset = touchdownAfter({ 900, 300, 200, 100, 0 });
-		for (TripSamplePoint& p : dataset.points) {
+		const double nm[] = { 1.0, 0.5, 0.3, 0.1, 0 };
+		for (size_t i = 0; i < dataset.points.size(); ++i) {
+			TripSamplePoint& p = dataset.points[i];
+			p.latitude = nm[i] / 60;
 			p.rawNums[TRIP_NUM_velocity_world_y] = -600;
 			p.rawNums[TRIP_NUM_ambient_wind_velocity] = 10;
 		}
+		dataset.points[0].rawNums[TRIP_NUM_plane_alt_above_ground] = 500;  // ground +400 ft
 		dataset.points[0].rawNums[TRIP_NUM_ambient_wind_velocity] = 40;
 		analyzeContacts(dataset);
 		QCOMPARE(dataset.touchdowns[0].conditions.windMaxKt, 10.0);
@@ -540,6 +550,8 @@ private slots:
 		QVERIFY(profile);
 		QCOMPARE(gateNames(*profile), QStringList({ "300 ft", "200 ft", "100 ft", "50 ft" }));
 		QCOMPARE(profile->series.front().seconds, -3.0);
+		QCOMPARE(profile->highestTerrainFt, 0.0);
+		QVERIFY(qAbs(profile->terrainRangeNm - 0.5) < 0.01);
 	}
 
 	// A move is a reset only past twice what the faster of the two samples'
@@ -656,9 +668,10 @@ private slots:
 		}
 	}
 
-	// A touchdown's gates and terrain start at the previous contact (a
-	// touch-and-go's liftoff), so the circuit before it doesn't count; its
-	// series still covers the 15 s before it, the liftoff included.
+	// A touchdown's gates start at the previous contact (a touch-and-go's
+	// liftoff), so the circuit before it doesn't count; its series still
+	// covers the 15 s before it, the liftoff included, and its terrain search
+	// the ground before the liftoff.
 	void touchdownWindowStartsAtThePreviousContact() {
 		TripDataset dataset = touchdownAfter({ 600, 0, 300, 100, 40, 0 });
 		dataset.points[0].rawNums[TRIP_NUM_plane_alt_above_ground] = 100;  // ground +500 ft, before the liftoff
@@ -672,7 +685,7 @@ private slots:
 		QCOMPARE(profile->series.front().seconds, -5.0);
 		QCOMPARE(profile->series.front().heightFt, 600.0);
 		QCOMPARE(profile->series.back().seconds, 0.0);
-		QCOMPARE(profile->highestTerrainFt, 100.0);
+		QCOMPARE(profile->highestTerrainFt, 500.0);
 	}
 
 	// A liftoff's gates are each height's first crossing after it, measured
@@ -724,8 +737,9 @@ private slots:
 	}
 
 	// A liftoff's gates end at the next contact in time, though the trip
-	// lists its liftoffs before its touchdowns; so does its terrain. Its
-	// series runs on through the 10 s after it: the touchdown and the rest.
+	// lists its liftoffs before its touchdowns. Its series runs on through the
+	// 10 s after it, the touchdown and the rest, and its terrain search over
+	// the ground after the touchdown.
 	void liftoffWindowEndsAtTheNextContact() {
 		TripDataset dataset;
 		const double heights[] = { 0, 60, 0, 150, 0 };
@@ -742,7 +756,7 @@ private slots:
 		QCOMPARE(profile->series.size(), size_t(5));
 		QCOMPARE(profile->series.back().seconds, 3.5);
 		QCOMPARE(profile->series.back().heightFt, 0.0);
-		QCOMPARE(profile->highestTerrainFt, 20.0);
+		QCOMPARE(profile->highestTerrainFt, 100.0);
 	}
 
 	// A touch-and-go's liftoff series reaches back past its touchdown, less
@@ -779,8 +793,8 @@ private slots:
 
 	// A bounce whose touchdown, liftoff and next touchdown all fall between
 	// two samples: the liftoff's gate window is just the sample after them,
-	// so it has no gates and no climb-out to find terrain under; its series
-	// still has every sample of its 10 s each side, measured from that one.
+	// so it has no gates; its series still has every sample of its 10 s each
+	// side, measured from that one, and its terrain search the samples after.
 	void bounceWithinOneSampleHasNoGates() {
 		TripDataset dataset;
 		const double heights[] = { 40, 5, 3, 0 };
@@ -796,7 +810,7 @@ private slots:
 		QCOMPARE(profile->series.front().seconds, -1.6);
 		QCOMPARE(profile->series.front().heightFt, 37.0);
 		QCOMPARE(profile->series.back().seconds, 1.4);
-		QVERIFY(std::isnan(profile->highestTerrainFt));
+		QCOMPARE(profile->highestTerrainFt, 0.0);
 	}
 
 	// A bounce like trip 25's (a jet airborne again for 3.5 s, samples 0.5 s
@@ -1090,6 +1104,7 @@ private slots:
 
 		QCOMPARE(profile->highestTerrainFt, 300.0);
 		QVERIFY(qAbs(profile->highestTerrainNm - 1.0) < 0.01);
+		QVERIFY(qAbs(profile->terrainRangeNm - 1.5) < 0.01);  // the trip ends 1.5 nm out
 	}
 
 	// Highest terrain is searched only within 5 nm of the contact, stopping
@@ -1107,6 +1122,44 @@ private slots:
 
 		QCOMPARE(profile->highestTerrainFt, 200.0);
 		QVERIFY(qAbs(profile->highestTerrainNm - 4.9) < 0.01);
+		QVERIFY(std::isnan(profile->terrainRangeNm));  // the search covered the 5 nm
+	}
+
+	// A touchdown right after a bounce searches its terrain back past the
+	// bounce's liftoff: the +600 ft hill 1.75 nm out, before the liftoff, is
+	// counted, and the search says it reached only that far, the trip's start.
+	void highestTerrainReachesPastThePreviousContact() {
+		TripDataset dataset;
+		// Field at 100 ft; the bounce's liftoff at -1.5 s, 0.01 nm before the touchdown.
+		dataset.points = { sample(-4, 1100, 400, 1.75), sample(-2, 104, 0, 0.02), sample(-1, 103, 3, 0.01),
+			sample(0, 100, 0) };
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(-1.5) };
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+
+		QCOMPARE(profile->highestTerrainFt, 600.0);
+		QVERIFY(qAbs(profile->highestTerrainNm - 1.75) < 0.01);
+		QVERIFY(qAbs(profile->terrainRangeNm - 1.75) < 0.01);
+	}
+
+	// A touch-and-go circuit's touchdown searches back to the trip's first
+	// sample, the circuit's liftoff 0.3 nm away, but the circuit flew 2 nm
+	// out: the reach is the farthest sample, so it covers the +150 ft hill
+	// found 1.5 nm out.
+	void highestTerrainReachIsTheCircuitsFarthestSample() {
+		TripDataset dataset;
+		// Field at 100 ft; out to 2 nm and back, the ground +150 ft at 1.5 nm.
+		dataset.points = { sample(-5, 100, 0, 0.3), sample(-4, 600, 500, 1.0), sample(-3, 1100, 1000, 2.0),
+			sample(-2, 800, 550, 1.5), sample(-1, 400, 300, 0.5), sample(0, 100, 0) };
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(-5) };
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+
+		QCOMPARE(profile->highestTerrainFt, 150.0);
+		QVERIFY(qAbs(profile->highestTerrainNm - 1.5) < 0.01);
+		QVERIFY(qAbs(profile->terrainRangeNm - 2.0) < 0.01);
 	}
 
 	// On an exact 3-degree path (318.4 ft per nm) to the touchdown point, each

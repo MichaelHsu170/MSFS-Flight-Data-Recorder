@@ -225,10 +225,10 @@ struct SegmentWeather {
 
 // A liftoff's/touchdown's final trajectory (contactProfile() in
 // contact_analysis.h, built when its AI analysis asks for it): the approach,
-// touchdown and rollout around a touchdown, the rotation and climb-out
-// around a liftoff. The gates and terrain never reach past the trip's
-// previous or next contact; the series covers fixed seconds around the
-// contact, whatever happened in them (a bounce, a go-around).
+// touchdown and rollout around a touchdown, the liftoff and climb-out
+// around a liftoff. The gates never reach past the trip's previous or next
+// contact; the series covers fixed seconds around the contact, whatever
+// happened in them (a bounce, a go-around), and the highest terrain its 5 nm.
 struct ContactProfile {
 	std::vector<ProfilePoint> gates;   // in time order
 	std::vector<ProfilePoint> series;  // every sample near the contact (capped), in time order
@@ -242,9 +242,13 @@ struct ContactProfile {
 	QString powerUnit;
 	// The highest ground (relative to the ground at the contact) under the
 	// last 5 nm of the approach / the first 5 nm of the climb-out, and its
-	// distance from the contact; NaN without samples there.
+	// distance from the contact; NaN without samples there. terrainRangeNm is
+	// the farthest from the contact the search reached when the samples ended
+	// within those 5 nm, at a reset or the trip's start or end; NaN when it
+	// covered them.
 	double highestTerrainFt = std::nan("");
 	double highestTerrainNm = std::nan("");
+	double terrainRangeNm = std::nan("");
 	// Whether the points' verticalSpeed is the indicated one: the contact's
 	// sample didn't record the actual one (TripSamplePoint::hasActualVerticalSpeed()).
 	bool indicatedVerticalSpeed = false;

@@ -175,6 +175,7 @@ QJsonObject mapProfileJson(const ContactProfile& profile) {
 		obj["segment"] = segmentWeatherToJson(profile.segment);
 	setKnown(obj, "highestTerrainFt", profile.highestTerrainFt);
 	setKnown(obj, "highestTerrainNm", profile.highestTerrainNm);
+	setKnown(obj, "terrainRangeNm", profile.terrainRangeNm);
 	setKnown(obj, "powerName", profile.powerName);
 	setKnown(obj, "powerUnit", profile.powerUnit);
 	obj["indicatedVerticalSpeed"] = profile.indicatedVerticalSpeed;

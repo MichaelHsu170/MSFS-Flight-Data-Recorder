@@ -346,6 +346,7 @@ private slots:
 		contactProfile.powerName = QStringLiteral("N1");
 		contactProfile.powerUnit = QStringLiteral("%");
 		contactProfile.highestTerrainNm = 3.5;
+		contactProfile.terrainRangeNm = 4.25;
 		const QJsonObject profile = mapProfileJson(contactProfile);
 		QCOMPARE(profile["gates"].toArray().at(0).toObject(), (QJsonObject{ { "gate", "2 nm" }, { "seconds", -40 },
 			{ "heightFt", 640 }, { "distanceNm", 2 }, { "terrainFt", 30 }, { "airspeed", 135 }, { "verticalSpeed", -720 },
@@ -365,6 +366,7 @@ private slots:
 		QCOMPARE(profile["powerUnit"].toString(), QStringLiteral("%"));
 		QCOMPARE(profile["highestTerrainFt"].toDouble(), 420.0);
 		QCOMPARE(profile["highestTerrainNm"].toDouble(), 3.5);
+		QCOMPARE(profile["terrainRangeNm"].toDouble(), 4.25);
 	}
 
 	// The runway end's stored data is sent when known; the start and exact

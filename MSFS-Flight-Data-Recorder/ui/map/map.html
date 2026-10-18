@@ -675,9 +675,12 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
     }
     lines = lines.concat(segmentPromptLines(profile.segment, segmentTitle));
     // Highest at or below the point (rounded) is the point itself, so its
-    // distance says nothing.
+    // distance says nothing. A search that ended short of 5 nm says how far
+    // it reached, so "none" isn't read as covering terrain it never saw; one
+    // reading 5.00 nm is the full range.
+    var reach = hasValue(profile, 'terrainRangeNm') ? profile.terrainRangeNm.toFixed(2) : '5.00';
     if (hasValue(profile, 'highestTerrainFt'))
-        lines.push('  Highest terrain within 5 nm ' + terrainSpan + ': ' + (roundHalfAwayFromZero(profile.highestTerrainFt) <= 0 ? 'none above the ' + pointName
+        lines.push('  Highest terrain within ' + (reach !== '5.00' ? reach : '5') + ' nm ' + terrainSpan + ': ' + (roundHalfAwayFromZero(profile.highestTerrainFt) <= 0 ? 'none above the ' + pointName
             : signedFeetText(profile.highestTerrainFt) + ', ' + profile.highestTerrainNm.toFixed(2) + ' nm from the ' + pointName + (profile.highestTerrainFt > 500 ? ' (more than 500 ft above it)' : '')));
     return lines;
 }
@@ -803,7 +806,7 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, c
 function buildLiftoffPrompt(t, contactOnly) {
     var aircraft = window._aircraftTitle || '';
     var lines = startAnalysisPrompt('You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.',
-        contactOnly ? null : 'Rotation and climb-out', 'the rotation and initial climb: pitch, speed, bank and track through the gates; judge the crab after the liftoff against the crosswind, the rotation and climb speed against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall',
+        contactOnly ? null : 'Liftoff and climb-out', 'what the samples show this liftoff to be (a takeoff, a touch-and-go or a bounce), then for a takeoff or touch-and-go the rotation and initial climb: pitch, speed, bank and track through the gates; judge the crab after the liftoff against the crosswind, the rotation and climb speed against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall; for a bounce, judge it as part of the landing',
         'how the conditions, airport, runway and terrain affected this liftoff',
         'Liftoff data:', t, aircraft);
     // Deliberately no vertical-speed line here, unlike buildTouchdownPrompt()
@@ -820,11 +823,11 @@ function buildLiftoffPrompt(t, contactOnly) {
     lines.push('  Bank: ' + fixedText(t.bankDegrees, 1) + '°');
     var runway = runwayConsiderItems(t, contactOnly, 'use of available runway length');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold at liftoff', 'runway',
-        contactOnly ? null : profilePromptLines(t, 'Takeoff trajectory', 'Rotation and climb-out', 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff', 'runway start',
+        contactOnly ? null : profilePromptLines(t, 'Liftoff trajectory', 'Liftoff and climb-out', 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff', 'runway start',
             'Climb-out weather and ride (from the liftoff up to the first crossing of 1000 ft above the liftoff point, or to the next contact or 5 nm from the liftoff point if sooner)'),
         // Without a matched runway, nothing that needs one.
-        considerPromptLine((t.runway ? runway.crosswind.concat(['centerline tracking during the takeoff roll', runway.placement], runway.slope) : [])
-            .concat(contactOnly ? [] : ['rotation and climb-out attitude and speed', 'density altitude',
+        considerPromptLine((t.runway ? runway.crosswind.concat(['centerline tracking before the liftoff', runway.placement], runway.slope) : [])
+            .concat(contactOnly ? [] : ['liftoff and climb-out attitude and speed', 'density altitude',
                 (t.runway ? 'runway ' : '') + 'surface condition', 'gusts', 'wind shear', 'turbulence', 'cloud and icing',
                 'light and visibility', 'terrain after the ' + (t.runway ? 'runway' : 'liftoff point')]), aircraft),
         'liftoff');

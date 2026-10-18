@@ -207,7 +207,7 @@ The prompt sends the popup's values, every heading in true, including the runway
 
 - **Conditions**: time, the sun's elevation and the light (day, civil/nautical/astronomical twilight, night; computed from the position and time, since at high latitude the same clock time can be midnight sun or polar night), position and magnetic variation, ground elevation, outside air temperature, altimeter setting, station pressure and the actual sea-level pressure (so a wrong altimeter setting shows), pressure and density altitude, visibility, whether the aircraft was in cloud, precipitation and its rate, the wind's range over the 30 s before, and the surface type and condition. Sea-level pressure, cloud and precipitation are recorded only from the version that added them, so older trips don't have them.
 - **Runway**, when one was matched: its length, width, displaced threshold at the end used and slope (uphill or downhill in the direction of travel), and the runway remaining ahead of the touchdown or liftoff in ft and % of its length. These come from the simulator's facility data when the contact is recorded, so liftoffs and touchdowns recorded before this feature don't have them.
-- **Final trajectory** (for a liftoff, called the takeoff trajectory):
+- **Final trajectory** (for a liftoff, called the liftoff trajectory):
   - **Gates**: the last crossing before a touchdown of 1000, 500, 300, 200, 100 and 50 ft and of 3, 2 and 1 nm, each distance gate with its path angle (to the next closer gate, over the distance flown, so a curved approach doesn't read as steep); or the first crossing after a liftoff of 35, 100, 200, 500 and 1000 ft. A gate that wasn't crossed is left out.
   - **Samples**: every sample from 15 s before to 10 s after a touchdown, or from 10 s before to 10 s after a liftoff, at most 58 (evenly thinned when there are more).
   - Each gate and sample also says whether the simulator has the aircraft on the ground or airborne, and, per engine, the throttle lever position as the aircraft reports it (negative in the reverse range) and its power: N1 (%) for a jet, torque (%) for a turboprop or helicopter turbine, and manifold pressure (inHg) for a piston, which shows its power whether the propeller is fixed-pitch or constant-speed (where the governor holds the RPM). Another engine type gets the throttle only. With these the model can tell a bounce (the throttle at idle) from a touch-and-go or go-around (the throttle forward).
@@ -223,10 +223,10 @@ The prompt sends the popup's values, every heading in true, including the runway
     - The model is told to judge the crab (and a touchdown's decrab) against the crosswind, the speed additive or rotation and climb speed against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall.
     - Cloud and precipitation are recorded only from the version that added them, and structural ice, vertical wind and angle of attack only from this version onward, so older trips leave those out.
     - Also recorded from this version, but not yet in the prompt until a flight shows how the simulator reports them: the wind's X/Z components (to check whether AMBIENT WIND VELOCITY includes the vertical wind, as a 2023 developer report says), the sideslip (INCIDENCE BETA), and MAX/MIN G FORCE (the simulator's peak G, whose reset behavior the SDK doesn't document).
-  - **Highest terrain** under the 5 nm before the touchdown or after the liftoff, or that there's none above the touchdown or liftoff point.
+  - **Highest terrain** under the 5 nm before the touchdown or after the liftoff, or that there's none above the touchdown or liftoff point. It's searched in all the recorded samples, past the previous or next liftoff/touchdown too. When the recording doesn't cover those 5 nm (it starts or ends within them, or the simulator was reset), the line gives how far the search reached instead, so "none above" isn't read as covering terrain no sample was recorded over.
   - With the runway data, each gate and sample also gives its distance along the runway from the marked threshold (touchdown) or the runway start (liftoff), negative before it, and its distance right or left of the extended centerline.
   - **Heights are measured from the touchdown or liftoff point, not radio height.** Radio height follows the terrain under the aircraft (a valley, cliff or the sea before the runway), so each point also gives the terrain below it.
-  - The gates and highest terrain stop at the trip's previous or next liftoff/touchdown, so a touch-and-go's circuit isn't counted twice. The samples don't: they cover their fixed seconds whatever happened in them, so a bounce, go-around or touch-and-go shows in them for the model to judge. Each touchdown of a bounced landing gets its own trajectory.
+  - The gates stop at the trip's previous or next liftoff/touchdown, so a touch-and-go's circuit isn't counted twice. The samples don't: they cover their fixed seconds whatever happened in them, so a bounce, go-around or touch-and-go shows in them for the model to judge. Each touchdown of a bounced landing gets its own trajectory.
   - **Nothing reaches past a reset**: a sample further from the one before it, up, down or across, than twice the faster of the two samples' vertical or ground speeds over the time between them, plus 100 ft. That's the simulator's reset after a crash (which can't be turned off), or a teleport or slew. A move while the simulator's clock is set back (the time not moving forward) isn't judged one. What follows one was never flown, so the gates, samples, highest terrain, weather and ride, the 30 s wind range and the touchdown rate all stop at it. A bounce between the last sample and a crash's reset has nothing recorded before the reset, so its liftoff has no conditions or trajectory.
   - **When it can't be built**, because the trip has no samples, or a time in its window (the contact's or a sample's) can't be read, the analysis covers the liftoff or touchdown itself only. The prompt tells the model so, and a notice under the button tells you.
 
@@ -245,7 +245,10 @@ Strengths:  • …
 Areas to improve:  • …
 Final segment:  • stability at the gates, and the flare, decrab, touchdown and
                   rollout, including any bounce (a landing's), or
-Rotation and climb-out:  • the rotation and initial climb (a liftoff's)
+Liftoff and climb-out:  • what the samples show the liftoff to be (a takeoff,
+                          a touch-and-go or a bounce), then the rotation and
+                          initial climb, or a bounce as part of the landing
+                          (a liftoff's)
 Environment:  • how the conditions, airport, runway and terrain affected it
 ```
 

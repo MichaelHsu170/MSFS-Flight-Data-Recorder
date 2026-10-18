@@ -33,7 +33,7 @@ QString mapSetEventsJs(const std::vector<TripEvent>& events);
 QString mapSetEventsVisibleJs(bool visible);
 // A contact's final trajectory (contactProfile()) as the page's t.profile
 // for buildLiftoffPrompt()/buildTouchdownPrompt(): {gates, series, segment,
-// highestTerrainFt, highestTerrainNm, powerName, powerUnit,
+// highestTerrainFt, highestTerrainNm, terrainRangeNm, powerName, powerUnit,
 // indicatedVerticalSpeed}, each point's, the segment's and the terrain's
 // unrecorded values absent (a point's throttle/power array absent unless
 // one engine's is recorded, an unrecorded engine's null), and the segment

@@ -158,8 +158,9 @@ std::vector<int> resetIndices(const std::vector<TripSamplePoint>& points) {
 
 // The samples a contact is measured from: [runBegin, runEnd) are the ones
 // flown continuously into and out of it, between the resets around it
-// (resetIndices()), and every window below stays within them. [begin, end)
-// is its gates' and terrain's window (from the previous contact to the next),
+// (resetIndices()), and every window below stays within them; its highest
+// terrain is searched over them. [begin, end) is its gates' window (from the
+// previous contact to the next),
 // at is the sample at or after the contact (before it, for a touchdown whose
 // sample at or after it is a reset), and ground the on-ground sample
 // its heights are measured from (at for a touchdown; the last one before a
@@ -279,16 +280,23 @@ public:
 		return time.isValid() && samples_.time.isValid() ? samples_.time.msecsTo(time) / 1000.0 : std::nan("");
 	}
 	// The highest terrain among indices from..to (either order) within
-	// kTerrainRangeNm of the contact, stopping at the first sample beyond it.
+	// kTerrainRangeNm of the contact, stopping at the first sample beyond it;
+	// when to comes first, the farthest of its samples from the contact
+	// (terrainRangeNm): a circuit's reaches out farther than its end.
 	void highestTerrain(ContactProfile& profile, int from, int to) const {
 		const int step = to >= from ? 1 : -1;
-		for (int i = from; i != to + step && distance(i) <= kTerrainRangeNm; i += step) {
+		double reachedNm = 0;
+		int i = from;
+		for (; i != to + step && distance(i) <= kTerrainRangeNm; i += step) {
+			reachedNm = (std::max)(reachedNm, distance(i));
 			const double terrain = groundElevation(points_[i]) - groundElevation_;
 			if (!std::isnan(terrain) && (std::isnan(profile.highestTerrainFt) || terrain > profile.highestTerrainFt)) {
 				profile.highestTerrainFt = terrain;
 				profile.highestTerrainNm = distance(i);
 			}
 		}
+		if (i == to + step)
+			profile.terrainRangeNm = reachedNm;
 	}
 
 private:
@@ -477,10 +485,7 @@ ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamp
 	while (from > (top >= 0 ? top : s.begin) && builder.distance(from - 1) <= kTerrainRangeNm)
 		--from;
 	profile.segment = segmentWeather(builder, from, s.ground);
-	// None when the window is empty: a bounce just before a crash, whose
-	// previous contact maps to the reset's sample, after this one's.
-	if (s.begin <= s.ground)
-		builder.highestTerrain(profile, s.ground, s.begin);
+	builder.highestTerrain(profile, s.ground, s.runBegin);
 	return profile;
 }
 
@@ -499,8 +504,7 @@ ContactProfile liftoffProfile(const ProfileBuilder& builder, const ContactSample
 	while (top < s.end - 1 && !(builder.height(top) >= kSegmentTopFt) && builder.distance(top + 1) <= kTerrainRangeNm)
 		++top;
 	profile.segment = segmentWeather(builder, s.at, (std::min)(top, s.end - 1));
-	if (s.ground < s.end)
-		builder.highestTerrain(profile, s.ground, s.end - 1);
+	builder.highestTerrain(profile, s.ground, s.runEnd - 1);
 	return profile;
 }
 

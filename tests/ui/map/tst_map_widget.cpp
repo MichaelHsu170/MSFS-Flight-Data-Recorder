@@ -1021,7 +1021,7 @@ private slots:
 			+ head + QStringList{ QStringLiteral("Liftoff data:") } + where + QStringList{ QStringLiteral("  Bank: -1.4°") } + heading
 			+ QStringList{ QStringLiteral("  Distance from threshold at liftoff") + offsets.arg(QStringLiteral("runway")), centerline, QString(),
 				QStringLiteral("Consider: crosswind component (calculate from the true wind vs the true runway heading), "
-					"centerline tracking during the takeoff roll, use of available runway length."), rule };
+					"centerline tracking before the liftoff, use of available runway length."), rule };
 		const QStringList touchdown = QStringList{ QStringLiteral(
 			"You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 landing.") }
 			+ head + QStringList{ QStringLiteral("Landing data:") } + where + QStringList{
@@ -1147,6 +1147,21 @@ private slots:
 				])js")), QStringList());
 	}
 
+	// A terrain search that ended short of 5 nm (at a reset, or the trip's
+	// start or end) says how far it reached, so "none above" isn't read as
+	// covering terrain it never saw. One that reads 5.00 nm is the full range,
+	// not a shorter one.
+	void touchdownPromptSaysHowFarTheTerrainSearchReached() {
+		QCOMPARE(touchdownPromptLacks(QStringLiteral(
+			"t.profile.highestTerrainFt = -3; t.profile.highestTerrainNm = 0; t.profile.terrainRangeNm = 0.014;"), QStringLiteral(R"js([
+				'  Highest terrain within 0.01 nm before the touchdown: none above the touchdown point'
+			])js")), QStringList());
+		QCOMPARE(touchdownPromptLacks(QStringLiteral(
+			"t.profile.highestTerrainFt = -3; t.profile.highestTerrainNm = 0; t.profile.terrainRangeNm = 4.997;"), QStringLiteral(R"js([
+				'  Highest terrain within 5 nm before the touchdown: none above the touchdown point'
+			])js")), QStringList());
+	}
+
 	// Without the runway's heading (a contact off a matched runway), a gate's
 	// wind has no headwind/crosswind components.
 	void gateWindWithoutRunwayHasNoComponents() {
@@ -1216,17 +1231,34 @@ private slots:
 		const QString js = QStringLiteral(
 			"(function () { var t = %1;"
 			"  return [buildLiftoffPrompt(t), buildTouchdownPrompt(t)].map(function (p) {"
-			"    return p.split('\\n').filter(function (l) { return /^• \\[(the rotation|stability)|^Consider:/.test(l); })"
+			"    return p.split('\\n').filter(function (l) { return /^• \\[(what the samples show|stability)|^Consider:/.test(l); })"
 			"      .map(function (l) { return /against the crosswind.*against the gusts.*against the wind shear, vertical wind and turbulence, and the margin to the stall/.test(l)"
 			"        || /gusts, wind shear, turbulence, cloud and icing,/.test(l); }).join(); }).join('|'); })()")
 			.arg(fullContactJs());
 		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral("true,true|true,true"));
 	}
 
+	// The liftoff prompt doesn't say what kind of liftoff it was: its segment
+	// section has the model tell a takeoff, a touch-and-go and a bounce apart
+	// from the samples, judge the first two's rotation and climb, and a
+	// bounce as part of the landing.
+	void liftoffPromptHasTheModelSayWhatTheLiftoffWas() {
+		const QString js = QStringLiteral(
+			"(function () { return buildLiftoffPrompt(%1).split('\\n')"
+			"  .filter(function (l) { return /^• \\[what the samples show/.test(l); }).join('\\n'); })()")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral(
+			"• [what the samples show this liftoff to be (a takeoff, a touch-and-go or a bounce), then for a takeoff or "
+			"touch-and-go the rotation and initial climb: pitch, speed, bank and track through the gates; judge the crab "
+			"after the liftoff against the crosswind, the rotation and climb speed against the gusts, any excursion against "
+			"the wind shear, vertical wind and turbulence, and the margin to the stall; for a bounce, judge it as part of "
+			"the landing]"));
+	}
+
 	// Before the data, each prompt asks for its answer's sections, ending in
-	// its trajectory's segment (a liftoff's "Rotation and climb-out", a
+	// its trajectory's segment (a liftoff's "Liftoff and climb-out", a
 	// touchdown's "Final segment") and "Environment"; each names its own
-	// trajectory, and the liftoff's spans the rotation and climb-out.
+	// trajectory, and the liftoff's spans the liftoff and climb-out.
 	void analysisPromptsAskForTheirSegmentAndEnvironment() {
 		const QString js = QStringLiteral(
 			"(function () { var t = %1;"
@@ -1235,11 +1267,11 @@ private slots:
 			"    return lines.filter(function (l, i) { return /:$/.test(l) && /^• \\[/.test(lines[i + 1]); }).join()"
 			"      + ',' + /\\nAirport: from your general knowledge/.test(p); })"
 			"    .concat([buildLiftoffPrompt(t).indexOf('\\n  Samples, from 10 s before to 10 s after the liftoff:\\n') >= 0,"
-			"      buildLiftoffPrompt(t).indexOf('\\nTakeoff trajectory (seconds from the liftoff point;') >= 0,"
+			"      buildLiftoffPrompt(t).indexOf('\\nLiftoff trajectory (seconds from the liftoff point;') >= 0,"
 			"      buildTouchdownPrompt(t).indexOf('\\nFinal trajectory (seconds from the touchdown point;') >= 0]).join('|'); })()")
 			.arg(fullContactJs());
 		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral(
-			"Strengths:,Areas to improve:,Rotation and climb-out:,Environment:,true"
+			"Strengths:,Areas to improve:,Liftoff and climb-out:,Environment:,true"
 			"|Strengths:,Areas to improve:,Final segment:,Environment:,true|true|true|true"));
 	}
 
@@ -1354,10 +1386,10 @@ private slots:
 		const QString crosswind = QStringLiteral("crosswind component (calculate from the true wind vs the true runway heading), ");
 		const QString weather = QStringLiteral("gusts, wind shear, turbulence, cloud and icing, light and visibility, ");
 		QTest::newRow("runway") << QStringLiteral("window._aircraftTitle = 'Cessna C152';") << QStringList{
-			QStringLiteral("Consider: ") + crosswind + QStringLiteral("centerline tracking during the takeoff roll, use of available runway "
-				"length and the runway remaining, runway slope, rotation and climb-out attitude and speed, density altitude, runway surface "
+			QStringLiteral("Consider: ") + crosswind + QStringLiteral("centerline tracking before the liftoff, use of available runway "
+				"length and the runway remaining, runway slope, liftoff and climb-out attitude and speed, density altitude, runway surface "
 				"condition, ") + weather + QStringLiteral("terrain after the runway, aircraft-type-specific handling."),
-			QStringLiteral("Consider: ") + crosswind + QStringLiteral("centerline tracking during the takeoff roll, use of available runway "
+			QStringLiteral("Consider: ") + crosswind + QStringLiteral("centerline tracking before the liftoff, use of available runway "
 				"length, aircraft-type-specific handling."),
 			QStringLiteral("Consider: touchdown rate, vertical speed & G-force comfort, ") + crosswind + QStringLiteral("decrab at touchdown "
 				"(crab angle), centerline tracking, touchdown zone placement and the runway remaining, runway slope, stabilization at the "
@@ -1366,7 +1398,7 @@ private slots:
 			QStringLiteral("Consider: touchdown rate, vertical speed & G-force comfort, ") + crosswind + QStringLiteral("decrab at touchdown "
 				"(crab angle), centerline tracking, touchdown zone placement, aircraft-type-specific handling.") };
 		QTest::newRow("no runway") << QStringLiteral("t.runway = ''; window._aircraftTitle = 'Cessna C152';") << QStringList{
-			QStringLiteral("Consider: rotation and climb-out attitude and speed, density altitude, surface condition, ") + weather
+			QStringLiteral("Consider: liftoff and climb-out attitude and speed, density altitude, surface condition, ") + weather
 				+ QStringLiteral("terrain after the liftoff point, aircraft-type-specific handling."),
 			QStringLiteral("Consider: aircraft-type-specific handling."),
 			QStringLiteral("Consider: touchdown rate, vertical speed & G-force comfort, decrab at touchdown (crab angle), stabilization at "
@@ -1376,16 +1408,16 @@ private slots:
 				"aircraft-type-specific handling.") };
 		QTest::newRow("runway without its data") << QStringLiteral("t.runwayHeading = -1; delete t.runwayLengthFt; delete t.runwaySlope;"
 			" window._aircraftTitle = '';") << QStringList{
-			QStringLiteral("Consider: centerline tracking during the takeoff roll, use of available runway length, rotation and climb-out "
+			QStringLiteral("Consider: centerline tracking before the liftoff, use of available runway length, liftoff and climb-out "
 				"attitude and speed, density altitude, runway surface condition, ") + weather + QStringLiteral("terrain after the runway."),
-			QStringLiteral("Consider: centerline tracking during the takeoff roll, use of available runway length."),
+			QStringLiteral("Consider: centerline tracking before the liftoff, use of available runway length."),
 			QStringLiteral("Consider: touchdown rate, vertical speed & G-force comfort, decrab at touchdown (crab angle), centerline tracking, "
 				"touchdown zone placement, stabilization at the gates, flare technique, density altitude, runway surface condition, ") + weather
 				+ QStringLiteral("terrain before the runway."),
 			QStringLiteral("Consider: touchdown rate, vertical speed & G-force comfort, decrab at touchdown (crab angle), centerline tracking, "
 				"touchdown zone placement.") };
 		QTest::newRow("no runway or type") << QStringLiteral("t.runway = ''; window._aircraftTitle = '';") << QStringList{
-			QStringLiteral("Consider: rotation and climb-out attitude and speed, density altitude, surface condition, ") + weather
+			QStringLiteral("Consider: liftoff and climb-out attitude and speed, density altitude, surface condition, ") + weather
 				+ QStringLiteral("terrain after the liftoff point."),
 			QStringLiteral("none"),
 			QStringLiteral("Consider: touchdown rate, vertical speed & G-force comfort, decrab at touchdown (crab angle), stabilization at "
@@ -1470,11 +1502,11 @@ private slots:
 		const QString js = QStringLiteral(
 			"(function () { var t = %1; t.profile = null;"
 			"  return [buildLiftoffPrompt(t), buildTouchdownPrompt(t)].map(function (p) {"
-			"    return p.split('\\n').filter(function (l) { return /^(Takeoff|Final) trajectory/.test(l); }).join('/'); }).join('|'); })()")
+			"    return p.split('\\n').filter(function (l) { return /^(Liftoff|Final) trajectory/.test(l); }).join('/'); }).join('|'); })()")
 			.arg(fullContactJs());
 		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral(
-			"Takeoff trajectory: not available (it could not be built from the recorded samples). Judge the liftoff point from the data "
-			"above alone, and in the Rotation and climb-out section say that the trajectory was not available instead of describing it."
+			"Liftoff trajectory: not available (it could not be built from the recorded samples). Judge the liftoff point from the data "
+			"above alone, and in the Liftoff and climb-out section say that the trajectory was not available instead of describing it."
 			"|Final trajectory: not available (it could not be built from the recorded samples). Judge the touchdown point from the data "
 			"above alone, and in the Final segment section say that the trajectory was not available instead of describing it."));
 	}
@@ -1592,7 +1624,7 @@ private slots:
 			"  [['torque', '%', 123.456], ['manifold pressure', ' inHg', 99.4]].forEach(function (c) {"
 			"    power = c[2];"
 			"    t.profile = {gates: ['1000 ft', '500 ft', '300 ft', '200 ft', '100 ft', '50 ft', '3 nm', '2 nm', '1 nm'].map(point),"
-			"      series: [], highestTerrainFt: 12345.678, highestTerrainNm: 4.999, powerName: c[0], powerUnit: c[1],"
+			"      series: [], highestTerrainFt: 12345.678, highestTerrainNm: 4.999, terrainRangeNm: 4.994, powerName: c[0], powerUnit: c[1],"
 			"      segment: {samples: 999, windMinKt: 123.4, windMaxKt: 124.4, headwindFromKt: -123.4, headwindFromHeightFt: -1234.5,"
 			"        headwindToKt: -123.4, headwindToHeightFt: -1234.5, maxTailwindKt: 123.4, maxCrosswindKt: -123.4, cloudKnown: true,"
 			"        lowestInCloudFt: -1234.5, icingConditions: 1, maxStructuralIce: 1, maxPitotIce: 1, engineAntiIceShare: 1,"
@@ -1999,7 +2031,7 @@ private slots:
 	// the ones changed meanwhile (as from another contact's popup: contact,
 	// Other with no name yet), nor their problem, which it shows, still open,
 	// once the analysis is done (Analyze disabled for it). Its Copy Prompt copies the evaluation it shows (progress, with
-	// the rotation and climb-out section) while it runs.
+	// the liftoff and climb-out section) while it runs.
 	void reopeningAPopupMidAnalysisDoesNotRunItTwice() {
 		evalPageJs(widget_, QStringLiteral("window._geminiApiKey = 'test-key'")); // the popups are built with it
 		TripDataset dataset = tripToSave();
@@ -2059,7 +2091,7 @@ private slots:
 		)JS")).toString();
 		QCOMPARE(reopened, QStringLiteral("false,false,false|true,true,true|true|true|inline-block|1|true,true,true|true,gemma-4-31b-it,none,,"));
 		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("window._dup.copied !== undefined")).toBool());
-		QVERIFY(evalPageJs(widget_, QStringLiteral("window._dup.copied")).toString().contains(QStringLiteral("Rotation and climb-out:")));
+		QVERIFY(evalPageJs(widget_, QStringLiteral("window._dup.copied")).toString().contains(QStringLiteral("Liftoff and climb-out:")));
 
 		evalPageJs(widget_, QStringLiteral(R"JS(
 			var stream = %1, ai = window._dup;
@@ -2152,8 +2184,8 @@ private slots:
 		QTest::addColumn<bool>("timed");
 		QTest::addColumn<QString>("trajectoryLine");  // how the prompt's trajectory line starts
 		QTest::addColumn<bool>("notice");
-		QTest::newRow("built") << true << QStringLiteral("Takeoff trajectory (seconds from the liftoff point;") << false;
-		QTest::newRow("unavailable") << false << QStringLiteral("Takeoff trajectory: not available (") << true;
+		QTest::newRow("built") << true << QStringLiteral("Liftoff trajectory (seconds from the liftoff point;") << false;
+		QTest::newRow("unavailable") << false << QStringLiteral("Liftoff trajectory: not available (") << true;
 	}
 	void analyzeGetsTheTrajectoryFromTheTrip() {
 		QFETCH(bool, timed);
@@ -2189,7 +2221,7 @@ private slots:
 			var first = noticeShown();
 			ai.marker.closePopup();
 			ai.marker.openPopup();
-			var shown = [ai.prompt.split('\n').filter(function (l) { return /^(Takeoff|Final) trajectory/.test(l); }), first, noticeShown(),
+			var shown = [ai.prompt.split('\n').filter(function (l) { return /^(Liftoff|Final) trajectory/.test(l); }), first, noticeShown(),
 			    document.getElementById('td-note-' + ai.id).textContent.replace(/\s+/g, ' ').trim()];
 			ai.marker.closePopup();
 			shown
@@ -2223,7 +2255,7 @@ private slots:
 		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("window._traj.prompt !== null && !_liftoffStore[window._traj.id].analyzing")).toBool());
 		const QVariantList contact = evalPageJs(widget_, QStringLiteral(R"JS(
 			var ai = window._traj;
-			var shown = [ai.prompt.split('\n').filter(function (l) { return /^(Takeoff|Final) trajectory/.test(l); }).length,
+			var shown = [ai.prompt.split('\n').filter(function (l) { return /^(Liftoff|Final) trajectory/.test(l); }).length,
 			    document.getElementById('td-note-' + ai.id).style.display !== 'none'];
 			ai.marker.closePopup();
 			shown
@@ -2250,7 +2282,7 @@ private slots:
 		QTest::addColumn<QString>("kind");
 		QTest::addColumn<bool>("progress");
 		QTest::addColumn<QString>("trajectoryLine");  // how the prompt's trajectory line starts, empty for none
-		QTest::newRow("liftoff") << QStringLiteral("liftoff") << true << QStringLiteral("Takeoff trajectory (seconds from the liftoff point;");
+		QTest::newRow("liftoff") << QStringLiteral("liftoff") << true << QStringLiteral("Liftoff trajectory (seconds from the liftoff point;");
 		QTest::newRow("touchdown") << QStringLiteral("touchdown") << true << QStringLiteral("Final trajectory: not available (");
 		QTest::newRow("liftoff contact") << QStringLiteral("liftoff") << false << QString();
 		QTest::newRow("touchdown contact") << QStringLiteral("touchdown") << false << QString();
@@ -2292,7 +2324,7 @@ private slots:
 		QCOMPARE(before.value(2).toBool(), true);  // and so does its model choice
 		QTRY_VERIFY_WITH_TIMEOUT(!clipboard->text().isEmpty(), 5000);
 		const QString copied = clipboard->text();
-		const QStringList trajectoryLines = copied.split('\n').filter(QRegularExpression(QStringLiteral("^(Takeoff|Final) trajectory")));
+		const QStringList trajectoryLines = copied.split('\n').filter(QRegularExpression(QStringLiteral("^(Liftoff|Final) trajectory")));
 		QVERIFY2(trajectoryLine.isEmpty() ? trajectoryLines.isEmpty() : trajectoryLines.value(0).startsWith(trajectoryLine),
 			qPrintable(copied));
 		const QVariantList after = evalPageJs(widget_, QStringLiteral(R"JS(
@@ -2374,7 +2406,7 @@ private slots:
 		)JS"));
 		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("window._guard.closed !== undefined")).toBool());
 		QCOMPARE(evalPageJs(widget_, QStringLiteral("window._guard.closed")).toString(), QStringLiteral("done"));
-		QTRY_VERIFY_WITH_TIMEOUT(clipboard->text().contains(QStringLiteral("Takeoff trajectory (seconds from the liftoff point;")), 5000);
+		QTRY_VERIFY_WITH_TIMEOUT(clipboard->text().contains(QStringLiteral("Liftoff trajectory (seconds from the liftoff point;")), 5000);
 	}
 
 	// A server error is often gone a moment later: the request is retried,
