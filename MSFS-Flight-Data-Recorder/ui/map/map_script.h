@@ -34,9 +34,10 @@ QString mapSetEventsVisibleJs(bool visible);
 // A contact's final trajectory (contactProfile()) as the page's t.profile
 // for buildLiftoffPrompt()/buildTouchdownPrompt(): {gates, series, segment,
 // highestTerrainFt, highestTerrainNm, terrainRangeNm, powerName, powerUnit,
-// indicatedVerticalSpeed}, each point's, the segment's and the terrain's
-// unrecorded values absent (a point's throttle/power array absent unless
-// one engine's is recorded, an unrecorded engine's null), and the segment
+// powerTitle, indicatedVerticalSpeed}, each point's, the segment's and the terrain's
+// unrecorded values absent (a point's throttle/power/engineFailed/
+// engineOnFire array absent unless one engine's is recorded, an unrecorded
+// engine's null), and the segment
 // (SegmentWeather) absent when it has no samples. Returned by
 // MapBridge::liftoffProfile()/touchdownProfile().
 QJsonObject mapProfileJson(const ContactProfile& profile);

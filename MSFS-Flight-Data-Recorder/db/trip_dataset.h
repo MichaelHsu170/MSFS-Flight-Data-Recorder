@@ -111,6 +111,8 @@ struct ContactConditions {
 	double windDirectionTo = std::nan("");
 	QString surfaceType;       // SURFACE TYPE ("asphalt"), empty if unknown
 	QString surfaceCondition;  // SURFACE CONDITION ("wet"), empty if unknown
+	double totalWeightLb = std::nan("");  // TOTAL WEIGHT
+	double fuelWeightLb = std::nan("");   // FUEL TOTAL QUANTITY WEIGHT
 };
 
 // One sample of a contact's final trajectory (ContactProfile). Heights are
@@ -118,13 +120,15 @@ struct ContactConditions {
 // the terrain under the aircraft (a valley, cliff or the sea before the
 // runway), height above the touchdown/liftoff point doesn't.
 struct ProfilePoint {
-	QString gate;                 // "500 ft", "2 nm"; empty in the dense series
+	QString gate;                 // "500 ft", "2 nm"; empty in the series
 	double seconds = 0;           // from the contact (negative = before it)
 	double heightFt = std::nan(""); // MSL altitude minus the on-ground sample's at the contact
 	double distanceNm = std::nan(""); // great-circle distance to the contact position
 	double terrainFt = std::nan("");  // the ground below, relative to the ground at the contact
 	double airspeed = std::nan("");   // kt indicated
+	double groundSpeedKt = std::nan(""); // GROUND VELOCITY
 	double verticalSpeed = std::nan(""); // ft/min, TripSamplePoint::verticalSpeed()
+	double gForce = std::nan("");     // G FORCE
 	double pitch = std::nan("");      // degrees, + = nose up
 	double bank = std::nan("");       // degrees
 	double headingTrue = std::nan("");
@@ -143,11 +147,12 @@ struct ProfilePoint {
 	// The weather at this point: the wind (from, degrees true; kt) and its
 	// components along the contact's runway (runwayTrueHeading(); + = headwind, - =
 	// tailwind) and across it (+ = from the right; both NaN without a
-	// runway), the outside air (°C), inCloud like ContactConditions', the
-	// precipitation like its (precipitationName()) and the structural ice
-	// (STRUCTURAL ICE PCT, 0..1).
+	// runway), the vertical wind (AMBIENT WIND Y, ft/min; + = up), the outside
+	// air (°C), inCloud like ContactConditions', the precipitation like its
+	// (precipitationName()) and the structural ice (STRUCTURAL ICE PCT, 0..1).
 	double windDirection = std::nan("");
 	double windSpeedKt = std::nan("");
+	double verticalWindFpm = std::nan("");
 	double headwindKt = std::nan("");
 	double crosswindKt = std::nan("");
 	double temperatureC = std::nan("");
@@ -156,9 +161,12 @@ struct ProfilePoint {
 	double structuralIce = std::nan("");
 	// Per engine, engine 1 first (NaN where not recorded): the throttle lever
 	// position as the aircraft reports it (%, negative = reverse range), and
-	// the value ContactProfile::powerName names (empty without one).
+	// the value ContactProfile::powerName names (empty without one), and
+	// ENG FAILED and ENG ON FIRE (1 or 0).
 	std::vector<double> throttle;
 	std::vector<double> power;
+	std::vector<double> engineFailed;
+	std::vector<double> engineOnFire;
 };
 
 // The weather and the ride through a contact's final segment
@@ -207,10 +215,13 @@ struct SegmentWeather {
 	// control (a crash's tumble), and neither shows the air any more.
 	double gForceMin = std::nan("");
 	double gForceMax = std::nan("");
-	// The lowest and highest vertical wind (AMBIENT WIND Y, ft/min; + = up):
-	// a downdraft or updraft through the segment.
+	// The lowest and highest vertical wind (ProfilePoint::verticalWindFpm): a
+	// downdraft or updraft through the segment, each at the height of the
+	// first sample that reached it.
 	double verticalWindMinFpm = std::nan("");
+	double verticalWindMinHeightFt = std::nan("");
 	double verticalWindMaxFpm = std::nan("");
+	double verticalWindMaxHeightFt = std::nan("");
 	// The airborne sample closest to the stall: the smallest margin of its
 	// angle of attack (INCIDENCE ALPHA, degrees) below the stall's (STALL
 	// ALPHA, the angle of the maximum lift), at its height, airspeed (kt
@@ -231,15 +242,21 @@ struct SegmentWeather {
 // happened in them (a bounce, a go-around), and the highest terrain its 5 nm.
 struct ContactProfile {
 	std::vector<ProfilePoint> gates;   // in time order
-	std::vector<ProfilePoint> series;  // every sample near the contact (capped), in time order
+	// Every sample near the contact (capped), and one per second further out
+	// on the ground side (the rollout, the takeoff roll); in time order.
+	std::vector<ProfilePoint> series;
 	SegmentWeather segment;            // the approach's or climb-out's weather and ride
 	// What each point's power values are, by the contact sample's ENGINE TYPE,
 	// and their unit: "N1" for a jet and "torque" for a turboprop or helicopter
-	// turbine, in "%"; "manifold pressure" for a piston, in " inHg" (it shows
-	// power with a fixed-pitch or a constant-speed propeller, where RPM is held
-	// by the governor). Both empty for any other type.
+	// turbine, in "%"; "MP" for a piston, in " inHg" (manifold pressure: it
+	// shows power with a fixed-pitch or a constant-speed propeller, where RPM
+	// is held by the governor). powerTitle is the full name an abbreviated
+	// powerName stands for ("manifold pressure" for "MP"), spelled out once
+	// in the prompt so each point can use the short one; empty when powerName
+	// is the name itself. All empty for any other type.
 	QString powerName;
 	QString powerUnit;
+	QString powerTitle;
 	// The highest ground (relative to the ground at the contact) under the
 	// last 5 nm of the approach / the first 5 nm of the climb-out, and its
 	// distance from the contact; NaN without samples there. terrainRangeNm is

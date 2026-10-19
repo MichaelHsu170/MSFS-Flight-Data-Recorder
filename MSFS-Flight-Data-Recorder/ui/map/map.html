@@ -323,11 +323,17 @@ function rangeText(low, high, separator) {
     return low === high ? low : low + separator + high;
 }
 
+// value's size, rounded, in unit, then positive or negative by its sign,
+// neither when it rounds to 0 ("12 ft right", "0 ft").
+function sidedText(value, unit, positive, negative) {
+    var rounded = Math.round(Math.abs(value));
+    return rounded + unit + (rounded === 0 ? '' : value > 0 ? positive : negative);
+}
+
 // A sideways offset (ft, + right) as "12 ft right" / "3 ft left" ("0 ft"
 // alone).
 function sideOffsetText(ft) {
-    var rounded = Math.round(Math.abs(ft));
-    return rounded + ' ft' + (rounded === 0 ? '' : ft > 0 ? ' right' : ' left');
+    return sidedText(ft, ' ft', ' right', ' left');
 }
 
 // A height relative to a reference (ft) with its sign ("+120 ft", "-30 ft",
@@ -514,26 +520,50 @@ function conditionsPromptLines(t) {
     }
     if (c.surfaceType || c.surfaceCondition)
         add('Surface under the aircraft', [c.surfaceType, c.surfaceCondition].filter(Boolean).join(', '));
+    var weight = [];
+    if (hasValue(c, 'totalWeightLb')) weight.push('total ' + roundHalfAwayFromZero(c.totalWeightLb) + ' lb');
+    if (hasValue(c, 'fuelWeightLb')) weight.push('fuel ' + roundHalfAwayFromZero(c.fuelWeightLb) + ' lb');
+    if (weight.length) add('Aircraft weight', weight.join('; '));
     return lines;
+}
+
+// The most engines a trajectory point shows: 4 cover nearly every aircraft;
+// the up to 16 MSFS reports would push the worst-case prompt past its token
+// limit (tst_map_widget's worstCasePromptFitsTheTokenLimit).
+var PROMPT_ENGINES = 4;
+
+// The engines (0-based) a trajectory point shows of an aircraft with
+// engineCount: null (all of them) up to PROMPT_ENGINES, else that many spread
+// evenly from the first to the last (engines 1/3/6/8 of 8), so the engines
+// shown aren't all on one side.
+function promptEngines(engineCount) {
+    if (engineCount <= PROMPT_ENGINES) return null;
+    var shown = [];
+    for (var i = 0; i < PROMPT_ENGINES; ++i) shown.push(Math.round(i * (engineCount - 1) / (PROMPT_ENGINES - 1)));
+    return shown;
 }
 
 // One trajectory point (trip_dataset.h's ProfilePoint) as
 // "-12.5 s, airborne, height 230 ft, 0.62 nm, ...", leaving out what wasn't
-// recorded; its power values are profile.powerName's ("N1"), in
-// profile.powerUnit ("%").
-function profilePointText(p, profile) {
+// recorded; its power values are profile.powerName's ("N1"; "MP", which the
+// trajectory header spells out from profile.powerTitle), in profile.powerUnit
+// ("%"), for the engines shown (promptEngines()).
+function profilePointText(p, profile, shown) {
     var parts = [fixedText(p.seconds, 1) + ' s'];
     function add(key, text) { if (hasValue(p, key)) parts.push(text(p[key])); }
     function engines(key, name, unit) {
-        if (p[key])
-            parts.push(name + ' ' + p[key].map(function(v) { return v === null ? '?' : roundHalfAwayFromZero(v); }).join('/') + unit);
+        if (!p[key]) return;
+        var values = shown ? shown.map(function(e) { return p[key][e]; }) : p[key];
+        parts.push(name + ' ' + values.map(function(v) { return v === null || v === undefined ? '?' : roundHalfAwayFromZero(v); }).join('/') + unit);
     }
     if (typeof p.onGround === 'boolean') parts.push(p.onGround ? 'on ground' : 'airborne');
     add('heightFt', function(v) { return 'height ' + roundHalfAwayFromZero(v) + ' ft'; });
     add('distanceNm', function(v) { return v.toFixed(2) + ' nm'; });
     add('terrainFt', function(v) { return 'terrain ' + signedFeetText(v); });
     add('airspeed', function(v) { return 'IAS ' + roundHalfAwayFromZero(v) + ' kt'; });
+    add('groundSpeedKt', function(v) { return 'GS ' + roundHalfAwayFromZero(v) + ' kt'; });
     add('verticalSpeed', function(v) { return 'V/S ' + roundHalfAwayFromZero(v) + ' ft/min'; });
+    add('gForce', function(v) { return fixedText(v, 2) + ' G'; });
     add('pitch', function(v) { return 'pitch ' + fixedText(v, 1) + '°'; });
     add('bank', function(v) { return 'bank ' + fixedText(v, 1) + '°'; });
     // True, as the trajectory header says once (profilePromptLines()).
@@ -560,12 +590,19 @@ function headwindText(kt) {
     return (kt >= 0 || rounded === 0 ? 'headwind ' : 'tailwind ') + rounded + ' kt';
 }
 function crosswindText(kt) {
-    return Math.round(Math.abs(kt)) + ' kt' + (Math.round(Math.abs(kt)) === 0 ? '' : ' from the ' + (kt > 0 ? 'right' : 'left'));
+    return sidedText(kt, ' kt', ' from the right', ' from the left');
+}
+
+// A vertical wind (ft/min, + up; trip_dataset.h's ProfilePoint) as
+// "120 ft/min up" / "450 ft/min down" ("0 ft/min" alone).
+function verticalWindText(fpm) {
+    return sidedText(fpm, ' ft/min', ' up', ' down');
 }
 
 // A gate's weather (trip_dataset.h's ProfilePoint): the wind and its
-// components along and across the runway, the outside air, cloud,
-// precipitation and structural ice, each left out when not recorded.
+// components along and across the runway, the vertical wind, the outside
+// air, cloud, precipitation and structural ice, each left out when not
+// recorded.
 function gateWeatherParts(p) {
     var parts = [];
     if (hasValue(p, 'windSpeedKt')) {
@@ -576,6 +613,7 @@ function gateWeatherParts(p) {
         if (speed !== 0 && hasValue(p, 'headwindKt')) wind += ' (' + headwindText(p.headwindKt) + ', crosswind ' + crosswindText(p.crosswindKt) + ')';
         parts.push(wind);
     }
+    if (hasValue(p, 'verticalWindFpm')) parts.push('vertical wind ' + verticalWindText(p.verticalWindFpm));
     if (hasValue(p, 'temperatureC')) parts.push('OAT ' + fixedText(p.temperatureC, 1) + ' °C');
     if (hasValue(p, 'inCloud')) parts.push(p.inCloud ? 'in cloud' : 'not in cloud');
     if (p.precipitation) parts.push('precipitation ' + p.precipitation);
@@ -599,6 +637,7 @@ function segmentPromptLines(w, title) {
     if (!w) return [];
     var lines = [];
     function add(label, text) { lines.push('    ' + label + ': ' + text); }
+    function verticalWindAt(fpm, heightFt) { return fpm + ' ft/min at height ' + roundHalfAwayFromZero(heightFt) + ' ft'; }
     if (hasValue(w, 'windMinKt')) add('Wind speed', rangeText(roundHalfAwayFromZero(w.windMinKt), roundHalfAwayFromZero(w.windMaxKt), '-') + ' kt');
     if (hasValue(w, 'headwindFromKt')) {
         var change = w.headwindToKt - w.headwindFromKt;
@@ -618,9 +657,12 @@ function segmentPromptLines(w, title) {
         add('G-force while airborne', rangeText(fixedText(w.gForceMin, 2), fixedText(w.gForceMax, 2), '-') + ' G (its spread shows turbulence; a bump between samples is missed'
             + (gFromOne >= 1 ? '; severe turbulence or hard maneuvering' : gFromOne >= 0.5 ? '; moderate turbulence or maneuvering' : '') + ')');
     }
-    if (hasValue(w, 'verticalWindMinFpm'))
-        add('Vertical wind (+ up)', rangeText(roundHalfAwayFromZero(w.verticalWindMinFpm), roundHalfAwayFromZero(w.verticalWindMaxFpm), ' to ') + ' ft/min'
+    if (hasValue(w, 'verticalWindMinFpm')) {
+        var lowest = roundHalfAwayFromZero(w.verticalWindMinFpm), highest = roundHalfAwayFromZero(w.verticalWindMaxFpm);
+        add('Vertical wind (+ up)', verticalWindAt(lowest, w.verticalWindMinHeightFt)
+            + (lowest === highest ? '' : ' to ' + verticalWindAt(highest, w.verticalWindMaxHeightFt))
             + (Math.max(-w.verticalWindMinFpm, w.verticalWindMaxFpm) > STRONG_VERTICAL_WIND_FPM ? ' (strong)' : '') + VERTICAL_WIND_CAVEAT);
+    }
     if (hasValue(w, 'stallMarginAlphaDeg'))
         add('Closest to the stall while airborne', 'angle of attack ' + fixedText(w.stallMarginAlphaDeg, 1) + '° vs stall ' + fixedText(w.stallMarginStallAlphaDeg, 1) + '° at height ' + roundHalfAwayFromZero(w.stallMarginHeightFt) + ' ft'
             + (hasValue(w, 'stallMarginAirspeedKt') ? ', IAS ' + roundHalfAwayFromZero(w.stallMarginAirspeedKt) + ' kt' : '')
@@ -631,12 +673,16 @@ function segmentPromptLines(w, title) {
 }
 
 // The trajectory block, titled title ("Final trajectory"; trip_dataset.h's
-// ContactProfile): the gates, the dense series and the highest terrain,
-// measured from the contact point (pointName) rather than the ground below,
-// over seriesSpan ("from 15 s before to 10 s after the touchdown") and
-// terrainSpan ("before the touchdown"). A point's threshold distance is
-// measured from thresholdName ("marked threshold"), like the contact's; its
-// engine values are explained only when recorded. None without any of them;
+// ContactProfile): the gates, the series and the highest terrain, measured
+// from the contact point (pointName) rather than the ground below, over
+// seriesSpan ("from 15 s before to 10 s after the touchdown (every sample,
+// evenly thinned if too dense), then one per second ...") and terrainSpan ("before the
+// touchdown"). A point's threshold distance is measured from thresholdName
+// ("marked threshold"), like the contact's; its engine values are explained
+// only when recorded, naming the engines shown when the aircraft has more
+// than PROMPT_ENGINES (promptEngines()). When the points recorded engine
+// failures or fires, a line names every engine that failed or was on fire at
+// any of them, so the engines left out can't hide one. None without any of them;
 // a line saying it's unavailable when t.profile is null (MapBridge couldn't
 // build it, runAiAnalysis()), for the answer's segment section to say so.
 // The segment's weather and ride follow under segmentTitle
@@ -650,6 +696,15 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
     var points = profile.gates.concat(profile.series);
     function any(key) { return points.some(function(p) { return p[key] !== undefined; }); }
     var powerName = profile.powerName;
+    var engineCount = points.reduce(function(n, p) { return Math.max(n, (p.throttle || []).length, (p.power || []).length); }, 0);
+    var shown = promptEngines(engineCount);
+    // The engines (1-based, ascending) that key ("engineFailed") marks at
+    // any point.
+    function marked(key) {
+        var engines = [];
+        points.forEach(function(p) { (p[key] || []).forEach(function(v, e) { if (v && engines.indexOf(e + 1) < 0) engines.push(e + 1); }); });
+        return engines.sort(function(a, b) { return a - b; });
+    }
     // Wind components come only with the runway's heading (trip_dataset.h's
     // ProfilePoint), which the Runway line gives; not repeated here, as the
     // worst-case prompt has no room for it. Only the height gates show them
@@ -658,20 +713,27 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
         || hasValue(profile.segment, 'headwindFromKt') || hasValue(profile.segment, 'maxCrosswindKt');
     var lines = [title + ' (seconds from the ' + pointName + (any('onGround') ? '; on ground/airborne = as the simulator reports it' : '') + '; height = altitude above the ' + pointName + ', not radio height; distance = to the ' + pointName + '; terrain = ground below relative to the ' + pointName
         // Said once here, not "° T" on every point: the worst-case prompt
-        // has no room for 67 of them (58 series points and 9 gates).
+        // has no room for 85 of them (76 series points and 9 gates).
         + (any('headingTrue') || any('trackTrue') ? '; heading/track = true' : '')
         + (any('verticalSpeed') ? (profile.indicatedVerticalSpeed ? '; V/S = indicated vertical speed, which lags the actual rate' : '; V/S = actual vertical speed') : '')
         + (runwayWind ? '; wind components = relative to the runway, not the aircraft\'s heading' : '')
         + (any('thresholdFt') ? '; threshold = along the runway from the ' + thresholdName + ', negative = before it; centerline = from the extended runway centerline' : '')
         + (any('throttle') ? '; throttle = throttle lever position per engine (engine 1 first, ? = not recorded) as the aircraft reports it, negative = reverse range' : '')
-        + (powerName && any('power') ? '; ' + powerName + ' = per engine' : '') + '):'];
+        + (powerName && any('power') ? '; ' + powerName + ' = ' + (profile.powerTitle ? profile.powerTitle + ', ' : '') + 'per engine' : '')
+        + (shown ? '; engines ' + shown.map(function(e) { return e + 1; }).join('/') + ' of ' + engineCount + ' shown' : '') + '):'];
     if (profile.gates.length) {
         lines.push('  Gates:');
-        profile.gates.forEach(function(p) { lines.push('    ' + p.gate + ': ' + profilePointText(p, profile)); });
+        profile.gates.forEach(function(p) { lines.push('    ' + p.gate + ': ' + profilePointText(p, profile, shown)); });
     }
     if (profile.series.length) {
         lines.push('  Samples, ' + seriesSpan + ':');
-        profile.series.forEach(function(p) { lines.push('    ' + profilePointText(p, profile)); });
+        profile.series.forEach(function(p) { lines.push('    ' + profilePointText(p, profile, shown)); });
+    }
+    if (any('engineFailed') || any('engineOnFire')) {
+        var problems = [];
+        if (marked('engineFailed').length) problems.push('failed: engine ' + marked('engineFailed').join(', '));
+        if (marked('engineOnFire').length) problems.push('on fire: engine ' + marked('engineOnFire').join(', '));
+        lines.push('  Engine failures and fires (of all engines, at any point above): ' + (problems.length ? problems.join('; ') : 'none'));
     }
     lines = lines.concat(segmentPromptLines(profile.segment, segmentTitle));
     // Highest at or below the point (rounded) is the point itself, so its
@@ -823,7 +885,7 @@ function buildLiftoffPrompt(t, contactOnly) {
     lines.push('  Bank: ' + fixedText(t.bankDegrees, 1) + '°');
     var runway = runwayConsiderItems(t, contactOnly, 'use of available runway length');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold at liftoff', 'runway',
-        contactOnly ? null : profilePromptLines(t, 'Liftoff trajectory', 'Liftoff and climb-out', 'liftoff point', 'from 10 s before to 10 s after the liftoff', 'after the liftoff', 'runway start',
+        contactOnly ? null : profilePromptLines(t, 'Liftoff trajectory', 'Liftoff and climb-out', 'liftoff point', 'one per second from 30 s before the liftoff, then from 10 s before to 10 s after it (every sample, evenly thinned if too dense)', 'after the liftoff', 'runway start',
             'Climb-out weather and ride (from the liftoff up to the first crossing of 1000 ft above the liftoff point, or to the next contact or 5 nm from the liftoff point if sooner)'),
         // Without a matched runway, nothing that needs one.
         considerPromptLine((t.runway ? runway.crosswind.concat(['centerline tracking before the liftoff', runway.placement], runway.slope) : [])
@@ -852,7 +914,7 @@ function buildTouchdownPrompt(t, contactOnly) {
     lines.push('  Pitch: ' + fixedText(t.pitchDegrees, 1) + '°   Bank: ' + fixedText(t.bankDegrees, 1) + '°');
     var runway = runwayConsiderItems(t, contactOnly, 'touchdown zone placement');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold', 'landing distance available',
-        contactOnly ? null : profilePromptLines(t, 'Final trajectory', 'Final segment', 'touchdown point', 'from 15 s before to 10 s after the touchdown', 'before the touchdown', 'marked threshold',
+        contactOnly ? null : profilePromptLines(t, 'Final trajectory', 'Final segment', 'touchdown point', 'from 15 s before to 10 s after the touchdown (every sample, evenly thinned if too dense), then one per second to 30 s after it', 'before the touchdown', 'marked threshold',
             'Approach weather and ride (from the last crossing of 1000 ft above the touchdown point down to it, or from 5 nm out, the previous contact or the start of the recording if closer)'),
         // Without a matched runway, nothing that needs one.
         // A crash has no comfort to judge.

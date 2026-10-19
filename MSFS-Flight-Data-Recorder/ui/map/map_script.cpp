@@ -62,6 +62,8 @@ QJsonObject conditionsToJson(const ContactConditions& c) {
 	setKnown(obj, "windDirectionTo", c.windDirectionTo);
 	setKnown(obj, "surfaceType", c.surfaceType);
 	setKnown(obj, "surfaceCondition", c.surfaceCondition);
+	setKnown(obj, "totalWeightLb", c.totalWeightLb);
+	setKnown(obj, "fuelWeightLb", c.fuelWeightLb);
 	return obj;
 }
 
@@ -75,7 +77,9 @@ QJsonArray profilePointsToJson(const std::vector<ProfilePoint>& points) {
 		setKnown(obj, "distanceNm", p.distanceNm);
 		setKnown(obj, "terrainFt", p.terrainFt);
 		setKnown(obj, "airspeed", p.airspeed);
+		setKnown(obj, "groundSpeedKt", p.groundSpeedKt);
 		setKnown(obj, "verticalSpeed", p.verticalSpeed);
+		setKnown(obj, "gForce", p.gForce);
 		setKnown(obj, "pitch", p.pitch);
 		setKnown(obj, "bank", p.bank);
 		setKnown(obj, "headingTrue", p.headingTrue);
@@ -86,6 +90,7 @@ QJsonArray profilePointsToJson(const std::vector<ProfilePoint>& points) {
 		obj["onGround"] = p.onGround;
 		setKnown(obj, "windDirection", p.windDirection);
 		setKnown(obj, "windSpeedKt", p.windSpeedKt);
+		setKnown(obj, "verticalWindFpm", p.verticalWindFpm);
 		setKnown(obj, "headwindKt", p.headwindKt);
 		setKnown(obj, "crosswindKt", p.crosswindKt);
 		setKnown(obj, "temperatureC", p.temperatureC);
@@ -94,6 +99,8 @@ QJsonArray profilePointsToJson(const std::vector<ProfilePoint>& points) {
 		setKnown(obj, "structuralIce", p.structuralIce);
 		setKnown(obj, "throttle", p.throttle);
 		setKnown(obj, "power", p.power);
+		setKnown(obj, "engineFailed", p.engineFailed);
+		setKnown(obj, "engineOnFire", p.engineOnFire);
 		arr.append(obj);
 	}
 	return arr;
@@ -119,7 +126,9 @@ QJsonObject segmentWeatherToJson(const SegmentWeather& w) {
 	setKnown(obj, "gForceMin", w.gForceMin);
 	setKnown(obj, "gForceMax", w.gForceMax);
 	setKnown(obj, "verticalWindMinFpm", w.verticalWindMinFpm);
+	setKnown(obj, "verticalWindMinHeightFt", w.verticalWindMinHeightFt);
 	setKnown(obj, "verticalWindMaxFpm", w.verticalWindMaxFpm);
+	setKnown(obj, "verticalWindMaxHeightFt", w.verticalWindMaxHeightFt);
 	setKnown(obj, "stallMarginAlphaDeg", w.stallMarginAlphaDeg);
 	setKnown(obj, "stallMarginStallAlphaDeg", w.stallMarginStallAlphaDeg);
 	setKnown(obj, "stallMarginHeightFt", w.stallMarginHeightFt);
@@ -178,6 +187,7 @@ QJsonObject mapProfileJson(const ContactProfile& profile) {
 	setKnown(obj, "terrainRangeNm", profile.terrainRangeNm);
 	setKnown(obj, "powerName", profile.powerName);
 	setKnown(obj, "powerUnit", profile.powerUnit);
+	setKnown(obj, "powerTitle", profile.powerTitle);
 	obj["indicatedVerticalSpeed"] = profile.indicatedVerticalSpeed;
 	return obj;
 }

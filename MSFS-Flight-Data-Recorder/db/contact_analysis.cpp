@@ -19,13 +19,16 @@ constexpr double kTouchdownHeightGates[] = { 1000, 500, 300, 200, 100, 50 };
 constexpr double kTouchdownDistanceGates[] = { 3, 2, 1 };
 constexpr double kLiftoffHeightGates[] = { 35, 100, 200, 500, 1000 };
 
-// The dense series: every sample from 15 s before to 10 s after a
-// touchdown, or from 10 s before to 10 s after a liftoff, thinned to at most
-// kMaxSeriesPoints.
+// The series: every sample from 15 s before to 10 s after a touchdown, or
+// from 10 s before to 10 s after a liftoff, thinned to at most
+// kMaxDenseSeriesPoints; then on the ground side out to kGroundSeriesSeconds
+// from the contact (the rollout after a touchdown, the takeoff roll before a
+// liftoff), one sample per second.
 constexpr double kTouchdownSeriesSeconds = 15;
 constexpr double kLiftoffSeriesSeconds = 10;
 constexpr double kSeriesSecondsAfter = 10;
-constexpr int kMaxSeriesPoints = 58;
+constexpr int kMaxDenseSeriesPoints = 56;
+constexpr double kGroundSeriesSeconds = 30;
 
 // A reset (resetIndices()): a sample further from the one before it, up or
 // down or across, than kResetSpeedFactor times the faster of the two's
@@ -78,14 +81,19 @@ double groundElevation(const TripSamplePoint& point) {
 }
 
 // Lowers lowest to value / raises highest to it, ignoring a NaN value; a NaN
-// lowest/highest takes any value.
-void keepLowest(double& lowest, double value) {
-	if (!std::isnan(value) && !(lowest <= value))
-		lowest = value;
+// lowest/highest takes any value. True when it changed: value is the new
+// extreme, so an equal later value leaves the first one's.
+bool keepLowest(double& lowest, double value) {
+	if (std::isnan(value) || lowest <= value)
+		return false;
+	lowest = value;
+	return true;
 }
-void keepHighest(double& highest, double value) {
-	if (!std::isnan(value) && !(highest >= value))
-		highest = value;
+bool keepHighest(double& highest, double value) {
+	if (std::isnan(value) || highest >= value)
+		return false;
+	highest = value;
+	return true;
 }
 
 // point's in-cloud bit as 1 or 0; NaN unless point also recorded the
@@ -180,17 +188,18 @@ struct ContactSamples {
 	QDateTime nextContact;
 };
 
-// The engine value ContactProfile::powerName/powerUnit describe.
+// The engine value ContactProfile::powerName/powerUnit/powerTitle describe.
 struct PowerField {
 	TripEngineField field;
 	QString name;
 	QString unit;
+	QString title;
 };
 
 // The power value for an ENGINE TYPE, or nullopt for a type without one.
 std::optional<PowerField> powerField(int engineType) {
 	switch (engineType) {
-	case 0: return PowerField{ TRIP_ENGINE_recip_eng_manifold_pressure, QStringLiteral("manifold pressure"), QStringLiteral(" inHg") };  // piston
+	case 0: return PowerField{ TRIP_ENGINE_recip_eng_manifold_pressure, QStringLiteral("MP"), QStringLiteral(" inHg"), QStringLiteral("manifold pressure") };  // piston
 	case 1: return PowerField{ TRIP_ENGINE_turb_eng_n1, QStringLiteral("N1"), QStringLiteral("%") };  // jet
 	case 3:  // helicopter turbine
 	case 5: return PowerField{ TRIP_ENGINE_turb_eng_max_torque_percent, QStringLiteral("torque"), QStringLiteral("%") };  // turboprop
@@ -218,7 +227,9 @@ public:
 		out.distanceNm = distance(index);
 		out.terrainFt = groundElevation(p) - groundElevation_;
 		out.airspeed = p.rawNum(TRIP_NUM_airspeed_indicated);
+		out.groundSpeedKt = p.rawNum(TRIP_NUM_ground_velocity);
 		out.verticalSpeed = p.verticalSpeed();
+		out.gForce = p.rawNum(TRIP_NUM_g_force);
 		out.pitch = p.pitchDegrees;
 		out.bank = p.bankDegrees;
 		out.headingTrue = p.rawNum(TRIP_NUM_plane_heading_degrees_true);
@@ -239,6 +250,7 @@ public:
 		out.onGround = TripBoolBits::sim_on_ground.isSet(p.boolGroups);
 		out.windDirection = p.rawNum(TRIP_NUM_ambient_wind_direction);
 		out.windSpeedKt = p.rawNum(TRIP_NUM_ambient_wind_velocity);
+		out.verticalWindFpm = p.rawNum(TRIP_NUM_ambient_wind_y);
 		const double windAngle = (out.windDirection - contact_.runwayTrueHeading()) * DEG_2_RAD;
 		out.headwindKt = out.windSpeedKt * std::cos(windAngle);
 		out.crosswindKt = out.windSpeedKt * std::sin(windAngle);
@@ -250,14 +262,17 @@ public:
 			out.throttle.push_back(p.engineValue(engine, TRIP_ENGINE_general_eng_throttle_lever_position));
 			if (power_)
 				out.power.push_back(p.engineValue(engine, power_->field));
+			out.engineFailed.push_back(p.engineValue(engine, TRIP_ENGINE_eng_failed));
+			out.engineOnFire.push_back(p.engineValue(engine, TRIP_ENGINE_eng_on_fire));
 		}
 		return out;
 	}
-	// Names the power values on profile (ContactProfile::powerName/powerUnit).
+	// Names the power values on profile (ContactProfile::powerName/powerUnit/powerTitle).
 	void describePower(ContactProfile& profile) const {
 		if (power_) {
 			profile.powerName = power_->name;
 			profile.powerUnit = power_->unit;
+			profile.powerTitle = power_->title;
 		}
 	}
 	int size() const { return (int)points_.size(); }
@@ -312,16 +327,21 @@ private:
 QString feetGate(double feet) { return QStringLiteral("%1 ft").arg(feet); }
 QString nmGate(double nm) { return QStringLiteral("%1 nm").arg(nm); }
 
-// The samples from secondsBefore before the contact to kSeriesSecondsAfter
-// after it, thinned to kMaxSeriesPoints, as ProfilePoints. Always from the
-// on-ground sample the heights are measured from through the contact's,
-// even one past those seconds (a gap in the recording), and both are kept
-// however the rest is thinned. Unlike the gates,
+// The series of a touchdown or a liftoff (the constants above), as
+// ProfilePoints. The dense part is always from the on-ground sample the
+// heights are measured from through the contact's, even one past its
+// seconds (a gap in the recording), and both are kept however the rest is
+// thinned. On the ground side, of each whole second's samples (counted from
+// the contact) the one farthest from the contact is taken, up to where the
+// simulator's clock is set back (resetIndices() doesn't count that as a
+// reset), lest the rest of the run count as within 30 s; one whose time
+// can't be read is taken in there too, as in the dense part. Unlike the gates,
 // not stopped at the neighboring contacts: whatever happened in those
 // seconds (a bounce, a go-around) is evidence for judging this one. Stopped
 // at a reset, though: what follows one (the simulator's after a crash) was
 // never flown.
-std::vector<ProfilePoint> series(const ProfileBuilder& builder, const ContactSamples& s, double secondsBefore) {
+std::vector<ProfilePoint> series(const ProfileBuilder& builder, const ContactSamples& s, bool touchdown) {
+	const double secondsBefore = touchdown ? kTouchdownSeriesSeconds : kLiftoffSeriesSeconds;
 	int first = s.ground, last = s.at;
 	// A sample whose time can't be read is taken in, so contactProfile()
 	// drops the trajectory rather than cutting it short there.
@@ -331,10 +351,27 @@ std::vector<ProfilePoint> series(const ProfileBuilder& builder, const ContactSam
 		++last;
 	// decimatedIndices() may add hi to its maxPoints; s.ground and s.at may
 	// add two more.
-	std::vector<int> indices = decimatedIndices(first, last, kMaxSeriesPoints - 3);
+	std::vector<int> indices = decimatedIndices(first, last, kMaxDenseSeriesPoints - 3);
 	for (int keep : { s.ground, s.at })
 		if (!std::binary_search(indices.begin(), indices.end(), keep))
 			indices.insert(std::upper_bound(indices.begin(), indices.end(), keep), keep);
+	const int step = touchdown ? 1 : -1;
+	std::vector<int> groundSide;
+	double second = std::nan("");
+	for (int i = touchdown ? last + 1 : first - 1; i >= s.runBegin && i < s.runEnd; i += step) {
+		const double away = builder.seconds(i) * step;  // seconds from the contact
+		if (away > kGroundSeriesSeconds || std::ceil(away) < second)
+			break;
+		if (std::ceil(away) == second)
+			groundSide.back() = i;
+		else
+			groundSide.push_back(i);
+		second = std::ceil(away);
+	}
+	if (touchdown)
+		indices.insert(indices.end(), groundSide.begin(), groundSide.end());
+	else
+		indices.insert(indices.begin(), groundSide.rbegin(), groundSide.rend());
 	std::vector<ProfilePoint> out;
 	for (int i : indices)
 		out.push_back(builder.at(i));
@@ -382,8 +419,10 @@ SegmentWeather segmentWeather(const ProfileBuilder& builder, int from, int to) {
 		}
 		if (stalled)
 			continue;
-		keepLowest(w.verticalWindMinFpm, sample.rawNum(TRIP_NUM_ambient_wind_y));
-		keepHighest(w.verticalWindMaxFpm, sample.rawNum(TRIP_NUM_ambient_wind_y));
+		if (keepLowest(w.verticalWindMinFpm, p.verticalWindFpm))
+			w.verticalWindMinHeightFt = p.heightFt;
+		if (keepHighest(w.verticalWindMaxFpm, p.verticalWindFpm))
+			w.verticalWindMaxHeightFt = p.heightFt;
 		if (!p.onGround) {
 			keepLowest(w.gForceMin, sample.rawNum(TRIP_NUM_g_force));
 			keepHighest(w.gForceMax, sample.rawNum(TRIP_NUM_g_force));
@@ -477,7 +516,7 @@ ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamp
 	ContactProfile profile;
 	for (auto& gate : gates)
 		profile.gates.push_back(gate.second);
-	profile.series = series(builder, s, kTouchdownSeriesSeconds);
+	profile.series = series(builder, s, true);
 	// Scanning back from the touchdown, the segment starts at the last
 	// crossing of the top, but no further out than kTerrainRangeNm.
 	const int top = lastAtOrAbove([&](int j) { return builder.height(j); }, kSegmentTopFt);
@@ -499,7 +538,7 @@ ContactProfile liftoffProfile(const ProfileBuilder& builder, const ContactSample
 			}
 		}
 	}
-	profile.series = series(builder, s, kLiftoffSeriesSeconds);
+	profile.series = series(builder, s, false);
 	int top = s.at;
 	while (top < s.end - 1 && !(builder.height(top) >= kSegmentTopFt) && builder.distance(top + 1) <= kTerrainRangeNm)
 		++top;
@@ -537,6 +576,8 @@ ContactConditions conditionsAt(const std::vector<TripSamplePoint>& points, const
 	c.fieldElevationFt = groundElevation(points[s.ground]);
 	c.surfaceType = surfaceTypeName(p.rawNum(TRIP_NUM_surface_type));
 	c.surfaceCondition = surfaceConditionName(p.rawNum(TRIP_NUM_surface_condition));
+	c.totalWeightLb = p.rawNum(TRIP_NUM_total_weight);
+	c.fuelWeightLb = p.rawNum(TRIP_NUM_fuel_total_quantity_weight);
 
 	// The wind range, from the contact's sample back kWindRangeSeconds. The
 	// directions are offsets from the contact's own, so a range across north

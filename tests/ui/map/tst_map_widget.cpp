@@ -120,19 +120,19 @@ QString fullContactJs() {
 			pressureAltitudeFt: 1949.6, densityAltitudeFt: 4210.4, visibilityM: 9999.4, fieldElevationFt: 2100.4,
 			seaLevelPressureMb: 1008.6, inCloud: 1, precipitation: 'rain', precipitationRate: 2.46,
 			windMinKt: 8.4, windMaxKt: 14.6, windDirectionFrom: 350.4, windDirectionTo: 20.4,
-			surfaceType: 'asphalt', surfaceCondition: 'wet'},
+			surfaceType: 'asphalt', surfaceCondition: 'wet', totalWeightLb: 145000.4, fuelWeightLb: 21000.6},
 		profile: {gates: [
 				{gate: '500 ft', seconds: -42.5, heightFt: 512.4, distanceNm: 1.61, terrainFt: -20.4, airspeed: 131.4,
 					verticalSpeed: -702.6, pitch: 2.04, bank: -1.26, headingTrue: 338.4, trackTrue: 340.6,
 					thresholdFt: -8640.4, centerlineFt: -12.6, windDirection: 299.4, windSpeedKt: 12.4, headwindKt: 6.04,
-					crosswindKt: -10.6, temperatureC: 31.46, inCloud: 1, precipitation: 'rain', structuralIce: 0.024},
+					crosswindKt: -10.6, verticalWindFpm: -310.6, temperatureC: 31.46, inCloud: 1, precipitation: 'rain', structuralIce: 0.024},
 				{gate: '1 nm', seconds: -27, heightFt: 318.4, distanceNm: 1.0, pathAngle: 3.04, windSpeedKt: 9, inCloud: 0}],
-			series: [{seconds: -0.5, heightFt: 2.4, terrainFt: 30.4, windSpeedKt: 9, inCloud: 0}],
+			series: [{seconds: -0.5, heightFt: 2.4, terrainFt: 30.4, groundSpeedKt: 128.6, gForce: 1.236, windSpeedKt: 9, inCloud: 0}],
 			segment: {samples: 60, windMinKt: 8.4, windMaxKt: 22.6, headwindFromKt: 18.4, headwindFromHeightFt: 980.4,
 				headwindToKt: 2.6, headwindToHeightFt: 120.4, maxTailwindKt: -2.6, maxCrosswindKt: -11.4, cloudKnown: true,
 				lowestInCloudFt: 640.4, icingConditions: 0, maxStructuralIce: 0.024, maxPitotIce: 0.034, engineAntiIceShare: 0.25,
-				gForceMin: 0.874, gForceMax: 1.236, verticalWindMinFpm: -420.4, verticalWindMaxFpm: 130.6,
-				stallMarginAlphaDeg: 9.46, stallMarginStallAlphaDeg: 14.04, stallMarginHeightFt: 60.4},
+				gForceMin: 0.874, gForceMax: 1.236, verticalWindMinFpm: -420.4, verticalWindMinHeightFt: 410.4,
+				verticalWindMaxFpm: 130.6, verticalWindMaxHeightFt: 150.6, stallMarginAlphaDeg: 9.46, stallMarginStallAlphaDeg: 14.04, stallMarginHeightFt: 60.4},
 			highestTerrainFt: 612.4, highestTerrainNm: 4.2,
 			indicatedVerticalSpeed: false}})js");
 }
@@ -933,12 +933,13 @@ private slots:
 				'  Precipitation: rain, rate 2.5 mm of water',
 				'  Wind over the 30 s before the contact: 8-15 kt, direction 350° to 20° true (clockwise)',
 				'  Surface under the aircraft: asphalt, wet',
+				'  Aircraft weight: total 145000 lb; fuel 21001 lb',
 				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; heading/track = true; V/S = actual vertical speed; wind components = relative to the runway, not the aircraft\'s heading; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):',
 				'  Gates:',
-				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338°, track 341°, threshold -8640 ft, centerline 13 ft left, wind 299° T 12 kt (headwind 6 kt, crosswind 11 kt from the left), OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%',
+				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338°, track 341°, threshold -8640 ft, centerline 13 ft left, wind 299° T 12 kt (headwind 6 kt, crosswind 11 kt from the left), vertical wind 311 ft/min down, OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%',
 				'    1 nm: -27.0 s, height 318 ft, 1.00 nm, path angle 3.0° from here',
-				'  Samples, from 15 s before to 10 s after the touchdown:',
-				'    -0.5 s, height 2 ft, terrain +30 ft',
+				'  Samples, from 15 s before to 10 s after the touchdown (every sample, evenly thinned if too dense), then one per second to 30 s after it:',
+				'    -0.5 s, height 2 ft, terrain +30 ft, GS 129 kt, 1.24 G',
 				'  Approach weather and ride (from the last crossing of 1000 ft above the touchdown point down to it, or from 5 nm out, the previous contact or the start of the recording if closer):',
 				'    Wind speed: 8-23 kt',
 				'    Largest headwind change: headwind 18 kt at height 980 ft to headwind 3 kt at height 120 ft (a loss of 16 kt: wind shear)',
@@ -950,7 +951,7 @@ private slots:
 				'    Most pitot ice: 3%',
 				'    Engine anti-ice (carburetor heat on a piston engine): on for 25% of the samples',
 				'    G-force while airborne: 0.87-1.24 G (its spread shows turbulence; a bump between samples is missed)',
-				'    Vertical wind (+ up): -420 to 131 ft/min; a swing while the aircraft pitches or rolls fast may be the simulator\'s reading, not the air',
+				'    Vertical wind (+ up): -420 ft/min at height 410 ft to 131 ft/min at height 151 ft; a swing while the aircraft pitches or rolls fast may be the simulator\'s reading, not the air',
 				'    Closest to the stall while airborne: angle of attack 9.5° vs stall 14.0° at height 60 ft',
 				'  Highest terrain within 5 nm before the touchdown: +612 ft, 4.20 nm from the touchdown point (more than 500 ft above it)'
 			])js")), QStringList());
@@ -965,6 +966,14 @@ private slots:
 			])js")), QStringList());
 	}
 
+	// An updraft at a gate reads as up (the full prompt's gate has a downdraft).
+	void touchdownPromptNamesAGatesUpdraft() {
+		QCOMPARE(touchdownPromptLacks(QStringLiteral(
+			"Object.assign(t.profile.gates[0], {verticalWindFpm: 120.4});"), QStringLiteral(R"js([
+				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338°, track 341°, threshold -8640 ft, centerline 13 ft left, wind 299° T 12 kt (headwind 6 kt, crosswind 11 kt from the left), vertical wind 120 ft/min up, OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%'
+			])js")), QStringList());
+	}
+
 	// Values that round to zero read plainly: no "-0.0", a side offset of
 	// 0 ft with no side, a range whose ends read the same as the one value, a
 	// calm wind (0 kt) without the direction or components that are only
@@ -973,7 +982,7 @@ private slots:
 		QCOMPARE(touchdownPromptLacks(QStringLiteral(
 			"Object.assign(t, {windVelocity: 0, bankDegrees: -0.04, distanceWidth: 0.3, runwaySlope: 0.004});"
 			"Object.assign(t.conditions, {temperatureC: -0.04, windMinKt: 0.4, windMaxKt: 0.4});"
-			"Object.assign(t.profile.gates[0], {windSpeedKt: 0.4, pitch: -0.04, centerlineFt: 0.3, terrainFt: 0.4});"
+			"Object.assign(t.profile.gates[0], {windSpeedKt: 0.4, verticalWindFpm: -0.4, pitch: -0.04, centerlineFt: 0.3, terrainFt: 0.4});"
 			"Object.assign(t.profile.segment, {windMinKt: 7.4, windMaxKt: 6.6, gForceMin: 1.004, gForceMax: 0.996,"
 			"  verticalWindMinFpm: -0.4, verticalWindMaxFpm: 0.4});"), QStringLiteral(R"js([
 				'  Pitch: 3.2°   Bank: 0.0°',
@@ -982,10 +991,10 @@ private slots:
 				'  Runway: 10000 ft long, 150 ft wide, threshold displaced 820 ft at this end, level',
 				'  Outside air temperature: 0.0 °C',
 				'  Wind over the 30 s before the contact: 0 kt',
-				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain 0 ft, IAS 131 kt, V/S -703 ft/min, pitch 0.0°, bank -1.3°, heading 338°, track 341°, threshold -8640 ft, centerline 0 ft, wind calm, OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%',
+				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain 0 ft, IAS 131 kt, V/S -703 ft/min, pitch 0.0°, bank -1.3°, heading 338°, track 341°, threshold -8640 ft, centerline 0 ft, wind calm, vertical wind 0 ft/min, OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%',
 				'    Wind speed: 7 kt',
 				'    G-force while airborne: 1.00 G (its spread shows turbulence; a bump between samples is missed)',
-				'    Vertical wind (+ up): 0 ft/min; a swing while the aircraft pitches or rolls fast may be the simulator\'s reading, not the air'
+				'    Vertical wind (+ up): 0 ft/min at height 410 ft; a swing while the aircraft pitches or rolls fast may be the simulator\'s reading, not the air'
 			])js")), QStringList());
 	}
 
@@ -1080,8 +1089,9 @@ private slots:
 	// Each point says whether the aircraft was on the ground and, when
 	// recorded, each engine's throttle and power (? for an engine not
 	// recorded) with the power's unit, each rounded half away from zero like
-	// the other values; the header explains only what the points carry, the
-	// power by its name.
+	// the other values, for up to 4 engines; the header explains only what
+	// the points carry, the power by its name, and names the engines shown
+	// when there are more.
 	void trajectoryPointsCarryOnGroundAndEngines() {
 		const QString js = QStringLiteral(
 			"(function (profile) { var t = %1; t.profile = profile;"
@@ -1102,10 +1112,46 @@ private slots:
 			"the touchdown point; terrain = ground below relative to the touchdown point; torque = per engine):"
 			"|    50 ft: -3.0 s, torque 60%"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [{gate: '50 ft', seconds: -3, power: [15.2, 14.5]}], series: [], "
-			"powerName: 'manifold pressure', powerUnit: ' inHg'})")).toString(), QStringLiteral(
+			"powerName: 'MP', powerUnit: ' inHg', powerTitle: 'manifold pressure'})")).toString(), QStringLiteral(
 			"Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to "
-			"the touchdown point; terrain = ground below relative to the touchdown point; manifold pressure = per engine):"
-			"|    50 ft: -3.0 s, manifold pressure 15/15 inHg"));
+			"the touchdown point; terrain = ground below relative to the touchdown point; MP = manifold pressure, per engine):"
+			"|    50 ft: -3.0 s, MP 15/15 inHg"));
+		// More than 4 engines (a B-52's 8): 4 spread from the first to the
+		// last shown, the header naming them, an engine shown but not
+		// recorded "?" (throttle 6 and 8); 4 shown whole without it.
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
+			"{seconds: 0, throttle: [1, 2, 3, 4], power: [11, 12, 13, 14, 15, 16, 17, 18]}]})")).toString(), QStringLiteral(
+			"Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to "
+			"the touchdown point; terrain = ground below relative to the touchdown point; "
+			"throttle = throttle lever position per engine (engine 1 first, ? = not recorded) as the aircraft reports it, negative = reverse range; "
+			"N1 = per engine; engines 1/3/6/8 of 8 shown):"
+			"|    0.0 s, throttle 1/3/?/?%, N1 11/13/16/18%"));
+		// The engines counted from the throttle when it has more.
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
+			"{seconds: 0, throttle: [1, 2, 3, 4, 5, 6, 7, 8]}]})")).toString(), QStringLiteral(
+			"Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to "
+			"the touchdown point; terrain = ground below relative to the touchdown point; "
+			"throttle = throttle lever position per engine (engine 1 first, ? = not recorded) as the aircraft reports it, negative = reverse range; "
+			"engines 1/3/6/8 of 8 shown):"
+			"|    0.0 s, throttle 1/3/6/8%"));
+		// 5, 6 and 7 engines: the first, the last and the two spread
+		// between them.
+		const QString spread = QStringLiteral(
+			"(function () { return [5, 6, 7].map(function (n) { var t = %1, power = [];"
+			"  for (var e = 1; e <= n; ++e) power.push(10 + e);"
+			"  t.profile = {gates: [], powerName: 'N1', powerUnit: '%', series: [{seconds: 0, power: power}]};"
+			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /^    0\\.0 s/.test(l) || /^Final trajectory/.test(l); })"
+			"    .map(function (l) { return l.replace(/^.*; (engines [^)]*)\\):$/, '$1').trim(); }).join(': '); }).join('|'); })()")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, spread).toString(), QStringLiteral(
+			"engines 1/2/4/5 of 5 shown: 0.0 s, N1 11/12/14/15%"
+			"|engines 1/3/4/6 of 6 shown: 0.0 s, N1 11/13/14/16%"
+			"|engines 1/3/5/7 of 7 shown: 0.0 s, N1 11/13/15/17%"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
+			"{seconds: 0, power: [11, 12, 13, 14]}]})")).toString(), QStringLiteral(
+			"Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to "
+			"the touchdown point; terrain = ground below relative to the touchdown point; N1 = per engine):"
+			"|    0.0 s, N1 11/12/13/14%"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], series: [{seconds: 0, onGround: true}], powerName: 'N1'})")).toString(),
 			QStringLiteral(
 			"Final trajectory (seconds from the touchdown point; on ground/airborne = as the simulator reports it; height = altitude above "
@@ -1126,7 +1172,7 @@ private slots:
 				'  Heading: 334° magnetic (338° true); ground track 341° true; crab 2.2° (nose right of the track)',
 				'  Sun: 10.0° above the horizon (day)',
 				'  Position: 24.5528° N, 39.7051° E; magnetic variation 4.4° W',
-				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338°, track 341°, threshold -8640 ft, centerline 13 ft right, wind 299° T 12 kt (tailwind 3 kt, crosswind 5 kt from the right), OAT 31.5 °C, not in cloud, precipitation rain, structural ice 2%',
+				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338°, track 341°, threshold -8640 ft, centerline 13 ft right, wind 299° T 12 kt (tailwind 3 kt, crosswind 5 kt from the right), vertical wind 311 ft/min down, OAT 31.5 °C, not in cloud, precipitation rain, structural ice 2%',
 				'    Largest headwind change: headwind 2 kt at height 980 ft to headwind 17 kt at height 120 ft (a gain of 15 kt: wind shear)',
 				'    Strongest tailwind: 4 kt',
 				'    Strongest crosswind: 0 kt',
@@ -1167,7 +1213,7 @@ private slots:
 	void gateWindWithoutRunwayHasNoComponents() {
 		QCOMPARE(touchdownPromptLacks(QStringLiteral(
 			"delete t.profile.gates[0].headwindKt; delete t.profile.gates[0].crosswindKt;"), QStringLiteral(R"js([
-				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338°, track 341°, threshold -8640 ft, centerline 13 ft left, wind 299° T 12 kt, OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%'
+				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338°, track 341°, threshold -8640 ft, centerline 13 ft left, wind 299° T 12 kt, vertical wind 311 ft/min down, OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%'
 			])js")), QStringList());
 	}
 
@@ -1255,6 +1301,30 @@ private slots:
 			"the landing]"));
 	}
 
+	// When the points recorded engine failures or fires, one line names
+	// every engine that failed or was on fire at any of them, gates and
+	// samples alike, the engines not shown too (2, 5 and 7 of 8), in
+	// ascending order; either state alone gives the line; "none" when none
+	// did; no line when neither was recorded.
+	void trajectoryNamesEveryFailedOrBurningEngine() {
+		const QString js = QStringLiteral(
+			"(function (profile) { var t = %1; t.profile = profile;"
+			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /^  Engine failures/.test(l); }).join('|'); })")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [{gate: '50 ft', seconds: -3, engineFailed: [0, 0, 0, 0, 1, 0, 0, 0],"
+			"  engineOnFire: [0, 0, 0, 0, 0, 0, 0, 0]}], powerName: 'N1', powerUnit: '%', series: ["
+			"{seconds: 0, power: [1, 2, 3, 4, 5, 6, 7, 8], engineFailed: [0, 1, 0, 0, 0, 0, 1, 0], engineOnFire: [0, 0, 0, 0, 0, 0, 1, null]}]})")).toString(),
+			QStringLiteral("  Engine failures and fires (of all engines, at any point above): failed: engine 2, 5, 7; on fire: engine 7"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
+			"{seconds: 0, engineOnFire: [0, 1]}]})")).toString(),
+			QStringLiteral("  Engine failures and fires (of all engines, at any point above): on fire: engine 2"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
+			"{seconds: 0, engineFailed: [0, 0], engineOnFire: [0, null]}]})")).toString(),
+			QStringLiteral("  Engine failures and fires (of all engines, at any point above): none"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: [{seconds: 0, power: [50]}]})")).toString(),
+			QString());
+	}
+
 	// Before the data, each prompt asks for its answer's sections, ending in
 	// its trajectory's segment (a liftoff's "Liftoff and climb-out", a
 	// touchdown's "Final segment") and "Environment"; each names its own
@@ -1266,7 +1336,7 @@ private slots:
 			"    var lines = p.split('\\n').slice(0, p.split('\\n').indexOf('---'));"
 			"    return lines.filter(function (l, i) { return /:$/.test(l) && /^• \\[/.test(lines[i + 1]); }).join()"
 			"      + ',' + /\\nAirport: from your general knowledge/.test(p); })"
-			"    .concat([buildLiftoffPrompt(t).indexOf('\\n  Samples, from 10 s before to 10 s after the liftoff:\\n') >= 0,"
+			"    .concat([buildLiftoffPrompt(t).indexOf('\\n  Samples, one per second from 30 s before the liftoff, then from 10 s before to 10 s after it (every sample, evenly thinned if too dense):\\n') >= 0,"
 			"      buildLiftoffPrompt(t).indexOf('\\nLiftoff trajectory (seconds from the liftoff point;') >= 0,"
 			"      buildTouchdownPrompt(t).indexOf('\\nFinal trajectory (seconds from the touchdown point;') >= 0]).join('|'); })()")
 			.arg(fullContactJs());
@@ -1316,13 +1386,15 @@ private slots:
 		QTest::newRow("G under 1 above 1") << QStringLiteral("gForceMin: 1, gForceMax: 1.99") << g.arg(QStringLiteral("1.00-1.99"), moderate);
 		QTest::newRow("G 1 above 1") << QStringLiteral("gForceMin: 1, gForceMax: 2") << g.arg(QStringLiteral("1.00-2.00"), severe);
 		QTest::newRow("G 1 below 1") << QStringLiteral("gForceMin: 0, gForceMax: 1") << g.arg(QStringLiteral("0.00-1.00"), severe);
-		const QString wind = QStringLiteral("    Vertical wind (+ up): %1 ft/min%2; a swing while the aircraft pitches or rolls fast may be the simulator's reading, not the air");
-		QTest::newRow("vertical wind 1000 either way") << QStringLiteral("verticalWindMinFpm: -1000, verticalWindMaxFpm: 1000")
-			<< wind.arg(QStringLiteral("-1000 to 1000"), QString());
-		QTest::newRow("downdraft past 1000") << QStringLiteral("verticalWindMinFpm: -1001, verticalWindMaxFpm: 0")
-			<< wind.arg(QStringLiteral("-1001 to 0"), QStringLiteral(" (strong)"));
-		QTest::newRow("updraft past 1000") << QStringLiteral("verticalWindMinFpm: 0, verticalWindMaxFpm: 1001")
-			<< wind.arg(QStringLiteral("0 to 1001"), QStringLiteral(" (strong)"));
+		const QString wind = QStringLiteral("    Vertical wind (+ up): %1 ft/min at height 300 ft to %2 ft/min at height 700 ft%3; "
+			"a swing while the aircraft pitches or rolls fast may be the simulator's reading, not the air");
+		const QString heights = QStringLiteral(", verticalWindMinHeightFt: 300, verticalWindMaxHeightFt: 700");
+		QTest::newRow("vertical wind 1000 either way") << QStringLiteral("verticalWindMinFpm: -1000, verticalWindMaxFpm: 1000") + heights
+			<< wind.arg(QStringLiteral("-1000"), QStringLiteral("1000"), QString());
+		QTest::newRow("downdraft past 1000") << QStringLiteral("verticalWindMinFpm: -1001, verticalWindMaxFpm: 0") + heights
+			<< wind.arg(QStringLiteral("-1001"), QStringLiteral("0"), QStringLiteral(" (strong)"));
+		QTest::newRow("updraft past 1000") << QStringLiteral("verticalWindMinFpm: 0, verticalWindMaxFpm: 1001") + heights
+			<< wind.arg(QStringLiteral("0"), QStringLiteral("1001"), QStringLiteral(" (strong)"));
 		const QString stall = QStringLiteral("    Closest to the stall while airborne: angle of attack %1° vs stall 13.2° at height 40 ft%2");
 		const QString stalled = QStringLiteral(" (stalled; where the stall began, and the G-force and vertical wind above stop there, "
 			"as the aircraft may then have been out of control)");
@@ -1597,45 +1669,51 @@ private slots:
 	}
 
 	// The prompt is bounded whatever the trip: with every value recorded and
-	// every line a value can add (a crash, every segment mark), every gate crossed with all SIM_ENGINE_INDEXES engines' values and the
-	// series at its 58-sample cap (a path angle only on the distance gates,
-	// the only points contact_analysis.cpp gives one), both prompts stay
+	// every line a value can add (a crash, the aircraft weight, every segment
+	// mark, every engine failed and on fire), every gate crossed with all
+	// SIM_ENGINE_INDEXES engines' values (of which the prompt shows 4, naming
+	// them) and the series at its most (contact_analysis.cpp's 56 every-sample
+	// points and 20 one-per-second ones, each with its ground speed and
+	// G-force; a path angle only on the distance gates, the only points
+	// contact_analysis.cpp gives one), both prompts stay
 	// within 32,000 characters: Gemini's per-minute limit of 16,000 prompt
 	// tokens at 2 characters per token (Gemma's tokenizer gives each digit a
 	// token of its own; these mostly numeric prompts measured 2.2-3.1), so
 	// neither is ever rate-limited for good. The power is each name at its
 	// widest value: a turbine's three-digit torque (N1 is
-	// shorter), and a piston's manifold pressure under 100 inHg, which no
-	// engine reaches (the most boosted run at about 80-90 inHg).
+	// shorter), and a piston's manifold pressure (MP, spelled out once) under
+	// 100 inHg, which no engine reaches (the most boosted run at about 80-90 inHg).
 	void worstCasePromptFitsTheTokenLimit() {
 		const QString js = QStringLiteral(
 			"(function () { var t = %1;"
 			"  window._aircraftTitle = 'Aircraft With A Very Long Livery And Model Name For The Worst Case Prompt Size';"
-			"  t.crashed = true;"
+			"  t.crashed = true; t.conditions.totalWeightLb = 1234567.8; t.conditions.fuelWeightLb = 123456.7;"
 			"  t.airportName = 'An Airport Whose Name Is As Long As Any In The Facility Database Could Be';"
 			"  function point(gate) { var p = {seconds: -123.456, heightFt: -12345.678, distanceNm: 12.3456, terrainFt: -12345.678,"
-			"      airspeed: 123.456, verticalSpeed: -12345.678, pitch: -12.345, bank: -123.456, headingTrue: 359.6, trackTrue: 359.6,"
+			"      airspeed: 123.456, groundSpeedKt: 123.456, verticalSpeed: -12345.678, gForce: -12.345, pitch: -12.345, bank: -123.456, headingTrue: 359.6, trackTrue: 359.6,"
 			"      thresholdFt: -123456.789, centerlineFt: -12345.678, pathAngle: -12.345, onGround: false,"
-			"      windDirection: 359.4, windSpeedKt: 123.4, headwindKt: -123.4, crosswindKt: -123.4, temperatureC: -12.34,"
-			"      inCloud: 0, precipitation: 'rain and snow', structuralIce: 1, throttle: [], power: []};"
-			"    for (var e = 0; e < %2; ++e) { p.throttle.push(-123.456); p.power.push(power); }"
+			"      windDirection: 359.4, windSpeedKt: 123.4, headwindKt: -123.4, crosswindKt: -123.4, verticalWindFpm: -12345.6,"
+			"      temperatureC: -12.34,"
+			"      inCloud: 0, precipitation: 'rain and snow', structuralIce: 1, throttle: [], power: [], engineFailed: [], engineOnFire: []};"
+			"    for (var e = 0; e < %2; ++e) { p.throttle.push(-123.456); p.power.push(power); p.engineFailed.push(1); p.engineOnFire.push(1); }"
 			"    if (gate) p.gate = gate; if (!/ nm$/.test(gate)) delete p.pathAngle; return p; }"
 			"  var power, lengths = [];"
-			"  [['torque', '%', 123.456], ['manifold pressure', ' inHg', 99.4]].forEach(function (c) {"
+			"  [['torque', '%', 123.456], ['MP', ' inHg', 99.4, 'manifold pressure']].forEach(function (c) {"
 			"    power = c[2];"
 			"    t.profile = {gates: ['1000 ft', '500 ft', '300 ft', '200 ft', '100 ft', '50 ft', '3 nm', '2 nm', '1 nm'].map(point),"
-			"      series: [], highestTerrainFt: 12345.678, highestTerrainNm: 4.999, terrainRangeNm: 4.994, powerName: c[0], powerUnit: c[1],"
+			"      series: [], highestTerrainFt: 12345.678, highestTerrainNm: 4.999, terrainRangeNm: 4.994, powerName: c[0], powerUnit: c[1], powerTitle: c[3],"
 			"      segment: {samples: 999, windMinKt: 123.4, windMaxKt: 124.4, headwindFromKt: -123.4, headwindFromHeightFt: -1234.5,"
 			"        headwindToKt: -123.4, headwindToHeightFt: -1234.5, maxTailwindKt: 123.4, maxCrosswindKt: -123.4, cloudKnown: true,"
 			"        lowestInCloudFt: -1234.5, icingConditions: 1, maxStructuralIce: 1, maxPitotIce: 1, engineAntiIceShare: 1,"
-			"        gForceMin: -12.345, gForceMax: -11.345, verticalWindMinFpm: -12345.6, verticalWindMaxFpm: -12344.6,"
+			"        gForceMin: -12.345, gForceMax: -11.345, verticalWindMinFpm: -12345.6, verticalWindMinHeightFt: -1234.5,"
+			"        verticalWindMaxFpm: -12344.6, verticalWindMaxHeightFt: -1234.5,"
 			"        stallMarginAlphaDeg: -12.34, stallMarginStallAlphaDeg: -12.34, stallMarginHeightFt: -1234.5,"
 			"        stallMarginAirspeedKt: -123.4, stallMarginBankDeg: -123.45}};"
-			"    for (var i = 0; i < 58; ++i) t.profile.series.push(point());"
+			"    for (var i = 0; i < %3; ++i) t.profile.series.push(point());"
 			"    lengths.push(buildLiftoffPrompt(t).length, buildTouchdownPrompt(t).length); });"
 			"  window._aircraftTitle = '';"
 			"  return lengths; })()")
-			.arg(fullContactJs(), QString::number(SIM_ENGINE_INDEXES));
+			.arg(fullContactJs(), QString::number(SIM_ENGINE_INDEXES), QString::number(56 + 20));
 		const QVariantList lengths = evalPageJs(widget_, js).toList();
 		QCOMPARE(lengths.size(), 4);
 		for (const QVariant& length : lengths)

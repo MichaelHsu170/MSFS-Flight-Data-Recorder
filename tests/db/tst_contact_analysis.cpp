@@ -195,6 +195,8 @@ private slots:
 		p.rawNums[TRIP_NUM_ambient_visibility] = 8000;
 		p.rawNums[TRIP_NUM_surface_type] = 4;
 		p.rawNums[TRIP_NUM_surface_condition] = 1;
+		p.rawNums[TRIP_NUM_total_weight] = 145000;
+		p.rawNums[TRIP_NUM_fuel_total_quantity_weight] = 21000;
 		dataset.points = { p };
 		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
 		analyzeContacts(dataset);
@@ -216,6 +218,8 @@ private slots:
 		QCOMPARE(c.fieldElevationFt, 1000.0);
 		QCOMPARE(c.surfaceType, QStringLiteral("asphalt"));
 		QCOMPARE(c.surfaceCondition, QStringLiteral("wet"));
+		QCOMPARE(c.totalWeightLb, 145000.0);
+		QCOMPARE(c.fuelWeightLb, 21000.0);
 		QVERIFY(qAbs(c.sunElevation - 66.56) < 0.1);  // noon on the equator at the solstice
 	}
 
@@ -247,7 +251,9 @@ private slots:
 		TripDataset dataset = touchdownAfter({ 50, 0 });
 		TripSamplePoint& p = dataset.points[0];
 		p.rawNums[TRIP_NUM_airspeed_indicated] = 132;
+		p.rawNums[TRIP_NUM_ground_velocity] = 141;
 		p.rawNums[TRIP_NUM_vertical_speed] = -700;
+		p.rawNums[TRIP_NUM_g_force] = 1.12;
 		p.pitchDegrees = 3.5;
 		p.bankDegrees = -2;
 		p.rawNums[TRIP_NUM_plane_heading_degrees_true] = 271;
@@ -259,7 +265,9 @@ private slots:
 		QVERIFY(fifty);
 		for (const ProfilePoint* point : { fifty, &profile->series.at(0) }) {
 			QCOMPARE(point->airspeed, 132.0);
+			QCOMPARE(point->groundSpeedKt, 141.0);
 			QCOMPARE(point->verticalSpeed, -700.0);
+			QCOMPARE(point->gForce, 1.12);
 			QCOMPARE(point->pitch, 3.5);
 			QCOMPARE(point->bank, -2.0);
 			QCOMPARE(point->headingTrue, 271.0);
@@ -816,7 +824,8 @@ private slots:
 	// A bounce like trip 25's (a jet airborne again for 3.5 s, samples 0.5 s
 	// apart): the first touchdown's series runs on through the bounce and the
 	// second touchdown to 10 s after it, the on-ground state and height
-	// showing the bounce; the second's reaches back 15 s past the liftoff and
+	// showing the bounce, then one per second to the recording's end (12 s);
+	// the second's reaches back 15 s past the liftoff and
 	// the first touchdown, but its gates stop at that liftoff (no height
 	// gate, the bounce being 8 ft high).
 	void bounceShowsInBothTouchdownsSeries() {
@@ -837,9 +846,9 @@ private slots:
 
 		const std::optional<ContactProfile> first = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(first);
-		QCOMPARE(first->series.size(), size_t(51));  // -15 s to +10 s
+		QCOMPARE(first->series.size(), size_t(53));  // -15 s to +10 s, then 11 and 12 s
 		QCOMPARE(first->series.front().seconds, -15.0);
-		QCOMPARE(first->series.back().seconds, 10.0);
+		QCOMPARE(first->series.back().seconds, 12.0);
 		QStringList states;
 		for (const ProfilePoint& p : first->series)
 			if (p.seconds >= 0 && p.seconds <= 5.5)
@@ -857,7 +866,7 @@ private slots:
 
 	// An old trip recorded a bounce with no airborne sample as two
 	// touchdowns 0.3 s apart and no liftoff: each one's series covers the
-	// other's.
+	// other's, out to the recording's end (12 s).
 	void touchdownsCloserThanASampleShareTheirSeries() {
 		TripDataset dataset;
 		for (int i = -20; i <= 12; ++i)
@@ -867,18 +876,19 @@ private slots:
 		const std::optional<ContactProfile> first = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(first);
 		QCOMPARE(first->series.front().seconds, -15.0);
-		QCOMPARE(first->series.back().seconds, 10.0);
+		QCOMPARE(first->series.back().seconds, 12.0);
 		const std::optional<ContactProfile> second = contactProfile(dataset, dataset.touchdowns[1], true);
 		QVERIFY(second);
 		QCOMPARE(second->series.front().seconds, -14.3);
-		QCOMPARE(second->series.back().seconds, 9.7);
+		QCOMPARE(second->series.back().seconds, 11.7);
 	}
 
 	// Each point carries the on-ground state and, per engine, the throttle
 	// lever (negative in the reverse range) and the power value for the
 	// contact sample's ENGINE TYPE: N1 (%) for a jet, torque (%) for a
 	// turboprop or helicopter turbine, manifold pressure (inHg) for a piston,
-	// none for another type. An engine without its value stays unknown.
+	// none for another type; and whether it failed or is on fire. An engine
+	// without its value stays unknown.
 	void pointsCarryOnGroundAndEngineValues() {
 		auto withEngines = [](int engineType) {
 			TripDataset dataset = touchdownAfter({ 50, 0 });
@@ -893,6 +903,9 @@ private slots:
 				set(1, TRIP_ENGINE_turb_eng_max_torque_percent, 20);
 				set(1, TRIP_ENGINE_general_eng_rpm, 1800);
 				set(1, TRIP_ENGINE_recip_eng_manifold_pressure, 15);
+				set(1, TRIP_ENGINE_eng_failed, 0);
+				set(1, TRIP_ENGINE_eng_on_fire, 1);
+				set(2, TRIP_ENGINE_eng_failed, 1);
 			}
 			dataset.points[1].boolGroups[TripBoolBits::sim_on_ground.group] |= 1u << TripBoolBits::sim_on_ground.bit;
 			const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
@@ -902,6 +915,7 @@ private slots:
 		const ContactProfile jet = withEngines(1);
 		QCOMPARE(jet.powerName, QStringLiteral("N1"));
 		QCOMPARE(jet.powerUnit, QStringLiteral("%"));
+		QVERIFY(jet.powerTitle.isEmpty());
 		QCOMPARE(jet.series.size(), size_t(2));
 		QVERIFY(!jet.series[0].onGround);
 		QVERIFY(jet.series[1].onGround);
@@ -912,11 +926,16 @@ private slots:
 		QCOMPARE(p.power.size(), size_t(2));
 		QCOMPARE(p.power[0], 53.0);
 		QVERIFY(std::isnan(p.power[1]));
+		QCOMPARE(p.engineFailed, std::vector<double>({ 0, 1 }));
+		QCOMPARE(p.engineOnFire.size(), size_t(2));
+		QCOMPARE(p.engineOnFire[0], 1.0);
+		QVERIFY(std::isnan(p.engineOnFire[1]));
 		QCOMPARE(gate(jet, QStringLiteral("50 ft"))->power.at(0), 53.0);
 
 		const ContactProfile turboprop = withEngines(5);
 		QCOMPARE(turboprop.powerName, QStringLiteral("torque"));
 		QCOMPARE(turboprop.powerUnit, QStringLiteral("%"));
+		QVERIFY(turboprop.powerTitle.isEmpty());
 		QCOMPARE(turboprop.series[1].power.at(0), 20.0);
 
 		const ContactProfile helicopter = withEngines(3);
@@ -925,35 +944,39 @@ private slots:
 		QCOMPARE(helicopter.series[1].power.at(0), 20.0);
 
 		const ContactProfile piston = withEngines(0);
-		QCOMPARE(piston.powerName, QStringLiteral("manifold pressure"));
+		QCOMPARE(piston.powerName, QStringLiteral("MP"));
 		QCOMPARE(piston.powerUnit, QStringLiteral(" inHg"));
+		QCOMPARE(piston.powerTitle, QStringLiteral("manifold pressure"));
 		QCOMPARE(piston.series[1].power.at(0), 15.0);
 
 		const ContactProfile none = withEngines(2);  // ENGINE TYPE 2: none
 		QVERIFY(none.powerName.isEmpty());
 		QVERIFY(none.powerUnit.isEmpty());
+		QVERIFY(none.powerTitle.isEmpty());
 		QVERIFY(none.series[1].power.empty());
 		QCOMPARE(none.series[1].throttle.at(0), -4.0);
 	}
 
-	// A liftoff's series runs from 10 s before it to 10 s after, both ends
-	// included: of samples 1 s apart, -9.5 s to +9.5 s for a liftoff between
-	// two (the next ones out, -10.5 and +10.5, left out), -10 s to +10 s for
-	// one on a sample.
+	// A liftoff's series has every sample from 10 s before it to 10 s after,
+	// both ends included: of samples 1 s apart, -9.5 s to +9.5 s for a liftoff
+	// between two (+10.5 left out), -10 s to +10 s for one on a sample. Before
+	// those, on the takeoff roll, it has one per second back to the
+	// recording's start (0 s): -15.5 to -10.5 s, or -15 to -11 s.
 	void liftoffSeriesCoversTenSecondsEachSide() {
 		TripDataset dataset;
 		for (int i = 0; i <= 30; ++i) {
 			const double height = i <= 15 ? 0 : (i - 15) * 50;
 			dataset.points.push_back(sample(i, 500 + height, height));
 		}
-		const struct { double liftoff; size_t count; double end; } cases[] = { { 15.5, 20, 9.5 }, { 15, 21, 10 } };
+		const struct { double liftoff; size_t count; double start; double end; } cases[] = {
+			{ 15.5, 26, -15.5, 9.5 }, { 15, 26, -15, 10 } };
 		for (const auto& c : cases) {
 			dataset.liftoffPoints = { contactAt<LiftoffPoint>(c.liftoff) };
 			const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
 			QVERIFY(profile);
 
 			QCOMPARE(profile->series.size(), c.count);
-			QCOMPARE(profile->series.front().seconds, -c.end);
+			QCOMPARE(profile->series.front().seconds, c.start);
 			QCOMPARE(profile->series.back().seconds, c.end);
 		}
 	}
@@ -974,9 +997,10 @@ private slots:
 			QVERIFY(p.seconds < 0);
 	}
 
-	// The touchdown series runs from 15 s before it to 10 s after, both ends
-	// included (-16 and +11 s left out); when the recording stops sooner
-	// after, at its last sample.
+	// The touchdown series has every sample from 15 s before it to 10 s
+	// after, both ends included (-16 s left out), then one per second on the
+	// rollout (here 11 and 12 s, the recording's end); when the recording
+	// stops sooner after, at its last sample.
 	void touchdownSeriesCovers15SecondsBeforeTo10After() {
 		std::vector<double> heights;
 		for (int i = 20; i >= 0; --i)
@@ -986,9 +1010,9 @@ private slots:
 			dataset.points.push_back(sample(i, 1000, 0));
 		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(profile);
-		QCOMPARE(profile->series.size(), size_t(26));
+		QCOMPARE(profile->series.size(), size_t(28));
 		QCOMPARE(profile->series.front().seconds, -15.0);
-		QCOMPARE(profile->series.back().seconds, 10.0);
+		QCOMPARE(profile->series.back().seconds, 12.0);
 
 		dataset.points.resize(dataset.points.size() - 9);  // the recording ends at +3 s
 		const std::optional<ContactProfile> cut = contactProfile(dataset, dataset.touchdowns[0], true);
@@ -1013,9 +1037,9 @@ private slots:
 		QVERIFY(dataset.touchdowns[0].conditions.fromSample);
 	}
 
-	// However dense the samples, the series is at most 58 lines and keeps
-	// both ends.
-	void seriesIsCappedAt58() {
+	// However dense the samples, the series' every-sample part is at most 56
+	// lines and keeps both ends.
+	void denseSeriesIsCappedAt56() {
 		TripDataset dataset;
 		for (int i = 119; i >= 0; --i)
 			dataset.points.push_back(sample(-i / 10.0, 1000 + i, i));
@@ -1024,31 +1048,40 @@ private slots:
 		QVERIFY(profile);
 		const std::vector<ProfilePoint>& series = profile->series;
 
-		QVERIFY2(series.size() <= 58, qPrintable(QString::number(series.size())));
+		QVERIFY2(series.size() <= 56, qPrintable(QString::number(series.size())));
 		QCOMPARE(series.front().seconds, -11.9);
 		QCOMPARE(series.back().seconds, 0.0);
 
-		// The densest the thinning gets: a liftoff's 20 s holding 167 samples
-		// 0.12 s apart, its on-ground sample and its own both off the stride
-		// and the last one too (a cap of 59 would give 59 lines here).
+		// Where a cap of 57 would give 57 lines: a liftoff's 20 s holding 161
+		// samples 0.124 s apart (every third kept), its on-ground sample and
+		// its own both off the stride and the last one too. Before them, the
+		// 2 one-per-second samples at -11.25 and -10.878 s.
 		dataset.points.clear();
 		for (int k = -90; k <= 90; ++k)
-			dataset.points.push_back(sample(k * 0.12, 1000 + std::abs(k), std::abs(k)));
+			dataset.points.push_back(sample(k * 0.124, 1000 + std::abs(k), std::abs(k)));
 		dataset.touchdowns.clear();
-		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.108) };
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.09) };
 		const std::optional<ContactProfile> liftoff = contactProfile(dataset, dataset.liftoffPoints[0], false);
 		QVERIFY(liftoff);
-		QVERIFY2(liftoff->series.size() <= 58, qPrintable(QString::number(liftoff->series.size())));
+		QVERIFY2(liftoff->series.size() <= 56 + 2, qPrintable(QString::number(liftoff->series.size())));
+		QCOMPARE(liftoff->series.at(0).seconds, -11.25);
+		QCOMPARE(liftoff->series.at(1).seconds, -10.878);
 	}
 
 	// Thinned, the series still has the contact's own sample and the
 	// on-ground one its heights are measured from, both mid-series and off
 	// the stride: samples 0.17 s apart give a touchdown's 25 s 147 samples,
 	// every third kept, the touchdown 88 in; a liftoff at 0.1 s has 118, its
-	// on-ground sample (0 s) 58 in and its own (0.17 s) 59 in.
+	// on-ground sample (0 s) 58 in and its own (0.17 s) 59 in. The thinning
+	// is of those: the one-per-second samples beyond (2 after the touchdown,
+	// 10 before the liftoff) aren't counted against its 56.
 	void seriesKeepsTheContactAndOnGroundSamples() {
 		auto hasPointAt = [](const std::vector<ProfilePoint>& series, double seconds) {
 			return std::any_of(series.begin(), series.end(), [&](const ProfilePoint& p) { return std::abs(p.seconds - seconds) < 1e-6; });
+		};
+		// The every-sample part's lines: from -before to +10 s.
+		auto dense = [](const std::vector<ProfilePoint>& series, double before) {
+			return (size_t)std::count_if(series.begin(), series.end(), [&](const ProfilePoint& p) { return p.seconds >= -before && p.seconds <= 10; });
 		};
 		TripDataset dataset;
 		for (int k = -117; k <= 70; ++k)
@@ -1056,16 +1089,133 @@ private slots:
 		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
 		std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
 		QVERIFY(profile);
-		QVERIFY2(profile->series.size() <= 58, qPrintable(QString::number(profile->series.size())));
+		QVERIFY2(dense(profile->series, 15) <= 56, qPrintable(QString::number(dense(profile->series, 15))));
+		QCOMPARE(profile->series.size() - dense(profile->series, 15), size_t(2));
 		QVERIFY(hasPointAt(profile->series, 0.0));
 
 		dataset.touchdowns.clear();
 		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0.1) };
 		profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
 		QVERIFY(profile);
-		QVERIFY2(profile->series.size() <= 58, qPrintable(QString::number(profile->series.size())));
+		QVERIFY2(dense(profile->series, 10) <= 56, qPrintable(QString::number(dense(profile->series, 10))));
+		QCOMPARE(profile->series.size() - dense(profile->series, 10), size_t(10));
 		QVERIFY(hasPointAt(profile->series, -0.1));  // the on-ground sample at 0 s
 		QVERIFY(hasPointAt(profile->series, 0.07));  // the liftoff's, at 0.17 s
+	}
+
+	// Past its every-sample part, a touchdown's series has one sample per
+	// second of the rollout out to 30 s: of samples 0.5 s apart to 40 s, the
+	// 51 from -15 to +10 s, then 11, 12, ... 30 s (each second's farthest:
+	// 11.0 s, not 10.5 s; 30.5 s left out).
+	void touchdownSeriesHasOnePerSecondOnTheRollout() {
+		TripDataset dataset;
+		for (int i = -40; i <= 80; ++i)
+			dataset.points.push_back(sample(i / 2.0, 1000 + std::max(0, -i) * 10, std::max(0, -i) * 10));
+		dataset.touchdowns = { contactAt<TouchdownPoint>(0) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		QCOMPARE(profile->series.size(), size_t(51 + 20));
+		QCOMPARE(profile->series.front().seconds, -15.0);
+		QCOMPARE(profile->series[50].seconds, 10.0);
+		QList<double> rollout;
+		for (size_t i = 51; i < profile->series.size(); ++i)
+			rollout.append(profile->series[i].seconds);
+		QCOMPARE(rollout, QList<double>({ 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 }));
+	}
+
+	// A liftoff's has one per second of the takeoff roll before its
+	// every-sample part, from 30 s before it: of samples 0.5 s apart from
+	// -40 s, -30, -29, ... -11 s, then the 41 from -10 to +10 s.
+	void liftoffSeriesHasOnePerSecondOnTheTakeoffRoll() {
+		TripDataset dataset;
+		for (int i = -80; i <= 40; ++i)
+			dataset.points.push_back(sample(i / 2.0, 1000 + std::max(0, i) * 10, std::max(0, i) * 10));
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
+		QVERIFY(profile);
+		QCOMPARE(profile->series.size(), size_t(20 + 41));
+		QList<double> roll;
+		for (size_t i = 0; i < 20; ++i)
+			roll.append(profile->series[i].seconds);
+		QCOMPARE(roll, QList<double>({ -30, -29, -28, -27, -26, -25, -24, -23, -22, -21, -20, -19, -18, -17, -16, -15, -14, -13, -12, -11 }));
+		QCOMPARE(profile->series[20].seconds, -10.0);
+		QCOMPARE(profile->series.back().seconds, 10.0);
+	}
+
+	// Of irregular samples, each second out takes the farthest one in it
+	// (10.2 and 10.7 s: 10.7), skipping a second without one (13 s).
+	void rolloutSeriesTakesEachSecondsFarthestSample() {
+		TripDataset dataset = touchdownAfter({ 10, 0 });
+		for (double t : { 10.0, 10.2, 10.7, 11.4, 13.9 })
+			dataset.points.push_back(sample(t, 1000, 0));
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		QList<double> seconds;
+		for (const ProfilePoint& p : profile->series)
+			seconds.append(p.seconds);
+		QCOMPARE(seconds, QList<double>({ -1, 0, 10, 10.7, 11.4, 13.9 }));
+	}
+
+	// The rollout's one-per-second samples stop at a reset (656 ft up within
+	// 1 s, at 600 ft/min, at 15 s): the last is 14 s.
+	void aResetEndsTheRolloutSeries() {
+		TripDataset dataset = touchdownAfter({ 10, 0 });
+		for (int i = 1; i <= 20; ++i)
+			dataset.points.push_back(i < 15 ? sample(i, 1000, 0) : sample(i, 1656, 656));
+		for (TripSamplePoint& p : dataset.points) {
+			p.rawNums[TRIP_NUM_velocity_world_y] = 600;
+			p.rawNums[TRIP_NUM_ground_velocity] = 50;
+		}
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		QCOMPARE(profile->series.size(), size_t(16));  // -1 to 14 s
+		QCOMPARE(profile->series.back().seconds, 14.0);
+	}
+
+	// The rollout's one-per-second series stops where the clock is set back
+	// (from 12 s to 1 s), not taking the samples after it as within 30 s.
+	void theClockSetBackEndsTheRolloutSeries() {
+		TripDataset dataset = touchdownAfter({ 10, 0 });
+		for (int i = 1; i <= 12; ++i)
+			dataset.points.push_back(sample(i, 1000, 0));
+		for (int i = 1; i <= 20; ++i)
+			dataset.points.push_back(sample(i, 1000, 0));
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		QCOMPARE(profile->series.size(), size_t(14));  // -1 to 12 s
+		QCOMPARE(profile->series.back().seconds, 12.0);
+	}
+
+	// The takeoff roll's one-per-second series starts where the clock was
+	// set back (from -1 s to -15 s), not taking the samples before it.
+	void theClockSetBackStartsTheTakeoffRollSeries() {
+		TripDataset dataset;
+		for (int i = -12; i <= -1; ++i)
+			dataset.points.push_back(sample(i, 1000, 0));
+		for (int i = -15; i <= 10; ++i)
+			dataset.points.push_back(sample(i, 1000, 0));
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
+		QVERIFY(profile);
+		QCOMPARE(profile->series.size(), size_t(26));  // -15 to 10 s
+		QCOMPARE(profile->series.front().seconds, -15.0);
+	}
+
+	// A takeoff roll's one-per-second series starts after a reset 20 s
+	// before the liftoff, not back to 30 s.
+	void aResetStartsTheTakeoffRollSeries() {
+		TripDataset dataset;
+		for (int i = -30; i <= 10; ++i)
+			dataset.points.push_back(i < -20 ? sample(i, 1656, 656) : sample(i, 1000, 0));
+		for (TripSamplePoint& p : dataset.points) {
+			p.rawNums[TRIP_NUM_velocity_world_y] = 600;
+			p.rawNums[TRIP_NUM_ground_velocity] = 50;
+		}
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(0) };
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.liftoffPoints[0], false);
+		QVERIFY(profile);
+		QCOMPARE(profile->series.size(), size_t(31));  // -20 to 10 s
+		QCOMPARE(profile->series.front().seconds, -20.0);
 	}
 
 	// Over a 400 ft cliff edge the radio height drops while the descent stays
@@ -1290,6 +1440,21 @@ private slots:
 		rolling.points.insert(rolling.points.begin(), early);
 		QVERIFY(!contactProfile(rolling, rolling.liftoffPoints[0], false));
 
+		// In the one-per-second part too: 20 s into a touchdown's rollout
+		// (12:00:60, in order after it) and 20 s back on a liftoff's takeoff
+		// roll (11:59:60, in order before it).
+		TripDataset rollout = touchdownAfter({ 10, 0 });
+		for (int i = 1; i <= 25; ++i)
+			rollout.points.push_back(sample(i, 1000, 0));
+		rollout.points[1 + 20].zuluTime = afterLiftoff;
+		QVERIFY(!contactProfile(rollout, rollout.touchdowns[0], true));
+		TripDataset roll;
+		for (int i = -25; i <= 10; ++i)
+			roll.points.push_back(sample(i, 1000, 0));
+		roll.points[25 - 20].zuluTime = beforeTouchdown;
+		roll.liftoffPoints = { contactAt<LiftoffPoint>(0) };
+		QVERIFY(!contactProfile(roll, roll.liftoffPoints[0], false));
+
 		// The contact's own: the conditions are its sample's (at 0 s), except
 		// the sun, which needs the time, and the wind range, its sample alone.
 		TripDataset contact = touchdownAfter({ 50, 0 });
@@ -1359,6 +1524,7 @@ private slots:
 		p.rawNums[TRIP_NUM_ambient_temperature] = -5;
 		p.rawNums[TRIP_NUM_ambient_precip_state] = 8;
 		p.rawNums[TRIP_NUM_structural_ice_pct] = 0.03;
+		p.rawNums[TRIP_NUM_ambient_wind_y] = -350;
 		p.boolGroups[TripBoolBits::ambient_in_cloud.group] = 1u << TripBoolBits::ambient_in_cloud.bit;
 		dataset.touchdowns[0].runwayHeading = 90;
 		std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
@@ -1374,6 +1540,7 @@ private slots:
 		QCOMPARE(g500->inCloud, 1.0);
 		QCOMPARE(g500->precipitation, QStringLiteral("snow"));
 		QCOMPARE(g500->structuralIce, 0.03);
+		QCOMPARE(g500->verticalWindFpm, -350.0);
 		const ProfilePoint* g300 = gate(*profile, QStringLiteral("300 ft"));
 		QVERIFY(g300);
 		QVERIFY(std::abs(g300->headwindKt + 10) < 1e-9);
@@ -1539,14 +1706,15 @@ private slots:
 		QVERIFY(std::isnan(clear.lowestInCloudFt));
 	}
 
-	// The approach's vertical wind range, and its airborne sample closest to
-	// the stall: the 700 ft one (9° vs 14°), though the 100 ft one has the
-	// highest angle of attack (11° vs 18°). Neither the 1200 ft sample (before
-	// the segment), a sample without its stall angle, nor the touchdown's on
-	// the ground counts.
+	// The approach's vertical wind range, each end at the height of the first
+	// sample that reached it (the 1000 ft updraft and the 400 ft downdraft,
+	// not the 700 ft and 100 ft ones' equal ones), and its airborne sample closest to the stall: the 700 ft one (9° vs
+	// 14°), though the 100 ft one has the highest angle of attack (11° vs 18°).
+	// Neither the 1200 ft sample (before the segment), a sample without its
+	// stall angle, nor the touchdown's on the ground counts.
 	void approachSegmentVerticalWindAndStallMargin() {
 		TripDataset dataset = touchdownAfter({ 1200, 1000, 700, 400, 100, 0 });
-		const double verticalWinds[] = { -900, -300, 150, -450, 50, std::nan("") };
+		const double verticalWinds[] = { -900, 150, 150, -450, -450, std::nan("") };
 		const double alphas[] = { 14, 5, 9, 14.9, 11, 16 };
 		const double stallAlphas[] = { 15, 15, 14, std::nan(""), 18, 16 };
 		for (int i = 0; i < 6; ++i) {
@@ -1560,7 +1728,9 @@ private slots:
 		QVERIFY(profile);
 		const SegmentWeather& w = profile->segment;
 		QCOMPARE(w.verticalWindMinFpm, -450.0);
+		QCOMPARE(w.verticalWindMinHeightFt, 400.0);
 		QCOMPARE(w.verticalWindMaxFpm, 150.0);
+		QCOMPARE(w.verticalWindMaxHeightFt, 1000.0);
 		QCOMPARE(w.stallMarginAlphaDeg, 9.0);
 		QCOMPARE(w.stallMarginStallAlphaDeg, 14.0);
 		QCOMPARE(w.stallMarginHeightFt, 700.0);
@@ -1600,7 +1770,9 @@ private slots:
 		QCOMPARE(w.gForceMin, 0.9);
 		QCOMPARE(w.gForceMax, 1.2);
 		QCOMPARE(w.verticalWindMinFpm, -400.0);
+		QCOMPARE(w.verticalWindMinHeightFt, 400.0);
 		QCOMPARE(w.verticalWindMaxFpm, 200.0);
+		QCOMPARE(w.verticalWindMaxHeightFt, 700.0);
 	}
 
 	// An approach never 1000 ft high starts at the previous contact (a
@@ -1729,14 +1901,14 @@ private slots:
 		const ProfilePoint& at = profile->series.at(0);
 		QVERIFY(std::isnan(at.thresholdFt));
 		QVERIFY(std::isnan(at.centerlineFt));
-		for (double value : { at.windSpeedKt, at.headwindKt, at.temperatureC, at.inCloud, at.structuralIce })
+		for (double value : { at.windSpeedKt, at.headwindKt, at.verticalWindFpm, at.temperatureC, at.inCloud, at.structuralIce })
 			QVERIFY(std::isnan(value));
 		QVERIFY(at.precipitation.isEmpty());
 		const SegmentWeather& w = profile->segment;
 		QCOMPARE(w.samples, 1);
 		for (double value : { w.windMinKt, w.headwindFromKt, w.maxTailwindKt, w.maxCrosswindKt, w.lowestInCloudFt,
 				 w.icingConditions, w.maxStructuralIce, w.maxPitotIce, w.engineAntiIceShare, w.gForceMin, w.gForceMax,
-				 w.verticalWindMinFpm, w.stallMarginAlphaDeg, w.stallMarginHeightFt, w.stallMarginAirspeedKt, w.stallMarginBankDeg })
+				 w.verticalWindMinFpm, w.verticalWindMinHeightFt, w.verticalWindMaxHeightFt, w.stallMarginAlphaDeg, w.stallMarginHeightFt, w.stallMarginAirspeedKt, w.stallMarginBankDeg })
 			QVERIFY(std::isnan(value));
 		QVERIFY(!w.cloudKnown);
 	}

@@ -54,9 +54,10 @@ void analyzeContacts(TripDataset& dataset);
 // from the last crossing of 1000 ft above a touchdown down to it, or from a
 // liftoff up to the first crossing of 1000 ft above it, or to that
 // neighboring contact if it comes first, and only within 5 nm of the
-// contact. Its series covers fixed seconds around the contact (15 s before a
-// touchdown or 10 s before a liftoff, through 10 s after either), whatever
-// happened in them, so a bounce, a go-around or a touch-and-go shows in its
+// contact. Its series covers fixed seconds around the contact (every sample
+// from 15 s before a touchdown or 10 s before a liftoff through 10 s after
+// either, evenly thinned when too dense, then one per second on the ground
+// side out to 30 s: the rollout, the takeoff roll), whatever happened in them, so a bounce, a go-around or a touch-and-go shows in its
 // on-ground state, height and engine values for the model to judge; its
 // highest terrain, the 5 nm before or after it, past those contacts too.
 // None of it reaches past a reset: a sample the
