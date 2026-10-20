@@ -2545,14 +2545,95 @@ private slots:
 			{ QStringLiteral(R"([{"error":{"code":500,"message":"Internal error encountered."}}])") },
 			{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } }, true, { 429, 500, 200 });
 		QCOMPARE(rateLimitWaits(), QStringLiteral(
-			"Retry 2/3 (got error 429): Waiting 2 s for the rate limit…|Retry 2/3 (got error 429): Waiting 1 s for the rate limit…"));
+			"Retry 2/4 (got error 429): Waiting 2 s for the rate limit…|Retry 2/4 (got error 429): Waiting 1 s for the rate limit…"));
 		QVERIFY2(r.value("fetchedAt").toDouble() >= startedAt + 2000,
 			qPrintable(QString::number(r.value("fetchedAt").toDouble() - startedAt)));
 		QCOMPARE(r.value("calls").toInt(), 3);
 		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
 		QCOMPARE(r.value("statuses").toString(), QStringLiteral(
-			"Building the climb-out trajectory…|Sending to gemma-4-31b-it…|Retry 2/3 (got error 429): Sending to gemma-4-31b-it…|"
-			"Retry 3/3 (got error 500): Sending to gemma-4-31b-it…|Retry 3/3 (got error 500): Waiting for the model…"));
+			"Building the climb-out trajectory…|Sending to gemma-4-31b-it…|Retry 2/4 (got error 429): Sending to gemma-4-31b-it…|"
+			"Retry 3/4 (got error 500): Sending to gemma-4-31b-it…|Retry 3/4 (got error 500): Waiting for the model…"));
+	}
+
+	// A rate limit on the last of the 3 attempts (after two server errors)
+	// is still waited out and retried: the wait doesn't use up an attempt.
+	void aRateLimitOnTheLastAttemptIsStillRetried() {
+		watchRateLimitWaits();
+		const QVariantMap r = runAiAnalysisWith({
+			{ QStringLiteral(R"([{"error":{"code":500,"message":"Internal error encountered."}}])") },
+			{ QStringLiteral(R"([{"error":{"code":500,"message":"Internal error encountered."}}])") },
+			{ QStringLiteral(R"([{"error":{"code":429,"message":"Quota exceeded.","details":[)"
+				R"({"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"1s"}]}}])") },
+			{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } }, true, { 500, 500, 429, 200 });
+		QCOMPARE(rateLimitWaits(), QStringLiteral("Retry 4/4 (got error 429): Waiting 1 s for the rate limit…"));
+		QCOMPARE(r.value("calls").toInt(), 4);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
+		QCOMPARE(r.value("statuses").toString(), QStringLiteral(
+			"Building the climb-out trajectory…|Sending to gemma-4-31b-it…|Retry 2/3 (got error 500): Sending to gemma-4-31b-it…|"
+			"Retry 3/3 (got error 500): Sending to gemma-4-31b-it…|Retry 4/4 (got error 429): Sending to gemma-4-31b-it…|"
+			"Retry 4/4 (got error 429): Waiting for the model…"));
+	}
+
+	// A rate limit that never clears is waited out 3 times: the 4th is
+	// final, shown saying it's still limited, and nothing is saved. Its wait is then counted down with the run still
+	// running (spinner shown, so Analyze stays disabled), after which Analyze
+	// is offered again but not sent by itself.
+	void aRateLimitThatNeverClearsEndsTheRun() {
+		evalPageJs(widget_, QStringLiteral(R"JS(
+			window._cooldownSeen = [];
+			window._cooldownWatch = setInterval(function () {
+			    var c = document.querySelector('#td-result-ai .td-cooldown');
+			    var s = c ? c.textContent + ',' + document.getElementById('td-spin-ai').style.display : '';
+			    if (c && c.textContent && _cooldownSeen.indexOf(s) < 0) _cooldownSeen.push(s);
+			}, 20);
+		)JS"));
+		const QString body = QStringLiteral(R"([{"error":{"code":429,"message":"Quota exceeded.","details":[)"
+			R"({"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"1s"}]}}])");
+		const QVariantMap r = runAiAnalysisWith({ { body } }, true, { 429 });
+		const QString cooldown = evalPageJs(widget_, QStringLiteral(
+			"clearInterval(window._cooldownWatch); window._cooldownSeen.join('|')")).toString();
+		QCOMPARE(cooldown, QStringLiteral("Analyze again in 1 s.,inline-block|Click Analyze to try again.,none"));
+		QCOMPARE(r.value("calls").toInt(), 4);
+		QVERIFY(r.value("saved").isNull());
+		QCOMPARE(r.value("text").toString(), QStringLiteral(
+			"API error 429: Quota exceeded.Still rate-limited after 3 waits. Click Analyze to try again."));
+		const QStringList logged{ QStringLiteral("429 ") + body };
+		verifyAttemptLogs(r, { { true, logged }, { true, logged }, { true, logged }, { false, logged } });
+	}
+
+	// A rate limit's wait adds an attempt for any failure after it: a
+	// network error, a server error or an incomplete answer each time after
+	// one is retried until the 4th attempt, whose failure is final, its
+	// message saying so.
+	void aRateLimitAddsAnAttemptForAnyFailure_data() {
+		QTest::addColumn<int>("status");
+		QTest::addColumn<QString>("answer");
+		QTest::addColumn<QString>("text");
+		QTest::addColumn<QString>("logged");
+		QTest::newRow("network error") << 0 << QString() << QStringLiteral(
+			"Couldn't reach the AI service after 4 attempts. Check your internet connection and try again.")
+			<< QStringLiteral("Failed to fetch");
+		QTest::newRow("server error") << 500
+			<< QStringLiteral(R"([{"error":{"code":500,"message":"Internal error encountered."}}])")
+			<< QStringLiteral("API error 500: Internal error encountered.")
+			<< QStringLiteral(R"(500 [{"error":{"code":500,"message":"Internal error encountered."}}])");
+		QTest::newRow("answer incomplete") << 200 << aiStream({ aiChunk({ { "Grade: half", false } }, "MAX_TOKENS") })
+			<< QStringLiteral("The AI didn't return a complete analysis. This can happen occasionally. Click Analyze to try again.")
+			<< QStringLiteral("finish reason MAX_TOKENS");
+	}
+	void aRateLimitAddsAnAttemptForAnyFailure() {
+		QFETCH(int, status);
+		QFETCH(QString, answer);
+		QFETCH(QString, text);
+		QFETCH(QString, logged);
+		const QString rateLimit = QStringLiteral(R"([{"error":{"code":429,"message":"Quota exceeded.","details":[)"
+			R"({"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"1s"}]}}])");
+		const QVariantMap r = runAiAnalysisWith({ { rateLimit }, { answer } }, true, { 429, status });
+		QCOMPARE(r.value("calls").toInt(), 4);
+		QVERIFY(r.value("saved").isNull());
+		QCOMPARE(r.value("text").toString(), text);
+		verifyAttemptLogs(r, { { true, { QStringLiteral("429 ") + rateLimit } }, { true, { logged } }, { true, { logged } },
+			{ false, { logged } } });
 	}
 
 	// The wait before retrying a rate limit: the retryDelay of the error's

@@ -1265,7 +1265,11 @@ function logAttemptFailure(problem, retrying, detail) {
 // started with are kept in t.analysisChoices (showAiChoices()). A retry after
 // a rate limit (HTTP 429) first waits out the delay the service asked for
 // (rateLimitDelayMs()), and isn't made when that's over
-// AI_RATE_LIMIT_MAX_WAIT_MS; any other retry is sent at once.
+// AI_RATE_LIMIT_MAX_WAIT_MS; any other retry is sent at once. A rate limit
+// waited out doesn't use up one of the attempts, so one on the last attempt
+// is still waited out and retried; one after MAX_RATE_LIMIT_WAITS waits ends
+// the run, but Analyze stays disabled (the run's spinner shown) until the
+// wait it asks for has been counted down.
 async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, saveReport) {
     var result  = document.getElementById('td-result-' + id);
     // t.analyzing: already running for this point, from a popup since closed
@@ -1290,11 +1294,16 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     // while the trajectory loaded.
     var model = aiAnalysisModel(t.analysisChoices);
     var MAX_ATTEMPTS = 3;
+    // A rate limit waited out doesn't use up an attempt: it adds one. One
+    // after this many waits ends the run, so a limit that never clears does.
+    var MAX_RATE_LIMIT_WAITS = 3;
+    var attempts = MAX_ATTEMPTS, rateLimitWaits = 0;
     var prompt = buildPrompt(t, !progress);
     // Why the previous attempt failed ("got error 500", say), for the
     // retry's status line, and how long (ms) the service asked the retry to
-    // wait (a rate limit's, rateLimitDelayMs()).
-    var lastFailure = '', retryWaitMs = 0;
+    // wait (a rate limit's, rateLimitDelayMs()); the wait a rate limit still
+    // asks for once its waits are used up, before Analyze is enabled again.
+    var lastFailure = '', retryWaitMs = 0, cooldownMs = 0;
 
     // Per-attempt DOM refs and state -- function-scoped so onChunk can close
     // over them; initAttempt() reassigns them before each attempt.
@@ -1340,7 +1349,7 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     // Until the first chunk: what's being waited for, with the attempt
     // number and why the previous one failed on a retry.
     function showStatus(text) {
-        statusDiv.textContent = (attempt > 0 ? 'Retry ' + (attempt + 1) + '/' + MAX_ATTEMPTS + ' (' + lastFailure + '): ' : '') + text;
+        statusDiv.textContent = (attempt > 0 ? 'Retry ' + (attempt + 1) + '/' + attempts + ' (' + lastFailure + '): ' : '') + text;
     }
 
     function onChunk(text, isThought) {
@@ -1402,7 +1411,7 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
             + (stalled ? ', stalled' : '') + ', ' + timing();
     }
 
-    for (var attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    for (var attempt = 0; attempt < attempts; attempt++) {
         initAttempt();
         await waitOut(retryWaitMs, function(seconds) { showStatus('Waiting ' + seconds + ' s for the rate limit…'); });
         retryWaitMs = 0;
@@ -1439,7 +1448,12 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                 // with the same key, lasts until its minute has passed.
                 if (res.status === 429) retryWaitMs = rateLimitDelayMs(errBody);
                 var tooLong = retryWaitMs > AI_RATE_LIMIT_MAX_WAIT_MS;
-                var retrying = (res.status >= 500 || res.status === 429) && !tooLong && attempt < MAX_ATTEMPTS - 1;
+                var rateLimitRetry = res.status === 429 && !tooLong && rateLimitWaits < MAX_RATE_LIMIT_WAITS;
+                if (rateLimitRetry) {
+                    rateLimitWaits++;
+                    attempts++;
+                }
+                var retrying = rateLimitRetry || (res.status >= 500 && attempt < attempts - 1);
                 logAttemptFailure('Gemini API error', retrying, res.status + ' ' + errBody);
                 lastFailure = 'got error ' + res.status;
                 if (retrying) continue;
@@ -1452,6 +1466,12 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                 } else if (tooLong) {
                     guidance = '<br><span style="color:#555">The service asks to wait ' + Math.round(retryWaitMs / 1000)
                         + ' s before the next request (a daily quota used up, maybe). Try again later.</span>';
+                } else if (res.status === 429) {
+                    // Analyze stays disabled for the wait asked for, counted
+                    // down here (after the loop).
+                    guidance = '<br><span style="color:#555">Still rate-limited after ' + rateLimitWaits
+                        + ' waits. <span class="td-cooldown"></span></span>';
+                    cooldownMs = retryWaitMs;
                 }
                 finalDiv.innerHTML = '<i style="color:#a00">API error ' + res.status
                     + (apiMsg ? ': ' + escapeHtml(apiMsg) : '')
@@ -1476,11 +1496,11 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
             // was the last attempt. A stall is handled below, as an
             // incomplete answer (or a complete one, if it stalled after it).
             if (!stalled) {
-                logAttemptFailure('Gemini request failed', attempt < MAX_ATTEMPTS - 1, String(e) + ', ' + received());
+                logAttemptFailure('Gemini request failed', attempt < attempts - 1, String(e) + ', ' + received());
                 lastFailure = 'network error';
-                if (attempt === MAX_ATTEMPTS - 1) {
+                if (attempt === attempts - 1) {
                     finalDiv.innerHTML = '<span style="color:#64748b">Couldn\'t reach the AI service after '
-                        + MAX_ATTEMPTS + ' attempts. Check your internet connection and try again.</span>';
+                        + attempts + ' attempts. Check your internet connection and try again.</span>';
                     thDet.style.display = 'none';
                 }
                 continue;
@@ -1507,10 +1527,10 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
 
         // Incomplete -- retry (the page says so only in its status line); on
         // the last attempt show a message.
-        logAttemptFailure('Gemini answer incomplete', attempt < MAX_ATTEMPTS - 1,
+        logAttemptFailure('Gemini answer incomplete', attempt < attempts - 1,
             'finish reason ' + (finishReason || 'none') + ', ' + received());
         lastFailure = stalled ? 'stalled' : 'answer incomplete';
-        if (attempt === MAX_ATTEMPTS - 1) {
+        if (attempt === attempts - 1) {
             finalDiv.innerHTML = '<span style="color:#64748b">The AI didn\'t return a complete analysis. '
                 + 'This can happen occasionally. Click <b>Analyze</b> to try again.</span>';
             thDet.style.display = 'none';
@@ -1518,6 +1538,9 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     }
 
     statusDiv.style.display = 'none';
+    var cooldown = finalDiv.querySelector('.td-cooldown');
+    await waitOut(cooldownMs, function(seconds) { cooldown.textContent = 'Analyze again in ' + seconds + ' s.'; });
+    if (cooldown) cooldown.textContent = 'Click Analyze to try again.';
     t.analyzing = false;
     showAnalysisRunning(id, false);
     // A popup open now (reopened while running) showed the choices the run
