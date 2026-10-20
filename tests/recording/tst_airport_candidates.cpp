@@ -65,10 +65,13 @@ private slots:
 		QVERIFY(qAbs(top[4].distance - 30.0) < 0.5);
 	}
 
-	void onlyFourLetterIdentsCount() {
+	void onlyThreeAndFourCharacterIdentsCount() {
+		// ICAO codes and national identifiers like the FAA's "CKR" and "88WA"
+		// count; landmarks ("H1") and heliports/vertiports ("VOLC2") don't.
 		Candidates top;
-		add(top, { airport("VOLC2", 0.1), airport("H1", 0.2), airport("ABC", 0.3), airport("KSEA", 9) });
-		QCOMPARE(idents(top), std::vector<std::string>{ "KSEA" });
+		add(top, { airport("VOLC2", 0.1), airport("H1", 0.2), airport("CKR", 0.3), airport("88WA", 1),
+			airport("OEFI3SPT", 2), airport("KSEA", 9) });
+		QCOMPARE(idents(top), (std::vector<std::string>{ "CKR", "88WA", "KSEA" }));
 	}
 
 	void carriesRegion() {

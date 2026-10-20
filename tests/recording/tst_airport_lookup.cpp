@@ -1047,8 +1047,25 @@ private slots:
 		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
 	}
 
+	void threeCharacterIdentMatchesItsRunway() {
+		// A 3-character national identifier (like the FAA's "CKR") is an
+		// airport too: its runway wins over a nearer runway-less "88WA".
+		FlightDriver sim;
+		const RunwaySpec rwy = eastWestRunway();
+		AirportSpec field = testAirport(rwy);
+		field.ident = "CKR";
+		field.latitude = 43.02; // reference point ~2 km away from the runway
+		sim.airports = { airportAt("88WA", "Private Field", pointOnRunway(rwy, 1500, 300)), field };
+		const int tripId = startOnRunway(sim, rwy);
+		liftOff(sim, onRunway(rwy, 1500));
+		sim.serviceLookups();
+		QCOMPARE(QString::fromStdString(FakeSim::state().facilityDataRequests.at(0).icao), QStringLiteral("88WA"));
+		QCOMPARE(tripRow(tripId)["departure_icao"].toString(), QStringLiteral("CKR"));
+		QCOMPARE(tripRow(tripId)["departure_rwy"].toString(), QStringLiteral("09"));
+	}
+
 	void nonAirportFacilitiesAreIgnored() {
-		// Idents that aren't 4 letters (vertiports, heliports) never match.
+		// Idents longer than 4 characters (vertiports, heliports) never match.
 		FlightDriver sim;
 		const RunwaySpec rwy = eastWestRunway();
 		sim.airports = { airportAt("VOLC2", "Vertiport", pointOnRunway(rwy, 1500)), testAirport(rwy) };

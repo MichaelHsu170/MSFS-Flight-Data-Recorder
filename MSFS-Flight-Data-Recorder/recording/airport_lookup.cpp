@@ -150,11 +150,14 @@ void add_nearest_airports(AIRPORT_LOOKUP::CANDIDATE (&top)[AIRPORT_LOOKUP::TOP_N
 	const SIMCONNECT_DATA_FACILITY_AIRPORT* airports, int count) {
 	for (int i = 0; i < count; i++) {
 		const SIMCONNECT_DATA_FACILITY_AIRPORT& airport = airports[i];
-		// Real-world ICAO airport codes are always exactly 4 letters. Idents
-		// longer than that (e.g. "VOLC2") identify vertiports/heliports/other
-		// non-airport facilities, which are not valid touchdown/liftoff targets --
-		// exclude them from nearest-airport consideration entirely.
-		if (strlen(airport.Ident) != 4)
+		// An airport's ident is its ICAO code or, without one, its national
+		// identifier -- 3 or 4 characters, like the US FAA's "CKR" or "88WA".
+		// Longer idents (e.g. "VOLC2") identify vertiports/heliports/landmarks,
+		// which are not valid touchdown/liftoff targets -- exclude them, and
+		// the 1- and 2-character landmarks, from nearest-airport consideration
+		// entirely.
+		const size_t ident_length = strlen(airport.Ident);
+		if (ident_length < 3 || ident_length > 4)
 			continue;
 		COORDINATE airport_loc;
 		airport_loc.latitude = airport.Latitude;

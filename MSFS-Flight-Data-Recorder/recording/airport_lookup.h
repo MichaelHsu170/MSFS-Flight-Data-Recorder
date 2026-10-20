@@ -38,8 +38,9 @@ void start_facility_lookup(struct STATUS* status, LOOKUP_TARGET target, const CO
 AIRPORT* facility_lookup_target(struct STATUS* status);
 
 // Folds one AIRPORT_LIST chunk into top, kept nearest-first by distance from
-// position: only 4-letter idents (real airports -- longer ones are
-// heliports, vertiports and the like) nearer than top's farthest entry.
+// position: only 3- and 4-character idents (airports' ICAO codes or national
+// identifiers -- longer ones are heliports, vertiports and the like) nearer
+// than top's farthest entry.
 void add_nearest_airports(AIRPORT_LOOKUP::CANDIDATE (&top)[AIRPORT_LOOKUP::TOP_N], COORDINATE position,
 	const SIMCONNECT_DATA_FACILITY_AIRPORT* airports, int count);
 
