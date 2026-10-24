@@ -56,10 +56,25 @@ public:
 	const TripSummary* tripAt(int row) const;
 	// The currently filtered/displayed set (not necessarily all trips).
 	const std::vector<TripSummary>& trips() const { return trips_; }
-	// Sum of the Duration column over the currently filtered/displayed set,
-	// formatted the same way as a single row's cell ("-" if none of the
+	// The currently filtered/displayed set's trip count and the sum of its
+	// Duration column, formatted like a single row's cell plus decimal hours:
+	// "N trips | Dd Hh MMm (H.H h)" ("-" for the duration if none of the
 	// filtered trips have a completed duration to sum).
-	QString totalDurationText() const;
+	QString totalText() const;
+	// One aircraft model's share of the filtered set: its trip count, summed
+	// duration ("Dd Hh MMm" as in totalText()) and decimal hours ("H.H");
+	// duration and hours are "-" when none of its trips has a completed one.
+	struct AircraftTotals {
+		QString model;
+		int trips = 0;
+		QString duration;
+		QString hours;
+	};
+	// The totals per aircraft model over the filtered set, ordered by model
+	// name, ascending. The model is the aircraft's recorded ATC model with
+	// MSFS's wrapping removed (every Fenix A320 preset counts as "A320"), or
+	// the title if it sets none. Empty for no trips.
+	std::vector<AircraftTotals> aircraftTotals() const;
 
 	int rowCount(const QModelIndex& parent = QModelIndex()) const override;
 	int columnCount(const QModelIndex& parent = QModelIndex()) const override;

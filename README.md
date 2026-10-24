@@ -265,7 +265,7 @@ While the model is reasoning the toggle label reads **Thinking…** and is non-i
 
 ## Trip Groups
 
-Trips can be sorted into user-defined groups. **Manage Groups…** (above the trip table) adds, renames (double-click), deletes and reorders (drag) groups, and says so if it can't open the database to list them; right-clicking a trip row offers **Set Group**. The **Group** filter above the table limits the table and the overview map to one group, and the overview map colors each group's routes differently, with a legend.
+Trips can be sorted into user-defined groups. **Manage Groups…** (above the trip table) adds, renames (double-click), deletes and reorders (drag) groups, and says so if it can't open the database to list them; right-clicking a trip row offers **Set Group**. The **Group** filter above the table limits the table and the overview map to one group, and the overview map colors each group's routes differently, with a legend. Next to the filter, the total for the filtered trips shows their count and summed duration, also in decimal hours ("Total: 76 trips | 3d 4h 05m (76.1 h)"). Hovering over it shows at once a table of the same totals per aircraft model (Aircraft, Trips, Duration, Hours, the numbers right-aligned), sorted by aircraft name. The model is the one the aircraft reports to ATC (its ATC MODEL SimVar, recorded with each trip), so the variants of one model count together (every Fenix A320 preset reports "A320", and an aircraft that reports the localization key "ATCCOM.AC_MODEL A320.0.text" or "ATCCOM.AC_MODEL_A320.0.text" counts as "A320" too) with no list of known aircraft. Its name is the aircraft developer's, for example "DHC6" or "C182 RG". An aircraft that reports no ATC model is listed by its title.
 
 ## Export and Images
 
@@ -313,6 +313,7 @@ MSFS-Flight-Data-Recorder/
 │   │   ├── trajectory_view.h / .cpp  Composite view: owns map, data table, and charts; cursor-sync wiring
 │   │   ├── data_table_panel.h / .cpp Per-sample field/value table with Visible Fields dialog
 │   │   ├── splitter_utils.h      Splitter helpers: act once a drag ends; size the second section
+│   │   ├── instant_tooltip.h     Shows a widget's tooltip the moment the pointer enters it
 │   │   ├── charts/               Timeline charts
 │   │   │   ├── chart_data.h / .cpp   Chart series, axis ranges and hover values, built from trip data
 │   │   │   ├── charts_panel.h / .cpp QQuickWidget hosting charts_panel.qml (timeline charts with hover tooltip)

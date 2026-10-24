@@ -77,6 +77,7 @@ fdr_add_test(ui/charts tst_chart_data)
 target_compile_definitions(tst_chart_data PRIVATE CHARTS_QML="${SRC_DIR}/ui/charts/charts_panel.qml")
 fdr_add_test(ui/map tst_map_script)
 fdr_add_test(ui tst_splitter_utils)
+fdr_add_test(ui tst_instant_tooltip)
 fdr_add_test(ui/charts tst_charts_panel)
 # QQuickPath::path(), to read which lines Qt Graphs draws. Its Qt-version
 # coupling is accepted for this one test, so Qt's "private module" warning is

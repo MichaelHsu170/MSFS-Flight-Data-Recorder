@@ -18,6 +18,11 @@
 #include <QPainter>
 #include <QStyleFactory>
 #include <QTableView>
+#include <QTextDocument>
+#include <QTextLayout>
+#include <QTextTable>
+#include <QToolTip>
+#include <QEnterEvent>
 #include <QtTest>
 
 #include <memory>
@@ -51,11 +56,73 @@ class TstTripHistory : public QObject {
 private:
 	static QTableView* view(TripHistoryPanel& p) { return p.findChild<QTableView*>(); }
 	static QComboBox* groupCombo(TripHistoryPanel& p) { return p.findChild<QComboBox*>(); }
-	static QString totalText(TripHistoryPanel& p) {
+	static QLabel* totalLabel(TripHistoryPanel& p) {
 		for (QLabel* l : p.findChildren<QLabel*>())
 			if (l->text().startsWith("Total:"))
-				return l->text();
-		return QString();
+				return l;
+		return nullptr;
+	}
+	static QString totalText(TripHistoryPanel& p) {
+		QLabel* l = totalLabel(p);
+		return l ? l->text() : QString();
+	}
+	// aircraftTotals() as "model|trips|duration|hours" lines.
+	static QStringList rowsOf(const TripHistoryModel& model) {
+		QStringList rows;
+		for (const TripHistoryModel::AircraftTotals& r : model.aircraftTotals())
+			rows << QStringLiteral("%1|%2|%3|%4").arg(r.model).arg(r.trips).arg(r.duration, r.hours);
+		return rows;
+	}
+	// Calls f(row, column, cell) for each cell of the first table in html, as
+	// Qt's rich text (the tooltip's renderer) lays it out, textWidth px wide
+	// (-1: as wide as it needs).
+	template <typename F>
+	static void forEachTableCell(const QString& html, F f, qreal textWidth = -1) {
+		QTextDocument doc;
+		doc.setHtml(html);
+		doc.setTextWidth(textWidth);
+		doc.size(); // lays it out
+		for (QTextFrame* frame : doc.rootFrame()->childFrames()) {
+			if (auto* table = qobject_cast<QTextTable*>(frame)) {
+				for (int r = 0; r < table->rows(); ++r)
+					for (int c = 0; c < table->columns(); ++c)
+						f(r, c, table->cellAt(r, c));
+				return;
+			}
+		}
+	}
+	// The table's rows as "cell|cell|..." lines (none if html has no table),
+	// the non-breaking spaces Qt turns a no-wrap cell's spaces into read as
+	// the spaces they show as.
+	static QStringList tableCells(const QString& html) {
+		QStringList rows;
+		forEachTableCell(html, [&rows](int r, int c, const QTextTableCell& cell) {
+			if (c == 0)
+				rows << QString();
+			rows[r] += (c ? QStringLiteral("|") : QString()) + cell.firstCursorPosition().block().text().replace(QChar::Nbsp, u' ');
+		});
+		return rows;
+	}
+	// Each row's cell alignments, one letter per cell: L(eft) or R(ight).
+	static QStringList tableAlignments(const QString& html) {
+		QStringList rows;
+		forEachTableCell(html, [&rows](int r, int c, const QTextTableCell& cell) {
+			if (c == 0)
+				rows << QString();
+			rows[r] += (cell.firstCursorPosition().blockFormat().alignment() & Qt::AlignRight) ? 'R' : 'L';
+		});
+		return rows;
+	}
+	// Each row's line count per cell ("1111"), laid out only 1 px wide, so a
+	// cell that can wrap does.
+	static QStringList tableLineCounts(const QString& html) {
+		QStringList rows;
+		forEachTableCell(html, [&rows](int r, int c, const QTextTableCell& cell) {
+			if (c == 0)
+				rows << QString();
+			rows[r] += QString::number(cell.firstCursorPosition().block().layout()->lineCount());
+		}, 1);
+		return rows;
 	}
 	static QString cell(QTableView* v, int row, int column) {
 		return v->model()->index(row, column).data().toString();
@@ -199,18 +266,105 @@ private slots:
 		model.setTrips({ summary(1, kDep, kArr, TripStatus::Completed, 5), summary(2, kDep, "2026-01-01T10:30:00.000+00:00_4"),
 			summary(3, kDep, "", TripStatus::Open) });
 		QCOMPARE(model.rowCount(), 3);
-		QCOMPARE(model.totalDurationText(), QStringLiteral("1h 30m"));
+		QCOMPARE(model.totalText(), QStringLiteral("3 trips | 1h 30m (1.5 h)"));
 		model.setGroupFilter(5);
 		QCOMPARE(model.rowCount(), 1);
 		QCOMPARE(model.tripAt(0)->id, 1);
 		model.setGroupFilter(0);
 		QCOMPARE(model.rowCount(), 2);
-		QCOMPARE(model.totalDurationText(), QStringLiteral("0h 30m"));
+		QCOMPARE(model.totalText(), QStringLiteral("2 trips | 0h 30m (0.5 h)"));
 		model.setTrips({ summary(4, kDep, "", TripStatus::Open) });
 		model.setGroupFilter(-1);
-		QCOMPARE(model.totalDurationText(), QStringLiteral("-"));
+		QCOMPARE(model.totalText(), QStringLiteral("1 trip | -"));
+		QCOMPARE(rowsOf(model), (QStringList{ "-|1|-|-" }));
+		model.setTrips({});
+		QCOMPARE(rowsOf(model), QStringList());
 		QVERIFY(model.tripAt(5) == nullptr);
 		QVERIFY(model.tripAt(-1) == nullptr);
+	}
+
+	// The decimal hours come from the same rounded-up minutes as the duration.
+	void totalHoursMatchTheRoundedDuration_data() {
+		QTest::addColumn<QString>("arrival");
+		QTest::addColumn<QString>("expected");
+		QTest::newRow("exact hour") << "2026-01-01T11:00:00.000+00:00_4" << "1 trip | 1h 00m (1.0 h)";
+		QTest::newRow("30 s past") << "2026-01-01T11:00:30.000+00:00_4" << "1 trip | 1h 01m (1.0 h)";
+		// 2m 31s is 0.04 h, but it shows as 3 minutes: 0.05 h, which rounds up.
+		QTest::newRow("hours of the rounded minutes") << "2026-01-01T10:02:31.000+00:00_4" << "1 trip | 0h 03m (0.1 h)";
+		QTest::newRow("rounds to a tenth") << "2026-01-01T11:03:00.000+00:00_4" << "1 trip | 1h 03m (1.1 h)";
+		// 0.15 h and 0.35 h: halves whose binary value falls just below, still up.
+		QTest::newRow("9 min rounds half up") << "2026-01-01T10:09:00.000+00:00_4" << "1 trip | 0h 09m (0.2 h)";
+		QTest::newRow("21 min rounds half up") << "2026-01-01T10:21:00.000+00:00_4" << "1 trip | 0h 21m (0.4 h)";
+		QTest::newRow("under half a tenth") << "2026-01-01T10:02:00.000+00:00_4" << "1 trip | 0h 02m (0.0 h)";
+		QTest::newRow("over a day") << "2026-01-02T11:00:00.000+00:00_5" << "1 trip | 1d 1h 00m (25.0 h)";
+	}
+
+	void totalHoursMatchTheRoundedDuration() {
+		QFETCH(QString, arrival);
+		QFETCH(QString, expected);
+		TripHistoryModel model;
+		model.setTrips({ summary(1, kDep, arrival.toLatin1().constData()) });
+		QCOMPARE(model.totalText(), expected);
+	}
+
+	// Fixtures are ATC models MSFS recorded for real aircraft.
+	void aircraftModelFromAtcModel_data() {
+		QTest::addColumn<QString>("atcModel");
+		QTest::addColumn<QString>("title");
+		QTest::addColumn<QString>("model");
+		QTest::newRow("localization key") << "ATCCOM.AC_MODEL A320.0.text" << "FenixA320 IAE SL" << "A320";
+		QTest::newRow("key with underscore") << "ATCCOM.AC_MODEL_A320.0.text" << "A320neo" << "A320";
+		QTest::newRow("key with underscore 2") << "ATCCOM.AC_MODEL_FA18E.0.text" << "F/A-18E Super Hornet" << "FA18E";
+		QTest::newRow("$$: prefix") << "$$:C182 RG" << "Carenado C182 RG II N2817E" << "C182 RG";
+		QTest::newRow("plain") << "A350-900" << "A350-900 (Default Cabin)" << "A350-900";
+		QTest::newRow("padded") << " DHC6 " << "DHC-6-300 Twin Otter Wheels" << "DHC6";
+		QTest::newRow("no ATC model") << "" << " Some Glider " << "Some Glider";
+		QTest::newRow("empty $$: prefix") << "$$:" << "Some Glider" << "Some Glider";
+		QTest::newRow("no ATC model or title") << "" << "" << "-";
+		// Keys cut at the recorded field's 31 characters, and one whose model
+		// name has dots of its own.
+		QTest::newRow("key cut in \"text\"") << "ATCCOM.AC_MODEL A350-1000.0.tex" << "A350-1000 (Default Cabin)" << "A350-1000";
+		QTest::newRow("key cut after the dot") << "ATCCOM.AC_MODEL Albatros L39.0." << "L-39 Albatros" << "Albatros L39";
+		QTest::newRow("key cut at the first dot") << "ATCCOM.AC_MODEL Beechcraft 350." << "King Air 350i" << "Beechcraft 350";
+		QTest::newRow("key cut in the name") << "ATCCOM.AC_MODEL Boeing 787-10 D" << "Boeing 787-10" << "Boeing 787-10 D";
+		QTest::newRow("dots in the name") << "ATCCOM.AC_MODEL F.1.0.text" << "F.1 Camel" << "F.1";
+	}
+
+	void aircraftModelFromAtcModel() {
+		QFETCH(QString, atcModel);
+		QFETCH(QString, title);
+		QFETCH(QString, model);
+		TripSummary t = summary(1, kDep, kArr);
+		t.atcModel = atcModel;
+		t.title = title;
+		TripHistoryModel m;
+		m.setTrips({ t });
+		QCOMPARE(rowsOf(m), (QStringList{ model + QStringLiteral("|1|1h 00m|1.0") }));
+	}
+
+	void aircraftTotalsSumPerModelInNameOrder() {
+		auto trip = [](int id, const char* atcModel, const char* arrival, int groupId = 0) {
+			TripSummary t = summary(id, kDep, arrival, arrival[0] ? TripStatus::Completed : TripStatus::Open, groupId);
+			t.atcModel = QString::fromLatin1(atcModel);
+			return t;
+		};
+		TripHistoryModel model;
+		model.setTrips({
+			trip(1, "ATCCOM.AC_MODEL A320.0.text", "2026-01-01T11:00:00.000+00:00_4"),
+			trip(2, "ATCCOM.AC_MODEL A320.0.text", "2026-01-01T10:30:00.000+00:00_4", 5),
+			trip(3, "ATCCOM.AC_MODEL_A320.0.text", ""), // the key's other form, same model
+			trip(4, "A350-900", "2026-01-01T12:00:00.000+00:00_4", 5),
+			trip(5, "DHC6", "2026-01-01T10:12:00.000+00:00_4"),
+			trip(6, "$$:C182 RG", "2026-01-01T10:12:00.000+00:00_4"),
+		});
+		// Ascending by name, not by hours: the A350-900's 2 h comes after the A320.
+		QCOMPARE(rowsOf(model), (QStringList{ "A320|3|1h 30m|1.5", "A350-900|1|2h 00m|2.0", "C182 RG|1|0h 12m|0.2", "DHC6|1|0h 12m|0.2" }));
+		model.setGroupFilter(5);
+		QCOMPARE(rowsOf(model), (QStringList{ "A320|1|0h 30m|0.5", "A350-900|1|2h 00m|2.0" }));
+		// A model whose only trip is still open has no duration or hours.
+		model.setGroupFilter(-1);
+		model.setTrips({ trip(7, "DHC6", "") });
+		QCOMPARE(rowsOf(model), (QStringList{ "DHC6|1|-|-" }));
 	}
 
 	// --- Panel ---
@@ -223,7 +377,7 @@ private slots:
 		QTableView* v = view(panel);
 		QCOMPARE(v->model()->rowCount(), 2);
 		QCOMPARE(cell(v, 0, TripHistoryModel::TitleColumn), QStringLiteral("Trip 2"));
-		QCOMPARE(totalText(panel), QStringLiteral("Total: 2 trips | 2h 00m"));
+		QCOMPARE(totalText(panel), QStringLiteral("Total: 2 trips | 2h 00m (2.0 h)"));
 	}
 
 	void initialOverviewCarriesEveryTrip() {
@@ -258,6 +412,41 @@ private slots:
 		combo->setCurrentIndex(1);
 		QCOMPARE(view(panel)->model()->rowCount(), 1);
 		QCOMPARE(cell(view(panel), 0, TripHistoryModel::TitleColumn), QStringLiteral("Trip 2"));
+		// The total and its per-aircraft tooltip follow the filter.
+		QCOMPARE(totalText(panel), QStringLiteral("Total: 1 trip | 1h 00m (1.0 h)"));
+		QCOMPARE(tableCells(totalLabel(panel)->toolTip()), (QStringList{ "Aircraft|Trips|Duration|Hours", "M|1|1h 00m|1.0" }));
+		combo->setCurrentIndex(0);
+		QCOMPARE(tableCells(totalLabel(panel)->toolTip()), (QStringList{ "Aircraft|Trips|Duration|Hours", "M|2|2h 00m|2.0" }));
+	}
+
+	// The per-aircraft tooltip is a table, numbers right-aligned so they line
+	// up, shown the moment the pointer enters the Total label.
+	void totalTooltipIsAnInstantTable() {
+		FlightDriver sim;
+		addTrip(1, 0, kDep, kArr);
+		exec("UPDATE trips SET atc_model = 'A<B & %2 C>';"); // markup or an arg() marker in a name shows as text
+		TripHistoryPanel panel(sim.bridge());
+		panel.show();
+		QVERIFY(QTest::qWaitForWindowExposed(&panel));
+		QLabel* label = totalLabel(panel);
+		QCOMPARE(tableCells(label->toolTip()), (QStringList{ "Aircraft|Trips|Duration|Hours", "A<B & %2 C>|1|1h 00m|1.0" }));
+		QCOMPARE(tableAlignments(label->toolTip()), (QStringList{ "LRRR", "LRRR" }));
+		// Never wrapped, however narrow Qt makes the tooltip.
+		QCOMPARE(tableLineCounts(label->toolTip()), (QStringList{ "1111", "1111" }));
+		QEnterEvent enter(QPointF(5, 5), label->mapToGlobal(QPointF(5, 5)), label->mapToGlobal(QPointF(5, 5)));
+		QCoreApplication::sendEvent(label, &enter);
+		QVERIFY(QToolTip::isVisible());
+		QCOMPARE(QToolTip::text(), label->toolTip());
+		QEvent leave(QEvent::Leave);
+		QCoreApplication::sendEvent(label, &leave);
+		QVERIFY(waitFor([] { return !QToolTip::isVisible(); }, 2000));
+	}
+
+	void noTripsMeansNoTotalTooltip() {
+		FlightDriver sim;
+		TripHistoryPanel panel(sim.bridge());
+		QCOMPARE(totalText(panel), QStringLiteral("Total: 0 trips | -"));
+		QCOMPARE(totalLabel(panel)->toolTip(), QString());
 	}
 
 	void clickingATripLoadsEverythingAboutIt() {

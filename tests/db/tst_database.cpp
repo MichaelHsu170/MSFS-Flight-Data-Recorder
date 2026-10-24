@@ -719,6 +719,7 @@ private slots:
 		const TripSummary& done = trips[2];
 		QCOMPARE(done.title, QStringLiteral("Done"));
 		QCOMPARE(done.atcAirline, QStringLiteral("AIR"));
+		QCOMPARE(done.atcModel, QStringLiteral("M"));
 		QCOMPARE(done.departureIcao, QStringLiteral("AAAA"));
 		QCOMPARE(done.departureName, QStringLiteral("Alpha"));
 		QCOMPARE(done.departureRegion, QStringLiteral("AA"));

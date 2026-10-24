@@ -91,7 +91,7 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 		"SELECT t.id, t.title, t.atc_airline, t.atc_flight_number, t.departure_icao, t.departure_name, t.departure_region, t.departure_rwy, "
 		"t.destination_icao, t.destination_name, t.destination_region, t.destination_rwy, t.departure_zulu_time, t.destination_zulu_time, "
 		"t.departure_latitude, t.departure_longitude, t.destination_latitude, t.destination_longitude, "
-		"t.group_id, g.name "
+		"t.group_id, g.name, t.atc_model "
 		"FROM trips t LEFT JOIN trip_groups g ON g.id = t.group_id ORDER BY t.id DESC", context);
 	if (!stmt)
 		return trips;
@@ -118,6 +118,7 @@ std::vector<TripSummary> queryAllTrips(sqlite3* sql, int liveTripId) {
 		trip.destinationLng  = sqlite3_column_double(row, 17);
 		trip.groupId         = sqlite3_column_int(row, 18); // NULL reads as 0 (ungrouped)
 		trip.groupName       = columnText(row, 19);
+		trip.atcModel        = columnText(row, 20);
 
 		if (trip.id == liveTripId)
 			trip.status = TripStatus::Live;

@@ -21,8 +21,8 @@ class RecorderBridge;
 // target (recordingToggle_): clicking enables/disables automatic recording
 // (a no-op while a trip is recording or still being saved), a static outline marks it
 // as clickable at rest, and its tooltip is shown instantly on hover rather
-// than after Qt's default delay -- see updateRecordingIndicator() and
-// eventFilter(). Connection stays a plain non-interactive indicator. The
+// than after Qt's default delay (showToolTipInstantly()) -- see
+// updateRecordingIndicator(). Connection stays a plain non-interactive indicator. The
 // full message history is an always-visible scrolling list (newest entry at
 // the bottom, auto-scrolled into view) inline in this panel's own layout
 // rather than behind a separate History button/dialog.

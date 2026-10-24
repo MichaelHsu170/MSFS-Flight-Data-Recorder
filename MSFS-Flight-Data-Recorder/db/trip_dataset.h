@@ -469,6 +469,9 @@ struct TripSummary {
 	QString title;
 	QString atcAirline;
 	QString atcFlightNumber;
+	// The aircraft's ATC MODEL SimVar as recorded, MSFS's wrapping included
+	// (e.g. "ATCCOM.AC_MODEL A320.0.text"); Trip History unwraps it.
+	QString atcModel;
 	QString departureIcao;
 	QString departureName;
 	QString departureRegion;

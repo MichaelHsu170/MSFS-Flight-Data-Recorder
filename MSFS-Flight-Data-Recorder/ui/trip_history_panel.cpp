@@ -6,6 +6,7 @@
 #include "app_settings.h"
 #include "kml_export_dialog.h"
 #include "logger.h"
+#include "instant_tooltip.h"
 
 #include <memory>
 #include <optional>
@@ -32,6 +33,7 @@
 #include <QDateTime>
 #include <QEvent>
 #include <QMouseEvent>
+#include <QRegularExpression>
 #include <QStyledItemDelegate>
 
 namespace {
@@ -63,17 +65,21 @@ std::optional<qint64> tripDurationSeconds(const QString& departureZuluTime, cons
 	return seconds;
 }
 
+// Rounded up to the minute (not floored/truncated): a display granularity
+// of whole minutes would otherwise silently understate every trip by up to
+// 59 seconds, and a real, non-zero duration under a minute would floor to
+// "0h 00m" -- indistinguishable from an actual zero-length span.
+qint64 roundedMinutes(qint64 seconds) {
+	return seconds > 0 ? (seconds + 59) / 60 : 0;
+}
+
 // "Dd Hh MMm" once the span reaches a full day (relevant for the summed
 // Total label -- a single trip's own Duration cell never gets this long),
 // otherwise "Hh MMm". Days rather than months/years:
 // a calendar month has no fixed length, which would make a duration (as
 // opposed to a calendar span) imprecise.
-// Rounded up to the minute (not floored/truncated): a display granularity
-// of whole minutes would otherwise silently understate every trip by up to
-// 59 seconds, and a real, non-zero duration under a minute would floor to
-// "0h 00m" -- indistinguishable from an actual zero-length span.
 QString formatDurationSeconds(qint64 seconds) {
-	const qint64 totalMinutes = seconds > 0 ? (seconds + 59) / 60 : 0;
+	const qint64 totalMinutes = roundedMinutes(seconds);
 	const qint64 days = totalMinutes / 1440;
 	const qint64 hours = (totalMinutes % 1440) / 60;
 	const qint64 minutes = totalMinutes % 60;
@@ -93,6 +99,74 @@ QString formatDuration(const QString& departureZuluTime, const QString& destinat
 // number assigned, etc).
 QString dashIfEmpty(const QString& value) {
 	return value.trimmed().isEmpty() ? QStringLiteral("-") : value;
+}
+
+// A set of trips' count and summed duration, the decimal hours taken from the
+// same rounded-up minutes as the duration so the two never disagree. "-" for
+// the duration and hours if none of the trips has a completed duration to sum.
+struct TripTotals {
+	int trips = 0;
+	qint64 seconds = 0;
+	bool any = false;
+
+	void add(const TripSummary& trip) {
+		++trips;
+		if (const auto s = tripDurationSeconds(trip.departureZuluTime, trip.destinationZuluTime)) {
+			seconds += *s;
+			any = true;
+		}
+	}
+	QString durationText() const { return any ? formatDurationSeconds(seconds) : QStringLiteral("-"); }
+	// Rounded half up to a tenth of an hour (6 minutes) in integers: a
+	// floating-point x.x5 would round either way depending on its binary error.
+	QString hoursText() const {
+		if (!any)
+			return QStringLiteral("-");
+		const qint64 tenths = (roundedMinutes(seconds) + 3) / 6;
+		return QStringLiteral("%1.%2").arg(tenths / 10).arg(tenths % 10);
+	}
+	// "N trips | Dd Hh MMm (H.H h)".
+	QString text() const {
+		const QString duration = any ? QStringLiteral("%1 (%2 h)").arg(durationText(), hoursText()) : QStringLiteral("-");
+		return QStringLiteral("%1 trip%2 | %3").arg(trips).arg(trips == 1 ? QString() : QStringLiteral("s")).arg(duration);
+	}
+};
+
+// The aircraft model the trip's recorded ATC MODEL names, so every variant of
+// one model counts together (all four Fenix A320 presets report "A320")
+// without a list of known aircraft to maintain. MSFS passes the value through
+// in one of two wrappings, both seen in recorded trips: an untranslated
+// localization key, its model after a space or an underscore
+// ("ATCCOM.AC_MODEL A320.0.text" or "ATCCOM.AC_MODEL_A320.0.text" -> "A320"),
+// or a "$$:" prefix ("$$:C182 RG" -> "C182 RG"). The recorded field holds 31
+// characters, so a key for a model name over 8 characters loses part of its
+// ".0.text" ending ("ATCCOM.AC_MODEL A350-1000.0.tex"), which is stripped as
+// far as it goes. An aircraft that sets no ATC model falls back to its title.
+QString aircraftModelName(const TripSummary& trip) {
+	static const QRegularExpression localizationKey(QStringLiteral(R"(^ATCCOM\.AC_MODEL[ _](.+?)(?:\.\d*(?:\.t?e?x?t?)?)?$)"));
+	QString model = trip.atcModel.trimmed();
+	if (const QRegularExpressionMatch key = localizationKey.match(model); key.hasMatch())
+		model = key.captured(1);
+	else if (model.startsWith(QStringLiteral("$$:")))
+		model = model.mid(3);
+	return dashIfEmpty(model.isEmpty() ? trip.title.trimmed() : model);
+}
+
+// The per-aircraft totals as a rich-text table for the Total label's tooltip:
+// the name left-aligned, the numbers right-aligned so their digits line up,
+// and no cell wrapped (Qt narrows a rich-text tooltip). Empty (no tooltip)
+// for no trips.
+QString aircraftTotalsToolTip(const std::vector<TripHistoryModel::AircraftTotals>& rows) {
+	if (rows.empty())
+		return QString();
+	QString html = QStringLiteral("<table cellspacing=\"0\" cellpadding=\"2\" style=\"white-space:nowrap\">"
+		"<tr><th align=\"left\">Aircraft</th><th align=\"right\">Trips</th>"
+		"<th align=\"right\">Duration</th><th align=\"right\">Hours</th></tr>");
+	for (const TripHistoryModel::AircraftTotals& row : rows) {
+		html += QStringLiteral("<tr><td>%1</td><td align=\"right\">%2</td><td align=\"right\">%3</td><td align=\"right\">%4</td></tr>")
+			.arg(row.model.toHtmlEscaped(), QString::number(row.trips), row.duration, row.hours);
+	}
+	return html + QStringLiteral("</table>");
 }
 
 }
@@ -130,16 +204,22 @@ void TripHistoryModel::applyFilter() {
 	}
 }
 
-QString TripHistoryModel::totalDurationText() const {
-	qint64 totalSeconds = 0;
-	bool any = false;
-	for (const TripSummary& trip : trips_) {
-		if (const auto seconds = tripDurationSeconds(trip.departureZuluTime, trip.destinationZuluTime)) {
-			totalSeconds += *seconds;
-			any = true;
-		}
-	}
-	return any ? formatDurationSeconds(totalSeconds) : QStringLiteral("-");
+QString TripHistoryModel::totalText() const {
+	TripTotals totals;
+	for (const TripSummary& trip : trips_)
+		totals.add(trip);
+	return totals.text();
+}
+
+std::vector<TripHistoryModel::AircraftTotals> TripHistoryModel::aircraftTotals() const {
+	// QMap iterates its keys in ascending order, which is the rows' order.
+	QMap<QString, TripTotals> byModel;
+	for (const TripSummary& trip : trips_)
+		byModel[aircraftModelName(trip)].add(trip);
+	std::vector<AircraftTotals> rows;
+	for (auto it = byModel.constBegin(); it != byModel.constEnd(); ++it)
+		rows.push_back({ it.key(), it->trips, it->durationText(), it->hoursText() });
+	return rows;
 }
 
 void TripHistoryModel::setHoveredRow(int row) {
@@ -333,6 +413,7 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 
 	groupFilterCombo_ = new QComboBox(this);
 	totalDurationLabel_ = new QLabel(this);
+	showToolTipInstantly(totalDurationLabel_);
 	manageGroupsButton_ = new QPushButton(QStringLiteral("Manage Groups…"), this);
 	auto* filterRow = new QHBoxLayout();
 	filterRow->addWidget(new QLabel(QStringLiteral("Group:"), this));
@@ -370,15 +451,12 @@ TripHistoryPanel::TripHistoryPanel(RecorderBridge& bridge, QWidget* parent)
 	connect(&bridge_, &RecorderBridge::tripUpdated, this, [this](int) { refreshTripsAndOverview(); });
 
 	// setTrips()/setGroupFilter() both go through begin/endResetModel(), which
-	// emits modelReset() -- hooking that one signal keeps the trip count and
-	// total in sync with every path that can change the filtered set, instead
-	// of repeating this call at each call site.
+	// emits modelReset() -- hooking that one signal keeps the trip count,
+	// total and per-aircraft tooltip in sync with every path that can change
+	// the filtered set, instead of repeating this call at each call site.
 	connect(model_, &QAbstractItemModel::modelReset, this, [this] {
-		const int count = (int)model_->trips().size();
-		totalDurationLabel_->setText(QStringLiteral("Total: %1 trip%2 | %3")
-			.arg(count)
-			.arg(count == 1 ? QString() : QStringLiteral("s"))
-			.arg(model_->totalDurationText()));
+		totalDurationLabel_->setText(QStringLiteral("Total: ") + model_->totalText());
+		totalDurationLabel_->setToolTip(aircraftTotalsToolTip(model_->aircraftTotals()));
 	});
 
 	table_->viewport()->setMouseTracking(true);

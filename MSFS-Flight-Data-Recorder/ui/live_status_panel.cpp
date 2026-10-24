@@ -3,6 +3,7 @@
 #include "types.h"
 #include "logger.h"
 #include "version.h"
+#include "instant_tooltip.h"
 
 #include <QDateTime>
 #include <QFrame>
@@ -12,7 +13,6 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPixmap>
-#include <QToolTip>
 #include <QVBoxLayout>
 
 namespace {
@@ -129,6 +129,7 @@ LiveStatusPanel::LiveStatusPanel(RecorderBridge& bridge, QWidget* parent)
 	recordingToggleLayout->addWidget(recordingLabel);
 	recordingToggleLayout->addWidget(recordingIcon_);
 	recordingToggle_->installEventFilter(this);
+	showToolTipInstantly(recordingToggle_);
 
 	auto* titleRow = new QHBoxLayout();
 	titleRow->addWidget(titleLabel);
@@ -273,7 +274,7 @@ void LiveStatusPanel::updateRecordingIndicator() {
 
 	recordingIcon_->setPixmap(dotPixmap(state));
 	// Tooltip lives on recordingToggle_ only (not the child label/icon) so
-	// eventFilter's Enter handler below is the sole thing that shows it --
+	// showToolTipInstantly()'s filter is the sole thing that shows it --
 	// setting it on the children too would leave Qt's own delayed tooltip
 	// timer racing (and duplicating) the instant one shown for the container.
 	recordingToggle_->setToolTip(tooltip);
@@ -305,15 +306,6 @@ bool LiveStatusPanel::eventFilter(QObject* obj, QEvent* event) {
 			toggleRecordingEnabled();
 		return true;
 	}
-	case QEvent::Enter:
-		// Bypasses Qt's default ~700ms tooltip wake-up delay (QStyle::
-		// SH_ToolTip_WakeUpDelay), which reads as sluggish for a control this
-		// small -- show it the instant the pointer arrives instead.
-		QToolTip::showText(QCursor::pos(), recordingToggle_->toolTip(), recordingToggle_);
-		return false;
-	case QEvent::Leave:
-		QToolTip::hideText();
-		return false;
 	default:
 		return QWidget::eventFilter(obj, event);
 	}
