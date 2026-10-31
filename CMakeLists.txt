@@ -21,7 +21,7 @@ set(CMAKE_AUTORCC ON)
 # Qt (MSVC kit). Compiler/linker is still cl.exe/link.exe from VS Build Tools --
 # Qt's MSVC kit doesn't replace that toolchain, it just supplies Qt's libraries
 # built against it. Point CMAKE_PREFIX_PATH at the Qt MSVC install, e.g.:
-#   -DCMAKE_PREFIX_PATH=C:/Qt/6.11.1/msvc2022_64
+#   -DCMAKE_PREFIX_PATH=C:/Qt/6.11.3/msvc2022_64
 # Quick/QuickWidgets: Qt Graphs' 2D chart surface (GraphsView) has no public
 # C++/QWidget header in this Qt version, only QML -- see charts_panel.h --
 # so charts_panel.qml is hosted via QQuickWidget.

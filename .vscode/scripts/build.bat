@@ -91,7 +91,7 @@ if not defined CMAKE (
 
 if not exist "%BUILD_DIR%\CMakeCache.txt" (
   echo Configuring %CONFIG% into build\%CONFIG% ...
-  "%CMAKE%" -S "%ROOT%" -B "%BUILD_DIR%" -G "Visual Studio 18 2026" -A x64 -DSIMCONNECT_DIR="C:\MSFS 2024 SDK\SimConnect SDK" -DCMAKE_PREFIX_PATH="C:\Qt\6.11.1\msvc2022_64"
+  "%CMAKE%" -S "%ROOT%" -B "%BUILD_DIR%" -G "Visual Studio 18 2026" -A x64 -DSIMCONNECT_DIR="C:\MSFS 2024 SDK\SimConnect SDK" -DCMAKE_PREFIX_PATH="C:\Qt\6.11.3\msvc2022_64"
   if errorlevel 1 exit /b 1
 )
 
