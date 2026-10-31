@@ -78,3 +78,6 @@ cmake_install.cmake
 # OpenCppCoverage reports (regenerate with .vscode\scripts\coverage.ps1)
 /coverage.xml
 /coverage_report/
+
+# Per-user Claude Code settings (personal permission allowlist)
+.claude/settings.local.json
