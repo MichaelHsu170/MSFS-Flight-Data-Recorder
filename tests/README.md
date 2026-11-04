@@ -197,6 +197,13 @@ make the other's map test time out.
   (retried) are tested.
 - **Startup** (`main.cpp`): single-instance lock, crash/terminate logging,
   the log filter (`main.cpp` isn't part of the test library).
+- **The review scripts** (`.vscode/scripts/review_copy.ps1`,
+  `review_snapshot.ps1`): repository tooling the test suite doesn't run. To
+  check `review_snapshot.ps1`: take a hash, change a tracked file, add a new
+  one and take another. `git diff --stat <first> <second>` lists just those
+  two, `git status` shows nothing staged, and
+  `git ls-tree -r <second> --name-only` still lists
+  `third_party/sqlite3/sqlite3.dll` (tracked, though `.gitignore` matches it).
 - **The native Windows save dialog**: the tests answer the Qt-drawn one
   (`Qt::AA_DontUseNativeDialogs`), which a test can fill in; the app shows
   the native one. Both return the chosen path the same way through

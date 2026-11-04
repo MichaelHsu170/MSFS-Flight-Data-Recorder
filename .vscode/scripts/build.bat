@@ -13,15 +13,15 @@ REM the second argument, a successful build is followed by the automated tests
 REM (ctest.exe, which ships next to cmake.exe -- see tests\README.md). With
 REM "rebuild" as the third argument, everything is recompiled first
 REM (--clean-first), so the output shows every file's compiler warnings, not
-REM just those of the files that were out of date -- the diff review's
-REM warning check (.github\diff-review.md) relies on that. To rebuild without
+REM just those of the files that were out of date -- the code review's
+REM warning check (.github\code-review.md) relies on that. To rebuild without
 REM testing, pass "notest" second. Any other second or third argument is an
 REM error, so a misplaced "rebuild" (build.bat Release rebuild) isn't silently
 REM ignored. With "only" second, followed by test program names (tst_...),
 REM only those programs (and what they link) are built, then only they run:
-REM the diff review's coverage check rebuilds and reruns the few tests behind
+REM the code review's coverage check rebuilds and reruns the few tests behind
 REM one broken line many times, which the whole build and suite would make
-REM take hours (.github\diff-review.md).
+REM take hours (.github\code-review.md).
 
 setlocal enabledelayedexpansion
 

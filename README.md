@@ -338,9 +338,9 @@ MSFS-Flight-Data-Recorder/
 ├── third_party/leaflet/          Bundled Leaflet 1.9.4 (leaflet.js, leaflet.css, images, LICENSE), built into the app
 ├── .github/
 │   ├── copilot-instructions.md   Code quality rules (single source of truth) and review entry point for Copilot
-│   ├── diff-review.md            Canonical code-change review process
-│   └── prompts/diff-review.prompt.md  Copilot /diff-review entry point
-├── .claude/skills/diff-review/   Claude Code /diff-review entry point
+│   ├── code-review.md            Canonical code review process (one round, the review loop, modules, live-check limits)
+│   └── prompts/                  Copilot /diff-review and /review-loop entry points
+├── .claude/skills/               Claude Code /diff-review and /review-loop entry points
 ├── CLAUDE.md                     Claude Code instructions (imports .github/copilot-instructions.md)
 ├── .vscode/
 │   ├── tasks.json                Debug, Release, Test, Coverage, Clean tasks (Ctrl+Shift+B)
@@ -351,6 +351,7 @@ MSFS-Flight-Data-Recorder/
 │       ├── build.bat             Sources vcvarsall.bat once, configures (if needed), builds, optionally runs the tests
 │       ├── clean.ps1             Removes the build/ directory
 │       ├── coverage.ps1          Runs the tests under OpenCppCoverage and writes a line-coverage report
-│       └── review_copy.ps1       Syncs build/review-copy, the copy the diff review breaks code in to check coverage
+│       ├── review_copy.ps1       Syncs build/review-copy, the copy the code review breaks code in to check coverage
+│       └── review_snapshot.ps1   Prints a tree hash of the working tree, which the review loop measures its rounds with
 └── CMakeLists.txt                fdr_core library (all app code but main.cpp), the app, and tests/
 ```

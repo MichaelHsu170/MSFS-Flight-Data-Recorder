@@ -1,7 +1,7 @@
 # review_copy.ps1 [file...]
 #
 # Keeps build\review-copy, the throwaway copy of the working tree that the
-# diff review's coverage check breaks code in (see .github\diff-review.md),
+# code review's coverage check breaks code in (see .github\code-review.md),
 # so the review never edits the working tree itself. build\ is git-ignored.
 #
 # With no arguments, syncs the whole copy to the working tree: every file git

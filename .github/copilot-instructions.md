@@ -2,7 +2,7 @@
 
 ## Code quality rules
 
-Follow these rules when writing or changing code. This section is the single source of truth for them, shared with Claude Code (`CLAUDE.md` imports this file) and checked by the diff review ([.github/diff-review.md](diff-review.md)). If a rule needs to change, edit only this section.
+Follow these rules when writing or changing code. This section is the single source of truth for them, shared with Claude Code (`CLAUDE.md` imports this file) and checked by code review ([.github/code-review.md](code-review.md)). If a rule needs to change, edit only this section.
 
 - **Minimal**: write only the code the change needs. No speculative hooks, unused methods or parameters, or "just in case" branches. Code made dead by a change is deleted in the same change.
 - **Modular**: each concern has one owner. Callers use the owner's API instead of reimplementing its logic.
@@ -19,6 +19,6 @@ Follow these rules when writing or changing code. This section is the single sou
 
 ## Code change review
 
-When asked to review, check, audit, or sanity-check code changes, a diff, recent edits, or uncommitted changes for bugs, incorrect logic, or suspicious behavior, whether asked directly in chat or via `/diff-review`, read [.github/diff-review.md](diff-review.md) and follow it exactly. It is the single source of truth for this review (scope rules, methodology, report format, and required fix proposals), shared with the Claude Code version of the same review (`.claude/skills/diff-review/SKILL.md`).
+When asked to review, check, audit, or sanity-check code changes, a diff, recent edits, or uncommitted changes for bugs, incorrect logic, or suspicious behavior, whether asked directly in chat or via `/diff-review`, or asked for a review loop or a full review (`/review-loop`), read [.github/code-review.md](code-review.md) and follow it exactly. It is the single source of truth for code review, shared with Claude Code.
 
-Read-only: never edit, stage, or commit files in the working tree as part of this review (its coverage break-check edits only a throwaway copy under the git-ignored `build/`, as that file describes); the report, including any fix proposals in it, is text output only.
+Read-only: never edit, stage, or commit files in the working tree as part of a review round (its coverage break-check edits only a throwaway copy under the git-ignored `build/`, as that file describes); the report, including any fix proposals in it, is text output only. Only the loop's coordinator applies fixes, between rounds.
