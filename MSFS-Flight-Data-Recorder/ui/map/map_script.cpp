@@ -111,6 +111,7 @@ QJsonObject segmentWeatherToJson(const SegmentWeather& w) {
 	obj["samples"] = w.samples;
 	setKnown(obj, "windMinKt", w.windMinKt);
 	setKnown(obj, "windMaxKt", w.windMaxKt);
+	obj["alongTrack"] = w.alongTrack;
 	setKnown(obj, "headwindFromKt", w.headwindFromKt);
 	setKnown(obj, "headwindFromHeightFt", w.headwindFromHeightFt);
 	setKnown(obj, "headwindToKt", w.headwindToKt);
@@ -134,6 +135,7 @@ QJsonObject segmentWeatherToJson(const SegmentWeather& w) {
 	setKnown(obj, "stallMarginHeightFt", w.stallMarginHeightFt);
 	setKnown(obj, "stallMarginAirspeedKt", w.stallMarginAirspeedKt);
 	setKnown(obj, "stallMarginBankDeg", w.stallMarginBankDeg);
+	obj["stalled"] = w.stalled;
 	return obj;
 }
 

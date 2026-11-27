@@ -1635,6 +1635,127 @@ private slots:
 		QCOMPARE(change({ 7, 7, 7, 7, 7 }), QList<double>({ 7, 1000, 7, 1000 }));
 	}
 
+	// Without the runway's heading, the approach's headwind and crosswind are
+	// from the contact's ground track (090°), the gates' are unknown, and
+	// without a track too there are none.
+	void approachSegmentWindWithoutARunway() {
+		TripDataset dataset = touchdownAfter({ 1200, 1000, 700, 400, 100, 0 });
+		const double winds[][2] = { { 90, 40 }, { 90, 20 }, { 90, 18 }, { 180, 15 }, { 90, 4 }, { 270, 6 } };
+		for (int i = 0; i < 6; ++i) {
+			dataset.points[i].rawNums[TRIP_NUM_ambient_wind_direction] = winds[i][0];
+			dataset.points[i].rawNums[TRIP_NUM_ambient_wind_velocity] = winds[i][1];
+			dataset.points[i].rawNums[TRIP_NUM_gps_ground_true_track] = i == 5 ? 90 : 10;
+		}
+		const std::optional<ContactProfile> profile = contactProfile(dataset, dataset.touchdowns[0], true);
+		QVERIFY(profile);
+		const SegmentWeather& w = profile->segment;
+		QVERIFY(w.alongTrack);
+		QCOMPARE(w.headwindFromKt, 20.0);
+		QCOMPARE(w.headwindFromHeightFt, 1000.0);
+		QCOMPARE(w.headwindToKt, -6.0);
+		QCOMPARE(w.headwindToHeightFt, 0.0);
+		QCOMPARE(w.maxTailwindKt, 6.0);
+		QVERIFY(std::abs(w.maxCrosswindKt - 15) < 1e-9);
+		for (const ProfilePoint& gate : profile->gates)
+			QVERIFY(std::isnan(gate.headwindKt));
+
+		dataset.touchdowns[0].runwayHeading = 90;
+		QVERIFY(!contactProfile(dataset, dataset.touchdowns[0], true)->segment.alongTrack);
+
+		dataset.touchdowns[0].runwayHeading = -1;
+		dataset.points[5].rawNums[TRIP_NUM_gps_ground_true_track] = std::nan("");
+		const SegmentWeather unknown = contactProfile(dataset, dataset.touchdowns[0], true)->segment;
+		QVERIFY(!unknown.alongTrack);
+		QVERIFY(std::isnan(unknown.headwindFromKt));
+	}
+
+	// A liftoff's ground track is its own airborne sample's, not the last one's
+	// on the ground.
+	void climbOutSegmentWindWithoutARunway() {
+		TripDataset dataset;
+		const double tracks[] = { 180, 90, 90 };
+		for (int i = 0; i < 3; ++i) {
+			dataset.points.push_back(sample(i, 1000 + 300 * i, 300 * i));
+			dataset.points[i].rawNums[TRIP_NUM_gps_ground_true_track] = tracks[i];
+			dataset.points[i].rawNums[TRIP_NUM_ambient_wind_direction] = 90;
+			dataset.points[i].rawNums[TRIP_NUM_ambient_wind_velocity] = 20;
+		}
+		dataset.liftoffPoints = { contactAt<LiftoffPoint>(1) };
+		QCOMPARE(contactProfile(dataset, dataset.liftoffPoints[0], false)->segment.headwindFromKt, 20.0);
+	}
+
+	// A stall begins at the first airborne sample at or past the stall angle
+	// (12°) that isn't back below it in the next one: an instant doesn't hide
+	// a stall after it, nor end the G-force range.
+	void approachSegmentStallIsNotAnInstant() {
+		auto stall = [](std::initializer_list<double> alphas) {
+			TripDataset dataset = touchdownAfter({ 1200, 1000, 700, 400, 100, 0 });
+			int i = 0;
+			for (double alpha : alphas) {
+				dataset.points[i].rawNums[TRIP_NUM_incidence_alpha] = alpha;
+				dataset.points[i].rawNums[TRIP_NUM_stall_alpha] = 12;
+				dataset.points[i].rawNums[TRIP_NUM_g_force] = 1 + i / 10.0;
+				++i;
+			}
+			dataset.points[5].boolGroups[TripBoolBits::sim_on_ground.group] |= 1u << TripBoolBits::sim_on_ground.bit;
+			const SegmentWeather w = contactProfile(dataset, dataset.touchdowns[0], true)->segment;
+			return QStringLiteral("%1 at %2 ft, up to %3 G").arg(w.stalled ? "stalled" : "not").arg(w.stallMarginHeightFt).arg(w.gForceMax);
+		};
+		QCOMPARE(stall({ 5, 5, 11.9, 5, 5, 5 }), QStringLiteral("not at 700 ft, up to 1.4 G"));
+		QCOMPARE(stall({ 5, 5, 12, 5, 5, 5 }), QStringLiteral("not at 700 ft, up to 1.4 G"));
+		QCOMPARE(stall({ 5, 5, 12, 12, 5, 5 }), QStringLiteral("stalled at 700 ft, up to 1.2 G"));
+		QCOMPARE(stall({ 5, 13, 13, 5, 5, 5 }), QStringLiteral("stalled at 1000 ft, up to 1.1 G"));  // from the segment's first
+		QCOMPARE(stall({ 5, 14, 5, 13, 13, 5 }), QStringLiteral("stalled at 400 ft, up to 1.3 G"));
+		// What follows the last airborne sample, on the ground, doesn't tell.
+		QCOMPARE(stall({ 5, 5, 5, 5, 13, 5 }), QStringLiteral("stalled at 100 ft, up to 1.4 G"));
+		QCOMPARE(stall({ 5, 5, 5, 5, 5, 13 }), QStringLiteral("not at 1000 ft, up to 1.4 G"));
+	}
+
+	// A climb-out's last sample (the 1000 ft one) is an instant past the stall
+	// angle when the one flown after it is below it again, though that one is
+	// past the segment; not when the recording ends there.
+	void climbOutSegmentEndsInAnInstantPastTheStallAngle() {
+		auto stalled = [](const std::vector<double>& alphas, double nextContact = -1) {
+			TripDataset dataset;
+			for (size_t i = 0; i < alphas.size(); ++i) {
+				dataset.points.push_back(sample(double(i), 1000 + 500 * double(i), 500 * double(i)));
+				dataset.points[i].rawNums[TRIP_NUM_incidence_alpha] = alphas[i];
+				dataset.points[i].rawNums[TRIP_NUM_stall_alpha] = 12;
+			}
+			dataset.liftoffPoints = { contactAt<LiftoffPoint>(0) };
+			if (nextContact > 0)
+				dataset.touchdowns = { contactAt<TouchdownPoint>(nextContact) };
+			return contactProfile(dataset, dataset.liftoffPoints[0], false)->segment.stalled;
+		};
+		QCOMPARE(stalled({ 5, 5, 13, 5 }), false);
+		QCOMPARE(stalled({ 5, 5, 13, 13 }), true);
+		QCOMPARE(stalled({ 5, 5, 13 }), true);
+		// Nor does the next contact end what was flown.
+		QCOMPARE(stalled({ 5, 13, 5 }, 1.5), false);
+	}
+
+	// So does an approach's, at a touchdown still airborne in its own sample
+	// (a bounce between two samples); the sample after it only tells when it
+	// was flown, not after a reset (here 600 ft up).
+	void approachSegmentEndsInAnInstantPastTheStallAngle() {
+		auto stalled = [](double alphaAfter, double heightAfter) {
+			TripDataset dataset;
+			dataset.points = { sample(-0.5, 1010, 10), sample(0, 1005, 5), sample(0.5, 1000 + heightAfter, heightAfter) };
+			const double alphas[] = { 5, 13, alphaAfter };
+			for (int i = 0; i < 3; ++i) {
+				dataset.points[i].rawNums[TRIP_NUM_velocity_world_y] = -600;
+				dataset.points[i].rawNums[TRIP_NUM_incidence_alpha] = alphas[i];
+				dataset.points[i].rawNums[TRIP_NUM_stall_alpha] = 12;
+			}
+			dataset.touchdowns = { contactAt<TouchdownPoint>(-0.2) };
+			dataset.liftoffPoints = { contactAt<LiftoffPoint>(-0.1) };
+			return contactProfile(dataset, dataset.touchdowns[0], true)->segment.stalled;
+		};
+		QCOMPARE(stalled(5, 5), false);
+		QCOMPARE(stalled(13, 5), true);
+		QCOMPARE(stalled(5, 605), true);
+	}
+
 	// Through the same approach: in cloud down to 700 ft (the 1200 ft
 	// sample's cloud is before it), icing conditions at 700 ft (in cloud at
 	// +5 °C) though not at 100 ft (dry at 0 °C), the most structural and

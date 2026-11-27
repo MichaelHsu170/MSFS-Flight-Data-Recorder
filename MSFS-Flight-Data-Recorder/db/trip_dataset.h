@@ -175,10 +175,9 @@ struct ProfilePoint {
 // the previous contact) down to the touchdown, or the climb-out's from the
 // liftoff up to its first crossing of 1000 ft (or the last before the next
 // contact); either only within 5 nm of the contact, stopping at the first
-// sample beyond it, so one that stays low isn't the whole flight. A value is NaN when none of the samples recorded it; the wind
-// components also without the runway's heading.
+// sample beyond it, so one that stays low isn't the whole flight. A value is NaN when none of the samples recorded it.
 struct SegmentWeather {
-	int samples = 0;                      // 0 when the segment is empty: then nothing else is set
+	int samples = 0;                      // 0 when the segment is empty: then nothing else is measured
 	double windMinKt = std::nan("");
 	double windMaxKt = std::nan("");
 	// The lowest and highest headwind component, in time order: from
@@ -187,6 +186,10 @@ struct SegmentWeather {
 	// segment (wind shear). Where several samples share an extreme, the two
 	// closest in time (the first such pair), so the heights show where the
 	// change happened; a steady headwind is its first sample at both ends.
+	// Without the runway's heading, the headwind and crosswind here are along
+	// and across the contact's ground track instead (alongTrack); NaN without
+	// either.
+	bool alongTrack = false;
 	double headwindFromKt = std::nan("");
 	double headwindFromHeightFt = std::nan("");
 	double headwindToKt = std::nan("");
@@ -211,7 +214,7 @@ struct SegmentWeather {
 	// The lowest and highest G FORCE among the airborne samples: their spread
 	// shows turbulence, but each is the instant of its sample, so a bump
 	// between two samples is missed. Like the vertical wind, only up to the
-	// stall sample below when it stalled: after it, the aircraft may be out of
+	// stall's sample below when it stalled: after it, the aircraft may be out of
 	// control (a crash's tumble), and neither shows the air any more.
 	double gForceMin = std::nan("");
 	double gForceMax = std::nan("");
@@ -225,13 +228,17 @@ struct SegmentWeather {
 	// The airborne sample closest to the stall: the smallest margin of its
 	// angle of attack (INCIDENCE ALPHA, degrees) below the stall's (STALL
 	// ALPHA, the angle of the maximum lift), at its height, airspeed (kt
-	// indicated) and bank (degrees); when it stalled (no margin left), the
-	// first such sample, where the stall began.
+	// indicated) and bank (degrees); when it stalled, the sample where the
+	// stall began.
 	double stallMarginAlphaDeg = std::nan("");
 	double stallMarginStallAlphaDeg = std::nan("");
 	double stallMarginHeightFt = std::nan("");
 	double stallMarginAirspeedKt = std::nan("");
 	double stallMarginBankDeg = std::nan("");
+	// Whether it stalled: reached the stall angle with no margin left, and not
+	// only for an instant (the next sample airborne and below the angle again),
+	// which a gust can cause.
+	bool stalled = false;
 };
 
 // A liftoff's/touchdown's final trajectory (contactProfile() in

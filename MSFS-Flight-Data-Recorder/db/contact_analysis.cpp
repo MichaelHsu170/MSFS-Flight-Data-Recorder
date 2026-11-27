@@ -207,6 +207,13 @@ std::optional<PowerField> powerField(int engineType) {
 	}
 }
 
+// Sets point's wind components along and across heading (true).
+void setWindComponents(ProfilePoint& point, double heading) {
+	const double windAngle = (point.windDirection - heading) * DEG_2_RAD;
+	point.headwindKt = point.windSpeedKt * std::cos(windAngle);
+	point.crosswindKt = point.windSpeedKt * std::sin(windAngle);
+}
+
 // Turns samples into ProfilePoints relative to one contact.
 class ProfileBuilder {
 public:
@@ -217,6 +224,9 @@ public:
 			: points[samples.ground].rawNum(TRIP_NUM_plane_altitude)),
 		groundElevation_(groundElevation(points[samples.ground])),
 		power_(powerField(points[samples.at].engineType)) {}
+
+	bool runwayHeadingKnown() const { return !std::isnan(contact_.runwayTrueHeading()); }
+	double contactTrack() const { return points_[samples_.at].rawNum(TRIP_NUM_gps_ground_true_track); }
 
 	ProfilePoint at(int index, const QString& gate = QString()) const {
 		const TripSamplePoint& p = points_[index];
@@ -251,9 +261,7 @@ public:
 		out.windDirection = p.rawNum(TRIP_NUM_ambient_wind_direction);
 		out.windSpeedKt = p.rawNum(TRIP_NUM_ambient_wind_velocity);
 		out.verticalWindFpm = p.rawNum(TRIP_NUM_ambient_wind_y);
-		const double windAngle = (out.windDirection - contact_.runwayTrueHeading()) * DEG_2_RAD;
-		out.headwindKt = out.windSpeedKt * std::cos(windAngle);
-		out.crosswindKt = out.windSpeedKt * std::sin(windAngle);
+		setWindComponents(out, contact_.runwayTrueHeading());
 		out.temperatureC = p.rawNum(TRIP_NUM_ambient_temperature);
 		out.inCloud = inCloud(p);
 		out.precipitation = precipitationName(p.rawNum(TRIP_NUM_ambient_precip_state));
@@ -378,23 +386,47 @@ std::vector<ProfilePoint> series(const ProfileBuilder& builder, const ContactSam
 	return out;
 }
 
+// How far (degrees) point's angle of attack is below the stall angle; NaN
+// when either wasn't recorded.
+double stallMargin(const TripSamplePoint& point) {
+	return point.rawNum(TRIP_NUM_stall_alpha) - point.rawNum(TRIP_NUM_incidence_alpha);
+}
+
+// The first of the samples from..to at or past the stall angle while airborne
+// where it isn't an instant (the next one, airborne too, below the angle
+// again, before end, which may be past to), which a gust can cause; to + 1
+// when there is none.
+int firstStalledSample(const ProfileBuilder& builder, int from, int to, int end) {
+	const auto airborne = [&](int i) { return !builder.at(i).onGround; };
+	for (int i = from; i <= to; ++i)
+		if (airborne(i) && stallMargin(builder.sample(i)) <= 0
+				&& !(i + 1 < end && airborne(i + 1) && stallMargin(builder.sample(i + 1)) > 0))
+			return i;
+	return to + 1;
+}
+
 // The weather and the ride (SegmentWeather) through the samples from..to
 // (inclusive, from first); empty when to is from - 1 (a liftoff whose next
-// contact falls before its sample after it).
-SegmentWeather segmentWeather(const ProfileBuilder& builder, int from, int to) {
+// contact falls before its sample after it). The samples flown on from them
+// end before end.
+SegmentWeather segmentWeather(const ProfileBuilder& builder, int from, int to, int end) {
 	SegmentWeather w;
 	w.samples = to - from + 1;
+	const double contactTrack = builder.contactTrack();
+	w.alongTrack = !builder.runwayHeadingKnown() && !std::isnan(contactTrack);
 	// Each sample's headwind and height, in time order, for the change.
 	std::vector<std::pair<double, double>> headwinds;
 	double lowestHeadwind = std::nan(""), highestHeadwind = std::nan("");
 	int antiIceOn = 0, antiIceKnown = 0;
-	// Past the first airborne sample at or beyond the stall angle, the aircraft
-	// may be out of control (a crash's tumble), so the G-force and vertical
-	// wind no longer show the air it flew through.
-	bool stalled = false;
+	// Past the stall, the aircraft may be out of control (a crash's tumble), so
+	// the G-force and vertical wind no longer show the air it flew through.
+	const int stall = firstStalledSample(builder, from, to, end);
+	w.stalled = stall <= to;
 	for (int i = from; i <= to; ++i) {
-		const ProfilePoint p = builder.at(i);
+		ProfilePoint p = builder.at(i);
 		const TripSamplePoint& sample = builder.sample(i);
+		if (w.alongTrack)
+			setWindComponents(p, contactTrack);
 		keepLowest(w.windMinKt, p.windSpeedKt);
 		keepHighest(w.windMaxKt, p.windSpeedKt);
 		if (!std::isnan(p.headwindKt))
@@ -417,7 +449,7 @@ SegmentWeather segmentWeather(const ProfileBuilder& builder, int from, int to) {
 			++antiIceKnown;
 			antiIceOn += antiIce == 1;
 		}
-		if (stalled)
+		if (i > stall)
 			continue;
 		if (keepLowest(w.verticalWindMinFpm, p.verticalWindFpm))
 			w.verticalWindMinHeightFt = p.heightFt;
@@ -428,14 +460,13 @@ SegmentWeather segmentWeather(const ProfileBuilder& builder, int from, int to) {
 			keepHighest(w.gForceMax, sample.rawNum(TRIP_NUM_g_force));
 			const double alpha = sample.rawNum(TRIP_NUM_incidence_alpha);
 			const double stallAlpha = sample.rawNum(TRIP_NUM_stall_alpha);
-			const double margin = stallAlpha - alpha;
-			if (!std::isnan(margin) && !(w.stallMarginStallAlphaDeg - w.stallMarginAlphaDeg <= margin)) {
+			const double margin = stallMargin(sample);
+			if (i == stall || (!std::isnan(margin) && !(w.stallMarginStallAlphaDeg - w.stallMarginAlphaDeg <= margin))) {
 				w.stallMarginAlphaDeg = alpha;
 				w.stallMarginStallAlphaDeg = stallAlpha;
 				w.stallMarginHeightFt = p.heightFt;
 				w.stallMarginAirspeedKt = p.airspeed;
 				w.stallMarginBankDeg = p.bank;
-				stalled = margin <= 0;
 			}
 		}
 	}
@@ -523,7 +554,7 @@ ContactProfile touchdownProfile(const ProfileBuilder& builder, const ContactSamp
 	int from = s.ground;
 	while (from > (top >= 0 ? top : s.begin) && builder.distance(from - 1) <= kTerrainRangeNm)
 		--from;
-	profile.segment = segmentWeather(builder, from, s.ground);
+	profile.segment = segmentWeather(builder, from, s.ground, s.runEnd);
 	builder.highestTerrain(profile, s.ground, s.runBegin);
 	return profile;
 }
@@ -542,7 +573,7 @@ ContactProfile liftoffProfile(const ProfileBuilder& builder, const ContactSample
 	int top = s.at;
 	while (top < s.end - 1 && !(builder.height(top) >= kSegmentTopFt) && builder.distance(top + 1) <= kTerrainRangeNm)
 		++top;
-	profile.segment = segmentWeather(builder, s.at, (std::min)(top, s.end - 1));
+	profile.segment = segmentWeather(builder, s.at, (std::min)(top, s.end - 1), s.runEnd);
 	builder.highestTerrain(profile, s.ground, s.runEnd - 1);
 	return profile;
 }

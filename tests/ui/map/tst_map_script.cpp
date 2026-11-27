@@ -328,6 +328,8 @@ private slots:
 		w.samples = 30;
 		w.windMinKt = 1;
 		w.windMaxKt = 2;
+		w.alongTrack = true;
+		w.stalled = false;
 		w.headwindFromKt = 3;
 		w.headwindFromHeightFt = 4;
 		w.headwindToKt = 5;
@@ -369,6 +371,7 @@ private slots:
 			{ "crosswindKt", -6 }, { "temperatureC", 4.5 }, { "inCloud", 0 }, { "precipitation", "rain" },
 			{ "structuralIce", 0.02 } }));
 		QCOMPARE(profile["segment"].toObject(), (QJsonObject{ { "samples", 30 }, { "windMinKt", 1 }, { "windMaxKt", 2 },
+			{ "alongTrack", true }, { "stalled", false },
 			{ "headwindFromKt", 3 }, { "headwindFromHeightFt", 4 }, { "headwindToKt", 5 }, { "headwindToHeightFt", 6 },
 			{ "maxTailwindKt", 7 }, { "maxCrosswindKt", 8 }, { "cloudKnown", true }, { "lowestInCloudFt", 9 },
 			{ "icingConditions", 1 }, { "maxStructuralIce", 0.1 }, { "maxPitotIce", 0.2 }, { "engineAntiIceShare", 0.3 },
@@ -380,6 +383,12 @@ private slots:
 		QCOMPARE(profile["powerUnit"].toString(), QStringLiteral(" inHg"));
 		QCOMPARE(profile["powerTitle"].toString(), QStringLiteral("manifold pressure"));
 		QCOMPARE(profile["highestTerrainFt"].toDouble(), 420.0);
+		// Each flag as it is, not one for the other.
+		w.alongTrack = false;
+		w.stalled = true;
+		const QJsonObject flipped = mapProfileJson(contactProfile)["segment"].toObject();
+		QCOMPARE(flipped["alongTrack"], QJsonValue(false));
+		QCOMPARE(flipped["stalled"], QJsonValue(true));
 		QCOMPARE(profile["highestTerrainNm"].toDouble(), 3.5);
 		QCOMPARE(profile["terrainRangeNm"].toDouble(), 4.25);
 	}
