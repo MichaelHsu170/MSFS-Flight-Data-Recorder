@@ -19,10 +19,16 @@ public:
 	// the executable's directory in Release builds.
 	static QString filePath();
 
-	// Writes a fully-documented default settings.ini when there's none;
-	// never modifies an existing file, even a partial one. instance() calls
-	// it the first time it's used in a process.
-	static void ensureFileExists();
+	// Writes a fully-documented default settings.ini when there's none. In an
+	// existing file, only brings the comments directly above its settings and
+	// sections, and at its top, up to date, adds [ai]'s missing API keys and
+	// comments out its empty ones, keeping the previous file as
+	// settings.ini.bak; and then, with exactly one API key set, clears a saved
+	// model and custom model that their names show to be another provider's (and
+	// model=other with the custom model), unless the refresh left the file as it
+	// is because it couldn't safely update it (refreshComments() returning false).
+	// instance() calls it the first time it's used in a process.
+	static void prepareFile();
 
 	// [logging] verbose: the log level name (Logger::levelFromString()),
 	// "INFO" if unset. Static and read-only (never creates settings.ini), so
@@ -59,14 +65,18 @@ public:
 	QMap<QString, int> tripHistoryColumnWidths() const;
 	void setTripHistoryColumnWidths(const QMap<QString, int>& widths);
 
-	// Gemini API key used by the liftoff/landing analysis feature in the map popup.
-	// Set manually under [ai] gemini_api_key in settings.ini.
+	// API keys of the liftoff/landing analysis feature in the map popup's
+	// providers, set manually under [ai] in settings.ini (gemini_api_key,
+	// openai_api_key, claude_api_key). The page (map.html) analyzes only with
+	// exactly one of them set, which decides the provider.
 	QString geminiApiKey() const;
+	QString openaiApiKey() const;
+	QString claudeApiKey() const;
 
 	// The AI analysis model as the map popup's drop-down left it, under [ai]
-	// in settings.ini: model is gemma-4-31b-it, gemma-4-26b-a4b-it or other
-	// (the name in custom_model). Read verbatim: the page (map.html) owns the
-	// choices and treats an empty or unknown model as its default.
+	// in settings.ini: model is a model's name or other (the name in
+	// custom_model). Read verbatim: the page (map.html) owns the choices and
+	// treats an empty or unknown model as the provider's default.
 	QString aiModel() const;
 	void setAiModel(const QString& model);
 	QString aiCustomModel() const;

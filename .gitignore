@@ -65,6 +65,7 @@ cmake_install.cmake
 
 # User settings
 *.ini
+*.ini.bak
 
 # Temporary files
 *.tmp

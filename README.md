@@ -85,27 +85,55 @@ All runtime files follow the same rule: **Debug** builds use the **current worki
 | File | Purpose |
 |---|---|
 | `flight_data.db` | SQLite database; created on first run, grows as flights are recorded |
-| `settings.ini` | User preferences (panel sizes, table column widths, hidden data-table fields, log level, sample interval, automatic-recording toggle, Gemini API key); created on first launch |
+| `settings.ini` | User preferences (panel sizes, table column widths, hidden data-table fields, log level, sample interval, automatic-recording toggle, the AI analysis's API keys and its model and evaluation choices); created on first launch |
+| `settings.ini.bak` | `settings.ini` as it was before the app last updated its comments; contains your API keys, like `settings.ini` itself |
 | `msfs_fdr_debug.log` | Unified log, started fresh on each launch, with the previous run's log kept as `msfs_fdr_debug.log.old`; level-filtered output from all modules (Qt, SimConnect, DB, map, charts) |
 
 ## settings.ini Reference
 
 The file is a standard Windows INI edited automatically by the app as the user resizes panels or changes preferences. All values are human-readable integers or comma-separated strings and can be edited by hand while the app is not running.
 
+At startup the app brings the file's own comments up to date: the block at the top of the file and those directly above each setting and section it knows. Values, their order, unknown settings and sections, commented-out settings (`;key=value`) and notes separated by a blank line are kept. Missing `[ai]` API keys are added commented out (none to a file without `[ai]`), and an empty one is commented out. The previous file is kept as `settings.ini.bak`. If the file can't be read, isn't UTF-8, can't be written, has a known section or setting more than once, or would change in more than its comments and empty API keys, it's left as it is, with a warning in the log, and the earlier backup is kept. A preference changed in the app is likewise not saved to a file that isn't UTF-8, can't be read or can't be replaced (for example, locked by another program).
+
 ```ini
+; MSFS Flight Data Recorder -- settings
+; Edit while the app is not running. All values are human-readable.
+; The app updates the comments directly above each setting and section, so leave
+; a blank line between them and notes of your own.
+
+; AI analysis of liftoffs and landings (the Analyze button in the map popups).
+;   1. Get an API key from ONE of the providers below.
+;   2. Remove the ; in front of that provider's line and paste the key after its
+;      "=". Leave the ; in front of the other two.
+;   3. Save this file and restart the app.
+; A line with a ; in front is not used, so a spare key can be kept there.
+; Analyze is disabled if no key is set, or more than one.
+; To switch provider, put a ; in front of the old key's line and remove the one in
+; front of the new key's. A saved model whose name shows it's another provider's
+; is then cleared, and the new provider's default is used.
+; The app never changes your keys, and puts a ; in front of a line without one.
+; They are stored here as plain text, so don't share this file.
 [ai]
-; Gemini API key for the AI liftoff/landing analysis feature.
-; Obtain a free key from Google AI Studio (aistudio.google.com), then paste it
-; here and restart the app. The app never writes this value.
-; Without a key the Analyze buttons are disabled.
-gemini_api_key=
-; Auto-managed by the app. The model the AI analysis uses, chosen in the
-; drop-down beside the Analyze button: gemma-4-31b-it, gemma-4-26b-a4b-it,
-; or other for the one named in custom_model. Default: gemma-4-31b-it.
-model=gemma-4-31b-it
+; Google Gemini: aistudio.google.com (some models are free to use).
+;gemini_api_key=
+
+; OpenAI: platform.openai.com. Billed per use, separately from a ChatGPT
+; subscription.
+;openai_api_key=
+
+; Anthropic Claude: platform.claude.com. Needs an API key, not a Claude app
+; login.
+;claude_api_key=
+
+; Auto-managed by the app. The model the analysis uses, chosen in the drop-down
+; beside the Analyze button, or other for the one named in custom_model.
+; Empty: the provider's default.
+model=
+
 ; Auto-managed by the app. The model name entered for the drop-down's Other
 ; choice (model=other).
 custom_model=
+
 ; Auto-managed by the app. Whether the AI analysis is a progress evaluation
 ; (the whole climb-out or approach) or, false, a contact evaluation (the
 ; liftoff or touchdown alone), as the popup's checkbox left it. Default: true.
