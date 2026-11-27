@@ -43,13 +43,13 @@ These are **not findings**:
 
 ### 1.3 Live checks
 
-The automated tests never touch the simulator, the AI service or the owner's data. These checks do, or get in the owner's way:
+The automated tests never touch the simulator, the AI services or the owner's data. These checks do, or get in the owner's way:
 
 | Check | Why it's unsafe | When it may run |
 |---|---|---|
 | Launching the app | A Debug build uses the files in its working directory, and the Debug launch configuration starts it in the repository root, where the owner's real `flight_data.db`, `settings.ini` and log are. A Release build uses the ones next to its exe. On start the app migrates the database, which can't be undone. A running copy also blocks a second one. | Never by a reviewer. The coordinator only with a Debug build in an empty temporary working directory, and only when no test can show the behavior. |
 | A flight in MSFS through the real SimConnect | It needs the owner in the simulator, and it writes real trips. | Only by the owner. The "To check" steps are under "Not covered" in tests/README.md. |
-| The real AI service | It uses the owner's `gemini_api_key` and quota, and sends flight data out. | Only by the owner. Nobody reads or prints that key; the tests stub `fetch()`. |
+| The real AI services | They use the owner's API keys (`*_api_key` in settings.ini and settings.ini.bak) and quota or credit, and get sent flight data. | Only by the owner. Nobody reads or prints those keys; the tests stub `fetch()`. |
 | The test suite | Safe for data, but the map tests show real windows, move the real mouse and use the clipboard, so using the desktop during a run can fail them. | One run at a time (tests/README.md), in the foreground. |
 
 A check that can't run here is reported as not verified, and the final report tells the owner what to check by hand.
@@ -146,7 +146,7 @@ The coordinator runs the rounds, fixes the findings and decides what happens nex
    - A diff review breaks all the code the loop's diffs add or alter. Coming back here later, it breaks what changed since the last break check and repeats every break that survived.
    - A full review breaks the same, plus up to 10 breaks per module, chosen by that module's first-round reviewer as the conditions and error paths whose tests it trusts least and listed in its report. Breaking the whole project isn't practical at up to a minute per break.
 5. **Final round.** One fresh reviewer covers all the diffs of the loop, with the first of these focuses that fits its diffs and this loop hasn't used:
-   - callers and real tool behavior, if production code or scripts changed: each changed call against its callers and what the SimConnect SDK, Qt and SQLite headers and docs on this machine actually say (anything they don't settle, such as the Gemini service, is reported as not verified);
+   - callers and real tool behavior, if production code or scripts changed: each changed call against its callers and what the SimConnect SDK, Qt and SQLite headers and docs on this machine actually say (anything they don't settle, such as the AI services, is reported as not verified);
    - test validity, if tests changed: each changed test against the code quality rules;
    - docs against code: README.md, the tests/README.md Coverage table, settings and comments. If no focus is left, repeat this one.
 

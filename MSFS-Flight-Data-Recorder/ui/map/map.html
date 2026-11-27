@@ -420,7 +420,7 @@ function sunLightLabel(elevation) {
     return 'night';
 }
 
-// ── Gemini analysis helpers ──────────────────────────────────────────────────
+// ── AI analysis helpers ──────────────────────────────────────────────────
 
 // The start of an analysis prompt, shared by liftoffs and touchdowns: the
 // instructions, the answer structure (for a progress evaluation, its last two
@@ -434,24 +434,24 @@ function startAnalysisPrompt(intro, segment, segmentBullet, environment, dataTit
 
     lines.push(intro);
     lines.push('Respond using exactly this structure, with no preamble and no extra sections:');
-    lines.push('Plain text only: no markdown and no LaTeX (e.g. write "Vref", not "**Vref**" or "$V_{ref}$").');
+    lines.push('Plain text only: no markdown and no LaTeX (write "Vref", not "**Vref**" or "$V_{ref}$").');
     lines.push('');
     lines.push('Grade: [A+/A/A-/B+/B/B-/C+/C/C-/D/F]');
     lines.push('');
-    lines.push('Summary: [1-2 sentences overall]');
+    lines.push('Summary: [at most 2 sentences overall]');
     lines.push('');
     lines.push('Strengths:');
-    lines.push('• [one brief point per bullet]');
+    lines.push('• [one point per bullet, in one sentence]');
     lines.push('');
     lines.push('Areas to improve:');
-    lines.push('• [one brief point per bullet]');
+    lines.push('• [one point per bullet, in one sentence]');
     lines.push('');
     if (segment) {
         lines.push(segment + ':');
-        lines.push('• [' + segmentBullet + ']');
+        lines.push('• [one topic per bullet: ' + segmentBullet + ']');
         lines.push('');
         lines.push('Environment:');
-        lines.push('• [' + environment + ']');
+        lines.push('• [one condition per bullet: ' + environment + '; those without an effect in one last bullet]');
         lines.push('');
     }
     lines.push('---');
@@ -477,6 +477,10 @@ function headingPromptLine(t) {
     }
     return line;
 }
+
+// The visibility (m) from which an aircraft the simulator flags as in cloud can
+// see: fog and cloud reduce it to under 1000 m.
+var CLOUD_VISIBILITY_M = 1500;
 
 // The "Conditions:" block: the time and position at the contact, then its
 // light and weather, one line per value recorded (none without a sample).
@@ -506,7 +510,9 @@ function conditionsPromptLines(t) {
     if (hasValue(c, 'densityAltitudeFt')) altitudes.push('density altitude ' + roundHalfAwayFromZero(c.densityAltitudeFt) + ' ft');
     if (altitudes.length) add('Altitudes', altitudes.join('; '));
     if (hasValue(c, 'visibilityM')) add('Visibility', roundHalfAwayFromZero(c.visibilityM) + ' m');
-    if (hasValue(c, 'inCloud')) add('Cloud', c.inCloud ? 'in cloud' : 'not in cloud');
+    if (hasValue(c, 'inCloud'))
+        add('Cloud', !c.inCloud ? 'not in cloud' : 'in cloud' + (c.visibilityM >= CLOUD_VISIBILITY_M
+            ? ' by the simulator\'s flag, but judge the view by the visibility' : ''));
     if (c.precipitation)
         add('Precipitation', c.precipitation + (c.precipitation !== 'none' && hasValue(c, 'precipitationRate') ? ', rate ' + c.precipitationRate.toFixed(1) + ' mm of water' : ''));
     if (hasValue(c, 'windMinKt')) {
@@ -578,7 +584,7 @@ function profilePointText(p, profile, shown) {
     // ("2 nm") passes through nearly the same air as a height gate (3/2/1 nm
     // are about 950/640/320 ft on a 3° path), and repeating it would push
     // the worst-case prompt past its token limit.
-    if (/ ft$/.test(p.gate)) parts = parts.concat(gateWeatherParts(p));
+    if (isHeightGate(p)) parts = parts.concat(gateWeatherParts(p));
     return parts.join(', ');
 }
 
@@ -599,6 +605,18 @@ function verticalWindText(fpm) {
     return sidedText(fpm, ' ft/min', ' up', ' down');
 }
 
+// Whether a trajectory point is a height gate ("500 ft"), the gates that carry
+// the weather (profilePointText()).
+function isHeightGate(p) {
+    return / ft$/.test(p.gate);
+}
+
+// Whether a gate's weather shows its wind's components: a calm wind has none
+// (contact_analysis.cpp records them only with the wind speed).
+function gateWindComponentsShown(p) {
+    return roundHalfAwayFromZero(p.windSpeedKt) !== 0 && hasValue(p, 'headwindKt');
+}
+
 // A gate's weather (trip_dataset.h's ProfilePoint): the wind and its
 // components along and across the runway, the vertical wind, the outside
 // air, cloud, precipitation and structural ice, each left out when not
@@ -610,7 +628,7 @@ function gateWeatherParts(p) {
         // version. A calm wind has neither a direction nor components.
         var speed = roundHalfAwayFromZero(p.windSpeedKt);
         var wind = speed === 0 ? 'wind calm' : 'wind ' + roundHalfAwayFromZero(p.windDirection) + '° T ' + speed + ' kt';
-        if (speed !== 0 && hasValue(p, 'headwindKt')) wind += ' (' + headwindText(p.headwindKt) + ', crosswind ' + crosswindText(p.crosswindKt) + ')';
+        if (gateWindComponentsShown(p)) wind += ' (' + headwindText(p.headwindKt) + ', crosswind ' + crosswindText(p.crosswindKt) + ')';
         parts.push(wind);
     }
     if (hasValue(p, 'verticalWindFpm')) parts.push('vertical wind ' + verticalWindText(p.verticalWindFpm));
@@ -627,26 +645,28 @@ function gateWeatherParts(p) {
 // them: a headwind change of 15 kt or more as wind shear, a vertical wind
 // beyond STRONG_VERTICAL_WIND_FPM either way as strong, an airborne G-force
 // 0.5 G or more from 1 G as moderate turbulence and 1.0 G or more as severe
-// (the turbulence scale's load-factor changes), and an angle of attack at or
-// past the stall angle as a stall. The vertical wind also carries
+// (the turbulence scale's load-factor changes), and a stall (its stalled), or an
+// instant at or past the stall angle, as such. The vertical wind also carries
 // VERTICAL_WIND_CAVEAT: the simulator's value can swing while the aircraft
 // pitches or rolls fast, so the model doesn't take such a swing for the air.
 var STRONG_VERTICAL_WIND_FPM = 1000;
-var VERTICAL_WIND_CAVEAT = "; a swing while the aircraft pitches or rolls fast may be the simulator's reading, not the air";
+var VERTICAL_WIND_CAVEAT = "; a swing during fast pitch or roll may be the simulator's reading, not the air";
 function segmentPromptLines(w, title) {
     if (!w) return [];
     var lines = [];
     function add(label, text) { lines.push('    ' + label + ': ' + text); }
+    // What the wind components are measured from, when it isn't the runway.
+    var reference = w.alongTrack ? ' (from the ground track at the contact)' : '';
     function verticalWindAt(fpm, heightFt) { return fpm + ' ft/min at height ' + roundHalfAwayFromZero(heightFt) + ' ft'; }
     if (hasValue(w, 'windMinKt')) add('Wind speed', rangeText(roundHalfAwayFromZero(w.windMinKt), roundHalfAwayFromZero(w.windMaxKt), '-') + ' kt');
     if (hasValue(w, 'headwindFromKt')) {
         var change = w.headwindToKt - w.headwindFromKt;
         var changeKt = Math.round(Math.abs(change));
-        add('Largest headwind change', headwindText(w.headwindFromKt) + ' at height ' + roundHalfAwayFromZero(w.headwindFromHeightFt) + ' ft to ' + headwindText(w.headwindToKt) + ' at height ' + roundHalfAwayFromZero(w.headwindToHeightFt) + ' ft ('
+        add('Largest headwind change' + reference, headwindText(w.headwindFromKt) + ' at height ' + roundHalfAwayFromZero(w.headwindFromHeightFt) + ' ft to ' + headwindText(w.headwindToKt) + ' at height ' + roundHalfAwayFromZero(w.headwindToHeightFt) + ' ft ('
             + (change >= 0 || changeKt === 0 ? 'a gain' : 'a loss') + ' of ' + changeKt + ' kt' + (changeKt >= 15 ? ': wind shear' : '') + ')');
     }
-    if (hasValue(w, 'maxTailwindKt')) add('Strongest tailwind', Math.round(w.maxTailwindKt) > 0 ? Math.round(w.maxTailwindKt) + ' kt' : 'none');
-    if (hasValue(w, 'maxCrosswindKt')) add('Strongest crosswind', crosswindText(w.maxCrosswindKt));
+    if (hasValue(w, 'maxTailwindKt')) add('Strongest tailwind' + reference, Math.round(w.maxTailwindKt) > 0 ? Math.round(w.maxTailwindKt) + ' kt' : 'none');
+    if (hasValue(w, 'maxCrosswindKt')) add('Strongest crosswind' + reference, crosswindText(w.maxCrosswindKt));
     if (w.cloudKnown) add('Cloud', hasValue(w, 'lowestInCloudFt') ? 'in cloud down to height ' + roundHalfAwayFromZero(w.lowestInCloudFt) + ' ft' : 'not in cloud');
     if (hasValue(w, 'icingConditions')) add('Icing conditions (in cloud or precipitation at -20 to +10 °C)', w.icingConditions ? 'yes' : 'no');
     if (hasValue(w, 'maxStructuralIce')) add('Most structural ice', roundHalfAwayFromZero(w.maxStructuralIce * 100) + '%');
@@ -654,7 +674,7 @@ function segmentPromptLines(w, title) {
     if (hasValue(w, 'engineAntiIceShare')) add('Engine anti-ice (carburetor heat on a piston engine)','on for ' + roundHalfAwayFromZero(w.engineAntiIceShare * 100) + '% of the samples');
     if (hasValue(w, 'gForceMin')) {
         var gFromOne = Math.max(w.gForceMax - 1, 1 - w.gForceMin);
-        add('G-force while airborne', rangeText(fixedText(w.gForceMin, 2), fixedText(w.gForceMax, 2), '-') + ' G (its spread shows turbulence; a bump between samples is missed'
+        add('G-force while airborne', rangeText(fixedText(w.gForceMin, 2), fixedText(w.gForceMax, 2), '-') + ' G (its spread shows turbulence'
             + (gFromOne >= 1 ? '; severe turbulence or hard maneuvering' : gFromOne >= 0.5 ? '; moderate turbulence or maneuvering' : '') + ')');
     }
     if (hasValue(w, 'verticalWindMinFpm')) {
@@ -667,22 +687,84 @@ function segmentPromptLines(w, title) {
         add('Closest to the stall while airborne', 'angle of attack ' + fixedText(w.stallMarginAlphaDeg, 1) + '° vs stall ' + fixedText(w.stallMarginStallAlphaDeg, 1) + '° at height ' + roundHalfAwayFromZero(w.stallMarginHeightFt) + ' ft'
             + (hasValue(w, 'stallMarginAirspeedKt') ? ', IAS ' + roundHalfAwayFromZero(w.stallMarginAirspeedKt) + ' kt' : '')
             + (hasValue(w, 'stallMarginBankDeg') ? ', bank ' + fixedText(w.stallMarginBankDeg, 1) + '°' : '')
-            + (w.stallMarginAlphaDeg >= w.stallMarginStallAlphaDeg
-                ? ' (stalled; where the stall began, and the G-force and vertical wind above stop there, as the aircraft may then have been out of control)' : ''));
+            + (w.stalled ? ' (stalled; where the stall began, and the G-force and vertical wind above stop there, as the aircraft may then have been out of control)'
+                : w.stallMarginAlphaDeg >= w.stallMarginStallAlphaDeg ? ' (past the stall angle for an instant, which a gust can cause: not an established stall)' : ''));
     return lines.length ? ['  ' + title + ':'].concat(lines) : [];
+}
+
+// The most on-ground/airborne spells groundStatePromptLines() lists: past
+// them, only wheels skipping on the surface.
+var PROMPT_SPELLS = 6;
+
+// The ground speed (kt) below which an aircraft that has touched down taxis:
+// what it does from then on isn't the landing roll.
+var TAXI_KT = 15;
+
+// The on-ground and airborne spells of the samples in series that recorded
+// that state: their first and last sample and their highest height.
+function groundSpells(series) {
+    var spells = [];
+    series.filter(function(p) { return typeof p.onGround === 'boolean'; }).forEach(function(p) {
+        var spell = spells[spells.length - 1];
+        if (!spell || spell.onGround !== p.onGround) spells.push(spell = { onGround: p.onGround, from: p, top: -Infinity });
+        spell.to = p;
+        if (hasValue(p, 'heightFt')) spell.top = Math.max(spell.top, p.heightFt);
+    });
+    return spells;
+}
+
+// What the samples in profile's series make a liftoff ("a takeoff"), or ''
+// without the on-ground state. An airborne spell lower than 3 ft before it is
+// a hop of the takeoff roll, not a landing.
+var LIFTOFF_BOUNCE = 'a bounce of a landing';
+function liftoffKind(profile) {
+    var spells = profile ? groundSpells(profile.series) : [];
+    if (!spells.length) return '';
+    var landed = spells.some(function(s) { return !s.onGround && s.to.seconds < 0 && s.top >= 3; });
+    var back = spells.some(function(s) { return s.onGround && s.from.seconds >= 0; });
+    if (back) return landed ? LIFTOFF_BOUNCE : 'a liftoff of a takeoff roll that settled back';
+    return landed ? 'a touch-and-go, or a bounce too long for the samples' : 'a takeoff';
+}
+
+// What the samples in profile's series show of the contact, said outright
+// because models misread it from them: the on-ground and airborne spells,
+// what they make a liftoff (liftoffKind()), and after a touchdown the slowest
+// ground speed and where the landing roll ends (TAXI_KT), unless it crashed
+// (no roll). None without the on-ground state.
+function groundStatePromptLines(t, pointName) {
+    var profile = t.profile, spells = groundSpells(profile.series);
+    if (!spells.length) return [];
+    function at(p) { return fixedText(p.seconds, 1) + ' s'; }
+    var lines = ['  By the samples: ' + spells.slice(0, PROMPT_SPELLS).map(function(s) {
+        return (s.onGround ? 'on ground ' : 'airborne ') + (s.from === s.to ? 'at ' : fixedText(s.from.seconds, 1) + ' to ') + at(s.to)
+            + (!s.onGround && s.top > -Infinity ? ' (up to ' + roundHalfAwayFromZero(s.top) + ' ft)' : '');
+    }).join(', ') + (spells.length > PROMPT_SPELLS ? ', and so on' : '')];
+    if (pointName === 'liftoff point') return lines.concat('  What this liftoff is: ' + liftoffKind(profile));
+    if (t.crashed) return lines;
+    // The landing roll ends at the first sample that slow on the ground for
+    // good: a bounce may be as slow, into a strong wind.
+    var rolling = profile.series.filter(function(p) { return p.seconds >= 0 && p.onGround === true && hasValue(p, 'groundSpeedKt'); });
+    if (!rolling.length) return lines;
+    var slowest = rolling.reduce(function(a, b) { return b.groundSpeedKt < a.groundSpeedKt ? b : a; });
+    var last = spells[spells.length - 1];
+    var taxi = rolling.filter(function(p) { return p.seconds >= last.from.seconds && p.groundSpeedKt < TAXI_KT; })[0];
+    lines.push('  After the touchdown: slowest ground speed ' + roundHalfAwayFromZero(slowest.groundSpeedKt) + ' kt at ' + at(slowest)
+        + (slowest.groundSpeedKt < 0.5 ? ' (a full stop)' : ' (no full stop)')
+        + (taxi ? '; the landing roll ends at ' + at(taxi) + ' (below ' + TAXI_KT + ' kt): what follows is taxiing, not to be judged' : ''));
+    return lines;
 }
 
 // The trajectory block, titled title ("Final trajectory"; trip_dataset.h's
 // ContactProfile): the gates, the series and the highest terrain, measured
 // from the contact point (pointName) rather than the ground below, over
-// seriesSpan ("from 15 s before to 10 s after the touchdown (every sample,
-// evenly thinned if too dense), then one per second ...") and terrainSpan ("before the
+// seriesSpan ("from 15 s before to 10 s after the touchdown, then one per second ...") and terrainSpan ("before the
 // touchdown"). A point's threshold distance is measured from thresholdName
 // ("marked threshold"), like the contact's; its engine values are explained
 // only when recorded, naming the engines shown when the aircraft has more
 // than PROMPT_ENGINES (promptEngines()). When the points recorded engine
 // failures or fires, a line names every engine that failed or was on fire at
-// any of them, so the engines left out can't hide one. None without any of them;
+// any of them, so the engines left out can't hide one. Before it, what the
+// samples' on-ground state shows (groundStatePromptLines()). None without any of them;
 // a line saying it's unavailable when t.profile is null (MapBridge couldn't
 // build it, runAiAnalysis()), for the answer's segment section to say so.
 // The segment's weather and ride follow under segmentTitle
@@ -705,20 +787,22 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
         points.forEach(function(p) { (p[key] || []).forEach(function(v, e) { if (v && engines.indexOf(e + 1) < 0) engines.push(e + 1); }); });
         return engines.sort(function(a, b) { return a - b; });
     }
-    // Wind components come only with the runway's heading (trip_dataset.h's
-    // ProfilePoint), which the Runway line gives; not repeated here, as the
-    // worst-case prompt has no room for it. Only the height gates show them
-    // (profilePointText()), and the segment's lines.
-    var runwayWind = profile.gates.some(function(p) { return / ft$/.test(p.gate) && hasValue(p, 'headwindKt'); })
-        || hasValue(profile.segment, 'headwindFromKt') || hasValue(profile.segment, 'maxCrosswindKt');
-    var lines = [title + ' (seconds from the ' + pointName + (any('onGround') ? '; on ground/airborne = as the simulator reports it' : '') + '; height = altitude above the ' + pointName + ', not radio height; distance = to the ' + pointName + '; terrain = ground below relative to the ' + pointName
+    // Wind components relative to the runway come only with its heading
+    // (trip_dataset.h's ProfilePoint), which the Runway line gives; not
+    // repeated here, as the worst-case prompt has no room for it. Only the
+    // height gates show them (profilePointText()), and the segment's lines
+    // unless those are measured from the ground track (alongTrack).
+    var runwayWind = profile.gates.some(function(p) { return isHeightGate(p) && gateWindComponentsShown(p); })
+        || !!profile.segment && !profile.segment.alongTrack
+            && (hasValue(profile.segment, 'headwindFromKt') || hasValue(profile.segment, 'maxCrosswindKt'));
+    var lines = [title + ' (seconds from the ' + pointName + '; height = above the ' + pointName + ', not radio height; distance = to it; terrain = ground below relative to it'
         // Said once here, not "° T" on every point: the worst-case prompt
         // has no room for 85 of them (76 series points and 9 gates).
         + (any('headingTrue') || any('trackTrue') ? '; heading/track = true' : '')
         + (any('verticalSpeed') ? (profile.indicatedVerticalSpeed ? '; V/S = indicated vertical speed, which lags the actual rate' : '; V/S = actual vertical speed') : '')
-        + (runwayWind ? '; wind components = relative to the runway, not the aircraft\'s heading' : '')
-        + (any('thresholdFt') ? '; threshold = along the runway from the ' + thresholdName + ', negative = before it; centerline = from the extended runway centerline' : '')
-        + (any('throttle') ? '; throttle = throttle lever position per engine (engine 1 first, ? = not recorded) as the aircraft reports it, negative = reverse range' : '')
+        + (runwayWind ? '; wind components = relative to the runway' : '')
+        + (any('thresholdFt') ? '; threshold = along the runway from the ' + thresholdName + ', negative = before it; centerline = from the extended centerline' : '')
+        + (any('throttle') ? '; throttle = lever per engine (engine 1 first, ? = not recorded), negative = reverse' : '')
         + (powerName && any('power') ? '; ' + powerName + ' = ' + (profile.powerTitle ? profile.powerTitle + ', ' : '') + 'per engine' : '')
         + (shown ? '; engines ' + shown.map(function(e) { return e + 1; }).join('/') + ' of ' + engineCount + ' shown' : '') + '):'];
     if (profile.gates.length) {
@@ -729,11 +813,12 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
         lines.push('  Samples, ' + seriesSpan + ':');
         profile.series.forEach(function(p) { lines.push('    ' + profilePointText(p, profile, shown)); });
     }
+    lines = lines.concat(groundStatePromptLines(t, pointName));
     if (any('engineFailed') || any('engineOnFire')) {
         var problems = [];
-        if (marked('engineFailed').length) problems.push('failed: engine ' + marked('engineFailed').join(', '));
-        if (marked('engineOnFire').length) problems.push('on fire: engine ' + marked('engineOnFire').join(', '));
-        lines.push('  Engine failures and fires (of all engines, at any point above): ' + (problems.length ? problems.join('; ') : 'none'));
+        if (marked('engineFailed').length) problems.push('failed: engine ' + rangesText(marked('engineFailed')));
+        if (marked('engineOnFire').length) problems.push('on fire: engine ' + rangesText(marked('engineOnFire')));
+        lines.push('  Engine failures and fires (all engines, any point): ' + (problems.length ? problems.join('; ') : 'none'));
     }
     lines = lines.concat(segmentPromptLines(profile.segment, segmentTitle));
     // Highest at or below the point (rounded) is the point itself, so its
@@ -748,17 +833,45 @@ function profilePromptLines(t, title, segment, pointName, seriesSpan, terrainSpa
 }
 
 // What the model is told about using its own knowledge of the airport:
-// labeled, checked against the runway end and the recorded trajectory, and
-// admitted when missing.
-function airportKnowledgeLine(subject) {
-    return 'Airport: from your general knowledge of this airport (by ICAO code, name and position), describe in the Environment section any terrain, approach or departure procedure, or hazard that affected this ' + subject + ', labeled as general knowledge rather than recorded data. Before using a characteristic, check that it applies to this flight: it must belong to the runway end used, and the recorded gates (heading and track) must show it was flown; when the recording contradicts a published procedure, say so instead of assuming it was flown. If you do not know the airport, say so rather than guess.';
+// labeled, checked against the runway end used (with a matched runway) and
+// the gates (with gates), and admitted when missing.
+function airportKnowledgeLine(subject, t) {
+    var gates = hasGates(t);
+    var check = t.runway ? 'First check that it belongs to the runway end used' + (gates ? ' and that the gates show it was flown; if they contradict a procedure, say so' : '') + '. '
+        : gates ? 'First check that the gates show it was flown; if they contradict a procedure, say so. ' : '';
+    return 'Airport: from your general knowledge of this airport, describe in the Environment section any terrain, procedure or hazard that affected this ' + subject + ', labeled as general knowledge. ' + check + 'If you do not know the airport, say so.';
+}
+
+// Whether a progress evaluation's trajectory has gates (t.profile).
+function hasGates(t) {
+    return !!t.profile && t.profile.gates.length > 0;
+}
+
+// What the model is told about what it may claim: models take a gap in the
+// recording for the pilot's fault, and fill it with guesses. Only a progress
+// evaluation has the airport knowledge (airportKnowledgeLine()), and only one
+// with samples (profile's) what needs them. The wind to name is a height
+// gate's, else the segment's lines', if it has any (the samples carry no
+// weather), else none.
+function evidenceRuleLine(progress, profile) {
+    var wind = !profile ? '' : profile.gates.some(isHeightGate) ? ' and any wind and vertical wind at the nearest height gate'
+        : segmentPromptLines(profile.segment, '').length ? ' and any wind and vertical wind in the segment\'s weather and ride lines' : '';
+    return 'Evidence: use only the values above' + (progress ? ' and the airport knowledge' : '') + ', citing their point; calculate only the crosswind and headwind. Do not claim control inputs other than the throttle, intent, damage or a full stop the data does not give. A missing value or runway is a limit of the recording, never a fault of the flight or cause for advice. Nothing is both a strength and a fault.'
+        + (progress && profile && profile.series.length ? ' A contact\'s sink rate and peak G are not those of the first sample on the ground. Before faulting a sink rate, flare or bank, name the pitch and throttle response' + wind + '.' : '');
 }
 
 // What the model is told about the recorded weather: every significant
 // condition cited with its value, and what it caused kept apart from the
 // pilot's technique.
 function weatherRuleLine(subject) {
-    return 'Weather: in the Environment section, cite each significant recorded condition, including those marked above, with its value and its effect on this ' + subject + '; elsewhere keep what the conditions caused apart from technique, neither faulting the pilot for it nor excusing technique by it.';
+    return 'Weather: in the Environment section, cite each significant condition, including those marked above, with its value and effect on this ' + subject + '; elsewhere keep what the conditions caused apart from technique, neither faulting the pilot for it nor excusing technique by it.';
+}
+
+// Whether a liftoff's distance along the runway (liftoff) says it lifted off
+// before the runway start: db.cpp stores such a distance as -1, its percentage
+// as measured, so neither is shown as a number.
+function liftoffBeforeRunwayStart(t, liftoff) {
+    return liftoff && t.distanceLength === -1;
 }
 
 // The used runway end's dimensions and the runway left ahead of the contact,
@@ -777,8 +890,8 @@ function runwayPromptLines(t, touchdown) {
     }
     var lines = ['  Runway: ' + parts.join(', ')];
     var start = touchdown ? (hasValue(t, 'thresholdOffsetFt') ? t.thresholdOffsetFt : 0) : 0;
-    var remaining = t.runwayLengthFt - start - t.distanceLength;
-    lines.push('  Runway remaining ahead: ' + roundHalfAwayFromZero(remaining) + ' ft (' + roundHalfAwayFromZero(remaining / t.runwayLengthFt * 100) + '% of the runway length)');
+    var remaining = t.runwayLengthFt - start - (liftoffBeforeRunwayStart(t, !touchdown) ? 0 : t.distanceLength);
+    lines.push('  Runway remaining ahead: ' + roundHalfAwayFromZero(remaining) + ' ft (' + roundHalfAwayFromZero(remaining / t.runwayLengthFt * 100) + '% of its length)');
     return lines;
 }
 
@@ -790,7 +903,7 @@ function runwayPromptLines(t, touchdown) {
 function headingRulePromptLine(t) {
     return 'Headings: a difference between a magnetic and a true heading is the magnetic variation, not a misalignment; '
         + (hasValue(t.conditions, 'headingTrue')
-            ? "judge the alignment and crab only from the aircraft's true heading and true ground track against the runway's true heading."
+            ? "judge the alignment and crab only from the true headings and track."
             : "no true aircraft heading was recorded, so don't judge the alignment from the aircraft's heading.");
 }
 
@@ -800,7 +913,7 @@ function headingRulePromptLine(t) {
 // placement is what the runway position is judged as.
 function runwayConsiderItems(t, contactOnly, placement) {
     return {
-        crosswind: t.runwayHeading >= 0 ? ['crosswind component (calculate from the true wind vs the true runway heading)'] : [],
+        crosswind: t.runwayHeading >= 0 ? ['crosswind component'] : [],
         placement: placement + (!contactOnly && hasValue(t, 'runwayLengthFt') ? ' and the runway remaining' : ''),
         slope: !contactOnly && hasValue(t, 'runwaySlope') ? ['runway slope'] : []
     };
@@ -819,7 +932,8 @@ function considerPromptLine(items, aircraft) {
 // matched runway a line saying there are no wind components, the
 // Conditions and trajectory blocks (profileLines), the closing
 // "Consider:" line (consider, left out when null), the heading rule
-// (headingRulePromptLine(), with a runway heading) and the airport-knowledge
+// (headingRulePromptLine(), with a runway heading), the evidence rule
+// (evidenceRuleLine(), every prompt) and the airport-knowledge
 // and weather instructions for subject ("landing"), and returns the prompt
 // text. A contact evaluation (profileLines null) has no dimensions,
 // Conditions, trajectory, airport or weather instruction: the answer has no
@@ -836,11 +950,12 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, c
     // touchdown before the marked/displaced threshold legitimately reports a
     // negative distance, which is real data and so can't mark "unknown" either.
     if (t.runway) {
-        lines.push('  ' + distanceLabel + ': ' + roundHalfAwayFromZero(t.distanceLength) + ' ft (' + roundHalfAwayFromZero(t.distanceLengthPercent * 100) + '% of ' + lengthOf + ') [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; over 100% = past the far threshold]');
+        lines.push('  ' + distanceLabel + ': ' + (liftoffBeforeRunwayStart(t, subject === 'liftoff') ? 'before the runway start'
+            : roundHalfAwayFromZero(t.distanceLength) + ' ft (' + roundHalfAwayFromZero(t.distanceLengthPercent * 100) + '% of ' + lengthOf + ') [negative = before it; over 100% = past the far end]'));
         lines.push('  Centerline offset: ' + sideOffsetText(t.distanceWidth) + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '% of half-width)');
         if (progress) lines = lines.concat(runwayPromptLines(t, subject === 'landing'));
     } else {
-        lines.push('  Runway: none matched (not on a known runway), so there are no headwind or crosswind components; judge the wind against the aircraft\'s true ground track instead');
+        lines.push('  Runway: none matched (not on a known runway), so there are no headwind or crosswind components from a runway; judge the wind against the aircraft\'s true ground track instead');
     }
     if (progress) {
         lines.push('');
@@ -856,8 +971,9 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, c
         lines.push(consider);
     }
     if (t.runway && t.runwayHeading >= 0) lines.push(headingRulePromptLine(t));
+    lines.push(evidenceRuleLine(progress, t.profile));
     if (progress) {
-        lines.push(airportKnowledgeLine(subject));
+        lines.push(airportKnowledgeLine(subject, t));
         lines.push(weatherRuleLine(subject));
     }
     return lines.join('\n');
@@ -867,8 +983,10 @@ function finishAnalysisPrompt(lines, t, distanceLabel, lengthOf, profileLines, c
 // t.profile), or with contactOnly its contact evaluation (the liftoff alone).
 function buildLiftoffPrompt(t, contactOnly) {
     var aircraft = window._aircraftTitle || '';
-    var lines = startAnalysisPrompt('You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.',
-        contactOnly ? null : 'Liftoff and climb-out', 'what the samples show this liftoff to be (a takeoff, a touch-and-go or a bounce), then for a takeoff or touch-and-go the rotation and initial climb: pitch, speed, bank and track through the gates; judge the crab after the liftoff against the crosswind, the rotation and climb speed against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall; for a bounce, judge it as part of the landing',
+    var kind = contactOnly ? '' : liftoffKind(t.profile);
+    var lines = startAnalysisPrompt('You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.'
+            + (kind === LIFTOFF_BOUNCE ? ' It is ' + kind + ', not a takeoff: grade the landing it belongs to.' : ''),
+        contactOnly ? null : 'Liftoff and climb-out', 'what this liftoff is (a takeoff, one that settled back, a touch-and-go or a bounce' + (kind ? ', as the data says' : '') + '), then unless a bounce the rotation and initial climb: pitch, speed, bank and track' + (hasGates(t) ? ' through the gates' : '') + '; judge the crab after the liftoff against the crosswind, the rotation and climb speed against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall; for a bounce, judge it as part of the landing',
         'how the conditions, airport, runway and terrain affected this liftoff',
         'Liftoff data:', t, aircraft);
     // Deliberately no vertical-speed line here, unlike buildTouchdownPrompt()
@@ -884,14 +1002,15 @@ function buildLiftoffPrompt(t, contactOnly) {
     // real signal (dropped wing, crosswind technique), not a mid-ramp snapshot.
     lines.push('  Bank: ' + fixedText(t.bankDegrees, 1) + '°');
     var runway = runwayConsiderItems(t, contactOnly, 'use of available runway length');
-    return finishAnalysisPrompt(lines, t, 'Distance from threshold at liftoff', 'runway',
-        contactOnly ? null : profilePromptLines(t, 'Liftoff trajectory', 'Liftoff and climb-out', 'liftoff point', 'one per second from 30 s before the liftoff, then from 10 s before to 10 s after it (every sample, evenly thinned if too dense)', 'after the liftoff', 'runway start',
-            'Climb-out weather and ride (from the liftoff up to the first crossing of 1000 ft above the liftoff point, or to the next contact or 5 nm from the liftoff point if sooner)'),
+    return finishAnalysisPrompt(lines, t, 'Distance from runway start at liftoff', 'runway',
+        contactOnly ? null : profilePromptLines(t, 'Liftoff trajectory', 'Liftoff and climb-out', 'liftoff point', 'one per second from 30 s before the liftoff, then from 10 s before to 10 s after it', 'after the liftoff', 'runway start',
+            'Climb-out weather and ride (to the first crossing of 1000 ft, or to the next contact or 5 nm if sooner)'),
         // Without a matched runway, nothing that needs one.
-        considerPromptLine((t.runway ? runway.crosswind.concat(['centerline tracking before the liftoff', runway.placement], runway.slope) : [])
-            .concat(contactOnly ? [] : ['liftoff and climb-out attitude and speed', 'density altitude',
+        considerPromptLine((t.runway ? runway.crosswind.concat(['centerline tracking before the liftoff'],
+                kind === LIFTOFF_BOUNCE ? [] : [runway.placement], runway.slope) : [])
+            .concat(contactOnly ? [] : (kind === LIFTOFF_BOUNCE ? ['flare, touchdown and bounce'] : ['liftoff and climb-out attitude and speed']).concat(['density altitude',
                 (t.runway ? 'runway ' : '') + 'surface condition', 'gusts', 'wind shear', 'turbulence', 'cloud and icing',
-                'light and visibility', 'terrain after the ' + (t.runway ? 'runway' : 'liftoff point')]), aircraft),
+                'light and visibility', 'terrain after the ' + (t.runway ? 'runway' : 'liftoff point')])), aircraft),
         'liftoff');
 }
 
@@ -900,7 +1019,8 @@ function buildLiftoffPrompt(t, contactOnly) {
 function buildTouchdownPrompt(t, contactOnly) {
     var aircraft = window._aircraftTitle || '';
     var lines = startAnalysisPrompt('You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 landing.',
-        contactOnly ? null : 'Final segment', 'stability at the gates (speed, sink rate, path angle, alignment), and technique through the flare, decrab, touchdown and rollout, including any bounce; judge the crab and decrab against the crosswind, the speed additive against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall',
+        contactOnly ? null : 'Final segment', (hasGates(t) ? 'stability at the gates (speed, sink rate, path angle, alignment), and ' : '')
+            + (t.crashed ? 'technique through the flare, decrab and touchdown up to the crash' : 'technique through the flare, decrab, touchdown and rollout, including any bounce') + '; judge the crab and decrab against the crosswind, the speed additive against the gusts, any excursion against the wind shear, vertical wind and turbulence, and the margin to the stall',
         'how the conditions, airport, runway and terrain affected this landing',
         'Landing data:', t, aircraft);
     // A crash's sample after the contact has stopped (0 ft/min), so its
@@ -908,32 +1028,35 @@ function buildTouchdownPrompt(t, contactOnly) {
     if (!t.crashed)
         lines.push('  Vertical speed: ' + contactVerticalSpeedLabel(t) + (hasValue(t, 'actualVerticalSpeed') ? '' : ', which lags the actual rate'));
     if (touchdownRateLabel(t))
-        lines.push('  Touchdown rate: ' + touchdownRateLabel(t) + ' (the sink rate perpendicular to the runway surface as the wheels touched, as the simulator measured it)');
+        lines.push('  Touchdown rate: ' + touchdownRateLabel(t) + ' (sink rate perpendicular to the runway at touchdown)');
     lines.push('  G-force: ' + fixedText(t.gForce, 2) + ' G');
     if (t.crashed) lines.push('  Outcome: the aircraft crashed here; the simulator then reset the flight, so nothing after the crash was flown');
     lines.push('  Pitch: ' + fixedText(t.pitchDegrees, 1) + '°   Bank: ' + fixedText(t.bankDegrees, 1) + '°');
     var runway = runwayConsiderItems(t, contactOnly, 'touchdown zone placement');
     return finishAnalysisPrompt(lines, t, 'Distance from threshold', 'landing distance available',
-        contactOnly ? null : profilePromptLines(t, 'Final trajectory', 'Final segment', 'touchdown point', 'from 15 s before to 10 s after the touchdown (every sample, evenly thinned if too dense), then one per second to 30 s after it', 'before the touchdown', 'marked threshold',
-            'Approach weather and ride (from the last crossing of 1000 ft above the touchdown point down to it, or from 5 nm out, the previous contact or the start of the recording if closer)'),
+        contactOnly ? null : profilePromptLines(t, 'Final trajectory', 'Final segment', 'touchdown point', 'from 15 s before to 10 s after the touchdown, then one per second to 30 s after it', 'before the touchdown', 'marked threshold',
+            'Approach weather and ride (from the last crossing of 1000 ft, or from 5 nm, the previous contact or the recording start if closer)'),
         // Without a matched runway, nothing that needs one.
         // A crash has no comfort to judge.
         considerPromptLine(['touchdown rate'].concat(t.crashed ? [] : ['vertical speed & G-force comfort'])
             .concat(t.runway ? runway.crosswind : [],
                 ['decrab at touchdown (crab angle)'],
                 t.runway ? ['centerline tracking', runway.placement].concat(runway.slope) : [],
-                contactOnly ? [] : ['stabilization at the gates', 'flare technique', 'density altitude',
+                contactOnly ? [] : (hasGates(t) ? ['stabilization at the gates'] : []).concat(['flare technique', 'density altitude',
                     (t.runway ? 'runway ' : '') + 'surface condition', 'gusts', 'wind shear', 'turbulence', 'cloud and icing',
-                    'light and visibility', 'terrain before the ' + (t.runway ? 'runway' : 'touchdown point')]), aircraft),
+                    'light and visibility', 'terrain before the ' + (t.runway ? 'runway' : 'touchdown point')])), aircraft),
         'landing');
 }
 
 // How long (ms) an attempt may go without receiving any of its answer (since
 // it was sent, or since the last piece) before it's abandoned as stalled and
-// retried:
-// the model can think for minutes before it answers, but it streams its
-// thinking as it goes, so a long silence means a stuck request.
+// retried: a model can think for minutes before it answers, but Gemini and
+// Claude stream their thinking as they go, and OpenAI a summary of it for its
+// sol, terra and luna models, so a long silence means a stuck request. One
+// asked without a stream while it thinks (silentWhileThinking()) gets
+// AI_SILENT_IDLE_TIMEOUT_MS instead.
 var AI_IDLE_TIMEOUT_MS = 180000;
+var AI_SILENT_IDLE_TIMEOUT_MS = 600000;
 
 // The error object in a failed request's body (the streaming endpoint wraps
 // it in an array, as it does its chunks), or {} if it has none.
@@ -950,15 +1073,17 @@ function apiErrorOf(body) {
 var AI_RATE_LIMIT_MAX_WAIT_MS = 60000;
 
 // How long (ms) to wait before retrying a request the service rate-limited
-// (HTTP 429), from its error body: the delay its RetryInfo detail asks for
-// ("34s", say), rounded up to a whole second, else a minute, when the
-// per-minute limits have reset.
-function rateLimitDelayMs(body) {
+// (HTTP 429): the delay its error body's RetryInfo detail asks for (Gemini;
+// "34s", say), else its retry-after header's seconds (Claude; OpenAI doesn't
+// let the page read it), rounded up to a whole second, else a minute, when
+// the per-minute limits have reset.
+function rateLimitDelayMs(body, retryAfter) {
     var details = apiErrorOf(body).details;
     for (var i = 0; Array.isArray(details) && i < details.length; i++) {
         var delay = /^(\d+(?:\.\d+)?)s$/.exec((details[i] && details[i].retryDelay) || '');
         if (delay) return Math.ceil(Number(delay[1])) * 1000;
     }
+    if (/^\d+(?:\.\d+)?$/.test(retryAfter || '')) return Math.ceil(Number(retryAfter)) * 1000;
     return 60000;
 }
 
@@ -970,15 +1095,11 @@ async function waitOut(ms, onWait) {
     }
 }
 
-// Extract complete top-level {...} JSON objects from buf.
-// Calls onChunk(text, isThought) for every text part found,
-// onFinish(reason) for an object carrying the candidate's finishReason, and
-// onError(error) for an error the service sends in place of a chunk.
-// Iterates all parts in each response object (thinking models can emit
-// thought:true parts alongside regular parts in the same chunk). Braces
-// inside JSON strings (the model's own text) don't count.
+// Calls onObject with each complete top-level {...} JSON object in buf: what
+// Gemini streams in an array, and OpenAI and Claude as server-sent events'
+// data. Braces inside JSON strings (the model's own text) don't count.
 // Returns the unconsumed remainder of buf.
-function processStreamBuffer(buf, onChunk, onFinish, onError) {
+function processStreamBuffer(buf, onObject) {
     var depth = 0, start = -1, lastEnd = 0;
     var inString = false, escaped = false;
     for (var i = 0; i < buf.length; i++) {
@@ -996,16 +1117,7 @@ function processStreamBuffer(buf, onChunk, onFinish, onError) {
             depth--;
             if (depth === 0 && start >= 0) {
                 try {
-                    var obj = JSON.parse(buf.substring(start, i + 1));
-                    var candidate = obj && obj.candidates && obj.candidates[0];
-                    var parts = candidate && candidate.content && candidate.content.parts;
-                    if (parts) {
-                        for (var p = 0; p < parts.length; p++) {
-                            if (parts[p].text) onChunk(parts[p].text, !!parts[p].thought);
-                        }
-                    }
-                    if (candidate && candidate.finishReason) onFinish(candidate.finishReason);
-                    if (obj && obj.error) onError(obj.error);
+                    onObject(JSON.parse(buf.substring(start, i + 1)));
                 } catch (e) { /* incomplete or non-content object */ }
                 lastEnd = i + 1;
                 start = -1;
@@ -1013,6 +1125,302 @@ function processStreamBuffer(buf, onChunk, onFinish, onError) {
         }
     }
     return buf.substring(lastEnd);
+}
+
+// How much newer version a ("6.2") is than b: > 0, 0 for the same, < 0.
+function versionDiff(a, b) {
+    var x = a.split('.').map(Number), y = b.split('.').map(Number);
+    for (var i = 0, diff = 0; !diff && i < Math.max(x.length, y.length); i++)
+        diff = (x[i] || 0) - (y[i] || 0);
+    return diff;
+}
+
+// Ascending whole numbers as text, three or more in a row as a range:
+// [1, 2, 3, 5] as "1-3, 5".
+function rangesText(numbers) {
+    var out = [];
+    for (var i = 0, j; i < numbers.length; i = j + 1) {
+        for (j = i; j + 1 < numbers.length && numbers[j + 1] === numbers[j] + 1; ++j) {}
+        out.push(j - i >= 2 ? numbers[i] + '-' + numbers[j] : numbers.slice(i, j + 1).join(', '));
+    }
+    return out.join(', ');
+}
+
+// The newest of ids that match re, whose first group is the version ("6.2"),
+// or fallback if none does.
+function newestVersion(ids, re, fallback) {
+    var newest = fallback, best = null;
+    ids.forEach(function(id) {
+        var m = re.exec(id);
+        if (m && (best === null || versionDiff(m[1], best) > 0)) { best = m[1]; newest = id; }
+    });
+    return newest;
+}
+
+// Orders Gemma models newest, then largest, first: by the version and the size
+// in billions of parameters in their names ("gemma-4-31b-it", "gemma-3n-e4b-it",
+// whose e marks an effective size), those without both last, and those alike
+// by name, last to first, so the order doesn't depend on the list's.
+function gemmaOrder(a, b) {
+    var re = /^gemma-(\d+(?:\.\d+)*)[a-z]*-e?(\d+)b/, x = re.exec(a), y = re.exec(b);
+    return (y ? 1 : 0) - (x ? 1 : 0) || (x && y && (versionDiff(y[1], x[1]) || y[2] - x[2])) || b.localeCompare(a, 'en', { numeric: true });
+}
+
+// The error an onObject reports for a prompt or answer the service refused:
+// its own words (text), or a plain message naming the reason, if any. Its
+// type makes it final (streamErrorStatus()).
+function refusalError(reason, text) {
+    return { type: 'refusal', message: text || 'The model declined to answer this prompt' + (reason ? ' (' + reason + ')' : '') + '.' };
+}
+
+// The services an analysis can ask, by the name in their API key's setting.
+// Each has:
+//   name, setting (its API key's in settings.ini), key() (its value, trimmed);
+//   models: those the drop-down offers, the first the default; built in until
+//     the service's list is fetched (loadAiModels());
+//   available: every model in that list (Gemini's only those that can generate
+//     content), null before it;
+//   listed: matches the names models is chosen from, so that a saved one stays
+//     chosen when a newer one takes its place there;
+//   namesHint: where to find other models' names, as HTML;
+//   keyRejected(status, body): whether a failed request's status and body say
+//     the API key was rejected;
+//   request(model, prompt, key): the analysis request's url, headers and body;
+//   onObject(obj, on): reads one object of the streamed answer, calling
+//     on.chunk(text, isThought), on.finish(reason, complete) and
+//     on.error(error);
+//   loading: whether its models list is being, or has been, fetched;
+//   retriedWithout(status, body, sent) (OpenAI): whether a refused request
+//     (its body sent) is asked again without what it was refused for
+//     (noReasoningSummary);
+//   asksSummary(model) (OpenAI): whether its request asks for the reasoning
+//     summary;
+//   silentWhileThinking(model) (OpenAI): whether it sends nothing while it
+//     thinks (AI_SILENT_IDLE_TIMEOUT_MS);
+//   headers(key) (Claude): what every request to it needs;
+//   noAdaptiveThinking (Claude): the models known not to take adaptive thinking;
+//   modelsRequest(key): the url and headers of its models list, and
+//   readModels(json): available and models from it.
+var AI_PROVIDERS = {
+    gemini: {
+        name: 'Gemini', setting: 'gemini_api_key',
+        key: function() { return (window._geminiApiKey || '').trim(); },
+        models: ['gemma-4-31b-it', 'gemma-4-26b-a4b-it'], available: null, listed: /^gemma-/,
+        namesHint: 'copy the name with the <b>Copy to clipboard</b> button in Google AI Studio\'s model selection dialog',
+        keyRejected: function(status, body) {
+            return status === 401 || status === 403 || (status === 400 && /API_KEY_INVALID|API key not valid/.test(body));
+        },
+        request: function(model, prompt, key) {
+            return {
+                url: 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':streamGenerateContent',
+                headers: { 'x-goog-api-key': key },
+                body: { contents: [{ role: 'user', parts: [{ text: prompt }] }] }
+            };
+        },
+        // Thinking models can send thought parts alongside the answer's. A blocked
+        // prompt, or an answer blocked for its content, is refused; an answer
+        // stopped for another reason (recitation, language, ...) is retried, as a
+        // new answer may not be.
+        onObject: function(obj, on) {
+            var blocked = (obj.promptFeedback && obj.promptFeedback.blockReason) || (obj.candidates && obj.candidates[0]
+                && /^(IMAGE_)?(SAFETY|PROHIBITED_CONTENT)$|^(BLOCKLIST|SPII)$/.test(obj.candidates[0].finishReason) && obj.candidates[0].finishReason);
+            if (blocked) on.error(refusalError(blocked));
+            // Stopped by a filter or the account's restriction: final too.
+            var stop = obj.candidates && obj.candidates[0] && obj.candidates[0].finishReason;
+            if (stop === 'ESCALATION') on.error({ type: 'policy_escalation', message: 'The service filtered the request (ESCALATION).' });
+            if (stop === 'PUP_LIMITED_DISABLED')
+                on.error({ type: 'policy_account', message: 'The account is restricted by the provider\'s usage policy: check it in Google AI Studio (PUP_LIMITED_DISABLED).' });
+            var candidate = obj.candidates && obj.candidates[0];
+            var parts = (candidate && candidate.content && candidate.content.parts) || [];
+            parts.forEach(function(part) { if (part.text) on.chunk(part.text, !!part.thought); });
+            if (candidate && candidate.finishReason) on.finish(candidate.finishReason, candidate.finishReason === 'STOP');
+            if (obj.error) on.error(obj.error);
+        },
+        modelsRequest: function(key) {
+            return { url: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', headers: { 'x-goog-api-key': key } };
+        },
+        readModels: function(json) {
+            var available = json.models.filter(function(m) {
+                return (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0;
+            }).map(function(m) { return m.name.replace(/^models\//, ''); });
+            var models = available.filter(function(id) { return /^gemma-/.test(id); }).sort(gemmaOrder);
+            return { available: available, models: models.length ? models : this.models };
+        }
+    },
+    openai: {
+        name: 'OpenAI', setting: 'openai_api_key',
+        key: function() { return (window._openaiApiKey || '').trim(); },
+        models: ['gpt-6.2-sol', 'gpt-6.1-terra', 'gpt-6-luna'], available: null, listed: /^gpt-[\d.]+-(sol|terra|luna)$/,
+        namesHint: 'copy the name from the models page at developers.openai.com',
+        // 403 is also its answer from a country it doesn't serve.
+        keyRejected: function(status, body) {
+            return status === 401 || (status === 403 && !/unsupported_country/.test(body));
+        },
+        request: function(model, prompt, key) {
+            return {
+                url: 'https://api.openai.com/v1/responses',
+                headers: { 'Authorization': 'Bearer ' + key },
+                // A sol, terra or luna model's reasoning summarized, streamed while
+                // it thinks: else it's silent until it answers. Not once refused.
+                body: Object.assign({ model: model, input: prompt, stream: true, store: false },
+                    this.asksSummary(model) ? { reasoning: { summary: 'auto' } } : {})
+            };
+        },
+        // Whether the account was refused a reasoning summary (one whose
+        // organization isn't verified, say): asked again without, and then
+        // silent while it thinks.
+        noReasoningSummary: false,
+        asksSummary: function(model) {
+            return this.listed.test(model) && !this.noReasoningSummary;
+        },
+        silentWhileThinking: function(model) {
+            return !this.asksSummary(model);
+        },
+        retriedWithout: function(status, body, sent) {
+            if (status !== 400 || !sent || !sent.reasoning || !/reasoning|summar|verif/i.test(body)) return false;
+            this.noReasoningSummary = true;
+            return true;
+        },
+        onObject: function(obj, on) {
+            var response = obj.response || {};
+            if (obj.type === 'response.output_text.delta') on.chunk(obj.delta, false);
+            else if (obj.type === 'response.reasoning_summary_text.delta') on.chunk(obj.delta, true);
+            // A summary's parts after its first, apart.
+            else if (obj.type === 'response.reasoning_summary_part.added' && (obj.summary_index > 0 || obj.output_index > 0)) on.chunk('\n\n', true);
+            else if (obj.type === 'response.refusal.done') on.error(refusalError(null, obj.refusal));
+            else if (obj.type === 'response.completed') on.finish('completed', true);
+            // An answer its content filter stopped is refused.
+            else if (obj.type === 'response.incomplete' && (response.incomplete_details || {}).reason === 'content_filter')
+                on.error(refusalError('content_filter'));
+            else if (obj.type === 'response.incomplete') on.finish((response.incomplete_details || {}).reason || 'incomplete', false);
+            else if (obj.type === 'response.failed') on.error(response.error || 'response.failed');
+            else if (obj.type === 'error') on.error(obj.error || obj);
+        },
+        modelsRequest: function(key) {
+            return { url: 'https://api.openai.com/v1/models', headers: { 'Authorization': 'Bearer ' + key } };
+        },
+        readModels: function(json) {
+            var available = json.data.map(function(m) { return m.id; });
+            var builtIn = AI_PROVIDERS.openai.models;
+            return { available: available, models: ['sol', 'terra', 'luna'].map(function(line, i) {
+                return newestVersion(available, new RegExp('^gpt-(\\d+(?:\\.\\d+)*)-' + line + '$'), builtIn[i]);
+            }) };
+        }
+    },
+    claude: {
+        name: 'Claude', setting: 'claude_api_key',
+        key: function() { return (window._claudeApiKey || '').trim(); },
+        models: ['claude-sonnet-5-5', 'claude-haiku-5-5'], available: null, listed: /^claude-(sonnet|haiku)-/,
+        namesHint: 'copy the name from the models overview at platform.claude.com',
+        keyRejected: function(status) { return status === 401 || status === 403; },
+        // The models known not to take adaptive thinking (older ones).
+        noAdaptiveThinking: [],
+        // What every request needs: the last allows one from a page, not a server.
+        headers: function(key) {
+            return { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' };
+        },
+        request: function(model, prompt, key) {
+            var body = { model: model, max_tokens: 64000, stream: true, messages: [{ role: 'user', content: prompt }] };
+            if (this.noAdaptiveThinking.indexOf(model) < 0) body.thinking = { type: 'adaptive', display: 'summarized' };
+            return { url: 'https://api.anthropic.com/v1/messages', headers: this.headers(key), body: body };
+        },
+        onObject: function(obj, on) {
+            var delta = obj.delta || {};
+            if (delta.type === 'text_delta') on.chunk(delta.text, false);
+            else if (delta.type === 'thinking_delta' && delta.thinking) on.chunk(delta.thinking, true);
+            // A refusal, as the same prompt would be again, is final.
+            else if (delta.stop_reason === 'refusal') on.error(refusalError());
+            else if (delta.stop_reason) on.finish(delta.stop_reason, delta.stop_reason === 'end_turn');
+            else if (obj.type === 'error') on.error(obj.error);
+        },
+        modelsRequest: function(key) {
+            return { url: 'https://api.anthropic.com/v1/models?limit=1000', headers: this.headers(key) };
+        },
+        readModels: function(json) {
+            var builtIn = AI_PROVIDERS.claude.models;
+            this.noAdaptiveThinking = json.data.filter(function(m) {
+                var types = m.capabilities && m.capabilities.thinking && m.capabilities.thinking.types;
+                return types && types.adaptive && types.adaptive.supported === false;
+            }).map(function(m) { return m.id; });
+            return { available: json.data.map(function(m) { return m.id; }), models: ['sonnet', 'haiku'].map(function(line, i) {
+                var newest = json.data.filter(function(m) {
+                    return m.id.indexOf('claude-' + line + '-') === 0 && (m.lifecycle || 'active') === 'active';
+                }).sort(function(a, b) { return Date.parse(b.created_at) - Date.parse(a.created_at); })[0];
+                return newest ? newest.id : builtIn[i];
+            }) };
+        }
+    }
+};
+
+// The providers whose API key is set.
+function aiProvidersWithKey() {
+    return Object.keys(AI_PROVIDERS).map(function(p) { return AI_PROVIDERS[p]; }).filter(function(p) { return p.key() !== ''; });
+}
+
+// The provider analyses ask: the one whose API key is set. Without exactly
+// one, none is asked (aiKeyProblem()) and Gemini's models are shown.
+function aiProvider() {
+    var set = aiProvidersWithKey();
+    return set.length === 1 ? set[0] : AI_PROVIDERS.gemini;
+}
+
+// Why the API keys in settings.ini don't allow an analysis, '' when they do.
+function aiKeyProblem() {
+    var set = aiProvidersWithKey().map(function(p) { return p.setting; });
+    if (set.length === 1) return '';
+    if (!set.length) return 'Set an API key in settings.ini, without a ; in front, to enable';
+    return 'Only one API key may be set in settings.ini, but these are: ' + set.join(', ');
+}
+
+// Whether a failed request's status and body say the account's credit or
+// spending limit is used up, which no wait for a rate limit clears. Claude
+// says so of a limit the account set itself, or of its credit, only in the
+// message of an invalid request.
+function isOutOfCredit(status, body) {
+    return status === 402 || /insufficient_quota|credit_balance_exhausted|(spend|usage)_limit_(exceeded|reached)|billing_error|credit balance is too low|You have reached your specified (workspace )?API usage limits/.test(body);
+}
+
+// The HTTP status a request would have failed with for error, one sent within
+// the streamed answer instead: Gemini's code is the status; OpenAI's and
+// Claude's type and code name it (and a refusal to answer, which onObject
+// reports as type refusal). One not known to be lasting counts as a server
+// error, and a rejection of the request itself, or of the prompt, as 422, so
+// that it isn't blamed on the key, which the service has accepted by then.
+function streamErrorStatus(error) {
+    if (typeof error.code === 'number') return error.code;
+    if (error.type === 'refusal') return 422; // its text is the model's, whatever it says
+    var name = error.type + ' ' + error.code;
+    if (isOutOfCredit(0, JSON.stringify(error)) || /rate_limit|slow_down/.test(name)) return 429;
+    if (/authentication_error|invalid_api_key/.test(name)) return 401;
+    if (/permission_error/.test(name)) return 403;
+    if (/not_found/.test(name)) return 404;
+    if (/invalid_|policy|data_residency_mismatch|context_length_exceeded|request_too_large/.test(name)) return 422;
+    return 500;
+}
+
+// Fetches the provider's models list, once per page load (again at the next
+// popup if it fails), for the drop-down of the popups open then and after.
+async function loadAiModels() {
+    var provider = aiProvider();
+    if (aiKeyProblem() || provider.loading) return;
+    provider.loading = true;
+    try {
+        var request = provider.modelsRequest(provider.key());
+        var res = await fetch(request.url, { headers: request.headers });
+        if (!res.ok) throw new Error(res.status + ' ' + await res.text());
+        var list = provider.readModels(await res.json());
+        provider.available = list.available;
+        provider.models = list.models;
+    } catch (e) {
+        provider.loading = false;
+        console.warn(provider.name + ' models list not loaded:', String(e));
+        return;
+    }
+    document.querySelectorAll('.td-model-select').forEach(function(select) {
+        var id = select.id.replace('td-model-', '');
+        var t = _liftoffStore[id] || _touchdownStore[id];
+        if (t) showAiChoices(id, t.analyzing ? t.analysisChoices : undefined);
+    });
 }
 
 // text (any value) as HTML that shows it literally, for every value the
@@ -1140,18 +1548,31 @@ function updateAnalyzeButton(id) {
     btn.disabled = (spinner && spinner.style.display !== 'none') || aiModelProblem() !== '';
 }
 
-// The models the drop-down beside the Analyze button offers, the first the
-// default; after them it offers Other (AI_MODEL_OTHER), for a model named in
-// the field under it.
-var AI_MODELS = ['gemma-4-31b-it', 'gemma-4-26b-a4b-it'];
+// The drop-down's last choice, for a model named in the field under it; the
+// ones before it are the provider's models.
 var AI_MODEL_OTHER = 'other';
 
+// The models the drop-down offers: the provider's, and the saved one when a
+// newer one took its place among them but the service still has it.
+function aiModels() {
+    var provider = aiProvider(), saved = window._aiModel;
+    var keep = provider.models.indexOf(saved) < 0 && provider.listed.test(saved)
+        && (!provider.available || provider.available.indexOf(saved) >= 0);
+    return keep ? provider.models.concat(saved) : provider.models;
+}
+
 // The drop-down's choice, window._aiModel (settings.ini's [ai] model, from
-// MapWidget, saved by saveAiModel()): one of AI_MODELS or AI_MODEL_OTHER, the
+// MapWidget, saved by saveAiModel()): one of aiModels() or AI_MODEL_OTHER, the
 // default when it's neither (unset, or edited by hand).
 function aiModelChoice() {
     var m = window._aiModel;
-    return AI_MODELS.indexOf(m) >= 0 || m === AI_MODEL_OTHER ? m : AI_MODELS[0];
+    return aiModels().indexOf(m) >= 0 || m === AI_MODEL_OTHER ? m : aiModels()[0];
+}
+
+// The drop-down's options for choosing among models, as HTML.
+function aiModelOptions(models) {
+    return models.map(function(m) { return '<option value="' + escapeHtml(m) + '">' + escapeHtml(m) + '</option>'; }).join('')
+        + '<option value="' + AI_MODEL_OTHER + '">Other…</option>';
 }
 
 // The model name entered for Other, window._aiCustomModel ([ai]
@@ -1161,12 +1582,12 @@ function aiCustomModelName() {
 }
 
 // Why the model choice can't be analyzed with, '' when it can: Other needs a
-// name, and not one of AI_MODELS, which are chosen from the list.
+// name, and not one of aiModels(), which are chosen from the list.
 function aiModelProblem() {
     if (aiModelChoice() !== AI_MODEL_OTHER) return '';
     var name = aiCustomModelName();
     if (!name) return 'Enter a model name to analyze with it.';
-    if (AI_MODELS.indexOf(name) >= 0) return name + ' is in the list: choose it there.';
+    if (aiModels().indexOf(name) >= 0) return name + ' is in the list: choose it there.';
     return '';
 }
 
@@ -1214,7 +1635,10 @@ function aiProgressTooltip(analyzeFn) {
 function showAiChoices(id, running) {
     var choices = running || { progress: aiProgressEvaluation(), model: aiModelChoice(), customModel: aiCustomModelName() };
     document.getElementById('td-progress-' + id).checked = choices.progress;
-    document.getElementById('td-model-' + id).value = choices.model;
+    var select = document.getElementById('td-model-' + id), models = aiModels();
+    if (choices.model !== AI_MODEL_OTHER && models.indexOf(choices.model) < 0) models = models.concat(choices.model);
+    select.innerHTML = aiModelOptions(models);
+    select.value = choices.model;
     document.getElementById('td-custom-' + id).style.display = choices.model === AI_MODEL_OTHER ? '' : 'none';
     document.getElementById('td-custom-name-' + id).value = choices.customModel;
     if (running) document.getElementById('td-model-problem-' + id).textContent = '';
@@ -1289,7 +1713,7 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     }
     showProfileNotice(id, t);
 
-    var key = window._geminiApiKey || '';
+    var provider = aiProvider(), key = provider.key();
     // From the choices it started with: another popup may have changed them
     // while the trajectory loaded.
     var model = aiAnalysisModel(t.analysisChoices);
@@ -1310,7 +1734,7 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     var statusDiv, thDet, thSum, thArr, thLbl, thBody, finalDiv;
     var sawThinking, thinkingDone;
     var thinkingText, finalText;
-    var finishReason, streamError;
+    var finishReason, finished, streamError;
     // The attempt's inactivity watchdog (AI_IDLE_TIMEOUT_MS) and timing:
     // when it was sent and last received a piece, when its first data
     // arrived (-1: none yet), its longest wait before the current one, all
@@ -1336,7 +1760,8 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
         thinkingText = '';
         finalText    = '';
         finishReason = '';
-        streamError  = '';
+        finished     = false;
+        streamError  = null;
         // Guard on thinkingDone prevents the browser's spurious initial toggle
         // event (queued when <details open> is created via innerHTML) from
         // overwriting "Thinking…" with "Hide thinking".
@@ -1373,12 +1798,19 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
         }
     }
 
-    function onFinish(reason) {
+    function onFinish(reason, complete) {
         finishReason = reason;
+        finished = complete;
     }
 
+    // The last error the stream sent, but a refusal, which the same prompt
+    // would get again, over any other.
     function onError(error) {
-        streamError = JSON.stringify(error);
+        if (!streamError || streamError.type !== 'refusal') streamError = error;
+    }
+
+    function onObject(obj) {
+        provider.onObject(obj, { chunk: onChunk, finish: onFinish, error: onError });
     }
 
     // A piece of the answer arrived (or the request was just sent): restarts
@@ -1386,12 +1818,14 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     // nothing more arrives in time. It's left running when the attempt ends:
     // the next attempt's restart clears it, and after the last one it can
     // only abort a request already done.
+    var idleTimeoutMs = AI_IDLE_TIMEOUT_MS;
+    var sentBody = null; // the attempt's request body, for retriedWithout()
     function heard() {
         var now = Date.now();
         longestGap = Math.max(longestGap, now - lastHeard);
         lastHeard = now;
         clearTimeout(watchdog);
-        watchdog = setTimeout(function() { stalled = true; controller.abort(); }, AI_IDLE_TIMEOUT_MS);
+        watchdog = setTimeout(function() { stalled = true; controller.abort(); }, idleTimeoutMs);
     }
 
     function seconds(ms) { return (ms / 1000).toFixed(1) + ' s'; }
@@ -1407,8 +1841,64 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
     // mid-stream, whether it stalled, and its timing, for its log line.
     function received() {
         return thinkingText.length + ' characters of thinking and ' + finalText.length + ' of answer received'
-            + (streamError ? ', stream error ' + streamError : '')
+            + (streamError ? ', stream error ' + JSON.stringify(streamError) : '')
             + (stalled ? ', stalled' : '') + ', ' + timing();
+    }
+
+    // Handles an error the service answered with: status, as "API error 500"
+    // (shown) and failure ("got error 500"), its body and retry-after header,
+    // logged as problem and detail. Returns whether to retry; if not, the
+    // error is shown, with what to do about it.
+    function serviceErrorRetried(status, shown, failure, body, retryAfter, problem, detail) {
+        // A server error (5xx) or rate limit (429) is often gone a
+        // moment later: retry it like a network error. Any other
+        // error (bad key, model issue) won't change, so it's final.
+        // A rate limit is retried only after the wait it asks for:
+        // a per-minute limit, used up by this page or another app
+        // with the same key, lasts until its minute has passed.
+        // Not for a 422: an error within the stream that streamErrorStatus()
+        // found not out of credit, or a refusal, whose text is the model's.
+        // None of the services answers used-up credit with an HTTP 422 (they
+        // use 400, 402, 403 or 429).
+        var outOfCredit = status !== 422 && isOutOfCredit(status, body);
+        if (status === 429) retryWaitMs = rateLimitDelayMs(body, retryAfter);
+        var tooLong = retryWaitMs > AI_RATE_LIMIT_MAX_WAIT_MS;
+        var rateLimitRetry = status === 429 && !outOfCredit && !tooLong && rateLimitWaits < MAX_RATE_LIMIT_WAITS;
+        if (rateLimitRetry) {
+            rateLimitWaits++;
+            attempts++;
+        }
+        // A request the provider asks again with less (retriedWithout()), not
+        // counted as an attempt.
+        var lighter = !!provider.retriedWithout && provider.retriedWithout(status, body, sentBody);
+        if (lighter) attempts++;
+        var retrying = rateLimitRetry || lighter || (status >= 500 && attempt < attempts - 1);
+        logAttemptFailure(problem, retrying, detail);
+        lastFailure = failure;
+        if (retrying) return true;
+        var apiMsg = apiErrorOf(body).message;
+        var guidance = '';
+        if (outOfCredit) {
+            guidance = '<br><span style="color:#555">The ' + provider.name + ' account\'s credit or spending limit is used up: check its billing settings.</span>';
+        } else if (provider.keyRejected(status, body)) {
+            guidance = '<br><span style="color:#555">Check that <code>' + provider.setting + '</code> under <code>[ai]</code> in settings.ini is correct and has ' + provider.name + ' API access enabled.</span>';
+        } else if (status === 404) {
+            guidance = '<br><span style="color:#555">Check the model name: <code>' + escapeHtml(model) + '</code> wasn\'t found.</span>';
+        } else if (tooLong) {
+            guidance = '<br><span style="color:#555">The service asks to wait ' + Math.round(retryWaitMs / 1000)
+                + ' s before the next request (a daily quota used up, maybe). Try again later.</span>';
+        } else if (status === 429) {
+            // Analyze stays disabled for the wait asked for, counted
+            // down here (after the loop).
+            guidance = '<br><span style="color:#555">Still rate-limited after ' + rateLimitWaits
+                + ' waits. <span class="td-cooldown"></span></span>';
+            cooldownMs = retryWaitMs;
+        }
+        finalDiv.innerHTML = '<i style="color:#a00">' + shown
+            + (apiMsg ? ': ' + escapeHtml(apiMsg) : '')
+            + '</i>' + guidance;
+        thDet.style.display = 'none';
+        return false;
     }
 
     for (var attempt = 0; attempt < attempts; attempt++) {
@@ -1421,61 +1911,25 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
         sentAt = lastHeard = Date.now();
         firstData = -1;
         longestGap = 0;
+        idleTimeoutMs = provider.silentWhileThinking && provider.silentWhileThinking(model) ? AI_SILENT_IDLE_TIMEOUT_MS : AI_IDLE_TIMEOUT_MS;
         heard();
 
         try {
             // The key goes in a header, not the URL: the browser's console
             // messages (copied into the log) can quote a failed request's URL.
-            var res = await fetch(
-                'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':streamGenerateContent',
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-                    body: JSON.stringify({
-                        contents: [{ role: 'user', parts: [{ text: prompt }] }]
-                    }),
-                    signal: controller.signal
-                }
-            );
+            var request = provider.request(model, prompt, key);
+            sentBody = request.body;
+            var res = await fetch(request.url, {
+                method: 'POST',
+                headers: Object.assign({ 'Content-Type': 'application/json' }, request.headers),
+                body: JSON.stringify(request.body),
+                signal: controller.signal
+            });
             if (res.ok) showStatus('Waiting for the model…');
             if (!res.ok) {
                 var errBody = await res.text();
-                // A server error (5xx) or rate limit (429) is often gone a
-                // moment later: retry it like a network error. Any other HTTP
-                // error (bad key, model issue) won't change, so it's final.
-                // A rate limit is retried only after the wait it asks for:
-                // a per-minute limit, used up by this page or another app
-                // with the same key, lasts until its minute has passed.
-                if (res.status === 429) retryWaitMs = rateLimitDelayMs(errBody);
-                var tooLong = retryWaitMs > AI_RATE_LIMIT_MAX_WAIT_MS;
-                var rateLimitRetry = res.status === 429 && !tooLong && rateLimitWaits < MAX_RATE_LIMIT_WAITS;
-                if (rateLimitRetry) {
-                    rateLimitWaits++;
-                    attempts++;
-                }
-                var retrying = rateLimitRetry || (res.status >= 500 && attempt < attempts - 1);
-                logAttemptFailure('Gemini API error', retrying, res.status + ' ' + errBody);
-                lastFailure = 'got error ' + res.status;
-                if (retrying) continue;
-                var apiMsg = apiErrorOf(errBody).message || '';
-                var guidance = '';
-                if (res.status === 400 || res.status === 401 || res.status === 403) {
-                    guidance = '<br><span style="color:#555">Check that <code>gemini_api_key</code> under <code>[ai]</code> in settings.ini is correct and has Gemini API access enabled.</span>';
-                } else if (res.status === 404) {
-                    guidance = '<br><span style="color:#555">Check the model name: <code>' + escapeHtml(model) + '</code> wasn\'t found.</span>';
-                } else if (tooLong) {
-                    guidance = '<br><span style="color:#555">The service asks to wait ' + Math.round(retryWaitMs / 1000)
-                        + ' s before the next request (a daily quota used up, maybe). Try again later.</span>';
-                } else if (res.status === 429) {
-                    // Analyze stays disabled for the wait asked for, counted
-                    // down here (after the loop).
-                    guidance = '<br><span style="color:#555">Still rate-limited after ' + rateLimitWaits
-                        + ' waits. <span class="td-cooldown"></span></span>';
-                    cooldownMs = retryWaitMs;
-                }
-                finalDiv.innerHTML = '<i style="color:#a00">API error ' + res.status
-                    + (apiMsg ? ': ' + escapeHtml(apiMsg) : '')
-                    + '</i>' + guidance;
+                if (serviceErrorRetried(res.status, 'API error ' + res.status, 'got error ' + res.status, errBody, res.headers.get('retry-after'),
+                    provider.name + ' API error', res.status + ' ' + errBody)) continue;
                 break;
             }
             var reader = res.body.getReader();
@@ -1487,16 +1941,14 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
                 heard();
                 if (firstData < 0) firstData = lastHeard - sentAt;
                 buf += decoder.decode(streamChunk.value, { stream: true });
-                buf = processStreamBuffer(buf, onChunk, onFinish, onError);
+                buf = processStreamBuffer(buf, onObject);
             }
-            buf += decoder.decode();
-            processStreamBuffer(buf, onChunk, onFinish, onError);
         } catch (e) {
             // Network error, before or during the answer -- retry unless this
             // was the last attempt. A stall is handled below, as an
             // incomplete answer (or a complete one, if it stalled after it).
             if (!stalled) {
-                logAttemptFailure('Gemini request failed', attempt < attempts - 1, String(e) + ', ' + received());
+                logAttemptFailure(provider.name + ' request failed', attempt < attempts - 1, String(e) + ', ' + received());
                 lastFailure = 'network error';
                 if (attempt === attempts - 1) {
                     finalDiv.innerHTML = '<span style="color:#64748b">Couldn\'t reach the AI service after '
@@ -1507,11 +1959,12 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
             }
         }
 
-        // Success: the model finished ("STOP", not cut off by a token limit,
-        // a safety stop or a dropped stream) with an answer. Thinking is
-        // optional, and stored only when there was some.
-        if (finishReason === 'STOP' && finalText.trim()) {
-            console.log('Gemini answer complete:', timing());
+        // Success: the model finished (not cut off by a token limit,
+        // a safety stop or a dropped stream) with an answer, and sent no
+        // error (OpenAI's stream completes after a refusal too). Thinking
+        // is optional, and stored only when there was some.
+        if (finished && finalText.trim() && !streamError) {
+            console.log(provider.name + ' answer complete:', timing());
             if (t.rowId) {
                 var stored = sawThinking ? '<thinking>' + thinkingText + '</thinking>' + finalText : finalText;
                 // Mirror the DB write into the in-memory store (t is the same
@@ -1525,9 +1978,15 @@ async function runAiAnalysis(id, t, trajectoryName, loadProfile, buildPrompt, sa
             break;
         }
 
+        if (streamError) {
+            if (serviceErrorRetried(streamErrorStatus(streamError), 'API error', 'got an error', JSON.stringify({ error: streamError }), null,
+                provider.name + ' answer incomplete', 'finish reason ' + (finishReason || 'none') + ', ' + received())) continue;
+            break;
+        }
+
         // Incomplete -- retry (the page says so only in its status line); on
         // the last attempt show a message.
-        logAttemptFailure('Gemini answer incomplete', attempt < attempts - 1,
+        logAttemptFailure(provider.name + ' answer incomplete', attempt < attempts - 1,
             'finish reason ' + (finishReason || 'none') + ', ' + received());
         lastFailure = stalled ? 'stalled' : 'answer incomplete';
         if (attempt === attempts - 1) {
@@ -1599,12 +2058,14 @@ function renderStoredReport(id, report) {
 // A liftoff or touchdown marker's popup: the details on the left, AI
 // analysis on the right. gForceText (touchdowns only) goes after V/S and
 // the touchdown rate;
-// analyzeFn is the global function the Analyze button calls with id.
+// analyzeFn is the global function the Analyze button calls with id;
+// distanceKey names the along-runway distance row: a liftoff's is from the
+// runway start, a touchdown's from the marked threshold (finishAnalysisPrompt()).
 // The details are the same rows, in the same order and format, as the KML
 // export's placemark description (runwayContactDescription() in
 // kml_export.cpp) plus a Coordinate row; keep the two in step
-// (tst_map_widget's touchdownPopupMatchesTheKmlDescription checks it).
-function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn) {
+// (tst_map_widget's contactPopupMatchesTheKmlDescription checks it).
+function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn, distanceKey) {
     function row(key, val) {
         return '<div class="td-row"><span class="td-key">' + key + '</span><span class="td-val">' + escapeHtml(val) + '</span></div>';
     }
@@ -1632,7 +2093,8 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn) {
     // Gated on t.runway, not "distanceLength >= 0" -- see finishAnalysisPrompt().
     if (t.runway) {
         leftHtml += div;
-        leftHtml += row('Threshold', roundHalfAwayFromZero(t.distanceLength) + ' ft (' + roundHalfAwayFromZero(t.distanceLengthPercent * 100) + '%)');
+        leftHtml += row(distanceKey, liftoffBeforeRunwayStart(t, title === 'Liftoff') ? 'before the start'
+            : roundHalfAwayFromZero(t.distanceLength) + ' ft (' + roundHalfAwayFromZero(t.distanceLengthPercent * 100) + '%)');
         var cSide = t.distanceWidth >= 0 ? 'R' : 'L';
         leftHtml += row('Centerline', Math.round(Math.abs(t.distanceWidth)) + ' ft ' + cSide + ' (' + Math.round(Math.abs(t.distanceWidthPercent) * 100) + '%)');
     }
@@ -1651,16 +2113,15 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn) {
     // and the result area (pre-filled from DB if available). The choices are
     // shown once the popup opens (showAiChoices()). Copy Prompt, and so the
     // checkbox, works without an API key.
-    var hasKey = !!(window._geminiApiKey && window._geminiApiKey.trim().length > 0);
-    var disabledAttr = hasKey ? '' : ' disabled title="Set gemini_api_key in settings.ini to enable"';
-    var modelDisabledAttr = hasKey ? '' : ' disabled';
-    var modelOptions = AI_MODELS.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('')
-        + '<option value="' + AI_MODEL_OTHER + '">Other…</option>';
-    var clickAttr = hasKey ? ' onclick="' + analyzeFn + '(\'' + id + '\')"' : '';
-    var initialResult = hasKey ? '' :
-        '<span style="color:#aaa;font-size:11px;line-height:1.6">To enable AI analysis,<br>'
-        + 'add your Gemini API key in settings.ini:<br>'
-        + '<code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;color:#555">[ai]<br>gemini_api_key=YOUR_KEY</code><br>'
+    var keyProblem = aiKeyProblem();
+    var disabledAttr = keyProblem ? ' disabled title="' + keyProblem + '"' : '';
+    var modelDisabledAttr = keyProblem ? ' disabled' : '';
+    var clickAttr = keyProblem ? '' : ' onclick="' + analyzeFn + '(\'' + id + '\')"';
+    var initialResult = !keyProblem ? '' :
+        '<span style="color:#aaa;font-size:11px;line-height:1.6">' + (aiProvidersWithKey().length ? keyProblem + '.<br>' : '')
+        + 'To enable AI analysis, set exactly one of<br>these API keys in settings.ini:<br>'
+        + '<code style="background:#f3f4f6;padding:1px 4px;border-radius:3px;color:#555">[ai]<br>'
+        + Object.keys(AI_PROVIDERS).map(function(p) { return AI_PROVIDERS[p].setting + '='; }).join('<br>') + '</code><br>'
         + 'then restart the app.</span>';
     var right = [
         '<div style="border-left:1px solid #e5e7eb;padding-left:14px;min-width:380px">',
@@ -1674,7 +2135,7 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn) {
             + '<input type="checkbox" id="td-progress-' + id + '" onchange="aiProgressChosen(this.checked)">'
             + ' Progress evaluation<span class="td-tip" id="td-progress-tip-' + id + '">' + aiProgressTooltip(analyzeFn) + '</span></label>',
         '      <select class="td-model-select" id="td-model-' + id + '" title="The model the analysis uses"' + modelDisabledAttr
-            + ' onchange="aiModelChosen(\'' + id + '\', this.value)">' + modelOptions + '</select>',
+            + ' onchange="aiModelChosen(\'' + id + '\', this.value)">' + aiModelOptions(aiModels()) + '</select>',
         '    </div>',
         '    <span id="td-spin-' + id + '" class="td-spinner" style="display:none">↻</span>',
         '    <button class="td-copy-btn" id="td-copy-' + id + '" title="Copy the prompt Analyze sends to the clipboard"'
@@ -1683,8 +2144,7 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn) {
         '  <div id="td-custom-' + id + '" class="td-custom-model" style="display:none">',
         '    <input type="text" id="td-custom-name-' + id + '" placeholder="Model name" spellcheck="false"' + modelDisabledAttr
             + ' oninput="aiCustomModelEdited(\'' + id + '\', this.value)">',
-        '    <div class="td-hint">To avoid typos, copy the name with the <b>Copy to clipboard</b> button in'
-            + ' Google AI Studio\'s model selection dialog and paste it here.</div>',
+        '    <div class="td-hint">To avoid typos, ' + aiProvider().namesHint + ' and paste it here.</div>',
         '    <div id="td-model-problem-' + id + '" class="td-model-problem"></div>',
         '  </div>',
         '  <div id="td-note-' + id + '" class="td-note" style="display:none">',
@@ -1705,13 +2165,13 @@ function runwayContactPopupHtml(id, t, title, gForceText, analyzeFn) {
 function liftoffPopupHtml(t) {
     var id = 'lo' + (++_loIdx);
     _liftoffStore[id] = t;
-    return runwayContactPopupHtml(id, t, 'Liftoff', null, 'analyzeLiftoff');
+    return runwayContactPopupHtml(id, t, 'Liftoff', null, 'analyzeLiftoff', 'Runway start');
 }
 
 function touchdownPopupHtml(t) {
     var id = 'td' + (++_tdIdx);
     _touchdownStore[id] = t;
-    return runwayContactPopupHtml(id, t, t.crashed ? 'Crash' : 'Touchdown', Number(t.gForce).toFixed(2) + ' G', 'analyzeTouchdown');
+    return runwayContactPopupHtml(id, t, t.crashed ? 'Crash' : 'Touchdown', Number(t.gForce).toFixed(2) + ' G', 'analyzeTouchdown', 'Threshold');
 }
 
 function eventPopupHtml(events) {
@@ -2087,6 +2547,7 @@ function initLeafletProvider() {
             // popup is closed and reopened without the trip itself reloading.
             m.on('popupopen', function () {
                 var stored = currentStore()[popup.id];
+                loadAiModels();
                 if (stored && stored.analysisReport) renderStoredReport(popup.id, stored.analysisReport);
                 if (stored) showAiChoices(popup.id, stored.analyzing ? stored.analysisChoices : undefined);
                 if (stored && stored.analyzing) showAnalysisRunning(popup.id, true);

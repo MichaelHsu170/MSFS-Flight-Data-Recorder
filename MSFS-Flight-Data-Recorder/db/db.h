@@ -38,8 +38,8 @@ void db_clear_trip_destination_airport(STATUS* status, int trip_id);
 // Touchdowns also store data.g_force.
 int db_insert_contact(STATUS* status, CONTACT_TABLE table, int trip_id, const FLIGHT_DATA& data);
 // The airport a liftoff/touchdown row resolved to. With a runway, also its
-// heading, airport.runway_act's threshold/centerline distances (a liftoff's
-// negative threshold distance is stored as -1; a touchdown's is kept, since
+// heading, airport.runway_act's along-runway/centerline distances (a liftoff's,
+// from the runway start, stored as -1 when negative; a touchdown's is kept, since
 // landing before the threshold is meaningful) and the used end's facility
 // data (runway_length/width, threshold_offset, runway_start_latitude/
 // longitude, runway_true_heading, runway_slope; see contact_table_fields()).

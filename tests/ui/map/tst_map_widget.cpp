@@ -157,14 +157,16 @@ class TstMapWidget : public QObject {
 	// pieces with HTTP status statuses[n] (the last one repeated; 200 if
 	// none; 0 for a request that never reaches the service, as when offline;
 	// -1 for a 200 whose connection drops after its pieces; -2 for a request
-	// that gets no response until it's aborted). A piece "<pause N>" delays
+	// that gets no response until it's aborted). A piece "<wait N>" delays the
+	// rest by N ms unless the attempt is aborted first. A piece "<pause N>" delays
 	// the next by N ms; "<hang>" is a read that never returns until the
-	// request is aborted. The page's inactivity timeout is 1 s meanwhile.
+	// request is aborted. The page's inactivity timeout is 1 s meanwhile (3 s for a model silent while it thinks).
 	// Saving the report succeeds if saveOk; the trajectory loaded first is
 	// profile (JS, "null" for none), and window._aiDuringLoad, if set, is
 	// called while it loads. Returns what it did: calls (fetches made), saved (the
 	// report saved, null if none), text (the answer shown), thinkingShown,
-	// the last request's url and apiKey (its x-goog-api-key header),
+	// the last request's url, method, headers, body and apiKey (its x-goog-api-key
+	// header; window._aiHeaders, if set, are the responses' headers),
 	// profileRow (the row whose trajectory was asked for), statuses (the
 	// result area's text while the trajectory loaded, then the status line's
 	// at each request and each attempt's first read), statusShown (after),
@@ -172,9 +174,9 @@ class TstMapWidget : public QObject {
 	// thinkingPanel (the thinking panel's summary at each read while the
 	// panel shows and no answer has: its pointer-events, arrow and label,
 	// comma-joined, '|'-separated), thinkingSummary (the same, after),
-	// console (the page's console.warn/console.error messages about Gemini,
+	// console (the page's console.warn/console.error messages about the provider,
 	// in order, each after "warn: " or "error: "), info (its console.log
-	// messages about Gemini, each after "log: "),
+	// messages about the provider, each after "log: "),
 	// noticeShown (the no-trajectory notice), promptProfile (t.profile
 	// when the prompt was built, as JSON), contactOnly (the prompt builder's
 	// second argument: whether a contact evaluation was asked for) and
@@ -196,12 +198,13 @@ class TstMapWidget : public QObject {
 			    ['log', 'warn', 'error'].forEach(function (level) {
 			        console[level] = function () {
 			            var text = Array.prototype.join.call(arguments, ' ');
-			            if (text.indexOf('Gemini') >= 0) window._ai[level === 'log' ? 'info' : 'console'].push(level + ': ' + text);
+			            if (/Gemini|OpenAI|Claude/.test(text)) window._ai[level === 'log' ? 'info' : 'console'].push(level + ': ' + text);
 			            realConsole[level].apply(console, arguments);
 			        };
 			    });
-			    var realIdleTimeout = AI_IDLE_TIMEOUT_MS;
+			    var realIdleTimeout = AI_IDLE_TIMEOUT_MS, realSilentIdleTimeout = AI_SILENT_IDLE_TIMEOUT_MS;
 			    AI_IDLE_TIMEOUT_MS = 1000;
+			    AI_SILENT_IDLE_TIMEOUT_MS = 3000;
 			    function statusText() { return document.getElementById('td-status-ai').textContent; }
 			    function summaryState() {
 			        if (!document.getElementById('td-th-sum-ai')) return '';
@@ -220,6 +223,9 @@ class TstMapWidget : public QObject {
 			        window._ai.url = url;
 			        window._ai.fetchedAt = Date.now();
 			        window._ai.apiKey = init.headers['x-goog-api-key'];
+			        window._ai.headers = init.headers;
+			        window._ai.method = init.method;
+			        window._ai.body = JSON.parse(init.body);
 			        window._ai.statuses.push(statusText());
 			        var n = window._ai.calls++;
 			        var status = statuses.length ? statuses[Math.min(n, statuses.length - 1)] : 200;
@@ -244,6 +250,17 @@ class TstMapWidget : public QObject {
 			                pieces.shift();
 			                return new Promise(function (resolve) { setTimeout(function () { resolve(serve()); }, Number(pause[1])); });
 			            }
+			            var wait = /^<wait (\d+)>$/.exec(pieces[0] || '');
+			            if (wait) {
+			                pieces.shift();
+			                return new Promise(function (resolve, reject) {
+			                    var timer = setTimeout(function () { resolve(serve()); }, Number(wait[1]));
+			                    init.signal.addEventListener('abort', function () {
+			                        clearTimeout(timer);
+			                        reject(new DOMException('signal is aborted without reason', 'AbortError'));
+			                    });
+			                });
+			            }
 			            if (pieces.length) return Promise.resolve({ done: false, value: new TextEncoder().encode(pieces.shift()) });
 			            return null;
 			        }
@@ -255,7 +272,7 @@ class TstMapWidget : public QObject {
 			            window._ai.statusShownAtStreamEnd = document.getElementById('td-status-ai').style.display !== 'none';
 			            return drops ? Promise.reject(new TypeError('network error')) : Promise.resolve({ done: true });
 			        } };
-			        return Promise.resolve({ ok: status < 300, status: status,
+			        return Promise.resolve({ ok: status < 300, status: status, headers: new Headers(window._aiHeaders || {}),
 			            text: function () { return Promise.resolve(pieces.join('')); },
 			            body: { getReader: function () { return reader; } } });
 			    };
@@ -276,6 +293,7 @@ class TstMapWidget : public QObject {
 			            console.warn = realConsole.warn;
 			            console.error = realConsole.error;
 			            AI_IDLE_TIMEOUT_MS = realIdleTimeout;
+			            AI_SILENT_IDLE_TIMEOUT_MS = realSilentIdleTimeout;
 			            window._ai.done = true;
 			        });
 			})(%1, %3, %4))JS").arg(QString::fromUtf8(QJsonDocument(json).toJson(QJsonDocument::Compact)),
@@ -284,7 +302,7 @@ class TstMapWidget : public QObject {
 		if (!QTest::qWaitFor([this] { return evalPageJs(widget_, QStringLiteral("window._ai.done")).toBool(); }, 60000))
 			return {};
 		return evalPageJs(widget_, QStringLiteral(
-			"({ calls: window._ai.calls, saved: window._ai.saved, url: window._ai.url, apiKey: window._ai.apiKey,"
+			"({ calls: window._ai.calls, saved: window._ai.saved, url: window._ai.url, apiKey: window._ai.apiKey, headers: window._ai.headers, method: window._ai.method, body: window._ai.body,"
 			"   text: document.getElementById('td-th-final-ai').textContent,"
 			"   thinkingShown: document.getElementById('td-th-det-ai').style.display !== 'none',"
 			"   thinkingPanel: window._ai.thinkingPanel.join('|'), thinkingSummary: window._ai.summaryState(),"
@@ -295,6 +313,19 @@ class TstMapWidget : public QObject {
 			"   statusShown: document.getElementById('td-status-ai').style.display !== 'none',"
 			"   statusShownAtStreamEnd: window._ai.statusShownAtStreamEnd,"
 			"   noticeShown: document.getElementById('td-note-ai').style.display !== 'none' })")).toMap();
+	}
+
+	// Puts the API keys into settings.ini.
+	static void setSavedKeys(const QString& gemini, const QString& openai, const QString& claude) {
+		QFile file(AppSettings::filePath());
+		QVERIFY(file.open(QIODevice::ReadOnly));
+		QString text = QString::fromUtf8(file.readAll());
+		file.close();
+		text.replace(QRegularExpression("\n;?gemini_api_key=[^\r\n]*"), "\ngemini_api_key=" + gemini);
+		text.replace(QRegularExpression("\n;?openai_api_key=[^\r\n]*"), "\nopenai_api_key=" + openai);
+		text.replace(QRegularExpression("\n;?claude_api_key=[^\r\n]*"), "\nclaude_api_key=" + claude);
+		QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+		file.write(text.toUtf8());
 	}
 
 	// Checks runAiAnalysisWith()'s logged failures, one per failed attempt in
@@ -512,8 +543,10 @@ private slots:
 		QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
 		logPath_ = logDir_.filePath(QStringLiteral("map.log"));
 		Logger::init(Logger::Info, logPath_);
-		// The page gets the model and evaluation choices saved before it
-		// loads (checked in the first slot).
+		// The page gets the API keys and the model and evaluation choices saved
+		// before it loads (checked in the first slot).
+		AppSettings::instance(); // creates the file
+		setSavedKeys("file-gemini", "file-openai", "file-claude");
 		AppSettings::instance().setAiModel(QStringLiteral("other"));
 		AppSettings::instance().setAiCustomModel(QStringLiteral("saved-model"));
 		AppSettings::instance().setAiProgressEvaluation(false);
@@ -535,6 +568,11 @@ private slots:
 		// and report save; if it failed midway, put the real ones back.
 		evalPageJs(widget_, QStringLiteral(
 			"if (window._dup) { window._dup.restore(); window._dup.marker.closePopup(); window._dup = null; } true"));
+		// No fetch stub, API key or model choice left by a test that failed.
+		evalPageJs(widget_, QStringLiteral(
+			"['_list', '_mid', '_refused'].forEach(function (n) { var m = window[n]; if (m) { window.fetch = m.realFetch || m.fetch; delete window[n]; } });"
+			" window._aiModel = ''; window._aiCustomModel = ''; true"));
+		setAiKeys({}, {}, {});
 		// No watchRateLimitWaits() left running.
 		evalPageJs(widget_, QStringLiteral("clearInterval(window._waitsWatch); true"));
 		// And with a progress evaluation chosen, the default.
@@ -571,14 +609,15 @@ private slots:
 		}
 		QCOMPARE(spy.count(), 1);
 
-		// The loaded page has the model and evaluation choices settings.ini
-		// had (initTestCase()); later slots start from the defaults, also
+		// The loaded page has the API keys and the model and evaluation choices
+		// settings.ini had (initTestCase()); later slots start from the defaults, also
 		// after a page reload.
 		QCOMPARE(evalPageJs(widget_, QStringLiteral(
-			"var saved = [window._aiModel, window._aiCustomModel, window._aiProgress].join('|');"
-			" window._aiModel = ''; window._aiCustomModel = ''; window._aiProgress = true; saved")).toString(),
-			QStringLiteral("other|saved-model|false"));
+			"var saved = [window._geminiApiKey, window._openaiApiKey, window._claudeApiKey, window._aiModel, window._aiCustomModel, window._aiProgress].join('|');"
+			" window._geminiApiKey = ''; window._openaiApiKey = ''; window._claudeApiKey = ''; window._aiModel = ''; window._aiCustomModel = ''; window._aiProgress = true; saved")).toString(),
+			QStringLiteral("file-gemini|file-openai|file-claude|other|saved-model|false"));
 		AppSettings::instance().setAiProgressEvaluation(true);
+		setSavedKeys({}, {}, {});
 	}
 
 	void afterPageReadySetDatasetDrawsEverythingAndEmitsOnce() {
@@ -807,7 +846,7 @@ private slots:
 			"(function () { var d = document.createElement('div');"
 			"  d.innerHTML = runwayContactPopupHtml('x', {icao: 'T&<i>X</i>', lat: 1, lng: 2, airspeed: 1, verticalSpeed: 0,"
 			"    pitchDegrees: 0, bankDegrees: 0, headingDegrees: 0, windDirection: 0, windVelocity: 0, zuluTime: '<i>z</i>'},"
-			"    'Liftoff', null, 'f', 'L').html;"
+			"    'Liftoff', null, 'f', 'Runway start').html;"
 			"  var v = d.querySelectorAll('.td-val');"
 			"  return [v[0].textContent, v[v.length - 1].textContent, d.querySelectorAll('i').length].join('|'); })()")).toString();
 		QCOMPARE(contact, QStringLiteral("T&<i>X</i>|<i>z</i>|0"));
@@ -840,28 +879,76 @@ private slots:
 			"    verticalSpeed: 0, pitchDegrees: 0, bankDegrees: 0, headingDegrees: 90, distanceLength: 0, distanceWidth: 0,"
 			"    distanceLengthPercent: 0, distanceWidthPercent: 0, windDirection: 0, windVelocity: 0, zuluTime: 'z'};"
 			"  var d = document.createElement('div');"
-			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Liftoff', null, 'f', 'L').html;"
+			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Liftoff', null, 'f', 'Runway start').html;"
 			"  var keys = Array.prototype.map.call(d.querySelectorAll('.td-key'), function (k) { return k.textContent; });"
 			"  return keys.join(',') + '|' + /Centerline offset/.test(buildLiftoffPrompt(t)); })(%1)");
 		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("''"))).toString(),
 			QStringLiteral("Airport,Coordinate,Airspeed,V/S,Pitch,Bank,Heading,Wind,Zulu|false"));
 		QCOMPARE(evalPageJs(widget_, js.arg(QStringLiteral("'09'"))).toString(),
-			QStringLiteral("Airport,Runway,Coordinate,Airspeed,V/S,Pitch,Bank,Heading,Threshold,Centerline,Wind,Zulu|true"));
+			QStringLiteral("Airport,Runway,Coordinate,Airspeed,V/S,Pitch,Bank,Heading,Runway start,Centerline,Wind,Zulu|true"));
 	}
 
 	// A threshold distance halfway between whole numbers rounds away from
 	// zero in the popup and the AI prompt, so a negative one reads the same
 	// as its positive mirror (and as in the KML): -2.5 ft is -3 ft, -12.5% is -13%.
+	// The prompts ask only about what the data has: no gates, no stability at
+	// them; a crash, no rollout; no matched runway, no runway end to check
+	// the airport against (the gates still, with gates).
+	void promptsAskOnlyForWhatTheDataHas() {
+		const QString js = QStringLiteral(
+			"(function (build, change) { var t = %1; change(t); var p = build(t);"
+			"  return [/at the gates/.test(p), /rollout/.test(p), /through the gates/.test(p),"
+			"    p.split('\\n').filter(function (l) { return /^Airport: /.test(l); })[0].replace(/.*labeled as general knowledge\\. /, '')].join('|'); })")
+			.arg(fullContactJs());
+		const QString touchdown = js + QStringLiteral("(buildTouchdownPrompt, ");
+		const QString liftoff = js + QStringLiteral("(buildLiftoffPrompt, ");
+		const QString end = QStringLiteral("If you do not know the airport, say so.");
+		const QString gatesCheck = QStringLiteral("the gates show it was flown; if they contradict a procedure, say so. ");
+		QCOMPARE(evalPageJs(widget_, touchdown + QStringLiteral("function () {})")).toString(),
+			QStringLiteral("true|true|false|First check that it belongs to the runway end used and that ") + gatesCheck + end);
+		QCOMPARE(evalPageJs(widget_, touchdown + QStringLiteral("function (t) { t.profile.gates = []; })")).toString(),
+			QStringLiteral("false|true|false|First check that it belongs to the runway end used. ") + end);
+		QCOMPARE(evalPageJs(widget_, touchdown + QStringLiteral("function (t) { t.crashed = true; })")).toString(),
+			QStringLiteral("true|false|false|First check that it belongs to the runway end used and that ") + gatesCheck + end);
+		QCOMPARE(evalPageJs(widget_, touchdown + QStringLiteral("function (t) { t.runway = ''; })")).toString(),
+			QStringLiteral("true|true|false|First check that ") + gatesCheck + end);
+		QCOMPARE(evalPageJs(widget_, touchdown + QStringLiteral("function (t) { t.runway = ''; t.profile.gates = []; })")).toString(),
+			QStringLiteral("false|true|false|") + end);
+		QCOMPARE(evalPageJs(widget_, liftoff + QStringLiteral("function () {})")).toString().section('|', 2, 2), QStringLiteral("true"));
+		QCOMPARE(evalPageJs(widget_, liftoff + QStringLiteral("function (t) { t.profile.gates = []; })")).toString().section('|', 0, 2),
+			QStringLiteral("false|false|false"));
+	}
+
+	// A liftoff before the runway start (its distance stored as -1, its
+	// percentage as measured) says so instead of a distance, in the popup and
+	// the prompt, whose runway remaining is then the whole runway; a
+	// touchdown's -1 ft is a distance.
+	void aLiftoffBeforeTheRunwayStartSaysSo() {
+		const QString js = QStringLiteral(
+			"(function (title, key, build) { var t = %1; t.distanceLength = -1; t.distanceLengthPercent = -0.034;"
+			"  var d = document.createElement('div');"
+			"  d.innerHTML = runwayContactPopupHtml('x', t, title, null, 'f', key).html;"
+			"  var row = Array.prototype.filter.call(d.querySelectorAll('.td-row'), function (r) {"
+			"    return r.querySelector('.td-key').textContent === key; })[0].querySelector('.td-val').textContent;"
+			"  return [row].concat(build(t).split('\\n').filter(function (l) { return /^  (Distance|Runway remaining)/.test(l); })).join('|'); })")
+			.arg(fullContactJs());
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("('Liftoff', 'Runway start', buildLiftoffPrompt)")).toString(),
+			QStringLiteral("before the start|  Distance from runway start at liftoff: before the runway start"
+				"|  Runway remaining ahead: 10000 ft (100% of its length)"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("('Touchdown', 'Threshold', buildTouchdownPrompt)")).toString().section('|', 0, 1),
+			QStringLiteral("-1 ft (-3%)|  Distance from threshold: -1 ft (-3% of landing distance available) [negative = before it; over 100% = past the far end]"));
+	}
+
 	void negativeThresholdDistanceRoundsAwayFromZero() {
 		const QString js = QStringLiteral(
 			"(function () { var t = {icao: 'EGLL', runway: '27L', runwayHeading: -1, lat: 1, lng: 2, airspeed: 140,"
 			"    verticalSpeed: 0, pitchDegrees: 0, bankDegrees: 0, headingDegrees: 90, distanceLength: -2.5, distanceWidth: 0,"
 			"    distanceLengthPercent: -0.125, distanceWidthPercent: 0, windDirection: 0, windVelocity: 0, zuluTime: 'z'};"
 			"  var d = document.createElement('div');"
-			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Liftoff', null, 'f', 'L').html;"
+			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Touchdown', null, 'f', 'Threshold').html;"
 			"  var threshold = Array.prototype.filter.call(d.querySelectorAll('.td-row'), function (r) {"
 			"    return r.querySelector('.td-key').textContent === 'Threshold'; })[0].querySelector('.td-val').textContent;"
-			"  return threshold + '|' + /: -3 ft \\(-13% of/.test(buildLiftoffPrompt(t)); })()");
+			"  return threshold + '|' + /: -3 ft \\(-13% of/.test(buildTouchdownPrompt(t)); })()");
 		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral("-3 ft (-13%)|true"));
 	}
 
@@ -895,7 +982,7 @@ private slots:
 			"    distanceLengthPercent: 0, distanceWidthPercent: 0, windDirection: 299, windVelocity: 12, zuluTime: 'z',"
 			"    conditions: conditions};"
 			"  var d = document.createElement('div');"
-			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Touchdown', null, 'f', 'L').html;"
+			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Touchdown', null, 'f', 'Threshold').html;"
 			"  return Array.prototype.map.call(d.querySelectorAll('.td-row'), function (r) {"
 			"    return r.querySelector('.td-key').textContent + ': ' + r.querySelector('.td-val').textContent; })"
 			"    .filter(function (r) { return /^(Runway|Heading|Crab|Wind):/.test(r); }).join('|'); })(%1)");
@@ -915,11 +1002,11 @@ private slots:
 	void touchdownPromptCarriesConditionsAndTrajectory() {
 		QCOMPARE(touchdownPromptLacks(QString(), QStringLiteral(R"js([
 				'  Vertical speed: -95 ft/min',
-				'  Touchdown rate: 263 ft/min (the sink rate perpendicular to the runway surface as the wheels touched, as the simulator measured it)',
+				'  Touchdown rate: 263 ft/min (sink rate perpendicular to the runway at touchdown)',
 				'  Heading: 334° magnetic (338° true); ground track 341° true; crab 2.2° (nose left of the track)',
 				'  Wind: 299° true at 12 kt',
 				'  Runway: 10000 ft long, 150 ft wide, threshold displaced 820 ft at this end, slope 0.31° downhill in the direction of travel',
-				'  Runway remaining ahead: 7930 ft (79% of the runway length)',
+				'  Runway remaining ahead: 7930 ft (79% of its length)',
 				'Conditions:',
 				'  Time: 2026-06-21T00:00:00.000+00:00 (local 2026-06-21T03:00:00.000+03:00)',
 				'  Sun: 3.2° below the horizon (civil twilight)',
@@ -929,18 +1016,18 @@ private slots:
 				'  Pressure: altimeter setting 29.92 inHg (1013 mb); station pressure 29.12 inHg; actual sea-level pressure 1009 mb',
 				'  Altitudes: pressure altitude 1950 ft; density altitude 4210 ft',
 				'  Visibility: 9999 m',
-				'  Cloud: in cloud',
+				'  Cloud: in cloud by the simulator\'s flag, but judge the view by the visibility',
 				'  Precipitation: rain, rate 2.5 mm of water',
 				'  Wind over the 30 s before the contact: 8-15 kt, direction 350° to 20° true (clockwise)',
 				'  Surface under the aircraft: asphalt, wet',
 				'  Aircraft weight: total 145000 lb; fuel 21001 lb',
-				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; heading/track = true; V/S = actual vertical speed; wind components = relative to the runway, not the aircraft\'s heading; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):',
+				'Final trajectory (seconds from the touchdown point; height = above the touchdown point, not radio height; distance = to it; terrain = ground below relative to it; heading/track = true; V/S = actual vertical speed; wind components = relative to the runway; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended centerline):',
 				'  Gates:',
 				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain -20 ft, IAS 131 kt, V/S -703 ft/min, pitch 2.0°, bank -1.3°, heading 338°, track 341°, threshold -8640 ft, centerline 13 ft left, wind 299° T 12 kt (headwind 6 kt, crosswind 11 kt from the left), vertical wind 311 ft/min down, OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%',
 				'    1 nm: -27.0 s, height 318 ft, 1.00 nm, path angle 3.0° from here',
-				'  Samples, from 15 s before to 10 s after the touchdown (every sample, evenly thinned if too dense), then one per second to 30 s after it:',
+				'  Samples, from 15 s before to 10 s after the touchdown, then one per second to 30 s after it:',
 				'    -0.5 s, height 2 ft, terrain +30 ft, GS 129 kt, 1.24 G',
-				'  Approach weather and ride (from the last crossing of 1000 ft above the touchdown point down to it, or from 5 nm out, the previous contact or the start of the recording if closer):',
+				'  Approach weather and ride (from the last crossing of 1000 ft, or from 5 nm, the previous contact or the recording start if closer):',
 				'    Wind speed: 8-23 kt',
 				'    Largest headwind change: headwind 18 kt at height 980 ft to headwind 3 kt at height 120 ft (a loss of 16 kt: wind shear)',
 				'    Strongest tailwind: none',
@@ -950,8 +1037,8 @@ private slots:
 				'    Most structural ice: 2%',
 				'    Most pitot ice: 3%',
 				'    Engine anti-ice (carburetor heat on a piston engine): on for 25% of the samples',
-				'    G-force while airborne: 0.87-1.24 G (its spread shows turbulence; a bump between samples is missed)',
-				'    Vertical wind (+ up): -420 ft/min at height 410 ft to 131 ft/min at height 151 ft; a swing while the aircraft pitches or rolls fast may be the simulator\'s reading, not the air',
+				'    G-force while airborne: 0.87-1.24 G (its spread shows turbulence)',
+				'    Vertical wind (+ up): -420 ft/min at height 410 ft to 131 ft/min at height 151 ft; a swing during fast pitch or roll may be the simulator\'s reading, not the air',
 				'    Closest to the stall while airborne: angle of attack 9.5° vs stall 14.0° at height 60 ft',
 				'  Highest terrain within 5 nm before the touchdown: +612 ft, 4.20 nm from the touchdown point (more than 500 ft above it)'
 			])js")), QStringList());
@@ -993,8 +1080,8 @@ private slots:
 				'  Wind over the 30 s before the contact: 0 kt',
 				'    500 ft: -42.5 s, height 512 ft, 1.61 nm, terrain 0 ft, IAS 131 kt, V/S -703 ft/min, pitch 0.0°, bank -1.3°, heading 338°, track 341°, threshold -8640 ft, centerline 0 ft, wind calm, vertical wind 0 ft/min, OAT 31.5 °C, in cloud, precipitation rain, structural ice 2%',
 				'    Wind speed: 7 kt',
-				'    G-force while airborne: 1.00 G (its spread shows turbulence; a bump between samples is missed)',
-				'    Vertical wind (+ up): 0 ft/min at height 410 ft; a swing while the aircraft pitches or rolls fast may be the simulator\'s reading, not the air'
+				'    G-force while airborne: 1.00 G (its spread shows turbulence)',
+				'    Vertical wind (+ up): 0 ft/min at height 410 ft; a swing during fast pitch or roll may be the simulator\'s reading, not the air'
 			])js")), QStringList());
 	}
 
@@ -1005,11 +1092,11 @@ private slots:
 	void contactPromptsCarryTheContactAlone() {
 		const QStringList head = {
 			QStringLiteral("Respond using exactly this structure, with no preamble and no extra sections:"),
-			QStringLiteral("Plain text only: no markdown and no LaTeX (e.g. write \"Vref\", not \"**Vref**\" or \"$V_{ref}$\")."),
+			QStringLiteral("Plain text only: no markdown and no LaTeX (write \"Vref\", not \"**Vref**\" or \"$V_{ref}$\")."),
 			QString(), QStringLiteral("Grade: [A+/A/A-/B+/B/B-/C+/C/C-/D/F]"),
-			QString(), QStringLiteral("Summary: [1-2 sentences overall]"),
-			QString(), QStringLiteral("Strengths:"), QStringLiteral("• [one brief point per bullet]"),
-			QString(), QStringLiteral("Areas to improve:"), QStringLiteral("• [one brief point per bullet]"),
+			QString(), QStringLiteral("Summary: [at most 2 sentences overall]"),
+			QString(), QStringLiteral("Strengths:"), QStringLiteral("• [one point per bullet, in one sentence]"),
+			QString(), QStringLiteral("Areas to improve:"), QStringLiteral("• [one point per bullet, in one sentence]"),
 			QString(), QStringLiteral("---") };
 		const QStringList where = {
 			QStringLiteral("  Airport: OEMA (Prince Mohammad bin Abdulaziz)"),
@@ -1019,29 +1106,29 @@ private slots:
 			QStringLiteral("  Heading: 334° magnetic (338° true); ground track 341° true; crab 2.2° (nose left of the track)"),
 			QStringLiteral("  Wind: 299° true at 12 kt") };
 		const QString offsets = QStringLiteral(
-			": 1250 ft (11% of %1) [negative = before the marked threshold, i.e. on a displaced-threshold/blast-pad area; "
-			"over 100% = past the far threshold]");
+			": 1250 ft (11% of %1) [negative = before it; "
+			"over 100% = past the far end]");
 		const QString centerline = QStringLiteral("  Centerline offset: 6 ft left (12% of half-width)");
 		const QString rule = QStringLiteral(
 			"Headings: a difference between a magnetic and a true heading is the magnetic variation, not a misalignment; "
-			"judge the alignment and crab only from the aircraft's true heading and true ground track against the runway's true heading.");
+			"judge the alignment and crab only from the true headings and track.");
+		const QString evidence = QStringLiteral(
+			"Evidence: use only the values above, citing their point; calculate only the crosswind and headwind. Do not claim control inputs other than the throttle, intent, damage or a full stop the data does not give. A missing value or runway is a limit of the recording, never a fault of the flight or cause for advice. Nothing is both a strength and a fault.");
 		const QStringList liftoff = QStringList{ QStringLiteral(
 			"You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.") }
 			+ head + QStringList{ QStringLiteral("Liftoff data:") } + where + QStringList{ QStringLiteral("  Bank: -1.4°") } + heading
-			+ QStringList{ QStringLiteral("  Distance from threshold at liftoff") + offsets.arg(QStringLiteral("runway")), centerline, QString(),
-				QStringLiteral("Consider: crosswind component (calculate from the true wind vs the true runway heading), "
-					"centerline tracking before the liftoff, use of available runway length."), rule };
+			+ QStringList{ QStringLiteral("  Distance from runway start at liftoff") + offsets.arg(QStringLiteral("runway")), centerline, QString(),
+				QStringLiteral("Consider: crosswind component, "
+					"centerline tracking before the liftoff, use of available runway length."), rule, evidence };
 		const QStringList touchdown = QStringList{ QStringLiteral(
 			"You are an aviation instructor reviewing a Microsoft Flight Simulator 2024 landing.") }
 			+ head + QStringList{ QStringLiteral("Landing data:") } + where + QStringList{
 				QStringLiteral("  Vertical speed: -95 ft/min"),
-				QStringLiteral("  Touchdown rate: 263 ft/min (the sink rate perpendicular to the runway surface as the wheels touched, "
-					"as the simulator measured it)"),
+				QStringLiteral("  Touchdown rate: 263 ft/min (sink rate perpendicular to the runway at touchdown)"),
 				QStringLiteral("  G-force: 1.21 G"), QStringLiteral("  Pitch: 3.2°   Bank: -1.4°") } + heading
 			+ QStringList{ QStringLiteral("  Distance from threshold") + offsets.arg(QStringLiteral("landing distance available")), centerline,
-				QString(), QStringLiteral("Consider: touchdown rate, vertical speed & G-force comfort, crosswind component (calculate from "
-					"the true wind vs the true runway heading), decrab at touchdown (crab angle), centerline tracking, touchdown zone placement."),
-				rule };
+				QString(), QStringLiteral("Consider: touchdown rate, vertical speed & G-force comfort, crosswind component, decrab at touchdown (crab angle), centerline tracking, touchdown zone placement."),
+				rule, evidence };
 		const QString js = QStringLiteral(
 			"(function () { var t = %1, title = window._aircraftTitle; window._aircraftTitle = '';"
 			"  var prompts = [buildLiftoffPrompt(t, true), buildTouchdownPrompt(t, true)];"
@@ -1060,7 +1147,7 @@ private slots:
 			"delete t.actualVerticalSpeed; delete t.touchdownRate; t.profile.indicatedVerticalSpeed = true;"),
 			QStringLiteral(R"js([
 				'  Vertical speed: -180 ft/min (indicated), which lags the actual rate',
-				'Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; heading/track = true; V/S = indicated vertical speed, which lags the actual rate; wind components = relative to the runway, not the aircraft\'s heading; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended runway centerline):'
+				'Final trajectory (seconds from the touchdown point; height = above the touchdown point, not radio height; distance = to it; terrain = ground below relative to it; heading/track = true; V/S = indicated vertical speed, which lags the actual rate; wind components = relative to the runway; threshold = along the runway from the marked threshold, negative = before it; centerline = from the extended centerline):'
 			])js")), QStringList());
 		QCOMPARE(evalPageJs(widget_, QStringLiteral("(function () { var t = %1; delete t.touchdownRate;"
 			"  return /Touchdown rate:/.test(buildTouchdownPrompt(t)); })()").arg(fullContactJs())).toBool(), false);
@@ -1076,7 +1163,7 @@ private slots:
 			"    distanceLengthPercent: 0, distanceWidthPercent: 0, windDirection: 299, windVelocity: 12, zuluTime: 'z'};"
 			"  Object.assign(t, extra);"
 			"  var d = document.createElement('div');"
-			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Touchdown', null, 'f', 'L').html;"
+			"  d.innerHTML = runwayContactPopupHtml('x', t, 'Touchdown', null, 'f', 'Threshold').html;"
 			"  return Array.prototype.map.call(d.querySelectorAll('.td-row'), function (r) {"
 			"    return r.querySelector('.td-key').textContent + ': ' + r.querySelector('.td-val').textContent; })"
 			"    .filter(function (r) { return /^(V\\/S|Touchdown rate):/.test(r); }).join('|'); })(%1)");
@@ -1100,38 +1187,38 @@ private slots:
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
 			"{seconds: -0.5, onGround: false, heightFt: 2.4, throttle: [-4.5, null], power: [53.5, 54]},"
 			"{seconds: 0, onGround: true, throttle: [30, 30]}]})")).toString(), QStringLiteral(
-			"Final trajectory (seconds from the touchdown point; on ground/airborne = as the simulator reports it; height = altitude above "
-			"the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point; "
-			"throttle = throttle lever position per engine (engine 1 first, ? = not recorded) as the aircraft reports it, negative = reverse range; "
+			"Final trajectory (seconds from the touchdown point; height = above "
+			"the touchdown point, not radio height; distance = to it; terrain = ground below relative to it; "
+			"throttle = lever per engine (engine 1 first, ? = not recorded), negative = reverse; "
 			"N1 = per engine):"
 			"|    -0.5 s, airborne, height 2 ft, throttle -5/?%, N1 54/54%"
 			"|    0.0 s, on ground, throttle 30/30%"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [{gate: '50 ft', seconds: -3, power: [60]}], series: [], powerName: 'torque', "
 			"powerUnit: '%'})")).toString(), QStringLiteral(
-			"Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to "
-			"the touchdown point; terrain = ground below relative to the touchdown point; torque = per engine):"
+			"Final trajectory (seconds from the touchdown point; height = above the touchdown point, not radio height; distance = to it; "
+			"terrain = ground below relative to it; torque = per engine):"
 			"|    50 ft: -3.0 s, torque 60%"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [{gate: '50 ft', seconds: -3, power: [15.2, 14.5]}], series: [], "
 			"powerName: 'MP', powerUnit: ' inHg', powerTitle: 'manifold pressure'})")).toString(), QStringLiteral(
-			"Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to "
-			"the touchdown point; terrain = ground below relative to the touchdown point; MP = manifold pressure, per engine):"
+			"Final trajectory (seconds from the touchdown point; height = above the touchdown point, not radio height; distance = to it; "
+			"terrain = ground below relative to it; MP = manifold pressure, per engine):"
 			"|    50 ft: -3.0 s, MP 15/15 inHg"));
 		// More than 4 engines (a B-52's 8): 4 spread from the first to the
 		// last shown, the header naming them, an engine shown but not
 		// recorded "?" (throttle 6 and 8); 4 shown whole without it.
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
 			"{seconds: 0, throttle: [1, 2, 3, 4], power: [11, 12, 13, 14, 15, 16, 17, 18]}]})")).toString(), QStringLiteral(
-			"Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to "
-			"the touchdown point; terrain = ground below relative to the touchdown point; "
-			"throttle = throttle lever position per engine (engine 1 first, ? = not recorded) as the aircraft reports it, negative = reverse range; "
+			"Final trajectory (seconds from the touchdown point; height = above the touchdown point, not radio height; distance = to it; "
+			"terrain = ground below relative to it; "
+			"throttle = lever per engine (engine 1 first, ? = not recorded), negative = reverse; "
 			"N1 = per engine; engines 1/3/6/8 of 8 shown):"
 			"|    0.0 s, throttle 1/3/?/?%, N1 11/13/16/18%"));
 		// The engines counted from the throttle when it has more.
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
 			"{seconds: 0, throttle: [1, 2, 3, 4, 5, 6, 7, 8]}]})")).toString(), QStringLiteral(
-			"Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to "
-			"the touchdown point; terrain = ground below relative to the touchdown point; "
-			"throttle = throttle lever position per engine (engine 1 first, ? = not recorded) as the aircraft reports it, negative = reverse range; "
+			"Final trajectory (seconds from the touchdown point; height = above the touchdown point, not radio height; distance = to it; "
+			"terrain = ground below relative to it; "
+			"throttle = lever per engine (engine 1 first, ? = not recorded), negative = reverse; "
 			"engines 1/3/6/8 of 8 shown):"
 			"|    0.0 s, throttle 1/3/6/8%"));
 		// 5, 6 and 7 engines: the first, the last and the two spread
@@ -1149,13 +1236,13 @@ private slots:
 			"|engines 1/3/5/7 of 7 shown: 0.0 s, N1 11/13/15/17%"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
 			"{seconds: 0, power: [11, 12, 13, 14]}]})")).toString(), QStringLiteral(
-			"Final trajectory (seconds from the touchdown point; height = altitude above the touchdown point, not radio height; distance = to "
-			"the touchdown point; terrain = ground below relative to the touchdown point; N1 = per engine):"
+			"Final trajectory (seconds from the touchdown point; height = above the touchdown point, not radio height; distance = to it; "
+			"terrain = ground below relative to it; N1 = per engine):"
 			"|    0.0 s, N1 11/12/13/14%"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], series: [{seconds: 0, onGround: true}], powerName: 'N1'})")).toString(),
 			QStringLiteral(
-			"Final trajectory (seconds from the touchdown point; on ground/airborne = as the simulator reports it; height = altitude above "
-			"the touchdown point, not radio height; distance = to the touchdown point; terrain = ground below relative to the touchdown point):"
+			"Final trajectory (seconds from the touchdown point; height = above "
+			"the touchdown point, not radio height; distance = to it; terrain = ground below relative to it):"
 			"|    0.0 s, on ground"));
 	}
 
@@ -1218,21 +1305,22 @@ private slots:
 	}
 
 	// The trajectory's header says the wind components are relative to the
-	// runway, not the aircraft's heading, whenever a height gate or the segment
-	// shows one, in both prompts; without any (no runway heading), or with
-	// them only on a sample or a distance gate, which don't show them, it doesn't.
+	// runway whenever a height gate or the segment shows one, in both prompts;
+	// without any (no runway heading), or with them only on a sample, a
+	// distance gate or a calm height gate, which don't show them, it doesn't.
 	void trajectoryHeaderNamesTheWindComponentsReference() {
 		const QString js = QStringLiteral(
 			"(function (build, add) { var t = %1, p = t.profile;"
 			"  p.gates.concat(p.series).forEach(function (q) { delete q.headwindKt; delete q.crosswindKt; });"
 			"  delete p.segment.headwindFromKt; delete p.segment.maxCrosswindKt; add(p);"
-			"  return build(t).indexOf(\"; wind components = relative to the runway, not the aircraft's heading\") >= 0; })")
+			"  return build(t).indexOf(\"; wind components = relative to the runway\") >= 0; })")
 			.arg(fullContactJs());
 		for (const char* build : {"buildTouchdownPrompt", "buildLiftoffPrompt"}) {
 			const QString call = js + QStringLiteral("(%1, ").arg(QLatin1String(build));
 			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function () {})")).toBool(), false);
 			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function (p) { p.gates[0].headwindKt = -3.4; })")).toBool(), true);
 			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function (p) { p.series[0].headwindKt = -3.4; })")).toBool(), false);
+			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function (p) { p.gates[0].headwindKt = -0.3; p.gates[0].windSpeedKt = 0.4; })")).toBool(), false);
 			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function (p) {"
 				"  p.gates.filter(function (g) { return / nm$/.test(g.gate); })[0].headwindKt = -3.4; })")).toBool(), false);
 			QCOMPARE(evalPageJs(widget_, call + QStringLiteral("function (p) { p.segment.headwindFromKt = 2; })")).toBool(), true);
@@ -1252,17 +1340,14 @@ private slots:
 			.arg(fullContactJs());
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, {samples: 3, headwindFromKt: 20.4, headwindFromHeightFt: 900,"
 			"headwindToKt: 6, headwindToHeightFt: 50, cloudKnown: false})")).toString(), QStringLiteral(
-			"  Approach weather and ride (from the last crossing of 1000 ft above the touchdown point down to it, or from 5 nm out, the "
-			"previous contact or the start of the recording if closer):"
+			"  Approach weather and ride (from the last crossing of 1000 ft, or from 5 nm, the previous contact or the recording start if closer):"
 			"|    Largest headwind change: headwind 20 kt at height 900 ft to headwind 6 kt at height 50 ft (a loss of 14 kt)"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildLiftoffPrompt, {samples: 3, cloudKnown: true})")).toString(), QStringLiteral(
-			"  Climb-out weather and ride (from the liftoff up to the first crossing of 1000 ft above the liftoff point, or to the next "
-			"contact or 5 nm from the liftoff point if sooner):"
+			"  Climb-out weather and ride (to the first crossing of 1000 ft, or to the next contact or 5 nm if sooner):"
 			"|    Cloud: not in cloud"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, {samples: 3, headwindFromKt: 0, headwindFromHeightFt: 900,"
 			"headwindToKt: -0.3, headwindToHeightFt: 50, maxTailwindKt: 0.3, cloudKnown: false})")).toString(), QStringLiteral(
-			"  Approach weather and ride (from the last crossing of 1000 ft above the touchdown point down to it, or from 5 nm out, the "
-			"previous contact or the start of the recording if closer):"
+			"  Approach weather and ride (from the last crossing of 1000 ft, or from 5 nm, the previous contact or the recording start if closer):"
 			"|    Largest headwind change: headwind 0 kt at height 900 ft to headwind 0 kt at height 50 ft (a gain of 0 kt)"
 			"|    Strongest tailwind: none"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, {samples: 3, cloudKnown: false})")).toString(), QString());
@@ -1277,28 +1362,28 @@ private slots:
 		const QString js = QStringLiteral(
 			"(function () { var t = %1;"
 			"  return [buildLiftoffPrompt(t), buildTouchdownPrompt(t)].map(function (p) {"
-			"    return p.split('\\n').filter(function (l) { return /^• \\[(what the samples show|stability)|^Consider:/.test(l); })"
+			"    return p.split('\\n').filter(function (l) { return /^• \\[one topic per bullet: (what this liftoff is|stability)|^Consider:/.test(l); })"
 			"      .map(function (l) { return /against the crosswind.*against the gusts.*against the wind shear, vertical wind and turbulence, and the margin to the stall/.test(l)"
 			"        || /gusts, wind shear, turbulence, cloud and icing,/.test(l); }).join(); }).join('|'); })()")
 			.arg(fullContactJs());
 		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral("true,true|true,true"));
 	}
 
-	// The liftoff prompt doesn't say what kind of liftoff it was: its segment
-	// section has the model tell a takeoff, a touch-and-go and a bounce apart
-	// from the samples, judge the first two's rotation and climb, and a
-	// bounce as part of the landing.
+	// The liftoff prompt's segment section has the model say what kind of
+	// liftoff it was, as the data says when it does (promptsSayWhatTheLiftoffIs),
+	// judge its rotation and climb, and a bounce as part of the landing.
 	void liftoffPromptHasTheModelSayWhatTheLiftoffWas() {
 		const QString js = QStringLiteral(
-			"(function () { return buildLiftoffPrompt(%1).split('\\n')"
-			"  .filter(function (l) { return /^• \\[what the samples show/.test(l); }).join('\\n'); })()")
-			.arg(fullContactJs());
-		QCOMPARE(evalPageJs(widget_, js).toString(), QStringLiteral(
-			"• [what the samples show this liftoff to be (a takeoff, a touch-and-go or a bounce), then for a takeoff or "
-			"touch-and-go the rotation and initial climb: pitch, speed, bank and track through the gates; judge the crab "
+			"(function () { var t = %1; t.profile.series = [{seconds: 0, %2}]; return buildLiftoffPrompt(t).split('\\n')"
+			"  .filter(function (l) { return /^• \\[one topic per bullet: what this liftoff is/.test(l); }).join('\\n'); })()");
+		const QString bullet = QStringLiteral(
+			"• [one topic per bullet: what this liftoff is (a takeoff, one that settled back, a touch-and-go or a bounce%1), then unless "
+			"a bounce the rotation and initial climb: pitch, speed, bank and track through the gates; judge the crab "
 			"after the liftoff against the crosswind, the rotation and climb speed against the gusts, any excursion against "
 			"the wind shear, vertical wind and turbulence, and the margin to the stall; for a bounce, judge it as part of "
-			"the landing]"));
+			"the landing]");
+		QCOMPARE(evalPageJs(widget_, js.arg(fullContactJs(), "onGround: false")).toString(), bullet.arg(", as the data says"));
+		QCOMPARE(evalPageJs(widget_, js.arg(fullContactJs(), "pitch: 1")).toString(), bullet.arg(QString()));
 	}
 
 	// When the points recorded engine failures or fires, one line names
@@ -1314,13 +1399,20 @@ private slots:
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [{gate: '50 ft', seconds: -3, engineFailed: [0, 0, 0, 0, 1, 0, 0, 0],"
 			"  engineOnFire: [0, 0, 0, 0, 0, 0, 0, 0]}], powerName: 'N1', powerUnit: '%', series: ["
 			"{seconds: 0, power: [1, 2, 3, 4, 5, 6, 7, 8], engineFailed: [0, 1, 0, 0, 0, 0, 1, 0], engineOnFire: [0, 0, 0, 0, 0, 0, 1, null]}]})")).toString(),
-			QStringLiteral("  Engine failures and fires (of all engines, at any point above): failed: engine 2, 5, 7; on fire: engine 7"));
+			QStringLiteral("  Engine failures and fires (all engines, any point): failed: engine 2, 5, 7; on fire: engine 7"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
 			"{seconds: 0, engineOnFire: [0, 1]}]})")).toString(),
-			QStringLiteral("  Engine failures and fires (of all engines, at any point above): on fire: engine 2"));
+			QStringLiteral("  Engine failures and fires (all engines, any point): on fire: engine 2"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
 			"{seconds: 0, engineFailed: [0, 0], engineOnFire: [0, null]}]})")).toString(),
-			QStringLiteral("  Engine failures and fires (of all engines, at any point above): none"));
+			QStringLiteral("  Engine failures and fires (all engines, any point): none"));
+		// Three or more engines in a row as a range.
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
+			"{seconds: 0, engineFailed: [1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1]}]})")).toString(),
+			QStringLiteral("  Engine failures and fires (all engines, any point): failed: engine 1-3, 5, 6, 8-11"));
+		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: ["
+			"{seconds: 0, engineOnFire: [1, 1, 1, 0, 1]}]})")).toString(),
+			QStringLiteral("  Engine failures and fires (all engines, any point): on fire: engine 1-3, 5"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("({gates: [], powerName: 'N1', powerUnit: '%', series: [{seconds: 0, power: [50]}]})")).toString(),
 			QString());
 	}
@@ -1336,7 +1428,7 @@ private slots:
 			"    var lines = p.split('\\n').slice(0, p.split('\\n').indexOf('---'));"
 			"    return lines.filter(function (l, i) { return /:$/.test(l) && /^• \\[/.test(lines[i + 1]); }).join()"
 			"      + ',' + /\\nAirport: from your general knowledge/.test(p); })"
-			"    .concat([buildLiftoffPrompt(t).indexOf('\\n  Samples, one per second from 30 s before the liftoff, then from 10 s before to 10 s after it (every sample, evenly thinned if too dense):\\n') >= 0,"
+			"    .concat([buildLiftoffPrompt(t).indexOf('\\n  Samples, one per second from 30 s before the liftoff, then from 10 s before to 10 s after it:\\n') >= 0,"
 			"      buildLiftoffPrompt(t).indexOf('\\nLiftoff trajectory (seconds from the liftoff point;') >= 0,"
 			"      buildTouchdownPrompt(t).indexOf('\\nFinal trajectory (seconds from the touchdown point;') >= 0]).join('|'); })()")
 			.arg(fullContactJs());
@@ -1355,7 +1447,7 @@ private slots:
 			"  return p.split('\\n').filter(function (l) { return /^Headings:/.test(l); }).join('#') || 'none'; }).join('|'); })(%1)");
 		const QString withTrue = QStringLiteral(
 			"Headings: a difference between a magnetic and a true heading is the magnetic variation, not a misalignment; "
-			"judge the alignment and crab only from the aircraft's true heading and true ground track against the runway's true heading.");
+			"judge the alignment and crab only from the true headings and track.");
 		QCOMPARE(evalPageJs(widget_, js.arg(fullContactJs())).toString(), withTrue + '|' + withTrue);
 		const QString noSample = QStringLiteral(
 			"{icao: 'EGLL', runway: '27L', runwayHeading: 270, lat: 51.47, lng: -0.45, airspeed: 140, verticalSpeed: -120,"
@@ -1377,7 +1469,7 @@ private slots:
 	void segmentLinesMarkTurbulenceStrongVerticalWindAndStall_data() {
 		QTest::addColumn<QString>("segment");
 		QTest::addColumn<QString>("lines");
-		const QString g = QStringLiteral("    G-force while airborne: %1 G (its spread shows turbulence; a bump between samples is missed%2)");
+		const QString g = QStringLiteral("    G-force while airborne: %1 G (its spread shows turbulence%2)");
 		const QString moderate = QStringLiteral("; moderate turbulence or maneuvering");
 		const QString severe = QStringLiteral("; severe turbulence or hard maneuvering");
 		QTest::newRow("G under 0.5 from 1") << QStringLiteral("gForceMin: 0.6, gForceMax: 1.49") << g.arg(QStringLiteral("0.60-1.49"), QString());
@@ -1386,8 +1478,7 @@ private slots:
 		QTest::newRow("G under 1 above 1") << QStringLiteral("gForceMin: 1, gForceMax: 1.99") << g.arg(QStringLiteral("1.00-1.99"), moderate);
 		QTest::newRow("G 1 above 1") << QStringLiteral("gForceMin: 1, gForceMax: 2") << g.arg(QStringLiteral("1.00-2.00"), severe);
 		QTest::newRow("G 1 below 1") << QStringLiteral("gForceMin: 0, gForceMax: 1") << g.arg(QStringLiteral("0.00-1.00"), severe);
-		const QString wind = QStringLiteral("    Vertical wind (+ up): %1 ft/min at height 300 ft to %2 ft/min at height 700 ft%3; "
-			"a swing while the aircraft pitches or rolls fast may be the simulator's reading, not the air");
+		const QString wind = QStringLiteral("    Vertical wind (+ up): %1 ft/min at height 300 ft to %2 ft/min at height 700 ft%3; a swing during fast pitch or roll may be the simulator's reading, not the air");
 		const QString heights = QStringLiteral(", verticalWindMinHeightFt: 300, verticalWindMaxHeightFt: 700");
 		QTest::newRow("vertical wind 1000 either way") << QStringLiteral("verticalWindMinFpm: -1000, verticalWindMaxFpm: 1000") + heights
 			<< wind.arg(QStringLiteral("-1000"), QStringLiteral("1000"), QString());
@@ -1398,12 +1489,14 @@ private slots:
 		const QString stall = QStringLiteral("    Closest to the stall while airborne: angle of attack %1° vs stall 13.2° at height 40 ft%2");
 		const QString stalled = QStringLiteral(" (stalled; where the stall began, and the G-force and vertical wind above stop there, "
 			"as the aircraft may then have been out of control)");
-		QTest::newRow("at the stall angle") << QStringLiteral("stallMarginAlphaDeg: 13.2, stallMarginStallAlphaDeg: 13.2, stallMarginHeightFt: 40")
+		QTest::newRow("stalled at the stall angle") << QStringLiteral("stallMarginAlphaDeg: 13.2, stallMarginStallAlphaDeg: 13.2, stallMarginHeightFt: 40, stalled: true")
 			<< stall.arg(QStringLiteral("13.2"), stalled);
-		QTest::newRow("below the stall angle") << QStringLiteral("stallMarginAlphaDeg: 13.1, stallMarginStallAlphaDeg: 13.2, stallMarginHeightFt: 40")
+		QTest::newRow("below the stall angle") << QStringLiteral("stallMarginAlphaDeg: 13.1, stallMarginStallAlphaDeg: 13.2, stallMarginHeightFt: 40, stalled: false")
 			<< stall.arg(QStringLiteral("13.1"), QString());
+		QTest::newRow("an instant at it") << QStringLiteral("stallMarginAlphaDeg: 13.2, stallMarginStallAlphaDeg: 13.2, stallMarginHeightFt: 40, stalled: false")
+			<< stall.arg(QStringLiteral("13.2"), QStringLiteral(" (past the stall angle for an instant, which a gust can cause: not an established stall)"));
 		QTest::newRow("with airspeed and bank") << QStringLiteral("stallMarginAlphaDeg: 16.9, stallMarginStallAlphaDeg: 13.2, stallMarginHeightFt: 40, "
-			"stallMarginAirspeedKt: 42.5, stallMarginBankDeg: 43.19")
+			"stallMarginAirspeedKt: 42.5, stallMarginBankDeg: 43.19, stalled: true")
 			<< stall.arg(QStringLiteral("16.9"), QStringLiteral(", IAS 43 kt, bank 43.2°") + stalled);
 	}
 	void segmentLinesMarkTurbulenceStrongVerticalWindAndStall() {
@@ -1437,7 +1530,7 @@ private slots:
 			"  return [buildTouchdownPrompt(t), buildTouchdownPrompt(t, true)].map(function (p) {"
 			"    return p.split('\\n').filter(function (l) { return /^Consider:/.test(l); })[0].split(', ').slice(0, 2).join(', '); }).join('|'); })()");
 		const QString crashed = QStringLiteral(
-			"Consider: touchdown rate, crosswind component (calculate from the true wind vs the true runway heading)");
+			"Consider: touchdown rate, crosswind component");
 		QCOMPARE(evalPageJs(widget_, consider.arg(fullContactJs(), QStringLiteral("t.crashed = true;"))).toString(), crashed + '|' + crashed);
 		const QString landed = QStringLiteral("Consider: touchdown rate, vertical speed & G-force comfort");
 		QCOMPARE(evalPageJs(widget_, consider.arg(fullContactJs(), QString())).toString(), landed + '|' + landed);
@@ -1455,7 +1548,7 @@ private slots:
 	void considerLinesListRunwayItemsOnlyWithARunway_data() {
 		QTest::addColumn<QString>("setup");
 		QTest::addColumn<QStringList>("expected");
-		const QString crosswind = QStringLiteral("crosswind component (calculate from the true wind vs the true runway heading), ");
+		const QString crosswind = QStringLiteral("crosswind component, ");
 		const QString weather = QStringLiteral("gusts, wind shear, turbulence, cloud and icing, light and visibility, ");
 		QTest::newRow("runway") << QStringLiteral("window._aircraftTitle = 'Cessna C152';") << QStringList{
 			QStringLiteral("Consider: ") + crosswind + QStringLiteral("centerline tracking before the liftoff, use of available runway "
@@ -1511,7 +1604,7 @@ private slots:
 	}
 
 	// Without a matched runway, every prompt (both contacts, both
-	// evaluations) says there are no headwind or crosswind components and to
+	// evaluations) says there are no components from a runway and to
 	// judge the wind against the true ground track; with one, none does.
 	void promptsWithoutARunwaySayThereAreNoWindComponents() {
 		const QString js = QStringLiteral(
@@ -1519,11 +1612,193 @@ private slots:
 			"  return [buildLiftoffPrompt(t), buildLiftoffPrompt(t, true), buildTouchdownPrompt(t), buildTouchdownPrompt(t, true)].map(function (p) {"
 			"    return p.split('\\n').filter(function (l) { return /^  Runway: none/.test(l); }).join('#') || 'none'; }).join('|'); })()");
 		const QString none = QStringLiteral(
-			"  Runway: none matched (not on a known runway), so there are no headwind or crosswind components; "
+			"  Runway: none matched (not on a known runway), so there are no headwind or crosswind components from a runway; "
 			"judge the wind against the aircraft's true ground track instead");
 		QCOMPARE(evalPageJs(widget_, js.arg(fullContactJs(), QStringLiteral("t.runway = '';"))).toString(),
 			QStringList({ none, none, none, none }).join('|'));
 		QCOMPARE(evalPageJs(widget_, js.arg(fullContactJs(), QString())).toString(), QStringLiteral("none|none|none|none"));
+	}
+
+	// Every prompt limits the answer to what the data shows, a progress
+	// evaluation's also to the airport knowledge; the checks against the
+	// samples, and the airport's against the gates, are named only where the
+	// trajectory has them, the wind as any at the nearest height gate, or
+	// without one in the segment's lines (the samples carry none), or with
+	// neither none.
+	void promptsLimitTheAnswerToTheData() {
+		const QString js = QStringLiteral(
+			"(function () { function read(t) {"
+			"  return [buildLiftoffPrompt(t), buildLiftoffPrompt(t, true), buildTouchdownPrompt(t), buildTouchdownPrompt(t, true)].map(function (p) {"
+			"    var l = p.split('\\n').filter(function (l) { return /^Evidence: /.test(l); });"
+			"    return l.length + (/values above and the airport knowledge, citing/.test(l[0]) ? ' airport' : '') + (/never a fault of the flight/.test(l[0]) ? ' limits' : '')"
+			"      + (/first sample on the ground/.test(l[0]) ? ' samples' : '') + (/any wind and vertical wind at the nearest height gate\\./.test(l[0]) ? ' wind' : '') + (/any wind and vertical wind in the segment's weather and ride lines\\./.test(l[0]) ? ' segmentWind' : '') + (/the gates show it was flown/.test(p) ? ' gates' : ''); }).join('|'); }"
+			"  var t = %1, full = read(t); t.profile.gates = []; var noGates = read(t);"
+			"  var segment = t.profile.segment; delete t.profile.segment; var noSegment = read(t); t.profile.segment = segment;"
+			"  t.profile.gates = [{gate: '1 nm', seconds: -30}]; var distanceGate = read(t); t.profile.gates = [];"
+			"  t.profile.series = []; var empty = read(t); t.profile = null; return [full, noGates, noSegment, distanceGate, empty, read(t)]; })()")
+			.arg(fullContactJs());
+		const QString none = QStringLiteral("1 airport limits|1 limits|1 airport limits|1 limits");
+		QCOMPARE(evalPageJs(widget_, js).toStringList(), QStringList({
+			QStringLiteral("1 airport limits samples wind gates|1 limits|1 airport limits samples wind gates|1 limits"),
+			QStringLiteral("1 airport limits samples segmentWind|1 limits|1 airport limits samples segmentWind|1 limits"),
+			QStringLiteral("1 airport limits samples|1 limits|1 airport limits samples|1 limits"),
+			QStringLiteral("1 airport limits samples segmentWind gates|1 limits|1 airport limits samples segmentWind gates|1 limits"), none, none }));
+	}
+
+	// The prompt states what the samples' on-ground state shows: the spells
+	// with their heights, and what they make a liftoff.
+	void promptsSayWhatTheLiftoffIs_data() {
+		QTest::addColumn<QString>("series");  // [seconds, on ground, height ft]
+		QTest::addColumn<QString>("spells");
+		QTest::addColumn<QString>("kind");
+		QTest::addColumn<bool>("bounce");
+		QTest::newRow("takeoff") << "[[-1,1,0],[-0.5,1,0],[0,0,1],[0.5,0,40.6],[1,0,10]]"
+			<< "on ground -1.0 to -0.5 s, airborne 0.0 to 1.0 s (up to 41 ft)" << "a takeoff" << false;
+		QTest::newRow("hop in the roll") << "[[-2,1,0],[-1,0,2.9],[-0.5,1,0],[0,0,9]]"
+			<< "on ground at -2.0 s, airborne at -1.0 s (up to 3 ft), on ground at -0.5 s, airborne at 0.0 s (up to 9 ft)"
+			<< "a takeoff" << false;
+		QTest::newRow("bounce") << "[[-1,0,3],[-0.5,1,0],[0,0,1],[2,1,0]]"
+			<< "airborne at -1.0 s (up to 3 ft), on ground at -0.5 s, airborne at 0.0 s (up to 1 ft), on ground at 2.0 s"
+			<< "a bounce of a landing" << true;
+		QTest::newRow("touch-and-go") << "[[-1,0,30],[-0.5,1,0],[0,0,5]]"
+			<< "airborne at -1.0 s (up to 30 ft), on ground at -0.5 s, airborne at 0.0 s (up to 5 ft)"
+			<< "a touch-and-go, or a bounce too long for the samples" << false;
+		QTest::newRow("no height") << "[[-1,1,0],[0,0],[1,0,8]]"
+			<< "on ground at -1.0 s, airborne 0.0 to 1.0 s (up to 8 ft)" << "a takeoff" << false;
+		QTest::newRow("runway higher behind") << "[[-2,1,10],[-1,1,10],[0,0,1]]"
+			<< "on ground -2.0 to -1.0 s, airborne at 0.0 s (up to 1 ft)" << "a takeoff" << false;
+		QTest::newRow("airborne before the liftoff") << "[[-1,1,0],[-0.3,0,5],[0,0,9]]"
+			<< "on ground at -1.0 s, airborne -0.3 to 0.0 s (up to 9 ft)" << "a takeoff" << false;
+		QTest::newRow("back on the ground at 0") << "[[-1,0,30],[0,1,0]]"
+			<< "airborne at -1.0 s (up to 30 ft), on ground at 0.0 s" << "a bounce of a landing" << true;
+		QTest::newRow("on the ground until 0") << "[[-1,0,30],[-0.5,1,0],[0,1,0],[0.5,0,5]]"
+			<< "airborne at -1.0 s (up to 30 ft), on ground -0.5 to 0.0 s, airborne at 0.5 s (up to 5 ft)"
+			<< "a touch-and-go, or a bounce too long for the samples" << false;
+		QTest::newRow("settled back") << "[[-1,1,0],[0,0,2],[1,1,0]]"
+			<< "on ground at -1.0 s, airborne at 0.0 s (up to 2 ft), on ground at 1.0 s"
+			<< "a liftoff of a takeoff roll that settled back" << false;
+	}
+	void promptsSayWhatTheLiftoffIs() {
+		QFETCH(QString, series);
+		QFETCH(QString, spells);
+		QFETCH(QString, kind);
+		QFETCH(bool, bounce);
+		const QStringList r = evalPageJs(widget_, QStringLiteral(
+			"(function () { var t = %1;"
+			"  t.profile.series = %2.map(function (p) { return {seconds: p[0], onGround: !!p[1], heightFt: p[2]}; });"
+			"  var lines = buildLiftoffPrompt(t).split('\\n');"
+			"  function one(re) { return lines.filter(function (l) { return re.test(l); }).join('#'); }"
+			"  var consider = one(/^Consider/);"
+			"  return [one(/By the samples:/), one(/What this liftoff is/), lines[0],"
+			"    /flare, touchdown and bounce/.test(consider) + ' ' + /liftoff and climb-out attitude/.test(consider) + ' ' + /use of available runway/.test(consider)]; })()")
+			.arg(fullContactJs(), series)).toStringList();
+		QCOMPARE(r, QStringList({ QStringLiteral("  By the samples: ") + spells,
+			QStringLiteral("  What this liftoff is: ") + kind,
+			QStringLiteral("You are an aviation instructor reviewing a liftoff from a Microsoft Flight Simulator 2024 flight.")
+				+ (bounce ? QStringLiteral(" It is a bounce of a landing, not a takeoff: grade the landing it belongs to.") : QString()),
+			bounce ? QStringLiteral("true false false") : QStringLiteral("false true true") }));
+	}
+
+	// A contact evaluation isn't told of a bounce only the samples show.
+	void aContactEvaluationOfABounceIsOfTheContact() {
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(
+			"(function () { var t = %1; t.profile.series = [{seconds: -1, onGround: false, heightFt: 3}, {seconds: -0.5, onGround: true, heightFt: 0},"
+			"  {seconds: 0, onGround: false, heightFt: 1}, {seconds: 2, onGround: true, heightFt: 0}];"
+			"  return [false, true].map(function (contactOnly) { return /bounce/.test(buildLiftoffPrompt(t, contactOnly)); }).join(); })()")
+			.arg(fullContactJs())).toString(), QStringLiteral("true,false"));
+	}
+
+	// What the airport knowledge must be checked against, and how the
+	// environment's conditions are listed.
+	void promptsAskForCheckedAirportKnowledgeAndOneConditionPerBullet() {
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(
+			"(function () { var t = %1; return [buildLiftoffPrompt(t), buildTouchdownPrompt(t)].map(function (p) {"
+			"  return ['one condition per bullet', 'those without an effect in one last bullet', 'First check that it belongs to the runway end used',"
+			"    'If you do not know the airport, say so'].map(function (s) { return p.indexOf(s) >= 0; }).join(); }).join('|'); })()")
+			.arg(fullContactJs())).toString(), QStringLiteral("true,true,true,true|true,true,true,true"));
+	}
+
+	// A touchdown's prompt gives the slowest ground speed after it, and where
+	// the landing roll ends: the first sample below 15 kt once it's on the
+	// ground for good (not in a bounce before that). A crash has no roll.
+	void promptsSayWhereTheLandingRollEnds_data() {
+		QTest::addColumn<QString>("series");  // [seconds, on ground, ground speed kt]
+		QTest::addColumn<QString>("line");
+		const QString taxi(" (below 15 kt): what follows is taxiing, not to be judged");
+		QTest::newRow("still rolling") << "[[-1,0,70],[0,1,60],[30,1,15]]"
+			<< "  After the touchdown: slowest ground speed 15 kt at 30.0 s (no full stop)";
+		QTest::newRow("taxiing") << "[[-1,0,5],[0,1,60],[9,1,14.9],[10,1,3],[30,1,21]]"
+			<< "  After the touchdown: slowest ground speed 3 kt at 10.0 s (no full stop); the landing roll ends at 9.0 s" + taxi;
+		QTest::newRow("slow bounce") << "[[0,1,14],[1,0,12],[2,1,20],[3,1,0.4]]"
+			<< "  After the touchdown: slowest ground speed 0 kt at 3.0 s (a full stop); the landing roll ends at 3.0 s" + taxi;
+		QTest::newRow("airborne at the end") << "[[0,1,14],[1,0,60]]"
+			<< "  After the touchdown: slowest ground speed 14 kt at 0.0 s (no full stop)";
+		QTest::newRow("speed not recorded") << "[[0,1],[1,1,30]]"
+			<< "  After the touchdown: slowest ground speed 30 kt at 1.0 s (no full stop)";
+		QTest::newRow("steady speed") << "[[0,1,30],[1,1,30]]"
+			<< "  After the touchdown: slowest ground speed 30 kt at 0.0 s (no full stop)";
+		QTest::newRow("slow from the start") << "[[0,1,14],[1,1,14]]"
+			<< "  After the touchdown: slowest ground speed 14 kt at 0.0 s (no full stop); the landing roll ends at 0.0 s" + taxi;
+		QTest::newRow("half a knot") << "[[0,1,60],[9,1,0.5]]"
+			<< "  After the touchdown: slowest ground speed 1 kt at 9.0 s (no full stop); the landing roll ends at 9.0 s" + taxi;
+		QTest::newRow("nothing on the ground") << "[[-1,1,60],[1,0,60]]" << "";
+	}
+	void promptsSayWhereTheLandingRollEnds() {
+		QFETCH(QString, series);
+		QFETCH(QString, line);
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(
+			"(function () { var t = %1;"
+			"  t.profile.series = %2.map(function (p) { return {seconds: p[0], onGround: !!p[1], groundSpeedKt: p[2]}; });"
+			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /After the touchdown:|What this liftoff/.test(l); }).join('#'); })()")
+			.arg(fullContactJs(), series)).toString(), line);
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(
+			"(function () { var t = %1; t.crashed = true;"
+			"  t.profile.series = %2.map(function (p) { return {seconds: p[0], onGround: !!p[1], groundSpeedKt: p[2]}; });"
+			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /By the samples:|After the touchdown:/.test(l); }).map(function (l) { return l.slice(0, 17); }).join('#'); })()")
+			.arg(fullContactJs(), series)).toString(), QStringLiteral("  By the samples:"));
+	}
+
+	// Past 6 spells, the rest are only said to follow; without the on-ground
+	// state (or samples), nothing is said.
+	void promptsListAFewGroundSpells() {
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(
+			"(function () { var t = %1; t.profile.series = [];"
+			"  for (var i = 0; i < 7; ++i) t.profile.series.push({seconds: i, onGround: i % 2 === 0, groundSpeedKt: 50});"
+			"  function line() { return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /By the samples:|After the touchdown:/.test(l); })[0] || 'none'; }"
+			"  var many = line(); t.profile.series.pop(); var six = line();"
+			"  t.profile.series.forEach(function (p) { delete p.onGround; });"
+			"  function spells(l) { return (l.match(/(on ground|airborne) at/g) || []).length; }"
+				"  return [spells(many), /, and so on$/.test(many), spells(six), /and so on/.test(six), line()].join(); })()")
+			.arg(fullContactJs())).toString(), QStringLiteral("6,true,6,false,none"));
+	}
+
+	// Without the runway's heading the segment's wind components are from the
+	// ground track, and say so; the trajectory header doesn't call them the
+	// runway's.
+	void segmentLinesSayWhatTheirWindIsMeasuredFrom() {
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(
+			"(function () { var t = %1; t.profile.gates = []; function read(track) {"
+			"  t.profile.segment = {samples: 3, alongTrack: track, headwindFromKt: 48, headwindFromHeightFt: 990, headwindToKt: 27,"
+			"    headwindToHeightFt: 812, maxTailwindKt: 0, maxCrosswindKt: 20};"
+			"  var p = buildTouchdownPrompt(t);"
+			"  return p.split('\\n').filter(function (l) { return /^    (Largest|Strongest)/.test(l); }).join('|') + '|' + /wind components = relative to the runway/.test(p); }"
+			"  return read(true) + '#' + read(false); })()").arg(fullContactJs())).toString(), QStringLiteral(
+			"    Largest headwind change (from the ground track at the contact): headwind 48 kt at height 990 ft to headwind 27 kt at height 812 ft (a loss of 21 kt: wind shear)|"
+			"    Strongest tailwind (from the ground track at the contact): none|"
+			"    Strongest crosswind (from the ground track at the contact): 20 kt from the right|false#"
+			"    Largest headwind change: headwind 48 kt at height 990 ft to headwind 27 kt at height 812 ft (a loss of 21 kt: wind shear)|"
+			"    Strongest tailwind: none|    Strongest crosswind: 20 kt from the right|true"));
+	}
+
+	// The in-cloud flag is qualified where the visibility contradicts it.
+	void aCloudFlagTheVisibilityContradictsIsQualified() {
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(
+			"(function () { var t = %1; return [[1, 1500], [1, 1499], [1], [0, 9000]].map(function (c) {"
+			"  t.conditions.inCloud = c[0]; t.conditions.visibilityM = c[1];"
+			"  return buildTouchdownPrompt(t).split('\\n').filter(function (l) { return /^  Cloud:/.test(l); })[0]; }).join('|'); })()")
+			.arg(fullContactJs())).toString(), QStringLiteral(
+			"  Cloud: in cloud by the simulator's flag, but judge the view by the visibility|"
+			"  Cloud: in cloud|  Cloud: in cloud|  Cloud: not in cloud"));
 	}
 
 	// A progress evaluation tells the model to cite each significant recorded
@@ -1537,8 +1812,7 @@ private slots:
 			"    return p.split('\\n').filter(function (l) { return /^Weather:/.test(l); }).join('#') || 'none'; }).join('|'); })()")
 			.arg(fullContactJs());
 		const QString rule = QStringLiteral(
-			"Weather: in the Environment section, cite each significant recorded condition, including those marked above, with its value "
-			"and its effect on this %1; elsewhere keep what the conditions caused apart from technique, neither faulting the pilot for it "
+			"Weather: in the Environment section, cite each significant condition, including those marked above, with its value and effect on this %1; elsewhere keep what the conditions caused apart from technique, neither faulting the pilot for it "
 			"nor excusing technique by it.");
 		QCOMPARE(evalPageJs(widget_, js).toString(),
 			QStringList({ rule.arg(QStringLiteral("liftoff")), QStringLiteral("none"), rule.arg(QStringLiteral("landing")), QStringLiteral("none") }).join('|'));
@@ -1596,11 +1870,11 @@ private slots:
 			.arg(fullContactJs());
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildLiftoffPrompt, {runwaySlope: 0.25})")).toString(),
 			QStringLiteral("  Runway: 10000 ft long, 150 ft wide, threshold displaced 820 ft at this end, slope 0.25° uphill in the direction of travel"
-				"|  Runway remaining ahead: 8750 ft (88% of the runway length)"
+				"|  Runway remaining ahead: 8750 ft (88% of its length)"
 				"|; threshold = along the runway from the runway start,runway start"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, {runwaySlope: 0, thresholdOffsetFt: 0, runwayWidthFt: undefined})")).toString(),
 			QStringLiteral("  Runway: 10000 ft long, no displaced threshold at this end, level"
-				"|  Runway remaining ahead: 8750 ft (88% of the runway length)"
+				"|  Runway remaining ahead: 8750 ft (88% of its length)"
 				"|; threshold = along the runway from the marked threshold,marked threshold"));
 		QCOMPARE(evalPageJs(widget_, js + QStringLiteral("(buildTouchdownPrompt, {runwayLengthFt: undefined, profile: {gates: [], series: [{seconds: 0}]}})")).toString(),
 			QStringLiteral("no threshold"));
@@ -1669,8 +1943,12 @@ private slots:
 	}
 
 	// The prompt is bounded whatever the trip: with every value recorded and
-	// every line a value can add (a crash, the aircraft weight, every segment
-	// mark, every engine failed and on fire), every gate crossed with all
+	// every line a value can add (the aircraft weight, every segment mark, a
+	// stall, every engine failed and on fire; a touchdown that crashed, and one
+	// that didn't with a landing roll after it; a liftoff that is a touch-and-go; spells on and off the ground of two
+	// samples each, so each says when it began and ended; not an indicated
+	// vertical speed, which only trips recorded before the actual one, and
+	// without the values added after it, have), every gate crossed with all
 	// SIM_ENGINE_INDEXES engines' values (of which the prompt shows 4, naming
 	// them) and the series at its most (contact_analysis.cpp's 56 every-sample
 	// points and 20 one-per-second ones, each with its ground speed and
@@ -1687,7 +1965,7 @@ private slots:
 		const QString js = QStringLiteral(
 			"(function () { var t = %1;"
 			"  window._aircraftTitle = 'Aircraft With A Very Long Livery And Model Name For The Worst Case Prompt Size';"
-			"  t.crashed = true; t.conditions.totalWeightLb = 1234567.8; t.conditions.fuelWeightLb = 123456.7;"
+			"  t.conditions.totalWeightLb = 1234567.8; t.conditions.fuelWeightLb = 123456.7;"
 			"  t.airportName = 'An Airport Whose Name Is As Long As Any In The Facility Database Could Be';"
 			"  function point(gate) { var p = {seconds: -123.456, heightFt: -12345.678, distanceNm: 12.3456, terrainFt: -12345.678,"
 			"      airspeed: 123.456, groundSpeedKt: 123.456, verticalSpeed: -12345.678, gForce: -12.345, pitch: -12.345, bank: -123.456, headingTrue: 359.6, trackTrue: 359.6,"
@@ -1697,9 +1975,9 @@ private slots:
 			"      inCloud: 0, precipitation: 'rain and snow', structuralIce: 1, throttle: [], power: [], engineFailed: [], engineOnFire: []};"
 			"    for (var e = 0; e < %2; ++e) { p.throttle.push(-123.456); p.power.push(power); p.engineFailed.push(1); p.engineOnFire.push(1); }"
 			"    if (gate) p.gate = gate; if (!/ nm$/.test(gate)) delete p.pathAngle; return p; }"
-			"  var power, lengths = [];"
-			"  [['torque', '%', 123.456], ['MP', ' inHg', 99.4, 'manifold pressure']].forEach(function (c) {"
-			"    power = c[2];"
+			"  var power, lengths = [], built = [];"
+			"  [['torque', '%', 123.456], ['MP', ' inHg', 99.4, 'manifold pressure']].forEach(function (c) { [0, 1, 2].forEach(function (variant) {"
+			"    power = c[2]; t.crashed = variant !== 1;"
 			"    t.profile = {gates: ['1000 ft', '500 ft', '300 ft', '200 ft', '100 ft', '50 ft', '3 nm', '2 nm', '1 nm'].map(point),"
 			"      series: [], highestTerrainFt: 12345.678, highestTerrainNm: 4.999, terrainRangeNm: 4.994, powerName: c[0], powerUnit: c[1], powerTitle: c[3],"
 			"      segment: {samples: 999, windMinKt: 123.4, windMaxKt: 124.4, headwindFromKt: -123.4, headwindFromHeightFt: -1234.5,"
@@ -1708,26 +1986,52 @@ private slots:
 			"        gForceMin: -12.345, gForceMax: -11.345, verticalWindMinFpm: -12345.6, verticalWindMinHeightFt: -1234.5,"
 			"        verticalWindMaxFpm: -12344.6, verticalWindMaxHeightFt: -1234.5,"
 			"        stallMarginAlphaDeg: -12.34, stallMarginStallAlphaDeg: -12.34, stallMarginHeightFt: -1234.5,"
-			"        stallMarginAirspeedKt: -123.4, stallMarginBankDeg: -123.45}};"
-			"    for (var i = 0; i < %3; ++i) t.profile.series.push(point());"
-			"    lengths.push(buildLiftoffPrompt(t).length, buildTouchdownPrompt(t).length); });"
+			"        stallMarginAirspeedKt: -123.4, stallMarginBankDeg: -123.45, stalled: true}};"
+			"    for (var i = 0; i < %3; ++i) { var p = point(); p.onGround = Math.floor(i / 2) % 2 === 1; p.seconds += i; t.profile.series.push(p); }"
+			"    if (variant === 1) t.profile.series.forEach(function (p, i) { if (i >= %3 / 2) p.seconds += 246.912; });"
+			"    if (variant === 1) t.profile.series[%3 - 1].groundSpeedKt = 12.3;"
+			"    if (variant === 2) t.profile.series[0].heightFt = 12345.678;"
+			"    var liftoff = buildLiftoffPrompt(t), touchdown = buildTouchdownPrompt(t);"
+			"    lengths.push(liftoff.length, touchdown.length);"
+			"    built.push(/stalled; where the stall began/.test(touchdown) && (variant !== 1 || /landing roll ends/.test(touchdown))"
+			"      && (variant !== 2 || /What this liftoff is: a touch-and-go/.test(liftoff))"
+			"      && (variant === 1 || /Outcome: the aircraft crashed here/.test(touchdown))); }); });"
 			"  window._aircraftTitle = '';"
-			"  return lengths; })()")
+			"  return [lengths, built]; })()")
 			.arg(fullContactJs(), QString::number(SIM_ENGINE_INDEXES), QString::number(56 + 20));
-		const QVariantList lengths = evalPageJs(widget_, js).toList();
-		QCOMPARE(lengths.size(), 4);
+		const QVariantList result = evalPageJs(widget_, js).toList();
+		QCOMPARE(result.size(), 2);
+		// Each variant has the lines it is there for.
+		QCOMPARE(result[1].toList(), QVariantList(6, true));
+		const QVariantList lengths = result[0].toList();
+		QCOMPARE(lengths.size(), 12);
+		QStringList shown;
+		for (const QVariant& length : lengths)
+			shown << length.toString();
+		qInfo("worst-case prompt lengths (liftoff, touchdown; crashed, rolling, touch-and-go; torque then manifold pressure): %s",
+			qPrintable(shown.join(", ")));
 		for (const QVariant& length : lengths)
 			QVERIFY2(length.toInt() > 0 && length.toInt() <= 32000, qPrintable(length.toString()));
-		qInfo("worst-case prompt lengths: torque liftoff %d, touchdown %d; manifold pressure liftoff %d, touchdown %d characters",
-			lengths[0].toInt(), lengths[1].toInt(), lengths[2].toInt(), lengths[3].toInt());
 	}
 
-	// The map's touchdown popup and the KML export's placemark description
-	// are built separately (map.html, kml_export.cpp) but list the same
-	// fields with the same values; only the popup adds the coordinate, which
-	// in the KML is the placemark's own position.
-	void touchdownPopupMatchesTheKmlDescription() {
+	// The map's liftoff and touchdown popups and the KML export's placemark
+	// descriptions are built separately (map.html, kml_export.cpp) but list the
+	// same fields with the same values; only the popup adds the coordinate,
+	// which in the KML is the placemark's own position. A liftoff's distance
+	// along the runway is from its start, a touchdown's from the threshold.
+	void contactPopupMatchesTheKmlDescription_data() {
+		QTest::addColumn<QString>("kind");
+		QTest::addColumn<QString>("iconClass");
+		QTest::newRow("liftoff") << "liftoff" << "liftoff-icon";
+		QTest::newRow("touchdown") << "touchdown" << "touchdown-icon";
+		QTest::newRow("crash") << "crash" << "touchdown-icon crash-icon";
+	}
+	void contactPopupMatchesTheKmlDescription() {
+		QFETCH(QString, kind);
+		QFETCH(QString, iconClass);
+		const bool liftoff = kind == QLatin1String("liftoff");
 		TouchdownPoint td;
+		td.crashed = kind == QLatin1String("crash");
 		td.latitude = 51.47;
 		td.longitude = -0.45;
 		td.icao = QStringLiteral("EGLL");
@@ -1756,17 +2060,23 @@ private slots:
 		td.conditions.runwayHeadingMagnetic = 268;
 		TripDataset dataset;
 		dataset.points = { samplePoint(51.47, -0.45) };
-		dataset.touchdowns = { td };
+		if (liftoff) {
+			LiftoffPoint lo;
+			static_cast<RunwayContactPoint&>(lo) = td;
+			dataset.liftoffPoints = { lo };
+		} else {
+			dataset.touchdowns = { td };
+		}
 		showTrip(dataset);
 
 		const QString popupRowsJs = QStringLiteral(
 			"(function () { var rows = [];"
 			"  leafletMapInstance.eachLayer(function (l) {"
-			"    if (!(l instanceof L.Marker) || l.options.icon.options.className !== 'touchdown-icon') return;"
+			"    if (!(l instanceof L.Marker) || l.options.icon.options.className !== '%1') return;"
 			"    var d = document.createElement('div'); d.innerHTML = l.getPopup().getContent();"
 			"    d.querySelectorAll('.td-row').forEach(function (r) {"
 			"      rows.push(r.querySelector('.td-key').textContent + ': ' + r.querySelector('.td-val').textContent); }); });"
-			"  return rows; })()");
+			"  return rows; })()").arg(iconClass); // its own marker's class exactly: the previous row's may still be shown
 		QStringList popup;
 		QVERIFY(QTest::qWaitFor([&] {
 			popup = evalPageJs(widget_, popupRowsJs).toStringList();
@@ -1779,7 +2089,9 @@ private slots:
 		QVERIFY2(popup.contains(QStringLiteral("Heading: 271° M (269° T)")), qPrintable(popup.join('|')));
 		QVERIFY2(popup.contains(QStringLiteral("Crab: 3° L")), qPrintable(popup.join('|')));
 		QVERIFY2(popup.contains(QStringLiteral("V/S: -183 ft/min")), qPrintable(popup.join('|')));
-		QVERIFY2(popup.contains(QStringLiteral("Touchdown rate: 263 ft/min")), qPrintable(popup.join('|')));
+		QVERIFY2(popup.contains(QStringLiteral("Touchdown rate: 263 ft/min")) != liftoff, qPrintable(popup.join('|')));
+		QVERIFY2(popup.contains(liftoff ? QStringLiteral("Runway start: -3 ft (-13%)") : QStringLiteral("Threshold: -3 ft (-13%)")),
+			qPrintable(popup.join('|')));
 
 		QTemporaryDir dir;
 		const QString path = dir.filePath(QStringLiteral("trip.kml"));
@@ -1787,7 +2099,7 @@ private slots:
 		QFile file(path);
 		QVERIFY(file.open(QIODevice::ReadOnly));
 		const QString kml = QString::fromUtf8(file.readAll());
-		const qsizetype folder = kml.indexOf(QStringLiteral("<name>Touchdowns</name>"));
+		const qsizetype folder = kml.indexOf(liftoff ? QStringLiteral("<name>Liftoffs</name>") : QStringLiteral("<name>Touchdowns</name>"));
 		QVERIFY(folder >= 0);
 		const qsizetype start = kml.indexOf(QStringLiteral("<![CDATA["), folder) + 9;
 		const QString description = kml.mid(start, kml.indexOf(QStringLiteral("]]>"), start) - start);
@@ -1906,6 +2218,22 @@ private slots:
 		verifyAttemptLogs(r, {
 			{ true, { "MAX_TOKENS", "7 characters of thinking", "11 of answer" } },
 			{ true, { "none", "7 characters of thinking", "11 of answer" } } });
+	}
+
+	// A Gemini answer stopped for a reason other than its content is retried.
+	void aGeminiAnswerStoppedOtherwiseIsRetried_data() {
+		QTest::addColumn<QString>("reason");
+		for (const char* reason : { "RECITATION", "LANGUAGE", "OTHER", "IMAGE_RECITATION" })
+			QTest::newRow(reason) << reason;
+	}
+	void aGeminiAnswerStoppedOtherwiseIsRetried() {
+		QFETCH(QString, reason);
+		const QVariantMap r = runAiAnalysisWith({
+			{ aiStream({ aiChunk({ { "Grade: half", false } }, reason) }) },
+			{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } });
+		QCOMPARE(r.value("calls").toInt(), 2);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
+		verifyAttemptLogs(r, { { true, { QStringLiteral("finish reason %1").arg(reason) } } });
 	}
 
 	// An error the service sends mid-stream, after thinking arrived, in place
@@ -2325,7 +2653,9 @@ private slots:
 			        text: function () { return Promise.resolve('[{"error":{"code":400,"message":"Stop here."}}]'); } });
 			};
 			window._geminiApiKey = 'test-key';
+			AI_PROVIDERS.gemini.loading = true; // fetch is stubbed for the analysis alone
 			ai.marker.openPopup();
+			AI_PROVIDERS.gemini.loading = false;
 			window._geminiApiKey = '';
 			document.getElementById('td-progress-' + ai.id).click();
 			document.getElementById('td-btn-' + ai.id).click();
@@ -2648,8 +2978,10 @@ private slots:
 			 rateLimitDelayMs('{"error":{"details":[{"retryDelay":"1.2s"}]}}'),
 			 rateLimitDelayMs('{"error":{"code":429,"message":"Quota exceeded."}}'),
 			 rateLimitDelayMs('{"error":{"details":[{"retryDelay":"soon"}]}}'),
-			 rateLimitDelayMs('Too Many Requests')].join()
-		)JS")).toString(), QStringLiteral("34000,2000,60000,60000,60000"));
+			 rateLimitDelayMs('Too Many Requests'),
+			 rateLimitDelayMs('{}', '7'), rateLimitDelayMs('{}', '1.5'), rateLimitDelayMs('{}', 'Wed, 21 Oct'), rateLimitDelayMs('{}', null),
+			 rateLimitDelayMs('{"error":{"details":[{"retryDelay":"34s"}]}}', '7')].join()
+		)JS")).toString(), QStringLiteral("34000,2000,60000,60000,60000,7000,2000,60000,60000,34000"));
 	}
 
 	// A rate limit asking for a longer wait than a minute (61 s; a per-day
@@ -2739,6 +3071,710 @@ private slots:
 		evalPageJs(widget_, QStringLiteral("window._aiModel = ''; window._aiCustomModel = ''; delete window._aiDuringLoad"));
 		QCOMPARE(r.value("url").toString(),
 			QStringLiteral("https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro:streamGenerateContent"));
+	}
+
+	// Sets the page's API keys, Gemini's, OpenAI's and Claude's, and starts
+	// its models lists afresh.
+	void setAiKeys(const QString& gemini, const QString& openai, const QString& claude) {
+		evalPageJs(widget_, QStringLiteral(
+			"window._geminiApiKey = '%1'; window._openaiApiKey = '%2'; window._claudeApiKey = '%3';"
+			"window._builtIn = window._builtIn || { gemini: AI_PROVIDERS.gemini.models, openai: AI_PROVIDERS.openai.models, claude: AI_PROVIDERS.claude.models };"
+			"Object.keys(AI_PROVIDERS).forEach(function (p) { AI_PROVIDERS[p].models = window._builtIn[p];"
+			" AI_PROVIDERS[p].available = null; AI_PROVIDERS[p].loading = false; });"
+			"AI_PROVIDERS.claude.noAdaptiveThinking = []; AI_PROVIDERS.openai.noReasoningSummary = false; true").arg(gemini, openai, claude));
+	}
+
+	// OpenAI's and Claude's streams, as server-sent events.
+	static QString sse(const QStringList& events) {
+		QString out;
+		for (const QString& event : events)
+			out += QStringLiteral("event: x\ndata: %1\n\n").arg(event);
+		return out;
+	}
+	static QString openaiAnswer() {
+		return sse({ R"({"type":"response.created","response":{"status":"in_progress","error":null}})",
+			R"({"type":"response.output_text.delta","delta":"Grade: "})", R"({"type":"response.output_text.delta","delta":"A {ok}"})",
+			R"({"type":"response.completed","response":{"status":"completed"}})" });
+	}
+	static QString claudeAnswer() {
+		return sse({ R"({"type":"message_start","message":{"stop_reason":null}})", R"({"type":"ping"})",
+			R"({"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"Wind."}})",
+			R"({"type":"content_block_delta","delta":{"type":"signature_delta","signature":"xyz"}})",
+			R"({"type":"content_block_delta","delta":{"type":"text_delta","text":"Grade: B"}})",
+			R"({"type":"message_delta","delta":{"stop_reason":"end_turn"}})", R"({"type":"message_stop"})" });
+	}
+
+	// With OpenAI's key, the request goes to its Responses API: the key in the
+	// Authorization header alone, streamed and not stored there.
+	void openaiIsAskedAndItsAnswerSaved() {
+		setAiKeys({}, "oa-key", {});
+		const QString stream = openaiAnswer();
+		const QVariantMap r = runAiAnalysisWith({ { stream.left(150), stream.mid(150) } });
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("method").toString(), QStringLiteral("POST"));
+		QCOMPARE(r.value("url").toString(), QStringLiteral("https://api.openai.com/v1/responses"));
+		QCOMPARE(r.value("headers").toMap(), (QVariantMap{ { "Content-Type", "application/json" }, { "Authorization", "Bearer oa-key" } }));
+		QCOMPARE(r.value("body").toMap(), (QVariantMap{ { "model", "gpt-6.2-sol" }, { "input", "prompt" }, { "stream", true }, { "store", false },
+			{ "reasoning", QVariantMap{ { "summary", "auto" } } } }));
+		QCOMPARE(r.value("calls").toInt(), 1);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A {ok}"));
+		QCOMPARE(r.value("thinkingShown").toBool(), false);
+	}
+
+	// An account refused the reasoning summary (an organization not verified)
+	// is asked again without it, then and after, its attempts not used up.
+	void aRefusedReasoningSummaryIsDropped() {
+		setAiKeys({}, "k", {});
+		const QVariantMap r = runAiAnalysisWith({
+			{ QStringLiteral(R"({"error":{"message":"Your organization must be verified to generate reasoning summaries.","code":"unsupported_value"}})") },
+			{ openaiAnswer() }, { openaiAnswer() } }, true, { 400, 200, 200 });
+		const QVariantMap again = runAiAnalysisWith({ { openaiAnswer() } });
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("calls").toInt(), 2);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A {ok}"));
+		QVERIFY(!r.value("body").toMap().contains("reasoning"));
+		QVERIFY(!again.value("body").toMap().contains("reasoning"));
+	}
+
+	// That retry is made once, and not counted: after it, three attempts; a
+	// refusal again is shown.
+	void aRefusedReasoningSummaryIsRetriedOnce() {
+		const QString refused(R"({"error":{"message":"Your organization must be verified to generate reasoning summaries."}})");
+		setAiKeys({}, "k", {});
+		QVariantMap r = runAiAnalysisWith({ { refused }, { QStringLiteral(R"({"error":{"message":"Oops"}})") } }, true, { 400, 500 });
+		QCOMPARE(r.value("calls").toInt(), 4);
+		QCOMPARE(r.value("text").toString(), QStringLiteral("API error 500: Oops"));
+		setAiKeys({}, "k", {});
+		r = runAiAnalysisWith({ { refused }, { refused } }, true, { 400, 400 });
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("calls").toInt(), 2);
+		QCOMPARE(r.value("text").toString(), QStringLiteral("API error 400: Your organization must be verified to generate reasoning summaries."));
+	}
+
+	// A model that sends nothing while it thinks (an OpenAI one without the
+	// reasoning summary: another line's, or after the account was refused
+	// one) has longer before it counts as stalled; one asked for it doesn't.
+	// (The limits made 1 s and 3 s here, from 3 and 10 minutes.)
+	void aSilentThinkerHasALongerIdleLimit() {
+		QCOMPARE(evalPageJs(widget_, QStringLiteral("[AI_IDLE_TIMEOUT_MS, AI_SILENT_IDLE_TIMEOUT_MS].join()")).toString(), QStringLiteral("180000,600000"));
+		const QString pause = QStringLiteral("<wait 2000>");
+		setAiKeys({}, "k", {});
+		QVariantMap r = runAiAnalysisWith({ { pause, openaiAnswer() }, { openaiAnswer() } });
+		QCOMPARE(r.value("calls").toInt(), 2);
+		evalPageJs(widget_, QStringLiteral("window._aiModel = 'other'; window._aiCustomModel = 'gpt-4.1'"));
+		r = runAiAnalysisWith({ { pause, openaiAnswer() } });
+		evalPageJs(widget_, QStringLiteral("window._aiModel = ''; window._aiCustomModel = ''"));
+		QCOMPARE(r.value("calls").toInt(), 1);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A {ok}"));
+		setAiKeys({}, "k", {});
+		r = runAiAnalysisWith({ { QStringLiteral(R"({"error":{"message":"Your organization must be verified to generate reasoning summaries."}})") },
+			{ pause, openaiAnswer() } }, true, { 400, 200 });
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("calls").toInt(), 2);
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A {ok}"));
+	}
+
+	// Whether a refused request is asked again without the summary goes by
+	// the request sent, not by an earlier refusal: another analysis's sent
+	// with it is, one sent without it isn't.
+	void aRefusedSummaryRetryGoesByTheRequestSent() {
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(
+			"var o = AI_PROVIDERS.openai, b = '{\"error\":{\"message\":\"Your organization must be verified to generate reasoning summaries.\"}}';"
+			" o.noReasoningSummary = true;"
+			" var r = [o.retriedWithout(400, b, { reasoning: { summary: 'auto' } }), o.retriedWithout(400, b, { model: 'x' })].join();"
+			" o.noReasoningSummary = false; r")).toString(), QStringLiteral("true,false"));
+	}
+
+	// OpenAI's summary of its reasoning streams as the thinking, saved with
+	// the answer; a model of another line (an Other name) isn't asked for it,
+	// which it may not take.
+	void openaisReasoningSummaryIsTheThinking() {
+		setAiKeys({}, "k", {});
+		QVariantMap r = runAiAnalysisWith({ { sse({ R"({"type":"response.reasoning_summary_text.delta","delta":"Wind "})",
+			R"({"type":"response.reasoning_summary_text.delta","delta":"first."})", R"({"type":"response.output_text.delta","delta":"Grade: A"})",
+			R"({"type":"response.completed","response":{"status":"completed"}})" }) } });
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("<thinking>Wind first.</thinking>Grade: A"));
+		// A summary's parts apart, its first not.
+		r = runAiAnalysisWith({ { sse({ R"({"type":"response.reasoning_summary_part.added","output_index":0,"summary_index":0})",
+			R"({"type":"response.reasoning_summary_text.delta","delta":"Wind."})",
+			R"({"type":"response.reasoning_summary_part.added","output_index":0,"summary_index":1})",
+			R"({"type":"response.reasoning_summary_text.delta","delta":"Flare."})", R"({"type":"response.output_text.delta","delta":"Grade: A"})",
+			R"({"type":"response.completed","response":{"status":"completed"}})" }) } });
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("<thinking>Wind.\n\nFlare.</thinking>Grade: A"));
+		// And a second reasoning item's.
+		r = runAiAnalysisWith({ { sse({ R"({"type":"response.reasoning_summary_part.added","output_index":0,"summary_index":0})",
+			R"({"type":"response.reasoning_summary_text.delta","delta":"Wind."})",
+			R"({"type":"response.reasoning_summary_part.added","output_index":1,"summary_index":0})",
+			R"({"type":"response.reasoning_summary_text.delta","delta":"Flare."})", R"({"type":"response.output_text.delta","delta":"Grade: A"})",
+			R"({"type":"response.completed","response":{"status":"completed"}})" }) } });
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("<thinking>Wind.\n\nFlare.</thinking>Grade: A"));
+		evalPageJs(widget_, QStringLiteral("window._aiModel = 'other'; window._aiCustomModel = 'gpt-4.1'"));
+		r = runAiAnalysisWith({ { openaiAnswer() } });
+		evalPageJs(widget_, QStringLiteral("window._aiModel = ''; window._aiCustomModel = ''"));
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("body").toMap(), (QVariantMap{ { "model", "gpt-4.1" }, { "input", "prompt" }, { "stream", true }, { "store", false } }));
+	}
+
+	// With Claude's key, the request goes to its Messages API, asking for
+	// summarized thinking, which is saved with the answer.
+	void claudeIsAskedAndItsAnswerSaved() {
+		setAiKeys({}, {}, "cl-key");
+		const QVariantMap r = runAiAnalysisWith({ { claudeAnswer() } });
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("url").toString(), QStringLiteral("https://api.anthropic.com/v1/messages"));
+		QCOMPARE(r.value("headers").toMap(), (QVariantMap{ { "Content-Type", "application/json" }, { "x-api-key", "cl-key" },
+			{ "anthropic-version", "2023-06-01" }, { "anthropic-dangerous-direct-browser-access", "true" } }));
+		const QVariantMap body = r.value("body").toMap();
+		QCOMPARE(body.value("model").toString(), QStringLiteral("claude-sonnet-5-5"));
+		QCOMPARE(body.value("max_tokens").toInt(), 64000);
+		QCOMPARE(body.value("stream").toBool(), true);
+		QCOMPARE(body.value("thinking").toMap(), (QVariantMap{ { "type", "adaptive" }, { "display", "summarized" } }));
+		QCOMPARE(body.value("messages").toList(), (QVariantList{ QVariantMap{ { "role", "user" }, { "content", "prompt" } } }));
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("<thinking>Wind.</thinking>Grade: B"));
+	}
+
+	// Pieces without text, and what comes after the answer's end, add nothing
+	// to it, and an attempt's end doesn't count for the next one.
+	void onlyTheAnswersTextAndEndCount() {
+		QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Grade: A", false } }),
+			R"({"candidates":[{"content":{"parts":[{"thoughtSignature":"x"}]}}]})", aiChunk({}, "STOP"), R"({"candidates":[{"content":{"parts":[]}}]})" }) } });
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
+		QCOMPARE(r.value("calls").toInt(), 1);
+
+		r = runAiAnalysisWith({ { aiStream({ aiChunk({}, "STOP") }) }, { aiStream({ aiChunk({ { "Grade", false } }) }) } });
+		QVERIFY(r.value("saved").isNull());
+		QCOMPARE(r.value("calls").toInt(), 3);
+
+		setAiKeys({}, {}, "k");
+		r = runAiAnalysisWith({ { sse({ R"({"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":""}})",
+			R"({"type":"content_block_delta","delta":{"type":"text_delta","text":"Grade: B"}})",
+			R"({"type":"message_delta","delta":{"stop_reason":"end_turn"}})", R"({"type":"message_delta","delta":{}})" }) } });
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: B"));
+		QCOMPARE(r.value("thinkingShown").toBool(), false);
+	}
+
+	// An answer either service cuts short or fails mid-stream is retried, and
+	// its log line says why.
+	void anUnfinishedOpenaiOrClaudeAnswerIsRetried_data() {
+		QTest::addColumn<bool>("openai");
+		QTest::addColumn<QString>("event");
+		QTest::addColumn<QString>("logged");
+		QTest::newRow("OpenAI incomplete") << true
+			<< R"({"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}})" << "finish reason max_output_tokens";
+		QTest::newRow("OpenAI incomplete, unexplained") << true << R"({"type":"response.incomplete","response":{}})" << "finish reason incomplete";
+		QTest::newRow("OpenAI failed") << true
+			<< R"({"type":"response.failed","response":{"error":{"code":"server_error","message":"Oops"}}})" << R"(stream error {"code":"server_error","message":"Oops"})";
+		QTest::newRow("OpenAI error") << true << R"({"type":"error","message":"Oops"})" << R"(stream error {"type":"error","message":"Oops"})";
+		QTest::newRow("Claude cut off") << false << R"({"type":"message_delta","delta":{"stop_reason":"max_tokens"}})" << "finish reason max_tokens";
+		QTest::newRow("Claude context window full") << false
+			<< R"({"type":"message_delta","delta":{"stop_reason":"model_context_window_exceeded"}})" << "finish reason model_context_window_exceeded";
+		QTest::newRow("Claude error") << false
+			<< R"({"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}})" << R"(stream error {"type":"overloaded_error","message":"Overloaded"})";
+	}
+	void anUnfinishedOpenaiOrClaudeAnswerIsRetried() {
+		QFETCH(bool, openai);
+		QFETCH(QString, event);
+		QFETCH(QString, logged);
+		setAiKeys({}, openai ? "k" : "", openai ? "" : "k");
+		const QString text = openai ? R"({"type":"response.output_text.delta","delta":"half"})"
+			: R"({"type":"content_block_delta","delta":{"type":"text_delta","text":"half"}})";
+		const QVariantMap r = runAiAnalysisWith({ { sse({ text, event }) }, { openai ? openaiAnswer() : claudeAnswer() } });
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("calls").toInt(), 2);
+		QCOMPARE(r.value("saved").toString(), openai ? QStringLiteral("Grade: A {ok}") : QStringLiteral("<thinking>Wind.</thinking>Grade: B"));
+		verifyAttemptLogs(r, { { true, { openai ? "OpenAI answer incomplete" : "Claude answer incomplete", logged } } });
+	}
+
+	// A used-up credit or spending limit comes as a rate limit, but waiting
+	// doesn't clear it: it's shown at once.
+	void aUsedUpCreditIsNotWaitedOut_data() {
+		QTest::addColumn<QString>("error");
+		QTest::addColumn<int>("status");
+		QTest::newRow("type") << R"("type":"insufficient_quota","code":"x")" << 429;
+		QTest::newRow("credit") << R"("code":"credit_balance_exhausted")" << 429;
+		QTest::newRow("OpenAI limit") << R"("code":"project_spend_limit_exceeded")" << 429;
+		QTest::newRow("OpenAI usage") << R"("code":"organization_usage_limit_exceeded")" << 429;
+		QTest::newRow("Claude limit") << R"("type":"enforced_spend_limit_reached")" << 429;
+		QTest::newRow("payment required") << R"("code":"x")" << 402;
+		QTest::newRow("Claude billing") << R"("type":"billing_error")" << 403;
+		QTest::newRow("Claude credit") << R"("x":"Your credit balance is too low to access the API.")" << 400;
+		QTest::newRow("Claude own limit") << R"("x":"You have reached your specified API usage limits.")" << 400;
+		QTest::newRow("Claude workspace limit") << R"("x":"You have reached your specified workspace API usage limits.")" << 400;
+	}
+	void aUsedUpCreditIsNotWaitedOut() {
+		QFETCH(QString, error);
+		QFETCH(int, status);
+		setAiKeys({}, "k", {});
+		const QVariantMap r = runAiAnalysisWith({ { QStringLiteral(R"({"error":{"message":"No credit.",%1}})").arg(error) } }, true, { status });
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("calls").toInt(), 1);
+		QCOMPARE(r.value("text").toString(), QStringLiteral(
+			"API error %1: No credit.The OpenAI account's credit or spending limit is used up: check its billing settings.").arg(status));
+	}
+
+	// An error within the streamed answer is handled like the HTTP error it
+	// stands for: a lasting one isn't retried and is shown with the service's
+	// message and what to do; a passing one is retried, its message shown when
+	// the last attempt gets it too. (OpenAI's credit error as it really sent it.)
+	void aStreamErrorIsHandledLikeItsHttpError_data() {
+		QTest::addColumn<bool>("openai");
+		QTest::addColumn<QString>("event");
+		QTest::addColumn<int>("calls");
+		QTest::addColumn<QString>("shown");
+		const QString noCredit("API error: You have no credits remaining.The OpenAI account's credit or spending limit is used up: check its billing settings.");
+		const QString error(R"({"type":"insufficient_quota","param":null,"code":"credit_balance_exhausted","message":"You have no credits remaining."})");
+		QTest::newRow("OpenAI credit, failed") << true << QStringLiteral(R"({"type":"response.failed","response":{"error":%1}})").arg(error) << 1 << noCredit;
+		QTest::newRow("OpenAI credit, nested") << true << QStringLiteral(R"({"type":"error","error":%1})").arg(error) << 1 << noCredit;
+		QTest::newRow("OpenAI prompt") << true << R"({"type":"error","code":"invalid_prompt","message":"No."})" << 1 << "API error: No.";
+		QTest::newRow("OpenAI passing") << true << R"({"type":"error","code":"server_error","message":"Oops <b>."})" << 3 << "API error: Oops <b>.";
+		QTest::newRow("OpenAI unexplained") << true << R"({"type":"response.failed"})" << 3 << "API error";
+		QTest::newRow("Claude refusal") << false << R"({"type":"message_delta","delta":{"stop_reason":"refusal"}})" << 1
+			<< "API error: The model declined to answer this prompt.";
+		QTest::newRow("Claude refusal, then an error") << false << R"({"type":"message_delta","delta":{"stop_reason":"refusal"}}
+
+event: x
+data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}})" << 1 << "API error: The model declined to answer this prompt.";
+		QTest::newRow("OpenAI refusal") << true
+			<< R"({"type":"response.refusal.done","refusal":"I cannot help with that."}
+
+event: x
+data: {"type":"response.completed","response":{}})" << 1 << "API error: I cannot help with that.";
+		QTest::newRow("OpenAI refusal naming credit") << true << R"({"type":"response.refusal.done","refusal":"Your credit balance is too low to access the API."})" << 1
+			<< "API error: Your credit balance is too low to access the API.";
+		QTest::newRow("OpenAI refusal, unexplained") << true << R"({"type":"response.refusal.done"})" << 1
+			<< "API error: The model declined to answer this prompt.";
+		QTest::newRow("OpenAI content filter") << true
+			<< R"({"type":"response.incomplete","response":{"incomplete_details":{"reason":"content_filter"}}})" << 1
+			<< "API error: The model declined to answer this prompt (content_filter).";
+		QTest::newRow("Claude key") << false << R"({"type":"error","error":{"type":"authentication_error","message":"Expired."}})" << 1
+			<< "API error: Expired.Check that claude_api_key under [ai] in settings.ini is correct and has Claude API access enabled.";
+	}
+	void aStreamErrorIsHandledLikeItsHttpError() {
+		QFETCH(bool, openai);
+		QFETCH(QString, event);
+		QFETCH(int, calls);
+		QFETCH(QString, shown);
+		setAiKeys({}, openai ? "k" : "", openai ? "" : "k");
+		const QString thought = openai ? R"({"type":"response.output_text.delta","delta":"half"})"
+			: R"({"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"half"}})";
+		const QVariantMap r = runAiAnalysisWith({ { sse({ thought, event }) } });
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("calls").toInt(), calls);
+		QVERIFY(r.value("saved").isNull());
+		QCOMPARE(r.value("text").toString(), shown);
+		QCOMPARE(r.value("thinkingShown").toBool(), false);
+	}
+
+	// A prompt Gemini blocks, or an answer it blocks for its content, is refused
+	// at once, even with an error alongside.
+	void aBlockedGeminiAnswerIsNotRetried_data() {
+		QTest::addColumn<QString>("chunk");
+		QTest::addColumn<QString>("reason");
+		QTest::addColumn<QString>("logged");
+		QTest::newRow("prompt") << R"({"promptFeedback":{"blockReason":"PROHIBITED_CONTENT"}})" << "PROHIBITED_CONTENT"
+			<< "finish reason none, 0 characters of thinking and 0 of answer";
+		QTest::newRow("prompt, with an error") << R"({"error":{"code":500,"message":"x"},"promptFeedback":{"blockReason":"OTHER"}})" << "OTHER"
+			<< "finish reason none";
+		for (const char* reason : { "SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT" })
+			QTest::newRow(reason) << QStringLiteral(R"({"candidates":[{"content":{"parts":[{"text":"Gra"}]},"finishReason":"%1"}]})").arg(reason) << reason
+				<< QStringLiteral("finish reason %1, 0 characters of thinking and 3 of answer").arg(reason);
+	}
+	void aBlockedGeminiAnswerIsNotRetried() {
+		QFETCH(QString, chunk);
+		QFETCH(QString, reason);
+		QFETCH(QString, logged);
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ chunk }) } });
+		QCOMPARE(r.value("calls").toInt(), 1);
+		QVERIFY(r.value("saved").isNull());
+		QCOMPARE(r.value("text").toString(), QStringLiteral("API error: The model declined to answer this prompt (%1).").arg(reason));
+		verifyAttemptLogs(r, { { false, { QStringLiteral("Gemini answer incomplete"), logged } } });
+	}
+
+	// A Gemini answer stopped by a filter or the account's restriction would be
+	// stopped again: it's shown at once, saying why.
+	void aGeminiStopThatWouldRecurIsNotRetried_data() {
+		QTest::addColumn<QString>("reason");
+		QTest::addColumn<QString>("shown");
+		QTest::newRow("escalation") << "ESCALATION" << "API error: The service filtered the request (ESCALATION).";
+		QTest::newRow("account") << "PUP_LIMITED_DISABLED"
+			<< "API error: The account is restricted by the provider's usage policy: check it in Google AI Studio (PUP_LIMITED_DISABLED).";
+	}
+	void aGeminiStopThatWouldRecurIsNotRetried() {
+		QFETCH(QString, reason);
+		QFETCH(QString, shown);
+		const QVariantMap r = runAiAnalysisWith({ { aiStream({ aiChunk({ { "Gra", false } }, reason) }) } });
+		QCOMPARE(r.value("calls").toInt(), 1);
+		QVERIFY(r.value("saved").isNull());
+		QCOMPARE(r.value("text").toString(), shown);
+	}
+
+	// A rate limit within the streamed answer is waited out, then retried.
+	void aRateLimitWithinTheStreamIsWaitedOut() {
+		watchRateLimitWaits();
+		const QVariantMap r = runAiAnalysisWith({
+			{ aiStream({ QStringLiteral(R"({"error":{"code":429,"message":"Quota exceeded.","details":[{"retryDelay":"1s"}]}})") }) },
+			{ aiStream({ aiChunk({ { "Grade: A", false } }, "STOP") }) } });
+		QCOMPARE(rateLimitWaits(), QStringLiteral("Retry 2/4 (got an error): Waiting 1 s for the rate limit…"));
+		QCOMPARE(r.value("saved").toString(), QStringLiteral("Grade: A"));
+	}
+
+	// The HTTP status of the errors the services document (or an unknown one,
+	// a server error) when they come within the streamed answer.
+	void aStreamErrorsStatusIsKnown() {
+		QCOMPARE(evalPageJs(widget_, QStringLiteral(R"JS(
+			[{ code: 503 }, { code: 'rate_limit_exceeded' }, { type: 'rate_limit_error' }, { code: 'slow_down' }, { type: 'billing_error' },
+			 { type: 'invalid_request_error', code: 'invalid_api_key' }, { type: 'authentication_error' }, { type: 'permission_error' },
+			 { type: 'invalid_request_error', code: 'model_not_found' }, { type: 'not_found_error' },
+			 { type: 'invalid_request_error' }, { code: 'bio_policy' }, { code: 'data_residency_mismatch' }, { code: 'context_length_exceeded' },
+			 { type: 'request_too_large' }, { type: 'refusal' }, { type: 'overloaded_error' }, { code: 'server_error' }, { type: 'new_error' }, 'response.failed']
+			.map(streamErrorStatus).join()
+		)JS")).toString(), QStringLiteral("503,429,429,429,429,401,401,403,404,404,422,422,422,422,422,422,500,500,500,500"));
+	}
+
+	// Without a RetryInfo delay, a rate limit waits for its retry-after header.
+	void aRateLimitWaitsForItsRetryAfterHeader() {
+		setAiKeys({}, {}, "k");
+		evalPageJs(widget_, QStringLiteral("window._aiHeaders = { 'retry-after': '61' }"));
+		const QVariantMap r = runAiAnalysisWith({ { QStringLiteral(R"({"type":"error","error":{"type":"rate_limit_error","message":"Slow."}})") } }, true, { 429 });
+		evalPageJs(widget_, QStringLiteral("delete window._aiHeaders"));
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("text").toString(), QStringLiteral(
+			"API error 429: Slow.The service asks to wait 61 s before the next request (a daily quota used up, maybe). Try again later."));
+	}
+
+	// A rejected key's message names the provider's own setting.
+	void aRejectedKeyNamesItsSetting() {
+		setAiKeys({}, {}, "k");
+		QVariantMap r = runAiAnalysisWith({ { QStringLiteral(R"({"type":"error","error":{"message":"invalid x-api-key"}})") } }, true, { 401 });
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("text").toString(), QStringLiteral("API error 401: invalid x-api-key"
+			"Check that claude_api_key under [ai] in settings.ini is correct and has Claude API access enabled."));
+		setAiKeys({}, "k", {});
+		r = runAiAnalysisWith({ { QStringLiteral(R"({"error":{"message":"No access."}})") } }, true, { 403 });
+		QCOMPARE(r.value("text").toString(), QStringLiteral("API error 403: No access."
+			"Check that openai_api_key under [ai] in settings.ini is correct and has OpenAI API access enabled."));
+		verifyAttemptLogs(r, { { false, { QStringLiteral("OpenAI API error: 403") } } });
+		r = runAiAnalysisWith({ { QStringLiteral(R"({"error":{"code":"invalid_api_key","message":"Bad key."}})") } }, true, { 401 });
+		QCOMPARE(r.value("text").toString(), QStringLiteral("API error 401: Bad key."
+			"Check that openai_api_key under [ai] in settings.ini is correct and has OpenAI API access enabled."));
+		// OpenAI and Claude reject a bad key with 401, and a request with 400;
+		// OpenAI an unserved country with 403.
+		for (const bool openai : { true, false }) {
+			setAiKeys({}, openai ? "k" : "", openai ? "" : "k");
+			r = runAiAnalysisWith({ { QStringLiteral(R"({"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long"}})") } }, true, { 400 });
+			QCOMPARE(r.value("text").toString(), QStringLiteral("API error 400: prompt is too long"));
+			QCOMPARE(r.value("calls").toInt(), 1);
+		}
+		setAiKeys({}, "k", {});
+		r = runAiAnalysisWith({ { QStringLiteral(R"({"error":{"code":"unsupported_country_region_territory","message":"Not here."}})") } }, true, { 403 });
+		QCOMPARE(r.value("text").toString(), QStringLiteral("API error 403: Not here."));
+		setAiKeys({}, {}, "k");
+		r = runAiAnalysisWith({ { QStringLiteral(R"({"type":"error","error":{"type":"permission_error","message":"No."}})") } }, true, { 403 });
+		QCOMPARE(r.value("text").toString(), QStringLiteral("API error 403: No."
+			"Check that claude_api_key under [ai] in settings.ini is correct and has Claude API access enabled."));
+		// Gemini rejects a bad key with 400 too, saying so, and a key without
+		// access with 401 or 403.
+		setAiKeys("k", {}, {});
+		for (const int status : { 400, 401, 403 }) {
+			r = runAiAnalysisWith({ { QStringLiteral(R"([{"error":{"code":%1,"message":"No.","details":[{"reason":"API_KEY_INVALID"}]}}])").arg(status) } }, true, { status });
+			QCOMPARE(r.value("text").toString(), QStringLiteral("API error %1: No."
+				"Check that gemini_api_key under [ai] in settings.ini is correct and has Gemini API access enabled.").arg(status));
+		}
+		r = runAiAnalysisWith({ { QStringLiteral(R"([{"error":{"code":400,"message":"Bad argument."}}])") } }, true, { 400 });
+		QCOMPARE(r.value("text").toString(), QStringLiteral("API error 400: Bad argument."));
+		// A model name is shown as text.
+		evalPageJs(widget_, QStringLiteral("window._aiModel = 'other'; window._aiCustomModel = 'x<b>y'"));
+		r = runAiAnalysisWith({ { QStringLiteral("{}") } }, true, { 404 });
+		evalPageJs(widget_, QStringLiteral("window._aiModel = ''; window._aiCustomModel = ''"));
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("text").toString(), QStringLiteral("API error 404Check the model name: x<b>y wasn't found."));
+	}
+
+	// Exactly one key (blanks don't count) enables Analyze, and decides the
+	// models offered; otherwise the popup says what to do.
+	void onlyOneApiKeyEnablesAnalysis_data() {
+		QTest::addColumn<QString>("gemini");
+		QTest::addColumn<QString>("openai");
+		QTest::addColumn<QString>("claude");
+		QTest::addColumn<QString>("problem");
+		QTest::addColumn<QString>("models");
+		QTest::addColumn<QString>("hint");
+		const QString gemma("gemma-4-31b-it,gemma-4-26b-a4b-it");
+		const QString hint("To avoid typos, copy the name %1 and paste it here.");
+		const QString studio = hint.arg("with the Copy to clipboard button in Google AI Studio's model selection dialog");
+		QTest::newRow("none") << "" << " " << "" << "Set an API key in settings.ini, without a ; in front, to enable" << gemma << studio;
+		QTest::newRow("gemini") << " k " << " " << "" << "" << gemma << studio;
+		QTest::newRow("openai") << "" << " k " << "" << "" << "gpt-6.2-sol,gpt-6.1-terra,gpt-6-luna"
+			<< hint.arg("from the models page at developers.openai.com");
+		QTest::newRow("claude") << "" << "" << " k " << "" << "claude-sonnet-5-5,claude-haiku-5-5"
+			<< hint.arg("from the models overview at platform.claude.com");
+		QTest::newRow("two") << "" << "k" << "k" << "Only one API key may be set in settings.ini, but these are: openai_api_key, claude_api_key" << gemma << studio;
+	}
+	void onlyOneApiKeyEnablesAnalysis() {
+		QFETCH(QString, gemini);
+		QFETCH(QString, openai);
+		QFETCH(QString, claude);
+		QFETCH(QString, problem);
+		setAiKeys(gemini, openai, claude);
+		const QStringList shown = evalPageJs(widget_, QStringLiteral(R"JS((function () {
+			var box = document.createElement('div');
+			box.innerHTML = runwayContactPopupHtml('x', {zuluTime: '', conditions: {}}, 'Liftoff', null, 'analyzeLiftoff').html;
+			var btn = box.querySelector('#td-btn-x'), options = box.querySelectorAll('#td-model-x option');
+			return [btn.title, String(btn.disabled), String(btn.hasAttribute('onclick')),
+			    Array.prototype.map.call(options, function (o) { return o.value; }).join(','),
+			    box.querySelector('#td-result-x').textContent, box.querySelector('.td-hint').textContent, aiProvider().key()];
+		})())JS")).toStringList();
+		setAiKeys({}, {}, {});
+		QCOMPARE(shown.size(), 7);
+		QCOMPARE(shown[6], problem.isEmpty() ? QStringLiteral("k") : QString());
+		QCOMPARE(shown[4].count(QStringLiteral("Set an API key")), 0); // the button's tooltip says it
+		QTEST(shown[5], "hint");
+		QCOMPARE(shown[0], problem);
+		QCOMPARE(shown[1], problem.isEmpty() ? QStringLiteral("false") : QStringLiteral("true"));
+		QCOMPARE(shown[2], problem.isEmpty() ? QStringLiteral("true") : QStringLiteral("false"));
+		QTEST(QString(shown[3]).remove(QStringLiteral(",other")), "models");
+		for (const char* setting : { "gemini_api_key=", "openai_api_key=", "claude_api_key=" })
+			QCOMPARE(shown[4].contains(QLatin1String(setting)), !problem.isEmpty());
+		QCOMPARE(shown[4].contains(QStringLiteral("Only one API key")), openai == "k" && claude == "k");
+	}
+
+	// The fetched list decides the models offered: every Gemma that can
+	// generate, newest, then largest, first, one without both last; the
+	// newest version of each OpenAI line; the newest active Claude Sonnet
+	// and Haiku. A line it lacks keeps its built-in model, and one the
+	// service no longer has isn't kept.
+	void theModelsListIsFetchedAndFiltered_data() {
+		QTest::addColumn<QString>("provider");
+		QTest::addColumn<QString>("response");
+		QTest::addColumn<QString>("url");
+		QTest::addColumn<QString>("saved");
+		QTest::addColumn<QString>("models");
+		QTest::newRow("gemini") << "gemini" << R"({"models":[
+			{"name":"models/gemma-4-26b-a4b-it","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemini-9","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemma-embed","supportedGenerationMethods":["embedContent"]},
+			{"name":"models/gemma-old"},
+			{"name":"models/gemma-10-9b-it","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemma-4-31b-it","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemma-4-e4b-it","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemma-4-e2b-it","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemma-3-4b-it","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemma-3n-e4b-it","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemma-3-27b-it","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemma-4.1-2b-it","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemma-y","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemma-3-270m-it","supportedGenerationMethods":["generateContent"]},
+			{"name":"models/gemma-z","supportedGenerationMethods":["generateContent"]}]})"
+			<< "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000" << ""
+			<< "gemma-10-9b-it,gemma-4.1-2b-it,gemma-4-31b-it,gemma-4-26b-a4b-it,gemma-4-e4b-it,gemma-4-e2b-it,gemma-3-27b-it,gemma-3n-e4b-it,gemma-3-4b-it,gemma-z,gemma-y,gemma-3-270m-it,other";
+		QTest::newRow("gemini, none") << "gemini" << R"({"models":[]})"
+			<< "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000" << "" << "gemma-4-31b-it,gemma-4-26b-a4b-it,other";
+		const QString openaiList = R"({"data":[{"id":"gpt-6.9-sol"},{"id":"gpt-6.10-sol"},{"id":"gpt-6-sol"},{"id":"gpt-7-sol-audio"},
+			{"id":"gpt-7-terra"},{"id":"gpt-6.1-terra"},{"id":"text-embedding-3"}]})";
+		QTest::newRow("openai") << "openai" << openaiList << "https://api.openai.com/v1/models" << "" << "gpt-6.10-sol,gpt-7-terra,gpt-6-luna,other";
+		QTest::newRow("openai, saved kept") << "openai" << openaiList << "https://api.openai.com/v1/models" << "gpt-6.9-sol"
+			<< "gpt-6.10-sol,gpt-7-terra,gpt-6-luna,gpt-6.9-sol,other";
+		QTest::newRow("openai, saved gone") << "openai" << openaiList << "https://api.openai.com/v1/models" << "gpt-6.3-sol"
+			<< "gpt-6.10-sol,gpt-7-terra,gpt-6-luna,other";
+		QTest::newRow("claude") << "claude" << R"({"data":[
+			{"id":"claude-sonnet-5-5","created_at":"2026-09-28T00:00:00Z","lifecycle":"active"},
+			{"id":"claude-sonnet-6","created_at":"2026-11-20T00:00:00Z","lifecycle":"active"},
+			{"id":"claude-sonnet-7","created_at":"2026-11-21T00:00:00Z","lifecycle":"deprecated"},
+			{"id":"claude-opus-9","created_at":"2026-11-22T00:00:00Z"}]})"
+			<< "https://api.anthropic.com/v1/models?limit=1000" << "" << "claude-sonnet-6,claude-haiku-5-5,other";
+		QTest::newRow("claude, saved kept, no lifecycle") << "claude" << R"({"data":[
+			{"id":"claude-sonnet-5","created_at":"2026-01-01T00:00:00Z"},
+			{"id":"claude-sonnet-6","created_at":"2026-11-20T00:00:00Z"}]})"
+			<< "https://api.anthropic.com/v1/models?limit=1000" << "claude-sonnet-5" << "claude-sonnet-6,claude-haiku-5-5,claude-sonnet-5,other";
+		QTest::newRow("openai, minor versions") << "openai" << R"({"data":[{"id":"gpt-6-luna"},{"id":"gpt-6.1-luna"},{"id":"gpt-7.1-sol"},{"id":"gpt-7-sol"}]})"
+			<< "https://api.openai.com/v1/models" << "" << "gpt-7.1-sol,gpt-6.1-terra,gpt-6.1-luna,other";
+	}
+	void theModelsListIsFetchedAndFiltered() {
+		QFETCH(QString, provider);
+		QFETCH(QString, response);
+		QFETCH(QString, url);
+		QFETCH(QString, saved);
+		QFETCH(QString, models);
+		setAiKeys(provider == "gemini" ? "k" : "", provider == "openai" ? "k" : "", provider == "claude" ? "k" : "");
+		loadTrip(tripWithClimbOut()); // the popups are built before the list arrives
+		evalPageJs(widget_, kContactMarkerJs + QStringLiteral(R"JS((function (response, saved) {
+			window._aiModel = saved;
+			var m = window._list = { urls: [], headers: null, fail: true, realFetch: window.fetch };
+			window.fetch = function (url, init) {
+			    m.urls.push(url);
+			    m.headers = JSON.stringify(init.headers);
+			    var fail = m.fail;
+			    m.fail = false;
+			    return fail ? Promise.reject(new TypeError('offline'))
+			        : Promise.resolve({ ok: true, json: function () { return Promise.resolve(JSON.parse(response)); } });
+			};
+			m.id = Object.keys(_liftoffStore)[0];
+			m.marker = contactMarker(m.id);
+			m.options = function () {
+			    return Array.prototype.map.call(document.querySelectorAll('#td-model-' + m.id + ' option'), function (o) { return o.value; }).join(',');
+			};
+			m.marker.openPopup();
+		})(%1[0], %1[1]))JS").arg(QString::fromUtf8(QJsonDocument(QJsonArray{ response, saved }).toJson(QJsonDocument::Compact))));
+		// The first try fails: the next popup tries again, and one after that doesn't.
+		QTRY_COMPARE(evalPageJs(widget_, QStringLiteral("aiProvider().loading")).toBool(), false);
+		evalPageJs(widget_, QStringLiteral("_list.marker.closePopup(); _list.marker.openPopup(); true"));
+		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("aiProvider().available !== null")).toBool());
+		QTRY_COMPARE(evalPageJs(widget_, QStringLiteral("_list.options()")).toString(), models);
+		const QStringList r = evalPageJs(widget_, QStringLiteral(R"JS(
+			_list.marker.closePopup(); _list.marker.openPopup();
+			var shown = [_list.urls.join(' '), _list.headers, document.getElementById('td-model-' + _list.id).value];
+			_list.marker.closePopup();
+			window.fetch = _list.realFetch;
+			window._aiModel = '';
+			shown
+		)JS")).toStringList();
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value(0), url + ' ' + url);
+		QCOMPARE(r.value(1), provider == "gemini" ? QStringLiteral(R"({"x-goog-api-key":"k"})")
+			: provider == "openai" ? QStringLiteral(R"({"Authorization":"Bearer k"})")
+			: QStringLiteral(R"({"x-api-key":"k","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"})"));
+		const QStringList offered = models.split(',');
+		QCOMPARE(r.value(2), offered.contains(saved) ? saved : offered.first());
+	}
+
+	// Before a list arrives, a saved model of one of the provider's lines is
+	// kept in the drop-down, once; another name isn't.
+	void savedModelsOfTheProvidersLinesAreKept_data() {
+		QTest::addColumn<QString>("provider");
+		QTest::addColumn<QString>("saved");
+		QTest::addColumn<int>("offered"); // how many times
+		QTest::newRow("gemma") << "gemini" << "gemma-3-27b-it" << 1;
+		QTest::newRow("gemma, default") << "gemini" << "gemma-4-31b-it" << 1;
+		QTest::newRow("not gemma") << "gemini" << "x-gemma-3" << 0;
+		QTest::newRow("sol") << "openai" << "gpt-6-sol" << 1;
+		QTest::newRow("terra") << "openai" << "gpt-6-terra" << 1;
+		QTest::newRow("luna") << "openai" << "gpt-5-luna" << 1;
+		QTest::newRow("sol, more") << "openai" << "gpt-6-sol-audio" << 0;
+		QTest::newRow("sol, before") << "openai" << "x-gpt-6-sol" << 0;
+		QTest::newRow("sonnet") << "claude" << "claude-sonnet-5" << 1;
+		QTest::newRow("haiku") << "claude" << "claude-haiku-5" << 1;
+		QTest::newRow("opus") << "claude" << "claude-opus-5-5" << 0;
+		QTest::newRow("sonnet, before") << "claude" << "x-claude-sonnet-5" << 0;
+		QTest::newRow("other") << "claude" << "other" << 0;
+	}
+	void savedModelsOfTheProvidersLinesAreKept() {
+		QFETCH(QString, provider);
+		QFETCH(QString, saved);
+		setAiKeys(provider == "gemini" ? "k" : "", provider == "openai" ? "k" : "", provider == "claude" ? "k" : "");
+		const int offered = evalPageJs(widget_, QStringLiteral(
+			"window._aiModel = '%1'; var n = aiModels().filter(function (m) { return m === '%1'; }).length; window._aiModel = ''; n").arg(saved)).toInt();
+		setAiKeys({}, {}, {});
+		QTEST(offered, "offered");
+	}
+
+	// The drop-down offers Other once, also chosen by a running analysis, and
+	// shows names as text.
+	void theDropDownOffersEachModelOnce() {
+		setAiKeys({}, "k", {});
+		loadTrip(tripWithClimbOut());
+		const QStringList r = evalPageJs(widget_, kContactMarkerJs + QStringLiteral(R"JS(
+			AI_PROVIDERS.openai.loading = true;
+			var id = Object.keys(_liftoffStore)[0], marker = contactMarker(id);
+			marker.openPopup();
+			function shown(model) {
+			    showAiChoices(id, { progress: true, model: model, customModel: 'm' });
+			    var select = document.getElementById('td-model-' + id);
+			    return Array.prototype.map.call(select.options, function (o) { return o.value === 'other' || o.text === o.value ? o.value : 'shown as ' + o.text; }).join() + '=' + select.value;
+			}
+			var r = [shown('other'), shown('gpt-6-luna'), shown('gpt-5-a&lt;b')];
+			marker.closePopup();
+			r
+		)JS")).toStringList();
+		setAiKeys({}, {}, {});
+		QCOMPARE(r, QStringList({ "gpt-6.2-sol,gpt-6.1-terra,gpt-6-luna,other=other", "gpt-6.2-sol,gpt-6.1-terra,gpt-6-luna,other=gpt-6-luna",
+			"gpt-6.2-sol,gpt-6.1-terra,gpt-6-luna,gpt-5-a&lt;b,other=gpt-5-a&lt;b" }));
+	}
+
+	// A refused models list leaves the built-in models.
+	void aRefusedModelsListLeavesTheBuiltInModels() {
+		setAiKeys({}, "k", {});
+		evalPageJs(widget_, QStringLiteral(R"JS(
+			var m = window._refused = { fetch: window.fetch };
+			window.fetch = function () { return Promise.resolve({ ok: false, status: 401, text: function () { return Promise.resolve('bad key'); },
+			    json: function () { return Promise.resolve({ data: [{ id: 'gpt-9-sol' }] }); } }); };
+			loadAiModels();
+			true
+		)JS"));
+		QTRY_VERIFY(!evalPageJs(widget_, QStringLiteral("aiProvider().loading")).toBool() || evalPageJs(widget_, QStringLiteral("aiProvider().available !== null")).toBool());
+		const QStringList r = evalPageJs(widget_, QStringLiteral(
+			"window.fetch = _refused.fetch; [aiModels()[0]]")).toStringList();
+		setAiKeys({}, {}, {});
+		QCOMPARE(r, QStringList{ QStringLiteral("gpt-6.2-sol") });
+	}
+
+	// A list arriving while a popup's analysis runs keeps the choices it was
+	// started with in that popup, though another was chosen since and the
+	// list lacks the model; once it's done, the popup shows the one chosen.
+	void aModelsListArrivingMidAnalysisKeepsItsChoices_data() {
+		QTest::addColumn<QString>("store");
+		QTest::addColumn<bool>("analyzing");
+		QTest::addColumn<QString>("shown");
+		QTest::newRow("liftoff") << "_liftoffStore" << true << "gpt-6.0-terra";
+		QTest::newRow("touchdown") << "_touchdownStore" << true << "gpt-6.0-terra";
+		QTest::newRow("touchdown, done") << "_touchdownStore" << false << "gpt-6-luna";
+	}
+	void aModelsListArrivingMidAnalysisKeepsItsChoices() {
+		QFETCH(QString, store);
+		QFETCH(bool, analyzing);
+		setAiKeys({}, "k", {});
+		loadTrip(tripWithClimbOut());
+		evalPageJs(widget_, kContactMarkerJs + QStringLiteral(R"JS(
+			var m = window._mid = { id: Object.keys(%1)[0], realFetch: window.fetch };
+			m.t = %1[m.id];
+			m.t.analyzing = %2;
+			m.t.analysisChoices = { progress: false, model: 'gpt-6.0-terra', customModel: '' };
+			window._aiModel = 'gpt-6-luna';
+			window.fetch = function () { return new Promise(function (resolve) { m.answer = function () {
+			    resolve({ ok: true, json: function () { return Promise.resolve({ data: [{ id: 'gpt-7-sol' }] }); } }); }; }); };
+			m.marker = contactMarker(m.id);
+			m.marker.openPopup();
+			m.answer();
+			true
+		)JS").arg(store, analyzing ? "true" : "false"));
+		QTRY_VERIFY(evalPageJs(widget_, QStringLiteral("document.querySelector('#td-model-' + _mid.id + ' option').value === 'gpt-7-sol'")).toBool());
+		const QString shown = evalPageJs(widget_, QStringLiteral(R"JS(
+			var shown = document.getElementById('td-model-' + _mid.id).value;
+			_mid.marker.closePopup();
+			_mid.t.analyzing = false;
+			window.fetch = _mid.realFetch;
+			window._aiModel = '';
+			shown
+		)JS")).toString();
+		setAiKeys({}, {}, {});
+		QTEST(shown, "shown");
+	}
+
+	// Before the list arrives, a saved model of a listed line is asked as
+	// chosen, even if newer ones took its place in the drop-down.
+	void aSavedModelOfAListedLineIsAsked() {
+		setAiKeys({}, "k", {});
+		evalPageJs(widget_, QStringLiteral("window._aiModel = 'gpt-6-sol'"));
+		const QVariantMap r = runAiAnalysisWith({ { openaiAnswer() } });
+		evalPageJs(widget_, QStringLiteral("window._aiModel = ''"));
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("body").toMap().value("model").toString(), QStringLiteral("gpt-6-sol"));
+	}
+
+	// A Claude model its list says can't think adaptively isn't asked to;
+	// the others, and those it says nothing about, are.
+	void aClaudeModelWithoutAdaptiveThinkingIsAskedWithout() {
+		setAiKeys({}, {}, "k");
+		evalPageJs(widget_, QStringLiteral("AI_PROVIDERS.claude.readModels({data: [{id: 'a'}, {id: 'b', capabilities: {}}, {id: 'c', capabilities: {thinking: {}}},"
+			"{id: 'd', capabilities: {thinking: {types: {}}}}, {id: 'e', capabilities: {thinking: {types: {adaptive: {}}}}}, {id: 'claude-haiku-4-5', created_at: '2025-10-15T00:00:00Z',"
+			" capabilities: {thinking: {types: {adaptive: {supported: false}}}}}]}); window._aiModel = 'claude-haiku-4-5'; true"));
+		const QVariantMap r = runAiAnalysisWith({ { claudeAnswer() } });
+		const QString others = evalPageJs(widget_, QStringLiteral("'abcde'.split('').map(function (m) { return !!AI_PROVIDERS.claude.request(m, 'p', 'k').body.thinking; }).join()")).toString();
+		evalPageJs(widget_, QStringLiteral("window._aiModel = ''"));
+		setAiKeys({}, {}, {});
+		QCOMPARE(r.value("body").toMap().value("model").toString(), QStringLiteral("claude-haiku-4-5"));
+		QVERIFY(!r.value("body").toMap().contains("thinking"));
+		QCOMPARE(others, QStringLiteral("true,true,true,true,true"));
 	}
 
 	// The Analyze button, the evaluation checkbox over the model drop-down,

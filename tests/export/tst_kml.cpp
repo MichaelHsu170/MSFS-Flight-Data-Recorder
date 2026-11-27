@@ -145,7 +145,7 @@ private slots:
 		QVERIFY(kml.contains("<TimeStamp><when>2026-01-02T10:00:00.000Z</when></TimeStamp><styleUrl>#liftoffStyle</styleUrl><Point>"));
 		for (const char* row : { "<b>Airport:</b> TEST (Test Field)<br/>", "<b>Runway:</b> 09 (91° T)<br/>", "<b>Airspeed:</b> 150 kt<br/>",
 				"<b>V/S:</b> 520 ft/min<br/>", "<b>Pitch:</b> 8.5°<br/>", "<b>Bank:</b> -1.5°<br/>", "<b>Heading:</b> 92° M<br/>",
-				"<b>Threshold:</b> 5906 ft (60%)<br/>", "<b>Centerline:</b> 10 ft R (14%)<br/>", "<b>Wind:</b> 270° T / 12 kt<br/>",
+				"<b>Runway start:</b> 5906 ft (60%)<br/>", "<b>Centerline:</b> 10 ft R (14%)<br/>", "<b>Wind:</b> 270° T / 12 kt<br/>",
 				"<b>Zulu:</b> 2026-01-02T10:00:00.000+00:00_5<br/>", "<b>Local:</b> 2026-01-02T11:00:00.000+01:00_5<br/>" })
 			QVERIFY2(kml.contains(QString::fromUtf8(row)), row);
 		QVERIFY(!kml.contains("<b>G-Force:</b> 0"));
@@ -245,11 +245,25 @@ private slots:
 		QVERIFY(!kml.contains("Test Field"));
 	}
 
-	void noRunwayMeansNoThresholdRows() {
+	// A liftoff before the runway start (stored as -1) says so; a
+	// touchdown's -1 ft is a distance.
+	void aLiftoffBeforeTheRunwayStartSaysSo() {
+		TripDataset d = fullDataset();
+		d.liftoffPoints[0].distanceLength = -1;
+		d.liftoffPoints[0].distanceLengthPercent = -0.034;
+		d.touchdowns[0].distanceLength = -1;
+		d.touchdowns[0].distanceLengthPercent = -0.034;
+		const QString kml = exportToString(d);
+		QVERIFY(kml.contains("<b>Runway start:</b> before the start<br/>"));
+		QVERIFY(kml.contains("<b>Threshold:</b> -1 ft (-3%)<br/>"));
+	}
+
+	void noRunwayMeansNoDistanceRows() {
 		TripDataset d = fullDataset();
 		d.liftoffPoints[0].runway.clear();
-		d.touchdowns.clear();
+		d.touchdowns[0].runway.clear();
 		const QString kml = exportToString(d);
+		QVERIFY(!kml.contains("Runway start"));
 		QVERIFY(!kml.contains("Threshold"));
 		QVERIFY(!kml.contains("Centerline"));
 		QVERIFY(kml.contains("<b>Wind:</b>"));

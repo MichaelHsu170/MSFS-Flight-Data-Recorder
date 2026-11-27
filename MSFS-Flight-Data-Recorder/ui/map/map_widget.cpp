@@ -306,11 +306,13 @@ void MapWidget::onLoadFinished(bool ok) {
 	}
 	pageReady_ = true;
 
-	// Deliver the Gemini API key, the analysis model and evaluation choices
+	// Deliver the AI API keys, the analysis model and evaluation choices
 	// and current aircraft title as JS globals so the in-popup streaming analysis can
 	// reach them without round-tripping through QWebChannel.
 	const AppSettings& settings = AppSettings::instance();
 	runJs(mapSetStringJs(QStringLiteral("window._geminiApiKey"), settings.geminiApiKey()));
+	runJs(mapSetStringJs(QStringLiteral("window._openaiApiKey"), settings.openaiApiKey()));
+	runJs(mapSetStringJs(QStringLiteral("window._claudeApiKey"), settings.claudeApiKey()));
 	runJs(mapSetStringJs(QStringLiteral("window._aiModel"), settings.aiModel()));
 	runJs(mapSetStringJs(QStringLiteral("window._aiCustomModel"), settings.aiCustomModel()));
 	runJs(settings.aiProgressEvaluation() ? QStringLiteral("window._aiProgress = true") : QStringLiteral("window._aiProgress = false"));

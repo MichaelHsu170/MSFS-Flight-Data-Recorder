@@ -59,12 +59,15 @@ QString magneticTrueLabel(double magnetic, double trueHeading) {
 }
 
 // A liftoff or touchdown placemark's description. touchdownRows (touchdowns
-// only: the touchdown rate and G-Force) go right after V/S. The same rows, in
+// only: the touchdown rate and G-Force) go right after V/S. A liftoff's distance
+// (liftoff) before the runway start says so. distanceKey names
+// the along-runway distance: a liftoff's is from the runway start, a
+// touchdown's from the marked threshold. The same rows, in
 // the same order and format, as the map's marker popup
 // (runwayContactPopupHtml() in ui/map/map.html), which adds a Coordinate row;
-// keep the two in step (tst_map_widget's touchdownPopupMatchesTheKmlDescription
+// keep the two in step (tst_map_widget's contactPopupMatchesTheKmlDescription
 // checks it).
-QString runwayContactDescription(const RunwayContactPoint& t, const QString& touchdownRows = QString()) {
+QString runwayContactDescription(const RunwayContactPoint& t, bool liftoff, const QString& distanceKey, const QString& touchdownRows = QString()) {
 	QString html;
 	const QString airport = airportLabel(t.icao, t.airportName);
 	if (!airport.isEmpty())
@@ -99,8 +102,10 @@ QString runwayContactDescription(const RunwayContactPoint& t, const QString& tou
 	// column (no runway matched) reads back as 0 via sqlite3_column_double, which
 	// would otherwise show a meaningless "0 ft (0%)" as if a runway had been found.
 	if (!t.runway.isEmpty()) {
-		html += descRow(QStringLiteral("Threshold"),
-			QStringLiteral("%1 ft (%2%)").arg(qRound(t.distanceLength)).arg(qRound(t.distanceLengthPercent * 100)));
+		// db.cpp stores a liftoff's distance before the runway start as -1,
+		// its percentage as measured (map.html's liftoffBeforeRunwayStart()).
+		html += descRow(distanceKey, liftoff && t.distanceLength == -1 ? QStringLiteral("before the start")
+			: QStringLiteral("%1 ft (%2%)").arg(qRound(t.distanceLength)).arg(qRound(t.distanceLengthPercent * 100)));
 		const QChar side = t.distanceWidth >= 0 ? QChar('R') : QChar('L');
 		html += descRow(QStringLiteral("Centerline"),
 			QStringLiteral("%1 ft %2 (%3%)").arg(qRound(qAbs(t.distanceWidth))).arg(side).arg(qRound(qAbs(t.distanceWidthPercent) * 100)));
@@ -227,7 +232,7 @@ QString buildTripKml(const TripDataset& dataset) {
 		kml += QStringLiteral("<Folder><name>Liftoffs</name>\n");
 		for (const LiftoffPoint& t : dataset.liftoffPoints)
 			appendPointPlacemark(kml, QStringLiteral("Liftoff"), QStringLiteral("#liftoffStyle"),
-				t.zuluTime, runwayContactDescription(t), t.longitude, t.latitude);
+				t.zuluTime, runwayContactDescription(t, true, QStringLiteral("Runway start")), t.longitude, t.latitude);
 		kml += QStringLiteral("</Folder>\n");
 	}
 
@@ -235,7 +240,7 @@ QString buildTripKml(const TripDataset& dataset) {
 		kml += QStringLiteral("<Folder><name>Touchdowns</name>\n");
 		for (const TouchdownPoint& t : dataset.touchdowns)
 			appendPointPlacemark(kml, t.crashed ? QStringLiteral("Crash") : QStringLiteral("Touchdown"), QStringLiteral("#touchdownStyle"),
-				t.zuluTime, runwayContactDescription(t,
+				t.zuluTime, runwayContactDescription(t, false, QStringLiteral("Threshold"),
 					(std::isnan(t.touchdownRate) ? QString()
 						: descRow(QStringLiteral("Touchdown rate"), QStringLiteral("%1 ft/min").arg(qRound(t.touchdownRate))))
 					+ descRow(QStringLiteral("G-Force"), QStringLiteral("%1 G").arg(t.gForce, 0, 'f', 2))), t.longitude, t.latitude);
